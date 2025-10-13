@@ -68,7 +68,7 @@ CREATE TRIGGER IF NOT EXISTS validate_adapter_category
     AFTER INSERT ON adapters
     WHEN NEW.category NOT IN (SELECT name FROM adapter_categories)
 BEGIN
-    SELECT RAISE(ABORT, 'Invalid adapter category: ' || NEW.category);
+    SELECT RAISE(ABORT, 'Invalid adapter category');
 END;
 
 -- Add trigger to validate scope
@@ -76,7 +76,7 @@ CREATE TRIGGER IF NOT EXISTS validate_adapter_scope
     AFTER INSERT ON adapters
     WHEN NEW.scope NOT IN (SELECT name FROM adapter_scopes)
 BEGIN
-    SELECT RAISE(ABORT, 'Invalid adapter scope: ' || NEW.scope);
+    SELECT RAISE(ABORT, 'Invalid adapter scope');
 END;
 
 -- Add trigger to validate state
@@ -84,7 +84,7 @@ CREATE TRIGGER IF NOT EXISTS validate_adapter_state
     AFTER INSERT ON adapters
     WHEN NEW.current_state NOT IN (SELECT name FROM adapter_states)
 BEGIN
-    SELECT RAISE(ABORT, 'Invalid adapter state: ' || NEW.current_state);
+    SELECT RAISE(ABORT, 'Invalid adapter state');
 END;
 
 -- Add trigger to update updated_at on state changes
@@ -97,16 +97,17 @@ BEGIN
 END;
 
 -- Add trigger to update activation count
-CREATE TRIGGER IF NOT EXISTS update_adapter_activation_count
-    AFTER INSERT ON adapter_activations
-    WHEN NEW.selected = 1
-BEGIN
-    UPDATE adapters 
-    SET activation_count = activation_count + 1,
-        last_activated = datetime('now'),
-        updated_at = datetime('now')
-    WHERE adapter_id = NEW.adapter_id;
-END;
+-- TODO: Re-enable when adapter_activations table is created
+-- CREATE TRIGGER IF NOT EXISTS update_adapter_activation_count
+--     AFTER INSERT ON adapter_activations
+--     WHEN NEW.selected = 1
+-- BEGIN
+--     UPDATE adapters 
+--     SET activation_count = activation_count + 1,
+--         last_activated = datetime('now'),
+--         updated_at = datetime('now')
+--     WHERE adapter_id = NEW.adapter_id;
+-- END;
 
 -- Create view for adapter state summary
 CREATE VIEW IF NOT EXISTS adapter_state_summary AS
@@ -165,6 +166,4 @@ SET
     activation_count = 0
 WHERE category IS NULL OR scope IS NULL OR current_state IS NULL;
 
--- Log migration completion
-INSERT INTO migrations (version, description, applied_at) 
-VALUES ('0012', 'Enhanced Adapter Schema for Code Intelligence', datetime('now'));
+-- Migration completion logged by sqlx automatically

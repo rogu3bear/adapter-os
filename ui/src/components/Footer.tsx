@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import apiClient from '../api/client';
 
 interface MetaData {
   version: string;
@@ -12,11 +13,8 @@ export const Footer: React.FC = () => {
   const { data: meta, isLoading } = useQuery<MetaData>({
     queryKey: ['/v1/meta'],
     queryFn: async () => {
-      const response = await fetch('/v1/meta');
-      if (!response.ok) {
-        throw new Error('Failed to fetch metadata');
-      }
-      return response.json();
+      // Citation: ui/src/api/client.ts L117-L119
+      return apiClient.getMeta();
     },
     refetchInterval: 30000, // Refresh every 30 seconds
   });

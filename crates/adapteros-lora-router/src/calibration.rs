@@ -110,7 +110,6 @@ impl ValidationMetrics {
 pub struct Calibrator {
     dataset: CalibrationDataset,
     optimization_method: OptimizationMethod,
-    #[allow(dead_code)] // Will be used in future for top-k validation
     k: usize,
 }
 

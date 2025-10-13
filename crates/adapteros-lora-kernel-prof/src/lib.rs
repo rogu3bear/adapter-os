@@ -203,7 +203,7 @@ mod tests {
         let command_buffer = queue.new_command_buffer();
 
         let profile = profiler
-            .profile_dispatch("test_kernel", &command_buffer)
+            .profile_dispatch("test_kernel", command_buffer)
             .expect("Test profile dispatch should succeed");
 
         assert_eq!(profile.kernel, "test_kernel");

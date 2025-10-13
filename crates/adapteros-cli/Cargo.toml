@@ -27,12 +27,13 @@ adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
 adapteros-secd = { path = "../adapteros-secd" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }
-adapteros-lora-mlx = { path = "../adapteros-lora-mlx" }
 adapteros-replay = { path = "../adapteros-replay" }
 adapteros-trace = { path = "../adapteros-trace" }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 # adapteros-codegraph = { path = "../adapteros-codegraph" }  # Temporarily disabled due to SQLite conflict
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 clap = { workspace = true }

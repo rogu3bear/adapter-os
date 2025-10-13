@@ -15,7 +15,7 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
-use metal::{Device, Heap, Buffer, foreign_types::ForeignType};
+use metal::{foreign_types::ForeignType, Buffer, Device, Heap};
 
 /// Metal heap allocation record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,9 +105,11 @@ impl MetalHeapObserver {
             return Ok(0); // Skip sampling
         }
 
-        let buffer_id = self.next_buffer_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let buffer_id = self
+            .next_buffer_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let timestamp = current_timestamp();
-        
+
         let allocation = HeapAllocation {
             allocation_id: Uuid::new_v4(),
             heap_id: heap.map(|h| h.as_ptr() as u64).unwrap_or(0),
@@ -182,7 +184,8 @@ impl MetalHeapObserver {
         };
 
         let heap_hash = self.calculate_heap_hash(&allocations.iter().collect::<Vec<_>>());
-        let allocation_order_hash = self.calculate_allocation_order_hash(&allocations.iter().collect::<Vec<_>>());
+        let allocation_order_hash =
+            self.calculate_allocation_order_hash(&allocations.iter().collect::<Vec<_>>());
 
         let heap_state = HeapState {
             heap_id,
@@ -208,9 +211,10 @@ impl MetalHeapObserver {
         // based on allocation patterns and memory pressure.
 
         let timestamp = current_timestamp();
-        
+
         // Simulate page migration detection based on allocation size and timing
-        if allocation.size_bytes > 1024 * 1024 { // Large allocation (>1MB)
+        if allocation.size_bytes > 1024 * 1024 {
+            // Large allocation (>1MB)
             let migration_event = MemoryMigrationEvent {
                 event_id: Uuid::new_v4(),
                 migration_type: MigrationType::PageOut,
@@ -242,33 +246,33 @@ impl MetalHeapObserver {
     /// Calculate heap hash for determinism verification
     fn calculate_heap_hash(&self, allocations: &[&HeapAllocation]) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash allocation sizes and offsets in deterministic order
         let mut sorted_allocations: Vec<_> = allocations.iter().collect();
         sorted_allocations.sort_by_key(|alloc| alloc.buffer_id);
-        
+
         for allocation in sorted_allocations {
             hasher.update(&allocation.size_bytes.to_le_bytes());
             hasher.update(&allocation.offset_bytes.to_le_bytes());
             hasher.update(&allocation.buffer_id.to_le_bytes());
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
     /// Calculate allocation order hash
     fn calculate_allocation_order_hash(&self, allocations: &[&HeapAllocation]) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash allocation timestamps in order
         let mut sorted_allocations: Vec<_> = allocations.iter().collect();
         sorted_allocations.sort_by_key(|alloc| alloc.timestamp);
-        
+
         for allocation in sorted_allocations {
             hasher.update(&allocation.timestamp.to_le_bytes());
             hasher.update(&allocation.buffer_id.to_le_bytes());
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
@@ -276,11 +280,11 @@ impl MetalHeapObserver {
     fn should_sample(&self) -> bool {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         current_timestamp().hash(&mut hasher);
         let hash = hasher.finish();
-        
+
         // Use hash to determine sampling
         (hash as f32 / u64::MAX as f32) < self.sampling_rate
     }
@@ -372,17 +376,17 @@ mod tests {
                 assert_eq!(observer.get_allocation_count(), 0);
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let observer = MetalHeapObserver::new(device, 1.0);
+            let device = Arc::new(metal::Device::system_default().unwrap());
+            #[cfg(not(target_os = "macos"))]
+            let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
+                // Create a mock device for testing
+                unsafe { std::mem::transmute(0x1usize) }
+            }));
+            let observer = MetalHeapObserver::new(device, 1.0);
             assert_eq!(observer.get_allocation_count(), 0);
         }
     }
@@ -412,7 +416,7 @@ mod tests {
         }));
         let observer = MetalHeapObserver::new(device, 1.0);
         let stats = observer.get_memory_stats();
-        
+
         assert_eq!(stats.total_allocated, 0);
         assert_eq!(stats.allocation_count, 0);
         assert_eq!(stats.heap_count, 0);
@@ -429,7 +433,7 @@ mod tests {
             unsafe { std::mem::transmute(0x1usize) }
         }));
         let observer = MetalHeapObserver::new(device, 1.0);
-        
+
         let allocations = vec![
             HeapAllocation {
                 allocation_id: Uuid::new_v4(),
@@ -452,11 +456,11 @@ mod tests {
                 storage_mode: "shared".to_string(),
             },
         ];
-        
+
         let refs: Vec<&HeapAllocation> = allocations.iter().collect();
         let hash1 = observer.calculate_heap_hash(&refs);
         let hash2 = observer.calculate_heap_hash(&refs);
-        
+
         // Hash should be deterministic
         assert_eq!(hash1, hash2);
     }

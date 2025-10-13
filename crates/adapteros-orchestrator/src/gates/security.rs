@@ -17,7 +17,7 @@ impl Gate for SecurityGate {
         // Run cargo-audit
         println!("    Running cargo-audit...");
         let audit_output = Command::new("cargo")
-            .args(&["audit", "--json"])
+            .args(["audit", "--json"])
             .output()
             .context("Failed to run cargo-audit")?;
 
@@ -41,7 +41,7 @@ impl Gate for SecurityGate {
         // Run cargo-deny
         println!("    Running cargo-deny...");
         let deny_output = Command::new("cargo")
-            .args(&["deny", "check", "--config", "deny.toml"])
+            .args(["deny", "check", "--config", "deny.toml"])
             .output()
             .context("Failed to run cargo-deny")?;
 

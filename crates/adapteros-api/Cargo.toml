@@ -10,6 +10,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 axum = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

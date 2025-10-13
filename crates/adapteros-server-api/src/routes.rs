@@ -70,6 +70,8 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::get_domain_adapter_manifest,
         domain_adapters::execute_domain_adapter,
         domain_adapters::delete_domain_adapter,
+        // Model status handlers
+        handlers::get_base_model_status,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -135,6 +137,8 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::DomainAdapterManifestResponse,
         crate::types::LoadDomainAdapterRequest,
         crate::types::DomainAdapterExecutionResponse,
+        // Model status types
+        crate::types::BaseModelStatusResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -216,6 +220,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::get_node_details),
         )
         .route("/v1/models/import", post(handlers::import_model))
+        .route("/v1/models/status", get(handlers::get_base_model_status))
         .route("/v1/plans", get(handlers::list_plans))
         .route("/v1/plans/build", post(handlers::build_plan))
         .route(
@@ -238,6 +243,63 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/cp/promotions", get(handlers::get_promotion_history))
         .route("/v1/workers", get(handlers::list_workers))
         .route("/v1/workers/spawn", post(handlers::worker_spawn))
+        .route(
+            "/v1/workers/:worker_id/logs",
+            get(handlers::list_process_logs),
+        )
+        .route(
+            "/v1/workers/:worker_id/crashes",
+            get(handlers::list_process_crashes),
+        )
+        .route(
+            "/v1/workers/:worker_id/debug",
+            post(handlers::start_debug_session),
+        )
+        .route(
+            "/v1/workers/:worker_id/troubleshoot",
+            post(handlers::run_troubleshooting_step),
+        )
+        .route(
+            "/v1/monitoring/rules",
+            get(handlers::list_process_monitoring_rules),
+        )
+        .route(
+            "/v1/monitoring/rules",
+            post(handlers::create_process_monitoring_rule),
+        )
+        .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
+        .route(
+            "/v1/monitoring/alerts/:alert_id/acknowledge",
+            post(handlers::acknowledge_process_alert),
+        )
+        .route(
+            "/v1/monitoring/anomalies",
+            get(handlers::list_process_anomalies),
+        )
+        .route(
+            "/v1/monitoring/anomalies/:anomaly_id/status",
+            post(handlers::update_process_anomaly_status),
+        )
+        .route(
+            "/v1/monitoring/dashboards",
+            get(handlers::list_process_monitoring_dashboards),
+        )
+        .route(
+            "/v1/monitoring/dashboards",
+            post(handlers::create_process_monitoring_dashboard),
+        )
+        .route(
+            "/v1/monitoring/health-metrics",
+            get(handlers::list_process_health_metrics),
+        )
+        .route(
+            "/v1/monitoring/reports",
+            get(handlers::list_process_monitoring_reports),
+        )
+        .route(
+            "/v1/monitoring/reports",
+            post(handlers::create_process_monitoring_report),
+        )
         .route("/v1/jobs", get(handlers::list_jobs))
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/:cpid", get(handlers::get_policy))
@@ -264,6 +326,23 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/telemetry/bundles/purge",
             post(handlers::purge_old_bundles),
+        )
+        // Replay session routes
+        .route(
+            "/v1/replay/sessions",
+            get(handlers::replay::list_replay_sessions),
+        )
+        .route(
+            "/v1/replay/sessions",
+            post(handlers::replay::create_replay_session),
+        )
+        .route(
+            "/v1/replay/sessions/:id",
+            get(handlers::replay::get_replay_session),
+        )
+        .route(
+            "/v1/replay/sessions/:id/verify",
+            post(handlers::replay::verify_replay_session),
         )
         .route("/v1/patch/propose", post(handlers::propose_patch))
         .route("/v1/infer", post(handlers::infer))
@@ -292,15 +371,42 @@ pub fn build(state: AppState) -> Router {
             get(handlers::get_adapter_health),
         )
         // Domain adapter routes
-        .route("/v1/domain-adapters", get(domain_adapters::list_domain_adapters))
-        .route("/v1/domain-adapters", post(domain_adapters::create_domain_adapter))
-        .route("/v1/domain-adapters/:adapter_id", get(domain_adapters::get_domain_adapter))
-        .route("/v1/domain-adapters/:adapter_id", delete(domain_adapters::delete_domain_adapter))
-        .route("/v1/domain-adapters/:adapter_id/load", post(domain_adapters::load_domain_adapter))
-        .route("/v1/domain-adapters/:adapter_id/unload", post(domain_adapters::unload_domain_adapter))
-        .route("/v1/domain-adapters/:adapter_id/test", post(domain_adapters::test_domain_adapter))
-        .route("/v1/domain-adapters/:adapter_id/manifest", get(domain_adapters::get_domain_adapter_manifest))
-        .route("/v1/domain-adapters/:adapter_id/execute", post(domain_adapters::execute_domain_adapter))
+        .route(
+            "/v1/domain-adapters",
+            get(domain_adapters::list_domain_adapters),
+        )
+        .route(
+            "/v1/domain-adapters",
+            post(domain_adapters::create_domain_adapter),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id",
+            get(domain_adapters::get_domain_adapter),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id",
+            delete(domain_adapters::delete_domain_adapter),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id/load",
+            post(domain_adapters::load_domain_adapter),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id/unload",
+            post(domain_adapters::unload_domain_adapter),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id/test",
+            post(domain_adapters::test_domain_adapter),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id/manifest",
+            get(domain_adapters::get_domain_adapter_manifest),
+        )
+        .route(
+            "/v1/domain-adapters/:adapter_id/execute",
+            post(domain_adapters::execute_domain_adapter),
+        )
         // Contacts routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
         .route(
             "/v1/contacts",

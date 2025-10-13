@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Bundle writer with automatic rotation and signing
 pub struct BundleWriter {
@@ -20,7 +21,8 @@ pub struct BundleWriter {
     output_dir: PathBuf,
     signer: Keypair,
     events_buffer: Vec<Vec<u8>>, // Store raw event bytes for Merkle tree
-    last_merkle_root: Option<String>, // Track previous bundle for chaining
+    last_merkle_root: Option<B3Hash>, // Track previous bundle for chaining
+    event_seq_counter: AtomicU64,
 }
 
 impl BundleWriter {
@@ -43,6 +45,7 @@ impl BundleWriter {
             signer,
             events_buffer: Vec::new(),
             last_merkle_root: None,
+            event_seq_counter: AtomicU64::new(0),
         })
     }
 
@@ -106,7 +109,6 @@ impl BundleWriter {
 
         let file = OpenOptions::new()
             .create(true)
-            .write(true)
             .append(true)
             .open(&bundle_path)
             .map_err(|e| AosError::Io(e.to_string()))?;
@@ -140,25 +142,23 @@ impl BundleWriter {
 
             // Write signature file with chain link to previous bundle
             let sig_path = bundle_path.with_extension("ndjson.sig");
+            let seq_no = self.event_seq_counter.fetch_add(1, Ordering::SeqCst);
             let sig_data = SignatureMetadata {
                 merkle_root: merkle_root.to_string(),
                 signature: hex::encode(signature.to_bytes()),
                 public_key: hex::encode(self.signer.public_key().to_bytes()),
                 event_count: self.event_count,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_secs(),
-                prev_bundle_hash: self.last_merkle_root.clone(),
+                sequence_no: seq_no,
+                prev_bundle_hash: self.last_merkle_root,
             };
 
             let sig_json =
-                serde_json::to_string_pretty(&sig_data).map_err(|e| AosError::Serialization(e))?;
+                serde_json::to_string_pretty(&sig_data).map_err(AosError::Serialization)?;
 
             std::fs::write(&sig_path, sig_json).map_err(|e| AosError::Io(e.to_string()))?;
 
             // Update last_merkle_root for next bundle
-            self.last_merkle_root = Some(merkle_root.to_string());
+            self.last_merkle_root = Some(merkle_root);
         }
 
         // Clear buffer
@@ -173,9 +173,12 @@ impl BundleWriter {
             return Ok(B3Hash::new([0u8; 32]));
         }
 
+        // Sort events lexicographically for deterministic Merkle tree construction
+        let mut sorted_events = self.events_buffer.clone();
+        sorted_events.sort();
+
         // Build Merkle tree bottom-up
-        let mut level: Vec<B3Hash> = self
-            .events_buffer
+        let mut level: Vec<B3Hash> = sorted_events
             .iter()
             .map(|event| B3Hash::hash(event))
             .collect();
@@ -192,7 +195,7 @@ impl BundleWriter {
                     B3Hash::hash(&combined)
                 } else {
                     // Odd node: promote to next level
-                    chunk[0].clone()
+                    chunk[0]
                 };
                 next_level.push(hash);
             }
@@ -200,7 +203,7 @@ impl BundleWriter {
             level = next_level;
         }
 
-        Ok(level[0].clone())
+        Ok(level[0])
     }
 
     /// Force rotation (for testing or shutdown)
@@ -231,8 +234,8 @@ pub struct SignatureMetadata {
     pub signature: String,
     pub public_key: String,
     pub event_count: usize,
-    pub timestamp: u64,
+    pub sequence_no: u64,
     /// Previous bundle's Merkle root for chain verification
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev_bundle_hash: Option<String>,
+    pub prev_bundle_hash: Option<B3Hash>,
 }

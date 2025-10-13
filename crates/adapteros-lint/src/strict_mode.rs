@@ -84,10 +84,10 @@ mod tests {
     #[test]
     fn test_enable_disable_strict_mode() {
         assert!(!is_strict_mode());
-        
+
         enable_strict_mode();
         assert!(is_strict_mode());
-        
+
         disable_strict_mode();
         assert!(!is_strict_mode());
     }

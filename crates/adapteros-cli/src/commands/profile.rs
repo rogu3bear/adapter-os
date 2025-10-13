@@ -4,45 +4,63 @@ use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::path::PathBuf;
-
-// UDS communication helper functions
+use tracing::{info, error, warn};
 
 /// Profiling snapshot structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct ProfilingSnapshot {
-    window_size: u64,
-    timestamp: String,
-    adapters: Vec<AdapterMetrics>,
+pub struct ProfilingSnapshot {
+    pub window_size: u64,
+    pub timestamp: String,
+    pub adapters: Vec<AdapterMetrics>,
 }
 
+/// Adapter metrics for profiling
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct AdapterMetrics {
-    id: String,
-    activations: u64,
-    activation_pct: f32,
-    avg_latency_us: f32,
-    memory_mb: u64,
-    quality_delta: f32,
+pub struct AdapterMetrics {
+    pub id: String,
+    pub activations: u64,
+    pub activation_pct: f32,
+    pub avg_latency_us: f32,
+    pub memory_mb: u64,
+    pub quality_delta: f32,
 }
 
 /// Connect to worker via UDS and fetch profiling snapshot
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Socket connection fails
+/// - Response parsing fails
+/// - Timeout exceeded
 async fn connect_and_fetch_profiling_snapshot(
     socket_path: &std::path::Path,
 ) -> Result<ProfilingSnapshot> {
     use adapteros_client::UdsClient;
     use std::time::Duration;
 
+    info!(socket_path = ?socket_path, "Fetching profiling snapshot via UDS");
+
     let client = UdsClient::new(Duration::from_secs(5));
     let json_response = client
         .get_profiling_snapshot(socket_path)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get profiling snapshot: {}", e))?;
+        .map_err(|e| {
+            error!(error = %e, "Failed to get profiling snapshot");
+            anyhow::anyhow!("Failed to get profiling snapshot: {}", e)
+        })?;
 
-    let snapshot: ProfilingSnapshot = serde_json::from_str(&json_response)?;
+    let snapshot: ProfilingSnapshot = serde_json::from_str(&json_response)
+        .map_err(|e| {
+            error!(error = %e, "Failed to parse profiling snapshot");
+            anyhow::anyhow!("Failed to parse profiling snapshot: {}", e)
+        })?;
+
+    info!(adapters_count = snapshot.adapters.len(), "Retrieved profiling snapshot");
     Ok(snapshot)
 }
 
-// Fallback mock snapshot data for backwards compatibility
+/// Fallback mock snapshot data for backwards compatibility
 fn get_mock_profiling_snapshot() -> ProfilingSnapshot {
     ProfilingSnapshot {
         window_size: 1000,
@@ -85,6 +103,13 @@ fn get_mock_profiling_snapshot() -> ProfilingSnapshot {
 }
 
 /// Connect to worker via UDS and fetch full metrics
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Socket connection fails
+/// - Response parsing fails
+/// - Timeout exceeded
 async fn connect_and_fetch_full_metrics(
     socket_path: &std::path::Path,
 ) -> Result<serde_json::Value> {
@@ -162,6 +187,9 @@ pub enum ProfileCommand {
     Export { path: PathBuf },
 }
 
+/// Handle profile commands
+///
+/// Routes profile commands to appropriate handlers
 pub async fn handle_profile_command(cmd: ProfileCommand) -> Result<()> {
     match cmd {
         ProfileCommand::Snapshot => show_snapshot().await,
@@ -170,7 +198,9 @@ pub async fn handle_profile_command(cmd: ProfileCommand) -> Result<()> {
     }
 }
 
+/// Display profiling snapshot
 async fn show_snapshot() -> Result<()> {
+    info!("Displaying profiling snapshot");
     println!("📊 Profiling Snapshot\n");
 
     // Try to connect to worker via UDS
@@ -326,27 +356,34 @@ async fn show_snapshot() -> Result<()> {
     Ok(())
 }
 
+/// Watch metrics in real-time
 async fn watch_metrics() -> Result<()> {
+    info!("Starting metrics watching");
     println!("🔄 Watching profiler metrics (Ctrl+C to stop)...\n");
     println!("Refreshing every 2 seconds...\n");
 
     use tokio::signal;
     use tokio::time::{interval, Duration};
+    use adapteros_deterministic_exec::select::{select_2, SelectResult2};
 
     let mut interval = interval(Duration::from_secs(2));
     let mut update_count = 0;
 
     loop {
-        tokio::select! {
-            _ = interval.tick() => {
+        // Use deterministic select: ctrl_c (left) has priority over interval tick (right)
+        let tick_future = interval.tick();
+        let ctrl_c_future = signal::ctrl_c();
+
+        match select_2(ctrl_c_future, tick_future).await {
+            SelectResult2::First(_) => {
+                println!("\n🛑 Stopped watching metrics");
+                break;
+            }
+            SelectResult2::Second(_) => {
                 update_count += 1;
                 println!("Update #{}", update_count);
                 show_snapshot().await?;
                 println!("\n");
-            }
-            _ = signal::ctrl_c() => {
-                println!("\n🛑 Stopped watching metrics");
-                break;
             }
         }
     }
@@ -354,6 +391,7 @@ async fn watch_metrics() -> Result<()> {
     Ok(())
 }
 
+/// Export metrics to JSON file
 async fn export_metrics(path: PathBuf) -> Result<()> {
     use serde_json::json;
     use std::fs;

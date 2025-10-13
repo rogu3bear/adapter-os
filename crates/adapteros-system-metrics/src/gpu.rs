@@ -5,10 +5,10 @@
 
 use crate::GpuMetrics;
 use adapteros_core::Result;
-use tracing::{debug, warn};
+use tracing::debug;
 
 #[cfg(target_os = "macos")]
-use metal::{Device, MTLCounterSamplingPoint};
+use metal::Device;
 
 /// GPU metrics collector
 pub struct GpuMetricsCollector {
@@ -302,7 +302,7 @@ mod tests {
             metrics.utilization.is_none()
                 || metrics
                     .utilization
-                    .map_or(false, |u| u >= 0.0 && u <= 100.0)
+                    .is_some_and(|u| (0.0..=100.0).contains(&u))
         );
     }
 

@@ -66,7 +66,7 @@ fn derive_software_key_with_hardware_info(tenant_id: &str) -> Result<[u8; 32]> {
 
     // Get hardware UUID as additional entropy
     let hardware_uuid = Command::new("ioreg")
-        .args(&["-d2", "-c", "IOPlatformExpertDevice"])
+        .args(["-d2", "-c", "IOPlatformExpertDevice"])
         .output()
         .ok()
         .and_then(|output| {

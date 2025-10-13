@@ -47,38 +47,38 @@ pub struct AdapterManifest {
 pub struct AdapterConfig {
     /// Unique name of the adapter
     pub name: String,
-    
+
     /// Version string
     pub version: String,
-    
+
     /// Model identifier
     pub model: String,
-    
+
     /// BLAKE3 hash of the model (hex string)
     pub hash: String,
-    
+
     /// Input format specification
     pub input_format: String,
-    
+
     /// Output format specification
     pub output_format: String,
-    
+
     /// Epsilon threshold for numerical drift
     #[serde(default = "default_epsilon")]
     pub epsilon_threshold: f64,
-    
+
     /// Whether this adapter is deterministic
     #[serde(default = "default_deterministic")]
     pub deterministic: bool,
-    
+
     /// Model file paths
     #[serde(default)]
     pub model_files: HashMap<String, String>,
-    
+
     /// Adapter parameters
     #[serde(default)]
     pub parameters: HashMap<String, serde_json::Value>,
-    
+
     /// Additional custom fields
     #[serde(default)]
     pub custom: HashMap<String, serde_json::Value>,
@@ -111,7 +111,7 @@ impl AdapterManifest {
             },
         }
     }
-    
+
     /// Parse hash string to B3Hash
     pub fn parse_hash(&self) -> Result<B3Hash> {
         // For now, we'll create a hash from the hex string
@@ -122,10 +122,10 @@ impl AdapterManifest {
                 reason: format!("Hash too short: {}", self.adapter.hash),
             });
         }
-        
+
         Ok(B3Hash::hash(hash_bytes))
     }
-    
+
     /// Validate manifest
     pub fn validate(&self) -> Result<()> {
         // Check required fields
@@ -134,54 +134,57 @@ impl AdapterManifest {
                 reason: "Adapter name is required".to_string(),
             });
         }
-        
+
         if self.adapter.version.is_empty() {
             return Err(DomainAdapterError::InvalidManifest {
                 reason: "Adapter version is required".to_string(),
             });
         }
-        
+
         if self.adapter.hash.is_empty() {
             return Err(DomainAdapterError::InvalidManifest {
                 reason: "Model hash is required".to_string(),
             });
         }
-        
+
         // Validate epsilon threshold
         if self.adapter.epsilon_threshold <= 0.0 {
             return Err(DomainAdapterError::InvalidManifest {
                 reason: "Epsilon threshold must be positive".to_string(),
             });
         }
-        
+
         // Ensure deterministic flag is set for production adapters
         if !self.adapter.deterministic {
-            tracing::warn!("Adapter {} is marked as non-deterministic", self.adapter.name);
+            tracing::warn!(
+                "Adapter {} is marked as non-deterministic",
+                self.adapter.name
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Get model file path
     pub fn get_model_file(&self, key: &str) -> Option<&String> {
         self.adapter.model_files.get(key)
     }
-    
+
     /// Get parameter value
     pub fn get_parameter(&self, key: &str) -> Option<&serde_json::Value> {
         self.adapter.parameters.get(key)
     }
-    
+
     /// Get parameter as integer
     pub fn get_parameter_i64(&self, key: &str) -> Option<i64> {
         self.get_parameter(key).and_then(|v| v.as_i64())
     }
-    
+
     /// Get parameter as float
     pub fn get_parameter_f64(&self, key: &str) -> Option<f64> {
         self.get_parameter(key).and_then(|v| v.as_f64())
     }
-    
+
     /// Get parameter as string
     pub fn get_parameter_str(&self, key: &str) -> Option<&str> {
         self.get_parameter(key).and_then(|v| v.as_str())
@@ -206,40 +209,38 @@ impl AdapterManifest {
 /// ```
 pub fn load_manifest<P: AsRef<Path>>(path: P) -> Result<AdapterManifest> {
     let path_ref = path.as_ref();
-    let content = fs::read_to_string(path_ref).map_err(|e| {
-        DomainAdapterError::ManifestLoadError {
+    let content =
+        fs::read_to_string(path_ref).map_err(|e| DomainAdapterError::ManifestLoadError {
             path: path_ref.display().to_string(),
             source: e,
-        }
-    })?;
-    
+        })?;
+
     let manifest: AdapterManifest = toml::from_str(&content)?;
     manifest.validate()?;
-    
+
     tracing::info!(
         "Loaded manifest for adapter: {} v{}",
         manifest.adapter.name,
         manifest.adapter.version
     );
-    
+
     Ok(manifest)
 }
 
 /// Save manifest to TOML file
 pub fn save_manifest<P: AsRef<Path>>(manifest: &AdapterManifest, path: P) -> Result<()> {
     manifest.validate()?;
-    
-    let content = toml::to_string_pretty(manifest).map_err(|e| {
-        DomainAdapterError::InvalidManifest {
+
+    let content =
+        toml::to_string_pretty(manifest).map_err(|e| DomainAdapterError::InvalidManifest {
             reason: format!("Failed to serialize manifest: {}", e),
-        }
-    })?;
-    
+        })?;
+
     fs::write(path.as_ref(), content).map_err(|e| DomainAdapterError::ManifestLoadError {
         path: path.as_ref().display().to_string(),
         source: e,
     })?;
-    
+
     Ok(())
 }
 
@@ -247,7 +248,7 @@ pub fn save_manifest<P: AsRef<Path>>(manifest: &AdapterManifest, path: P) -> Res
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
-    
+
     fn create_test_manifest() -> AdapterManifest {
         let mut manifest = AdapterManifest::new(
             "test_adapter".to_string(),
@@ -255,20 +256,20 @@ mod tests {
             "test_model".to_string(),
             "b3d9c2a1e8f7d6b5a4938271605e4f3c2d1b0a9e8f7d6c5b4a3928170605".to_string(),
         );
-        
+
         manifest.adapter.model_files.insert(
             "weights".to_string(),
             "path/to/weights.safetensors".to_string(),
         );
-        
+
         manifest.adapter.parameters.insert(
             "max_sequence_length".to_string(),
             serde_json::Value::Number(2048.into()),
         );
-        
+
         manifest
     }
-    
+
     #[test]
     fn test_manifest_creation() {
         let manifest = create_test_manifest();
@@ -276,36 +277,38 @@ mod tests {
         assert_eq!(manifest.adapter.version, "1.0.0");
         assert!(manifest.adapter.deterministic);
     }
-    
+
     #[test]
     fn test_manifest_validation() {
         let manifest = create_test_manifest();
         assert!(manifest.validate().is_ok());
     }
-    
+
     #[test]
     fn test_manifest_validation_empty_name() {
         let mut manifest = create_test_manifest();
         manifest.adapter.name = "".to_string();
         assert!(manifest.validate().is_err());
     }
-    
+
     #[test]
     fn test_manifest_get_parameter() {
         let manifest = create_test_manifest();
-        assert_eq!(manifest.get_parameter_i64("max_sequence_length"), Some(2048));
+        assert_eq!(
+            manifest.get_parameter_i64("max_sequence_length"),
+            Some(2048)
+        );
     }
-    
+
     #[test]
     fn test_manifest_save_load() {
         let manifest = create_test_manifest();
         let temp_file = NamedTempFile::new().unwrap();
-        
+
         save_manifest(&manifest, temp_file.path()).unwrap();
         let loaded = load_manifest(temp_file.path()).unwrap();
-        
+
         assert_eq!(loaded.adapter.name, manifest.adapter.name);
         assert_eq!(loaded.adapter.version, manifest.adapter.version);
     }
 }
-

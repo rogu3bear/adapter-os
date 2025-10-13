@@ -2,8 +2,9 @@
 
 use crate::config::WatcherConfig;
 use crate::types::{ChangeType, FileChangeEvent};
-use crossbeam_channel::{bounded, Sender};
 use adapteros_core::{AosError, Result};
+use adapteros_deterministic_exec::spawn_deterministic;
+use crossbeam_channel::{bounded, Sender};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use adapteros_deterministic_exec::spawn_deterministic;
 
 /// Git file watcher that monitors repositories for changes
 pub struct GitWatcher {

@@ -22,20 +22,17 @@ impl HashGraphNode {
     pub fn from_tensor(tensor: &Tensor) -> Result<Self> {
         // Create canonical representation
         let canonical = canonical_tensor_repr(tensor)?;
-        
+
         // Hash tensor data
         let data_hash = B3Hash::hash(&tensor.data);
-        
+
         // Serialize canonical metadata
         let metadata_bytes = canonical.to_canonical_bytes()?;
-        
+
         // Create combined hash: version + metadata + data
-        let node_hash = B3Hash::hash_multi(&[
-            &[HASH_VERSION],
-            &metadata_bytes,
-            data_hash.as_bytes(),
-        ]);
-        
+        let node_hash =
+            B3Hash::hash_multi(&[&[HASH_VERSION], &metadata_bytes, data_hash.as_bytes()]);
+
         Ok(Self {
             hash_version: HASH_VERSION,
             canonical,
@@ -69,6 +66,12 @@ pub struct HashGraph {
     pub nodes: Vec<HashGraphNode>,
     /// Graph-level hash
     pub graph_hash: B3Hash,
+}
+
+impl Default for HashGraph {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HashGraph {
@@ -158,14 +161,15 @@ mod tests {
             MemoryLayout::RowMajor,
             DeviceFamily::MetalM3,
             vec![0u8; 24],
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
     fn test_hash_graph_node_creation() {
         let tensor = create_test_tensor();
         let node = HashGraphNode::from_tensor(&tensor).unwrap();
-        
+
         assert_eq!(node.canonical.version, HASH_VERSION);
         assert_eq!(node.canonical.shape, vec![2, 3]);
     }
@@ -179,17 +183,18 @@ mod tests {
             MemoryLayout::ColumnMajor,
             DeviceFamily::MetalM4,
             vec![0u8; 40],
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut graph = HashGraph::new();
         assert!(graph.is_empty());
-        
+
         graph.add_tensor(&tensor1).unwrap();
         assert_eq!(graph.len(), 1);
-        
+
         graph.add_tensor(&tensor2).unwrap();
         assert_eq!(graph.len(), 2);
-        
+
         let graph_hash = graph.hash();
         assert_ne!(graph_hash, B3Hash::hash(&[]));
     }
@@ -197,10 +202,10 @@ mod tests {
     #[test]
     fn test_deterministic_hashing() {
         let tensor = create_test_tensor();
-        
+
         let hash1 = hash_tensor_with_metadata(&tensor).unwrap();
         let hash2 = hash_tensor_with_metadata(&tensor).unwrap();
-        
+
         assert_eq!(hash1, hash2);
     }
 
@@ -213,11 +218,12 @@ mod tests {
             MemoryLayout::RowMajor,
             DeviceFamily::CPU,
             vec![0u8; 4],
-        ).unwrap();
+        )
+        .unwrap();
 
         let hash1 = hash_tensors(&[&tensor1, &tensor2]).unwrap();
         let hash2 = hash_tensors(&[&tensor1, &tensor2]).unwrap();
-        
+
         assert_eq!(hash1, hash2);
     }
 
@@ -230,11 +236,12 @@ mod tests {
             MemoryLayout::RowMajor,
             DeviceFamily::CPU,
             vec![0u8; 4],
-        ).unwrap();
+        )
+        .unwrap();
 
         let hash1 = hash_tensors(&[&tensor1, &tensor2]).unwrap();
         let hash2 = hash_tensors(&[&tensor2, &tensor1]).unwrap();
-        
+
         // Should be the same due to sorting
         assert_eq!(hash1, hash2);
     }

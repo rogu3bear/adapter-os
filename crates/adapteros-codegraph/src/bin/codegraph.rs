@@ -2,8 +2,8 @@
 //!
 //! Command-line interface for building and analyzing code graphs
 
-use clap::Parser;
 use adapteros_codegraph::{CodeGraph, DbConfig};
+use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]

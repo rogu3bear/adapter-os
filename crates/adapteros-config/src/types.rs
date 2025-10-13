@@ -90,83 +90,110 @@ pub struct FieldDefinition {
 impl Default for ConfigSchema {
     fn default() -> Self {
         let mut fields = HashMap::new();
-        
+
         // Core server configuration
-        fields.insert("server.host".to_string(), FieldDefinition {
-            field_type: "string".to_string(),
-            required: false,
-            default_value: Some("127.0.0.1".to_string()),
-            description: Some("Server bind address".to_string()),
-            validation_rules: Some(vec!["ip_address".to_string()]),
-        });
-        
-        fields.insert("server.port".to_string(), FieldDefinition {
-            field_type: "integer".to_string(),
-            required: false,
-            default_value: Some("8080".to_string()),
-            description: Some("Server port number".to_string()),
-            validation_rules: Some(vec!["range:1-65535".to_string()]),
-        });
-        
-        fields.insert("server.workers".to_string(), FieldDefinition {
-            field_type: "integer".to_string(),
-            required: false,
-            default_value: Some("4".to_string()),
-            description: Some("Number of worker threads".to_string()),
-            validation_rules: Some(vec!["range:1-64".to_string()]),
-        });
-        
+        fields.insert(
+            "server.host".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("127.0.0.1".to_string()),
+                description: Some("Server bind address".to_string()),
+                validation_rules: Some(vec!["ip_address".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "server.port".to_string(),
+            FieldDefinition {
+                field_type: "integer".to_string(),
+                required: false,
+                default_value: Some("8080".to_string()),
+                description: Some("Server port number".to_string()),
+                validation_rules: Some(vec!["range:1-65535".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "server.workers".to_string(),
+            FieldDefinition {
+                field_type: "integer".to_string(),
+                required: false,
+                default_value: Some("4".to_string()),
+                description: Some("Number of worker threads".to_string()),
+                validation_rules: Some(vec!["range:1-64".to_string()]),
+            },
+        );
+
         // Database configuration
-        fields.insert("database.url".to_string(), FieldDefinition {
-            field_type: "string".to_string(),
-            required: true,
-            default_value: None,
-            description: Some("Database connection URL".to_string()),
-            validation_rules: Some(vec!["url".to_string()]),
-        });
-        
-        fields.insert("database.pool_size".to_string(), FieldDefinition {
-            field_type: "integer".to_string(),
-            required: false,
-            default_value: Some("10".to_string()),
-            description: Some("Database connection pool size".to_string()),
-            validation_rules: Some(vec!["range:1-100".to_string()]),
-        });
-        
+        fields.insert(
+            "database.url".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: true,
+                default_value: None,
+                description: Some("Database connection URL".to_string()),
+                validation_rules: Some(vec!["url".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "database.pool_size".to_string(),
+            FieldDefinition {
+                field_type: "integer".to_string(),
+                required: false,
+                default_value: Some("10".to_string()),
+                description: Some("Database connection pool size".to_string()),
+                validation_rules: Some(vec!["range:1-100".to_string()]),
+            },
+        );
+
         // Policy configuration
-        fields.insert("policy.strict_mode".to_string(), FieldDefinition {
-            field_type: "boolean".to_string(),
-            required: false,
-            default_value: Some("true".to_string()),
-            description: Some("Enable strict policy enforcement".to_string()),
-            validation_rules: None,
-        });
-        
-        fields.insert("policy.audit_logging".to_string(), FieldDefinition {
-            field_type: "boolean".to_string(),
-            required: false,
-            default_value: Some("true".to_string()),
-            description: Some("Enable policy audit logging".to_string()),
-            validation_rules: None,
-        });
-        
+        fields.insert(
+            "policy.strict_mode".to_string(),
+            FieldDefinition {
+                field_type: "boolean".to_string(),
+                required: false,
+                default_value: Some("true".to_string()),
+                description: Some("Enable strict policy enforcement".to_string()),
+                validation_rules: None,
+            },
+        );
+
+        fields.insert(
+            "policy.audit_logging".to_string(),
+            FieldDefinition {
+                field_type: "boolean".to_string(),
+                required: false,
+                default_value: Some("true".to_string()),
+                description: Some("Enable policy audit logging".to_string()),
+                validation_rules: None,
+            },
+        );
+
         // Logging configuration
-        fields.insert("logging.level".to_string(), FieldDefinition {
-            field_type: "string".to_string(),
-            required: false,
-            default_value: Some("info".to_string()),
-            description: Some("Logging level".to_string()),
-            validation_rules: Some(vec!["enum:debug,info,warn,error".to_string()]),
-        });
-        
-        fields.insert("logging.format".to_string(), FieldDefinition {
-            field_type: "string".to_string(),
-            required: false,
-            default_value: Some("json".to_string()),
-            description: Some("Logging format".to_string()),
-            validation_rules: Some(vec!["enum:json,text".to_string()]),
-        });
-        
+        fields.insert(
+            "logging.level".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("info".to_string()),
+                description: Some("Logging level".to_string()),
+                validation_rules: Some(vec!["enum:debug,info,warn,error".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "logging.format".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("json".to_string()),
+                description: Some("Logging format".to_string()),
+                validation_rules: Some(vec!["enum:json,text".to_string()]),
+            },
+        );
+
         Self {
             version: "1.0.0".to_string(),
             fields,

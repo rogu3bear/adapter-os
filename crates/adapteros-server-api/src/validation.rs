@@ -17,20 +17,18 @@ pub fn validate_repo_id(repo_id: &str) -> ValidationResult<()> {
     if !repo_id_regex.is_match(repo_id) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid repository ID format".to_string(),
-                details: Some("Must be in format 'owner/repo' with alphanumeric characters, underscores, and hyphens only".to_string()),
-            }),
+            Json(ErrorResponse::new("Invalid repository ID format").with_code("INTERNAL_ERROR").with_string_details("Must be in format 'owner/repo' with alphanumeric characters, underscores, and hyphens only")),
         ));
     }
 
     if repo_id.len() > 100 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Repository ID too long".to_string(),
-                details: Some("Maximum length is 100 characters".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Repository ID too long")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Maximum length is 100 characters"),
+            ),
         ));
     }
 
@@ -44,30 +42,33 @@ pub fn validate_git_repository(path: &str) -> ValidationResult<()> {
     if !repo_path.exists() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Repository path does not exist".to_string(),
-                details: Some(path.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Repository path does not exist")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(path.to_string()),
+            ),
         ));
     }
 
     if !repo_path.is_dir() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Repository path is not a directory".to_string(),
-                details: Some(path.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Repository path is not a directory")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(path.to_string()),
+            ),
         ));
     }
 
     if !repo_path.join(".git").exists() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Path is not a git repository".to_string(),
-                details: Some("Missing .git directory".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Path is not a git repository")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Missing .git directory"),
+            ),
         ));
     }
 
@@ -91,10 +92,11 @@ pub fn validate_languages(languages: &[String]) -> ValidationResult<()> {
     if languages.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "No languages specified".to_string(),
-                details: Some("At least one language must be specified".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("No languages specified")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("At least one language must be specified"),
+            ),
         ));
     }
 
@@ -102,14 +104,15 @@ pub fn validate_languages(languages: &[String]) -> ValidationResult<()> {
         if !SUPPORTED_LANGUAGES.contains(&lang.as_str()) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Unsupported language".to_string(),
-                    details: Some(format!(
-                        "Language '{}' is not supported. Supported languages: {}",
-                        lang,
-                        SUPPORTED_LANGUAGES.join(", ")
-                    )),
-                }),
+                Json(
+                    ErrorResponse::new("Unsupported language")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(format!(
+                            "Language '{}' is not supported. Supported languages: {}",
+                            lang,
+                            SUPPORTED_LANGUAGES.join(", ")
+                        )),
+                ),
             ));
         }
     }
@@ -124,10 +127,11 @@ pub fn validate_commit_sha(sha: &str) -> ValidationResult<()> {
     if !sha_regex.is_match(sha) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid commit SHA format".to_string(),
-                details: Some("Must be 7-40 hexadecimal characters".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Invalid commit SHA format")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Must be 7-40 hexadecimal characters"),
+            ),
         ));
     }
 
@@ -141,23 +145,25 @@ pub fn validate_tenant_id(tenant_id: &str) -> ValidationResult<()> {
     if !tenant_regex.is_match(tenant_id) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid tenant ID format".to_string(),
-                details: Some(
-                    "Must contain only lowercase letters, numbers, underscores, and hyphens"
-                        .to_string(),
-                ),
-            }),
+            Json(
+                ErrorResponse::new("Invalid tenant ID format")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "Must contain only lowercase letters, numbers, underscores, and hyphens"
+                            .to_string(),
+                    ),
+            ),
         ));
     }
 
     if tenant_id.len() > 50 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Tenant ID too long".to_string(),
-                details: Some("Maximum length is 50 characters".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Tenant ID too long")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Maximum length is 50 characters"),
+            ),
         ));
     }
 
@@ -171,10 +177,11 @@ pub fn validate_file_paths(paths: &[String]) -> ValidationResult<()> {
         if path.contains("..") {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Invalid file path".to_string(),
-                    details: Some("Directory traversal not allowed".to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("Invalid file path")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Directory traversal not allowed"),
+                ),
             ));
         }
 
@@ -182,10 +189,11 @@ pub fn validate_file_paths(paths: &[String]) -> ValidationResult<()> {
         if path.starts_with('/') || path.contains(':') {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Invalid file path".to_string(),
-                    details: Some("Absolute paths not allowed".to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("Invalid file path")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Absolute paths not allowed"),
+                ),
             ));
         }
 
@@ -193,10 +201,11 @@ pub fn validate_file_paths(paths: &[String]) -> ValidationResult<()> {
         if path.len() > 500 {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "File path too long".to_string(),
-                    details: Some("Maximum path length is 500 characters".to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("File path too long")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Maximum path length is 500 characters"),
+                ),
             ));
         }
     }
@@ -209,20 +218,18 @@ pub fn validate_description(description: &str) -> ValidationResult<()> {
     if description.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Description cannot be empty".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("Description cannot be empty").with_code("INTERNAL_ERROR")),
         ));
     }
 
     if description.len() > 5000 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Description too long".to_string(),
-                details: Some("Maximum length is 5000 characters".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Description too long")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Maximum length is 5000 characters"),
+            ),
         ));
     }
 
@@ -243,10 +250,11 @@ pub fn validate_description(description: &str) -> ValidationResult<()> {
         if desc_upper.contains(pattern) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Description contains suspicious content".to_string(),
-                    details: Some("Please avoid SQL or script injection attempts".to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("Description contains suspicious content")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Please avoid SQL or script injection attempts"),
+                ),
             ));
         }
     }
@@ -261,23 +269,25 @@ pub fn validate_adapter_id(adapter_id: &str) -> ValidationResult<()> {
     if !adapter_id_regex.is_match(adapter_id) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid adapter ID format".to_string(),
-                details: Some(
-                    "Must contain only alphanumeric characters, underscores, and hyphens"
-                        .to_string(),
-                ),
-            }),
+            Json(
+                ErrorResponse::new("Invalid adapter ID format")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "Must contain only alphanumeric characters, underscores, and hyphens"
+                            .to_string(),
+                    ),
+            ),
         ));
     }
 
     if adapter_id.len() > 100 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Adapter ID too long".to_string(),
-                details: Some("Maximum length is 100 characters".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Adapter ID too long")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Maximum length is 100 characters"),
+            ),
         ));
     }
 
@@ -289,20 +299,18 @@ pub fn validate_name(name: &str) -> ValidationResult<()> {
     if name.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Name cannot be empty".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("Name cannot be empty").with_code("INTERNAL_ERROR")),
         ));
     }
 
     if name.len() > 200 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Name too long".to_string(),
-                details: Some("Maximum length is 200 characters".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Name too long")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Maximum length is 200 characters"),
+            ),
         ));
     }
 
@@ -323,10 +331,11 @@ pub fn validate_name(name: &str) -> ValidationResult<()> {
         if name_upper.contains(pattern) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Name contains suspicious content".to_string(),
-                    details: Some("Please avoid SQL or script injection attempts".to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("Name contains suspicious content")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Please avoid SQL or script injection attempts"),
+                ),
             ));
         }
     }
@@ -339,10 +348,11 @@ pub fn validate_hash_b3(hash: &str) -> ValidationResult<()> {
     if !hash.starts_with("b3:") {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid hash format".to_string(),
-                details: Some("Must start with 'b3:'".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Invalid hash format")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Must start with 'b3:'"),
+            ),
         ));
     }
 
@@ -352,10 +362,11 @@ pub fn validate_hash_b3(hash: &str) -> ValidationResult<()> {
     if !hash_regex.is_match(hash_part) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid hash format".to_string(),
-                details: Some("Must be 64 hexadecimal characters after 'b3:'".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("Invalid hash format")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Must be 64 hexadecimal characters after 'b3:'"),
+            ),
         ));
     }
 

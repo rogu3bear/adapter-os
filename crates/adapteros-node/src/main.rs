@@ -325,7 +325,10 @@ async fn sync_create_manifest(
         .iter()
         .map(|id| ArtifactInfo {
             adapter_id: id.clone(),
-            hash: format!("b3:{}", adapteros_core::B3Hash::hash(id.as_bytes()).to_hex()),
+            hash: format!(
+                "b3:{}",
+                adapteros_core::B3Hash::hash(id.as_bytes()).to_hex()
+            ),
             size_bytes: 1024 * 1024, // Mock 1MB
         })
         .collect();

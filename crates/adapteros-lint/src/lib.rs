@@ -21,7 +21,7 @@
 //! Then initialize guards:
 //! ```rust
 //! use adapteros_lint::{runtime_guards, strict_mode};
-//! 
+//!
 //! // Initialize guards
 //! runtime_guards::init_guards(runtime_guards::GuardConfig {
 //!     enabled: true,

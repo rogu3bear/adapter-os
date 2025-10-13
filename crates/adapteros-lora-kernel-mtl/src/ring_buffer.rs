@@ -7,8 +7,8 @@
 //! - Ring Buffer Data Structure: https://en.wikipedia.org/wiki/Circular_buffer
 //! - Metal Buffer Management: https://developer.apple.com/documentation/metal/mtlbuffer
 
-use metal::*;
 use adapteros_core::{AosError, Result};
+use metal::*;
 use std::sync::Arc;
 
 /// Active adapter with quantized gate

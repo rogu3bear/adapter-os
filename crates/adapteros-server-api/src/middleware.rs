@@ -1,6 +1,7 @@
 use crate::auth::{validate_token, Claims};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_db::users::Role;
 use axum::{
     extract::State,
     http::{Request, StatusCode},
@@ -8,7 +9,6 @@ use axum::{
     response::Response,
     Json,
 };
-use adapteros_db::users::Role;
 use std::str::FromStr;
 
 /// Extract and validate JWT from Authorization header
@@ -34,10 +34,7 @@ pub async fn auth_middleware(
                     tracing::warn!(error = %e, "Token validation failed");
                     return Err((
                         StatusCode::UNAUTHORIZED,
-                        Json(ErrorResponse {
-                            error: "unauthorized".to_string(),
-                            details: None, // Don't leak token validation details
-                        }),
+                        Json(ErrorResponse::new("unauthorized").with_code("INTERNAL_ERROR")),
                     ));
                 }
             }
@@ -47,10 +44,11 @@ pub async fn auth_middleware(
     tracing::warn!("Missing or invalid Authorization header");
     Err((
         StatusCode::UNAUTHORIZED,
-        Json(ErrorResponse {
-            error: "unauthorized".to_string(),
-            details: Some("missing or invalid Authorization header".to_string()),
-        }),
+        Json(
+            ErrorResponse::new("unauthorized")
+                .with_code("INTERNAL_ERROR")
+                .with_string_details("missing or invalid Authorization header"),
+        ),
     ))
 }
 
@@ -62,10 +60,7 @@ pub fn require_role(
     let user_role = Role::from_str(&claims.role).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "invalid role".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("invalid role").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -81,10 +76,11 @@ pub fn require_role(
 
     Err((
         StatusCode::FORBIDDEN,
-        Json(ErrorResponse {
-            error: "insufficient permissions".to_string(),
-            details: Some(format!("required role: {:?}", required)),
-        }),
+        Json(
+            ErrorResponse::new("insufficient permissions")
+                .with_code("FORBIDDEN")
+                .with_string_details(format!("required role: {:?}", required)),
+        ),
     ))
 }
 
@@ -96,10 +92,7 @@ pub fn require_any_role(
     let user_role = Role::from_str(&claims.role).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "invalid role".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("invalid role").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -109,9 +102,6 @@ pub fn require_any_role(
 
     Err((
         StatusCode::FORBIDDEN,
-        Json(ErrorResponse {
-            error: "insufficient permissions".to_string(),
-            details: None,
-        }),
+        Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
     ))
 }

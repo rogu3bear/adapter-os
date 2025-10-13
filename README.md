@@ -12,7 +12,8 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 20 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 21 canonical policy packs for compliance, security, and quality
+- **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
 - **Memory Management**: Intelligent adapter eviction with ≥15% headroom maintenance

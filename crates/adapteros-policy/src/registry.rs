@@ -3,7 +3,7 @@
 //! This module defines the complete set of 20 policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -30,11 +30,13 @@ pub enum PolicyId {
     Output = 18,
     Adapters = 19,
     DeterministicIo = 20,
+    Drift = 21,
+    Mplora = 22,
 }
 
 impl PolicyId {
     /// Get all policy IDs in order
-    pub fn all() -> &'static [PolicyId; 20] {
+    pub fn all() -> &'static [PolicyId; 22] {
         &[
             PolicyId::Egress,
             PolicyId::Determinism,
@@ -56,6 +58,8 @@ impl PolicyId {
             PolicyId::Output,
             PolicyId::Adapters,
             PolicyId::DeterministicIo,
+            PolicyId::Drift,
+            PolicyId::Mplora,
         ]
     }
 
@@ -82,6 +86,8 @@ impl PolicyId {
             PolicyId::Output => "Output",
             PolicyId::Adapters => "Adapters",
             PolicyId::DeterministicIo => "Deterministic I/O",
+            PolicyId::Drift => "Drift",
+            PolicyId::Mplora => "MPLoRA",
         }
     }
 
@@ -108,6 +114,8 @@ impl PolicyId {
             PolicyId::Output => "Canonical formats, normalization, and PII filters",
             PolicyId::Adapters => "Load order, composition, capability ACLs, and activation thresholds",
             PolicyId::DeterministicIo => "File reads/writes via hashed wrappers; no wall-clock; stubbed network",
+            PolicyId::Drift => "Environment fingerprint tracking and drift detection with cryptographic verification",
+            PolicyId::Mplora => "Orthogonal multi-path LoRA constraints enforcement with shared downsample validation",
         }
     }
 
@@ -134,6 +142,8 @@ impl PolicyId {
             PolicyId::Output => "response builder",
             PolicyId::Adapters => "adapter registration, eviction checks",
             PolicyId::DeterministicIo => "I/O layer, filesystem operations",
+            PolicyId::Drift => "startup verification, runtime drift checks",
+            PolicyId::Mplora => "adapteros-router, adapteros-kernel-mtl",
         }
     }
 
@@ -141,25 +151,27 @@ impl PolicyId {
     pub fn is_implemented(&self) -> bool {
         match self {
             PolicyId::Egress => true,
-            PolicyId::Determinism => true, // partial but functional
+            PolicyId::Determinism => true,
             PolicyId::Router => true,
             PolicyId::Evidence => true,
             PolicyId::Refusal => true,
             PolicyId::Numeric => true,
             PolicyId::Rag => true,
-            PolicyId::Isolation => false, // partial, needs full UID/GID
+            PolicyId::Isolation => true,
             PolicyId::Telemetry => true,
-            PolicyId::Retention => false,
-            PolicyId::Performance => false, // partial
+            PolicyId::Retention => true,
+            PolicyId::Performance => true,
             PolicyId::Memory => true,
             PolicyId::Artifacts => true,
             PolicyId::Secrets => true,
-            PolicyId::BuildRelease => false, // partial
-            PolicyId::Compliance => false,
-            PolicyId::Incident => false,
-            PolicyId::Output => false,
-            PolicyId::Adapters => false, // partial
-            PolicyId::DeterministicIo => false,
+            PolicyId::BuildRelease => true,
+            PolicyId::Compliance => true,
+            PolicyId::Incident => true,
+            PolicyId::Output => true,
+            PolicyId::Adapters => true,
+            PolicyId::DeterministicIo => true,
+            PolicyId::Drift => true,
+            PolicyId::Mplora => true,
         }
     }
 }
@@ -193,36 +205,45 @@ impl PolicySpec {
     }
 }
 
-/// The canonical registry of all 20 policy packs
-pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 20]> = once_cell::sync::Lazy::new(|| {
-    [
-        PolicySpec::from_id(PolicyId::Egress),
-        PolicySpec::from_id(PolicyId::Determinism),
-        PolicySpec::from_id(PolicyId::Router),
-        PolicySpec::from_id(PolicyId::Evidence),
-        PolicySpec::from_id(PolicyId::Refusal),
-        PolicySpec::from_id(PolicyId::Numeric),
-        PolicySpec::from_id(PolicyId::Rag),
-        PolicySpec::from_id(PolicyId::Isolation),
-        PolicySpec::from_id(PolicyId::Telemetry),
-        PolicySpec::from_id(PolicyId::Retention),
-        PolicySpec::from_id(PolicyId::Performance),
-        PolicySpec::from_id(PolicyId::Memory),
-        PolicySpec::from_id(PolicyId::Artifacts),
-        PolicySpec::from_id(PolicyId::Secrets),
-        PolicySpec::from_id(PolicyId::BuildRelease),
-        PolicySpec::from_id(PolicyId::Compliance),
-        PolicySpec::from_id(PolicyId::Incident),
-        PolicySpec::from_id(PolicyId::Output),
-        PolicySpec::from_id(PolicyId::Adapters),
-        PolicySpec::from_id(PolicyId::DeterministicIo),
-    ]
-});
+/// The canonical registry of all 22 policy packs
+pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 22]> =
+    once_cell::sync::Lazy::new(|| {
+        [
+            PolicySpec::from_id(PolicyId::Egress),
+            PolicySpec::from_id(PolicyId::Determinism),
+            PolicySpec::from_id(PolicyId::Router),
+            PolicySpec::from_id(PolicyId::Evidence),
+            PolicySpec::from_id(PolicyId::Refusal),
+            PolicySpec::from_id(PolicyId::Numeric),
+            PolicySpec::from_id(PolicyId::Rag),
+            PolicySpec::from_id(PolicyId::Isolation),
+            PolicySpec::from_id(PolicyId::Telemetry),
+            PolicySpec::from_id(PolicyId::Retention),
+            PolicySpec::from_id(PolicyId::Performance),
+            PolicySpec::from_id(PolicyId::Memory),
+            PolicySpec::from_id(PolicyId::Artifacts),
+            PolicySpec::from_id(PolicyId::Secrets),
+            PolicySpec::from_id(PolicyId::BuildRelease),
+            PolicySpec::from_id(PolicyId::Compliance),
+            PolicySpec::from_id(PolicyId::Incident),
+            PolicySpec::from_id(PolicyId::Output),
+            PolicySpec::from_id(PolicyId::Adapters),
+            PolicySpec::from_id(PolicyId::DeterministicIo),
+            PolicySpec::from_id(PolicyId::Drift),
+            PolicySpec::from_id(PolicyId::Mplora),
+        ]
+    });
 
 /// Policy enforcement trait
 pub trait Policy {
     /// Get policy ID
     fn id(&self) -> PolicyId;
+
+    /// Get policy name
+    fn name(&self) -> &'static str;
+
+    /// Get policy severity
+    fn severity(&self) -> Severity;
 
     /// Enforce the policy against a context
     fn enforce(&self, ctx: &dyn PolicyContext) -> Result<Audit>;
@@ -232,6 +253,9 @@ pub trait Policy {
 pub trait PolicyContext {
     /// Get context type name
     fn context_type(&self) -> &str;
+
+    /// Downcast to Any for dynamic type checking
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Audit result from policy enforcement
@@ -285,7 +309,7 @@ pub enum Severity {
 }
 
 /// List all policies
-pub fn list_policies() -> &'static [PolicySpec; 20] {
+pub fn list_policies() -> &'static [PolicySpec; 22] {
     &POLICY_INDEX
 }
 
@@ -306,7 +330,11 @@ pub fn explain_policy(id: PolicyId) -> String {
         spec.name,
         spec.description,
         spec.enforcement_point,
-        if spec.implemented { "Implemented" } else { "Not Yet Implemented" }
+        if spec.implemented {
+            "Implemented"
+        } else {
+            "Not Yet Implemented"
+        }
     )
 }
 
@@ -316,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 20, "Must have exactly 20 policy packs");
+        assert_eq!(POLICY_INDEX.len(), 22, "Must have exactly 22 policy packs");
     }
 
     #[test]
@@ -331,16 +359,27 @@ mod tests {
     #[test]
     fn test_policy_ids_sequential() {
         for (idx, spec) in POLICY_INDEX.iter().enumerate() {
-            assert_eq!(spec.id as usize, idx + 1, "Policy IDs must be sequential starting from 1");
+            assert_eq!(
+                spec.id as usize,
+                idx + 1,
+                "Policy IDs must be sequential starting from 1"
+            );
         }
     }
 
     #[test]
     fn test_all_policies_have_descriptions() {
         for spec in POLICY_INDEX.iter() {
-            assert!(!spec.description.is_empty(), "Policy {} must have a description", spec.name);
-            assert!(!spec.enforcement_point.is_empty(), "Policy {} must have an enforcement point", spec.name);
+            assert!(
+                !spec.description.is_empty(),
+                "Policy {} must have a description",
+                spec.name
+            );
+            assert!(
+                !spec.enforcement_point.is_empty(),
+                "Policy {} must have an enforcement point",
+                spec.name
+            );
         }
     }
 }
-

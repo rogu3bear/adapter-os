@@ -5,8 +5,7 @@
 //! halt execution on first impurity detection.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 /// Global state for runtime guards
 static GUARDS_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -41,7 +40,7 @@ impl Default for GuardConfig {
 pub fn init_guards(config: GuardConfig) {
     GUARDS_ENABLED.store(config.enabled, Ordering::Relaxed);
     STRICT_MODE.store(config.strict_mode, Ordering::Relaxed);
-    
+
     if config.enabled {
         eprintln!("🔒 AdapterOS determinism guards enabled");
         if config.strict_mode {
@@ -67,23 +66,28 @@ pub fn report_violation(violation_type: &str, details: &str) {
     }
 
     let count = VIOLATION_COUNT.fetch_add(1, Ordering::Relaxed);
-    
+
     if strict_mode() {
         panic!(
             "🚨 NONDETERMINISM VIOLATION DETECTED (strict mode)\n\
              Type: {}\n\
              Details: {}\n\
              Violation #{}",
-            violation_type, details, count + 1
+            violation_type,
+            details,
+            count + 1
         );
     } else {
         eprintln!(
             "⚠️  Nondeterminism violation #{}: {} - {}",
-            count + 1, violation_type, details
+            count + 1,
+            violation_type,
+            details
         );
-        
+
         // Check if we've exceeded max violations
-        if count + 1 >= 10 { // Default max violations
+        if count + 1 >= 10 {
+            // Default max violations
             panic!(
                 "🚨 Too many nondeterminism violations detected ({}). Halting execution.",
                 count + 1
@@ -96,7 +100,7 @@ pub fn report_violation(violation_type: &str, details: &str) {
 pub fn guard_spawn_blocking() {
     report_violation(
         "spawn_blocking",
-        "tokio::task::spawn_blocking detected - non-deterministic thread pool scheduling"
+        "tokio::task::spawn_blocking detected - non-deterministic thread pool scheduling",
     );
 }
 
@@ -104,7 +108,10 @@ pub fn guard_spawn_blocking() {
 pub fn guard_wall_clock_time(function_name: &str) {
     report_violation(
         "wall_clock_time",
-        &format!("{} detected - wall-clock time introduces non-determinism", function_name)
+        &format!(
+            "{} detected - wall-clock time introduces non-determinism",
+            function_name
+        ),
     );
 }
 
@@ -112,7 +119,10 @@ pub fn guard_wall_clock_time(function_name: &str) {
 pub fn guard_random_generation(function_name: &str) {
     report_violation(
         "random_generation",
-        &format!("{} detected - unseeded random number generation", function_name)
+        &format!(
+            "{} detected - unseeded random number generation",
+            function_name
+        ),
     );
 }
 
@@ -120,7 +130,10 @@ pub fn guard_random_generation(function_name: &str) {
 pub fn guard_file_io(operation: &str) {
     report_violation(
         "file_io",
-        &format!("File I/O operation '{}' detected - can introduce non-determinism", operation)
+        &format!(
+            "File I/O operation '{}' detected - can introduce non-determinism",
+            operation
+        ),
     );
 }
 
@@ -128,7 +141,10 @@ pub fn guard_file_io(operation: &str) {
 pub fn guard_syscall(operation: &str) {
     report_violation(
         "syscall",
-        &format!("System call '{}' detected - can introduce non-determinism", operation)
+        &format!(
+            "System call '{}' detected - can introduce non-determinism",
+            operation
+        ),
     );
 }
 
@@ -149,7 +165,7 @@ pub fn guarded_instant_now() -> std::time::Instant {
 }
 
 /// Wrapper for random number generation that checks guards
-pub fn guarded_random<T>() -> T 
+pub fn guarded_random<T>() -> T
 where
     rand::distributions::Standard: rand::distributions::Distribution<T>,
 {

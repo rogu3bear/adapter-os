@@ -5,11 +5,16 @@
 # The resulting .metallib is embedded in the binary with include_bytes!
 # and hashed at compile time with BLAKE3
 #
+# Per Determinism Ruleset #2: Reproducible builds with SOURCE_DATE_EPOCH
+#
 # References:
 # - Metal Shader Compilation: https://developer.apple.com/documentation/metal/shader_compilation
 # - Metal Performance Shaders: https://developer.apple.com/documentation/metalperformanceshaders
 
 set -e
+
+# Set deterministic timestamp for reproducible builds
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
 
 echo "🔨 Building modular Metal shaders for AdapterOS..."
 
@@ -41,11 +46,54 @@ echo "   Saved to: kernel_hash.txt"
 echo "🔍 Gathering build metadata..."
 METAL_SDK_VERSION=$(xcrun --show-sdk-version 2>/dev/null || echo "unknown")
 COMPILER_VERSION=$(xcrun metal --version 2>/dev/null | head -1 || echo "unknown")
-BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+BUILD_TIMESTAMP=$(date -u -r ${SOURCE_DATE_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")
+
+# Log build metadata for reproducibility
+echo "📋 Build Metadata:"
+echo "   Metal SDK: $METAL_SDK_VERSION"
+echo "   Compiler: $COMPILER_VERSION"
+echo "   Timestamp: $BUILD_TIMESTAMP"
+echo "   Source Date Epoch: ${SOURCE_DATE_EPOCH:-not set}"
+echo "   Target: aarch64-apple-darwin"
+
+# Create deterministic build metadata (Per Determinism Ruleset #2)
+cat > build_metadata.json <<EOF
+{
+  "hash": "$HASH",
+  "timestamp": "$BUILD_TIMESTAMP",
+  "source_date_epoch": ${SOURCE_DATE_EPOCH},
+  "metal_sdk_version": "$METAL_SDK_VERSION",
+  "compiler_version": "$COMPILER_VERSION"
+}
+EOF
 
 # Update kernel registry with actual hash and build metadata
 echo "📝 Updating kernel registry..."
 python3 update_registry.py "$HASH" "$METAL_SDK_VERSION" "$COMPILER_VERSION"
+
+# Verify against baseline if it exists (Per Determinism Ruleset #2)
+if [ -f baselines/kernel_hash.txt ]; then
+    echo ""
+    echo "🔍 Verifying against baseline hash..."
+    BASELINE_HASH=$(cat baselines/kernel_hash.txt)
+    
+    if [ "$HASH" != "$BASELINE_HASH" ]; then
+        echo "❌ KERNEL HASH MISMATCH!"
+        echo "   Expected: $BASELINE_HASH"
+        echo "   Got:      $HASH"
+        echo ""
+        echo "   This indicates non-deterministic kernel compilation."
+        echo "   Please review changes or update baseline if intentional."
+        exit 1
+    else
+        echo "✅ Hash matches baseline: $HASH"
+    fi
+else
+    echo "⚠️  No baseline hash found. Creating baseline..."
+    mkdir -p baselines
+    echo "$HASH" > baselines/kernel_hash.txt
+    echo "   Baseline saved to: baselines/kernel_hash.txt"
+fi
 
 # Copy to Rust crate
 cp adapteros_kernels.metallib ../crates/adapteros-lora-kernel-mtl/shaders/

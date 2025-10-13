@@ -72,6 +72,11 @@ impl TenantIndex {
                         score,
                         span_hash,
                         superseded: metadata.superseded_by.clone(),
+                        evidence_type: None,
+                        file_path: None,
+                        start_line: None,
+                        end_line: None,
+                        metadata: std::collections::HashMap::new(),
                     }
                 })
             })

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -31,6 +32,7 @@ import {
 import apiClient from '../api/client';
 import { Node, User, NodeDetailsResponse, NodePingResponse } from '../api/types';
 import { toast } from 'sonner';
+import { WorkersTab } from './WorkersTab';
 
 interface NodesProps {
   user: User;
@@ -38,6 +40,7 @@ interface NodesProps {
 }
 
 export function Nodes({ user, selectedTenant }: NodesProps) {
+  const [activeTab, setActiveTab] = useState('nodes');
   const [nodes, setNodes] = useState<Node[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -152,24 +155,38 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     <div className="space-y-6">
       <div className="flex-between section-header">
         <div>
-          <h1 className="section-title">Compute Nodes</h1>
+          <h1 className="section-title">Compute Infrastructure</h1>
           <p className="section-description">
-            Manage compute infrastructure and node allocation
+            Manage compute nodes and worker processes
           </p>
-        </div>
-        <div className="flex-standard">
-          <Button variant="outline" size="sm" onClick={fetchNodes}>
-            <RefreshCw className="icon-standard mr-2" />
-            Refresh
-          </Button>
-          <Button onClick={() => setShowRegisterModal(true)}>
-            <Server className="icon-standard mr-2" />
-            Register Node
-          </Button>
         </div>
       </div>
 
-      <Card className="card-standard">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="nodes">
+            <Server className="h-4 w-4 mr-2" />
+            Nodes
+          </TabsTrigger>
+          <TabsTrigger value="workers">
+            <Activity className="h-4 w-4 mr-2" />
+            Workers
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="nodes" className="space-y-4">
+          <div className="flex-standard justify-end">
+            <Button variant="outline" size="sm" onClick={fetchNodes}>
+              <RefreshCw className="icon-standard mr-2" />
+              Refresh
+            </Button>
+            <Button onClick={() => setShowRegisterModal(true)}>
+              <Server className="icon-standard mr-2" />
+              Register Node
+            </Button>
+          </div>
+
+          <Card className="card-standard">
         <CardHeader>
           <CardTitle>Active Nodes</CardTitle>
         </CardHeader>
@@ -368,6 +385,12 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        <TabsContent value="workers">
+          <WorkersTab selectedTenant={selectedTenant} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

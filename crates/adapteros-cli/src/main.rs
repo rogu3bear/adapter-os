@@ -23,6 +23,8 @@ pub enum BackendType {
     Metal,
     /// MLX backend (Python/MLX)
     Mlx,
+    /// CoreML backend (macOS Neural Engine)
+    CoreML,
 }
 
 #[derive(Parser)]
@@ -412,6 +414,40 @@ Examples:
         bundle_dir: PathBuf,
     },
 
+    /// Check for environment drift
+    #[command(alias = "drift")]
+    #[command(after_help = "\
+Examples:
+  # Check drift against baseline
+  aosctl drift-check
+
+  # Check drift and save current fingerprint
+  aosctl drift-check --save-current
+
+  # Create initial baseline
+  aosctl drift-check --save-baseline
+
+  # Use custom baseline path
+  aosctl drift-check --baseline var/production_baseline.json
+")]
+    DriftCheck {
+        /// Database path
+        #[arg(long)]
+        db: Option<PathBuf>,
+
+        /// Baseline fingerprint path
+        #[arg(long)]
+        baseline: Option<PathBuf>,
+
+        /// Save current fingerprint
+        #[arg(long)]
+        save_current: bool,
+
+        /// Save as new baseline
+        #[arg(long)]
+        save_baseline: bool,
+    },
+
     // ============================================================
     // CodeGraph & Call Graph
     // ============================================================
@@ -577,7 +613,7 @@ Examples:
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal or mlx
+        /// Backend selection: metal, mlx, or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -886,6 +922,29 @@ Examples:
         args: commands::manual::ManualArgs,
     },
 
+    /// Train a LoRA adapter
+    #[command(after_help = "\
+Examples:
+  # Train adapter with default settings
+  aosctl train --data training_data.json --output ./trained_adapter
+
+  # Train with custom configuration
+  aosctl train --data training_data.json --output ./trained_adapter \\
+    --rank 8 --alpha 32.0 --learning-rate 0.001 --epochs 5
+
+  # Train with Metal backend
+  aosctl train --data training_data.json --output ./trained_adapter \\
+    --plan plan/qwen7b/plan.bin
+
+  # Train with configuration file
+  aosctl train --config training_config.json --data training_data.json \\
+    --output ./trained_adapter
+")]
+    Train {
+        #[command(flatten)]
+        args: train::TrainArgs,
+    },
+
     /// Alias for tenant-init (for convenience)
     #[command(hide = true)]
     Init {
@@ -1130,15 +1189,21 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             verify_telemetry::verify_telemetry_chain(&bundle_dir, &output).await?;
         }
 
+        Commands::DriftCheck {
+            db,
+            baseline,
+            save_current,
+            save_baseline,
+        } => {
+            std::process::exit(commands::drift_check::drift_check(
+                db.clone(),
+                baseline.clone(),
+                *save_current,
+                *save_baseline,
+            ).await?);
+        }
+
         // CodeGraph & Call Graph (temporarily disabled due to mplora-codegraph dependency)
-        // Commands::CallgraphExport { codegraph_db, output: output_path, format } => {
-        //     let export_format = format.parse()
-        //         .map_err(|e| anyhow::anyhow!("Invalid export format: {}", e))?;
-        //     export_callgraph::export_callgraph(&codegraph_db, &output_path, export_format, &output).await?;
-        // }
-        // Commands::CodegraphStats { codegraph_db } => {
-        //     export_callgraph::generate_stats(&codegraph_db, &output).await?;
-        // }
         Commands::CallgraphExport { .. } => {
             anyhow::bail!(
                 "CallgraphExport is temporarily disabled due to mplora-codegraph dependency"
@@ -1175,7 +1240,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         
         // Policy Management
         Commands::Policy(cmd) => {
-            cmd.run()?;
+            cmd.clone().run()?;
         }
         
         Commands::Serve {
@@ -1283,6 +1348,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Manual { args } => {
             commands::manual::run_manual(args.clone())?;
         }
+
+        Commands::Train { args } => {
+            args.execute().await?;
+        }
     }
 
     Ok(())
@@ -1305,6 +1374,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::TelemetryVerify { .. } => "verify-telemetry",
+        Commands::DriftCheck { .. } => "drift-check",
         Commands::CallgraphExport { .. } => "callgraph-export",
         Commands::CodegraphStats { .. } => "codegraph-stats",
         Commands::SecdStatus { .. } => "secd-status",
@@ -1327,6 +1397,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::ErrorCodes { .. } => "error-codes",
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
+        Commands::Train { .. } => "train",
     }
     .to_string()
 }
@@ -1346,6 +1417,7 @@ fn extract_tenant_from_command(command: &Commands) -> Option<String> {
 }
 
 /// Initialize logging based on environment variable and flags
+#[allow(dead_code)] // TODO: Implement logging initialization in future iteration
 fn init_logging() -> Result<()> {
     // Check for AOS_LOG_LEVEL environment variable
     let filter = EnvFilter::try_from_default_env()

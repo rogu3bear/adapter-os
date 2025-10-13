@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 //! Policy integration for system metrics
 //!
 //! Provides policy enforcement integration for system metrics following
@@ -6,7 +8,6 @@
 use crate::{SystemMetrics, ThresholdsConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_policy::PolicyEngine;
-use tracing::warn;
 
 /// System metrics policy enforcer
 pub struct SystemMetricsPolicy {

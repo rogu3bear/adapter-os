@@ -54,18 +54,23 @@ pub struct CanonicalQuantizationParams {
 impl CanonicalTensor {
     /// Create canonical representation from tensor
     pub fn from_tensor(tensor: &Tensor) -> Result<Self> {
-        let quantization_params = tensor
-            .metadata
-            .quantization
-            .as_ref()
-            .map(|q| CanonicalQuantizationParams {
-                quant_type: q.quant_type.clone(),
-                group_size: q.group_size,
-                bits: q.bits,
-                scales: q.scales.clone(),
-                zero_points: q.zero_points.clone(),
-                extra_params: q.extra_params.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-            });
+        let quantization_params =
+            tensor
+                .metadata
+                .quantization
+                .as_ref()
+                .map(|q| CanonicalQuantizationParams {
+                    quant_type: q.quant_type.clone(),
+                    group_size: q.group_size,
+                    bits: q.bits,
+                    scales: q.scales.clone(),
+                    zero_points: q.zero_points.clone(),
+                    extra_params: q
+                        .extra_params
+                        .iter()
+                        .map(|(k, v)| (k.clone(), *v))
+                        .collect(),
+                });
 
         Ok(Self {
             version: HASH_VERSION,
@@ -85,7 +90,7 @@ impl CanonicalTensor {
         serde_cbor::to_vec(self).map_err(|e| {
             AosError::Serialization(serde_json::Error::io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Failed to serialize canonical tensor: {}", e)
+                format!("Failed to serialize canonical tensor: {}", e),
             )))
         })
     }
@@ -95,7 +100,7 @@ impl CanonicalTensor {
         serde_cbor::from_slice(bytes).map_err(|e| {
             AosError::Serialization(serde_json::Error::io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Failed to deserialize canonical tensor: {}", e)
+                format!("Failed to deserialize canonical tensor: {}", e),
             )))
         })
     }
@@ -126,7 +131,7 @@ impl CanonicalTensor {
             bytes.push(1); // Present flag
             bytes.extend_from_slice(&qp.quant_type.len().to_le_bytes());
             bytes.extend_from_slice(qp.quant_type.as_bytes());
-            
+
             // Group size
             if let Some(gs) = qp.group_size {
                 bytes.push(1); // Present flag
@@ -200,7 +205,9 @@ impl CanonicalTensor {
         let mut offset = 0;
 
         if bytes.len() < 2 {
-            return Err(AosError::Validation("Insufficient bytes for canonical tensor".to_string()));
+            return Err(AosError::Validation(
+                "Insufficient bytes for canonical tensor".to_string(),
+            ));
         }
 
         let version = bytes[offset];
@@ -216,35 +223,55 @@ impl CanonicalTensor {
         }
 
         if bytes.len() < offset + 1 {
-            return Err(AosError::Validation("Insufficient bytes for dtype".to_string()));
+            return Err(AosError::Validation(
+                "Insufficient bytes for dtype".to_string(),
+            ));
         }
         let dtype_bytes = bytes[offset];
         offset += 1;
 
         if bytes.len() < offset + 8 {
-            return Err(AosError::Validation("Insufficient bytes for shape length".to_string()));
+            return Err(AosError::Validation(
+                "Insufficient bytes for shape length".to_string(),
+            ));
         }
         let shape_len = u64::from_le_bytes([
-            bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3],
-            bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7],
+            bytes[offset],
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+            bytes[offset + 4],
+            bytes[offset + 5],
+            bytes[offset + 6],
+            bytes[offset + 7],
         ]) as usize;
         offset += 8;
 
         if bytes.len() < offset + shape_len * 8 {
-            return Err(AosError::Validation("Insufficient bytes for shape".to_string()));
+            return Err(AosError::Validation(
+                "Insufficient bytes for shape".to_string(),
+            ));
         }
         let mut shape = Vec::with_capacity(shape_len);
         for _ in 0..shape_len {
             let dim = u64::from_le_bytes([
-                bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3],
-                bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7],
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+                bytes[offset + 4],
+                bytes[offset + 5],
+                bytes[offset + 6],
+                bytes[offset + 7],
             ]);
             shape.push(dim);
             offset += 8;
         }
 
         if bytes.len() < offset + 2 {
-            return Err(AosError::Validation("Insufficient bytes for layout and device".to_string()));
+            return Err(AosError::Validation(
+                "Insufficient bytes for layout and device".to_string(),
+            ));
         }
         let layout_bytes = bytes[offset];
         offset += 1;
@@ -272,18 +299,30 @@ impl CanonicalTensor {
         let metal_kernel_hash = if bytes.len() > offset && bytes[offset] == 1 {
             offset += 1;
             if bytes.len() < offset + 8 {
-                return Err(AosError::Validation("Insufficient bytes for kernel hash length".to_string()));
+                return Err(AosError::Validation(
+                    "Insufficient bytes for kernel hash length".to_string(),
+                ));
             }
             let hash_len = u64::from_le_bytes([
-                bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3],
-                bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7],
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+                bytes[offset + 4],
+                bytes[offset + 5],
+                bytes[offset + 6],
+                bytes[offset + 7],
             ]) as usize;
             offset += 8;
             if bytes.len() < offset + hash_len {
-                return Err(AosError::Validation("Insufficient bytes for kernel hash".to_string()));
+                return Err(AosError::Validation(
+                    "Insufficient bytes for kernel hash".to_string(),
+                ));
             }
-            let hash = String::from_utf8(bytes[offset..offset + hash_len].to_vec())
-                .map_err(|e| AosError::Validation(format!("Invalid UTF-8 in kernel hash: {}", e)))?;
+            let hash =
+                String::from_utf8(bytes[offset..offset + hash_len].to_vec()).map_err(|e| {
+                    AosError::Validation(format!("Invalid UTF-8 in kernel hash: {}", e))
+                })?;
             offset += hash_len;
             Some(hash)
         } else {
@@ -295,18 +334,30 @@ impl CanonicalTensor {
         let memory_address_hash = if bytes.len() > offset && bytes[offset] == 1 {
             offset += 1;
             if bytes.len() < offset + 8 {
-                return Err(AosError::Validation("Insufficient bytes for address hash length".to_string()));
+                return Err(AosError::Validation(
+                    "Insufficient bytes for address hash length".to_string(),
+                ));
             }
             let hash_len = u64::from_le_bytes([
-                bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3],
-                bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7],
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+                bytes[offset + 4],
+                bytes[offset + 5],
+                bytes[offset + 6],
+                bytes[offset + 7],
             ]) as usize;
             offset += 8;
             if bytes.len() < offset + hash_len {
-                return Err(AosError::Validation("Insufficient bytes for address hash".to_string()));
+                return Err(AosError::Validation(
+                    "Insufficient bytes for address hash".to_string(),
+                ));
             }
-            let hash = String::from_utf8(bytes[offset..offset + hash_len].to_vec())
-                .map_err(|e| AosError::Validation(format!("Invalid UTF-8 in address hash: {}", e)))?;
+            let hash =
+                String::from_utf8(bytes[offset..offset + hash_len].to_vec()).map_err(|e| {
+                    AosError::Validation(format!("Invalid UTF-8 in address hash: {}", e))
+                })?;
             Some(hash)
         } else {
             None
@@ -334,7 +385,7 @@ pub fn canonical_tensor_repr(tensor: &Tensor) -> Result<CanonicalTensor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tensor::{Tensor, TensorMetadata};
+    use crate::tensor::{DataType, DeviceFamily, MemoryLayout, Tensor, TensorMetadata};
 
     fn create_test_tensor() -> Tensor {
         Tensor {
@@ -355,7 +406,7 @@ mod tests {
     fn test_canonical_tensor_creation() {
         let tensor = create_test_tensor();
         let canonical = CanonicalTensor::from_tensor(&tensor).unwrap();
-        
+
         assert_eq!(canonical.version, HASH_VERSION);
         assert_eq!(canonical.endian, LITTLE_ENDIAN);
         assert_eq!(canonical.dtype_bytes, DataType::Float32 as u8);
@@ -370,10 +421,10 @@ mod tests {
     fn test_canonical_bytes_roundtrip() {
         let tensor = create_test_tensor();
         let canonical = CanonicalTensor::from_tensor(&tensor).unwrap();
-        
+
         let bytes = canonical.to_canonical_bytes().unwrap();
         let restored = CanonicalTensor::from_canonical_bytes(&bytes).unwrap();
-        
+
         assert_eq!(canonical, restored);
     }
 
@@ -381,10 +432,10 @@ mod tests {
     fn test_fixed_bytes_roundtrip() {
         let tensor = create_test_tensor();
         let canonical = CanonicalTensor::from_tensor(&tensor).unwrap();
-        
+
         let bytes = canonical.to_fixed_bytes().unwrap();
         let restored = CanonicalTensor::from_fixed_bytes(&bytes).unwrap();
-        
+
         assert_eq!(canonical.version, restored.version);
         assert_eq!(canonical.endian, restored.endian);
         assert_eq!(canonical.dtype_bytes, restored.dtype_bytes);
@@ -398,10 +449,10 @@ mod tests {
         let tensor = create_test_tensor();
         let canonical1 = CanonicalTensor::from_tensor(&tensor).unwrap();
         let canonical2 = CanonicalTensor::from_tensor(&tensor).unwrap();
-        
+
         let bytes1 = canonical1.to_canonical_bytes().unwrap();
         let bytes2 = canonical2.to_canonical_bytes().unwrap();
-        
+
         assert_eq!(bytes1, bytes2);
     }
 }

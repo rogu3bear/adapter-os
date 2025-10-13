@@ -3,6 +3,138 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// RNG state snapshot for deterministic replay
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RngSnapshot {
+    /// Global nonce value when snapshot was taken
+    pub global_nonce: u64,
+    /// Label of the RNG instance
+    pub label: String,
+    /// Step count
+    pub step_count: u64,
+}
+
+/// Inference event with RNG tracking (Ruleset #2 - Determinism)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Session ID
+    pub session_id: String,
+    /// Request ID
+    pub request_id: String,
+    /// Input token count
+    pub input_tokens: usize,
+    /// Output token count
+    pub output_tokens: usize,
+    /// Inference duration (microseconds)
+    pub duration_us: u64,
+    /// Success flag
+    pub success: bool,
+    /// Error message (if any)
+    pub error: Option<String>,
+    /// Current RNG nonce value
+    pub rng_nonce: u64,
+    /// RNG state snapshot for replay
+    pub rng_snapshot: Option<RngSnapshot>,
+    /// Router decisions made during inference
+    pub router_decisions: Vec<String>,
+    /// Memory usage (bytes)
+    pub memory_used_bytes: u64,
+    /// Model ID
+    pub model_id: String,
+    /// Adapter IDs used
+    pub adapter_ids: Vec<u16>,
+    /// Global nonce at inference start
+    #[serde(default)]
+    pub global_nonce: u64,
+    /// Seed label used for RNG derivation
+    #[serde(default)]
+    pub seed_label: String,
+    /// BLAKE3 checksum of seed for validation
+    #[serde(default)]
+    pub seed_checksum: String,
+    /// RNG draw counter at inference end
+    #[serde(default)]
+    pub rng_counter: u64,
+    /// Worker ID for cross-worker verification
+    #[serde(default)]
+    pub worker_id: u32,
+}
+
+impl InferenceEvent {
+    pub fn new(
+        session_id: String,
+        request_id: String,
+        input_tokens: usize,
+        model_id: String,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            session_id,
+            request_id,
+            input_tokens,
+            output_tokens: 0,
+            duration_us: 0,
+            success: true,
+            error: None,
+            rng_nonce: 0,
+            rng_snapshot: None,
+            router_decisions: Vec::new(),
+            memory_used_bytes: 0,
+            model_id,
+            adapter_ids: Vec::new(),
+            global_nonce: 0,
+            seed_label: String::new(),
+            seed_checksum: String::new(),
+            rng_counter: 0,
+            worker_id: 0,
+        }
+    }
+
+    pub fn with_rng_metadata(
+        mut self,
+        global_nonce: u64,
+        seed_label: String,
+        seed_checksum: String,
+        rng_counter: u64,
+        worker_id: u32,
+    ) -> Self {
+        self.global_nonce = global_nonce;
+        self.seed_label = seed_label;
+        self.seed_checksum = seed_checksum;
+        self.rng_counter = rng_counter;
+        self.worker_id = worker_id;
+        self
+    }
+
+    pub fn with_rng_snapshot(mut self, snapshot: RngSnapshot) -> Self {
+        self.rng_nonce = snapshot.global_nonce;
+        self.rng_snapshot = Some(snapshot);
+        self
+    }
+
+    pub fn with_output(mut self, output_tokens: usize, duration_us: u64) -> Self {
+        self.output_tokens = output_tokens;
+        self.duration_us = duration_us;
+        self
+    }
+
+    pub fn with_adapters(mut self, adapter_ids: Vec<u16>) -> Self {
+        self.adapter_ids = adapter_ids;
+        self
+    }
+
+    pub fn with_error(mut self, error: String) -> Self {
+        self.success = false;
+        self.error = Some(error);
+        self
+    }
+}
+
 /// Router decision event with feature importance
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterDecisionEvent {
@@ -365,4 +497,3 @@ impl PerformanceBudgetViolationEvent {
         }
     }
 }
-

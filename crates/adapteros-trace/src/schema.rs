@@ -66,7 +66,7 @@ impl Event {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("System time before UNIX epoch")
-            .as_nanos() as u128;
+            .as_nanos();
 
         // Compute hash of the event data
         let event_data = EventData {
@@ -134,9 +134,9 @@ impl EventData {
     /// Compute BLAKE3 hash of the event data
     fn compute_hash(&self) -> B3Hash {
         // Serialize to canonical JSON for deterministic hashing
-        let canonical_bytes = serde_jcs::to_vec(self)
-            .expect("Failed to serialize event data to canonical JSON");
-        
+        let canonical_bytes =
+            serde_jcs::to_vec(self).expect("Failed to serialize event data to canonical JSON");
+
         B3Hash::hash(&canonical_bytes)
     }
 }
@@ -196,7 +196,7 @@ impl TraceBundle {
         let created_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("System time before UNIX epoch")
-            .as_nanos() as u128;
+            .as_nanos();
 
         let metadata = BundleMetadata {
             created_at,
@@ -272,10 +272,7 @@ impl TraceBundle {
 
     /// Get events by operation ID
     pub fn get_events_by_op_id(&self, op_id: &str) -> Vec<&Event> {
-        self.events
-            .iter()
-            .filter(|e| e.op_id == op_id)
-            .collect()
+        self.events.iter().filter(|e| e.op_id == op_id).collect()
     }
 
     /// Get events in tick order
@@ -304,9 +301,9 @@ impl BundleData {
     /// Compute BLAKE3 hash of the bundle data
     fn compute_hash(&self) -> B3Hash {
         // Serialize to canonical JSON for deterministic hashing
-        let canonical_bytes = serde_jcs::to_vec(self)
-            .expect("Failed to serialize bundle data to canonical JSON");
-        
+        let canonical_bytes =
+            serde_jcs::to_vec(self).expect("Failed to serialize bundle data to canonical JSON");
+
         B3Hash::hash(&canonical_bytes)
     }
 }

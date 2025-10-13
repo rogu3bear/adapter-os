@@ -1,7 +1,7 @@
 //! Prometheus/OpenMetrics exporter for AdapterOS control plane
 
-use anyhow::Result;
 use adapteros_db::Db;
+use anyhow::Result;
 use prometheus::{
     Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
     TextEncoder,

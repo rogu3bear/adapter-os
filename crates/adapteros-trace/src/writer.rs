@@ -22,32 +22,29 @@ impl TraceWriter {
     pub fn new<P: AsRef<Path>>(path: P, bundle: TraceBundle) -> Result<Self> {
         let file = File::create(path.as_ref())
             .map_err(|e| AosError::Telemetry(format!("Failed to create trace file: {}", e)))?;
-        
+
         let writer = BufWriter::new(file);
-        
-        Ok(Self {
-            writer,
-            bundle,
-        })
+
+        Ok(Self { writer, bundle })
     }
 
     /// Write an event to the trace
     pub fn write_event(&mut self, event: Event) -> Result<()> {
         // Add event to bundle
         self.bundle.add_event(event.clone());
-        
+
         // Write event as NDJSON line
         let line = serde_json::to_string(&event)
             .map_err(|e| AosError::Telemetry(format!("Failed to serialize event: {}", e)))?;
-        
+
         self.writer
             .write_all(line.as_bytes())
             .map_err(|e| AosError::Telemetry(format!("Failed to write event: {}", e)))?;
-        
+
         self.writer
             .write_all(b"\n")
             .map_err(|e| AosError::Telemetry(format!("Failed to write newline: {}", e)))?;
-        
+
         Ok(())
     }
 
@@ -56,7 +53,7 @@ impl TraceWriter {
         self.writer
             .flush()
             .map_err(|e| AosError::Telemetry(format!("Failed to flush writer: {}", e)))?;
-        
+
         Ok(())
     }
 
@@ -82,14 +79,14 @@ pub fn write_trace_bundle<P: AsRef<Path>>(path: P, bundle: TraceBundle) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use crate::schema::TraceBundle;
+    use tempfile::TempDir;
 
     #[test]
     fn test_trace_writer_creation() {
         let temp_dir = TempDir::new().unwrap();
         let trace_path = temp_dir.path().join("test_trace.ndjson");
-        
+
         let bundle = TraceBundle::new(
             adapteros_core::B3Hash::hash(b"test_seed"),
             "test_plan".to_string(),
@@ -97,7 +94,7 @@ mod tests {
             "test_tenant".to_string(),
             "test_session".to_string(),
         );
-        
+
         let writer = TraceWriter::new(&trace_path, bundle);
         assert!(writer.is_ok());
     }
@@ -106,7 +103,7 @@ mod tests {
     fn test_write_event() {
         let temp_dir = TempDir::new().unwrap();
         let trace_path = temp_dir.path().join("test_trace.ndjson");
-        
+
         let bundle = TraceBundle::new(
             adapteros_core::B3Hash::hash(b"test_seed"),
             "test_plan".to_string(),
@@ -114,9 +111,9 @@ mod tests {
             "test_tenant".to_string(),
             "test_session".to_string(),
         );
-        
+
         let mut writer = TraceWriter::new(&trace_path, bundle).unwrap();
-        
+
         let event = crate::events::inference_start_event(
             1,
             "test_plan".to_string(),
@@ -125,10 +122,10 @@ mod tests {
             "test_session".to_string(),
             adapteros_core::B3Hash::hash(b"test_seed"),
         );
-        
+
         let result = writer.write_event(event);
         assert!(result.is_ok());
-        
+
         let final_bundle = writer.finalize().unwrap();
         assert_eq!(final_bundle.events.len(), 1);
     }

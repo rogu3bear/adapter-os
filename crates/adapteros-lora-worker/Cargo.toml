@@ -14,7 +14,6 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
-# adapteros-lora-mlx = { path = "../adapteros-lora-mlx" }  # Temporarily disabled due to PyO3 linker issues
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
@@ -32,6 +31,8 @@ memmap2 = { workspace = true }
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
+rand_chacha = "0.3"
+zeroize = { version = "1.7", features = ["derive"] }
 tracing = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.0"

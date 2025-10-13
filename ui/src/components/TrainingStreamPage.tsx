@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
+import { useTimestamp } from '../hooks/useTimestamp';
 
 interface TrainingEvent {
   type: string;
@@ -203,7 +204,7 @@ export function TrainingStreamPage({ selectedTenant }: TrainingStreamPageProps) 
                   )}
                 </div>
                 <div className="text-xs text-gray-400">
-                  {new Date(event.timestamp).toLocaleTimeString()}
+                  {useTimestamp(new Date(event.timestamp).toISOString())}
                 </div>
               </div>
             ))}

@@ -205,10 +205,38 @@ pub struct RouterCfg {
     pub warmup: bool,
     #[serde(default = "default_algorithm")]
     pub algorithm: String, // "weighted" | "entropy_floor" | "plugin:<name>"
+
+    // MPLoRA enhancements
+    // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    #[serde(default = "default_orthogonal_penalty")]
+    pub orthogonal_penalty: f32, // Default: 0.1
+    #[serde(default)]
+    pub shared_downsample: bool, // Default: false
+    #[serde(default = "default_compression_ratio")]
+    pub compression_ratio: f32, // Default: 0.8
+    #[serde(default)]
+    pub multi_path_enabled: bool, // Default: false
+    #[serde(default = "default_diversity_threshold")]
+    pub diversity_threshold: f32, // Default: 0.05
+    #[serde(default)]
+    pub orthogonal_constraints: bool, // Default: false
 }
 
 fn default_algorithm() -> String {
     "weighted".to_string()
+}
+
+// MPLoRA default functions
+fn default_orthogonal_penalty() -> f32 {
+    0.1
+}
+
+fn default_compression_ratio() -> f32 {
+    0.8
+}
+
+fn default_diversity_threshold() -> f32 {
+    0.05
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -233,6 +261,32 @@ pub struct BundleCfg {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DriftPolicy {
+    /// OS build tolerance (0 = exact match required)
+    pub os_build_tolerance: u8,
+    /// GPU driver tolerance (0 = exact match required)
+    pub gpu_driver_tolerance: u8,
+    /// Environment hash tolerance (0 = exact match required)
+    pub env_hash_tolerance: u8,
+    /// Allow drift warnings without blocking
+    pub allow_warnings: bool,
+    /// Block inference on critical drift
+    pub block_on_critical: bool,
+}
+
+impl Default for DriftPolicy {
+    fn default() -> Self {
+        Self {
+            os_build_tolerance: 0,
+            gpu_driver_tolerance: 0,
+            env_hash_tolerance: 0,
+            allow_warnings: true,
+            block_on_critical: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Policies {
     pub egress: EgressPolicy,
     pub determinism: DeterminismPolicy,
@@ -244,6 +298,7 @@ pub struct Policies {
     pub performance: PerformancePolicy,
     pub memory: MemoryPolicy,
     pub artifacts: ArtifactsPolicy,
+    pub drift: DriftPolicy,
 }
 
 impl Default for Policies {
@@ -314,6 +369,7 @@ impl Default for Policies {
                 require_sbom: true,
                 cas_only: true,
             },
+            drift: DriftPolicy::default(),
         }
     }
 }
@@ -443,6 +499,26 @@ impl ManifestV3 {
             ));
         }
 
+        // MPLoRA validation
+        // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+        if self.router.orthogonal_penalty < 0.0 || self.router.orthogonal_penalty > 1.0 {
+            return Err(AosError::InvalidManifest(
+                "orthogonal_penalty must be between 0 and 1".into(),
+            ));
+        }
+
+        if self.router.compression_ratio <= 0.0 || self.router.compression_ratio > 1.0 {
+            return Err(AosError::InvalidManifest(
+                "compression_ratio must be between 0 and 1".into(),
+            ));
+        }
+
+        if self.router.diversity_threshold < 0.0 || self.router.diversity_threshold > 1.0 {
+            return Err(AosError::InvalidManifest(
+                "diversity_threshold must be between 0 and 1".into(),
+            ));
+        }
+
         // Adapter constraints
         for adapter in &self.adapters {
             if adapter.rank == 0 {
@@ -506,6 +582,12 @@ mod tests {
                 sample_tokens_full: 128,
                 warmup: false,
                 algorithm: "weighted".into(),
+                orthogonal_penalty: 0.1,
+                shared_downsample: false,
+                compression_ratio: 0.8,
+                multi_path_enabled: false,
+                diversity_threshold: 0.05,
+                orthogonal_constraints: false,
             },
             telemetry: TelemetryCfg {
                 schema_hash: B3Hash::hash(b"schema"),
@@ -586,6 +668,7 @@ mod tests {
                     require_sbom: true,
                     cas_only: true,
                 },
+                drift: DriftPolicy::default(),
             },
             seeds: Seeds {
                 global: B3Hash::hash(b"global_seed"),

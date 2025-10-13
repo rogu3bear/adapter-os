@@ -103,7 +103,7 @@ impl GateReport {
             md.push_str(&format!("| {} | {} | {} |\n", name, status, result.message));
         }
 
-        md.push_str("\n");
+        md.push('\n');
 
         if !self.all_passed {
             md.push_str("## Action Required\n\n");

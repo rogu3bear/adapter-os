@@ -3,12 +3,12 @@
 //! Writes a JSON snapshot of AdapterOS state to `/var/run/adapteros_status.json`
 //! for consumption by the macOS menu bar app.
 
-use anyhow::{Context, Result};
 use adapteros_server_api::AppState;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use tracing::{debug, warn};
 
 /// Status reported to menu bar app
@@ -28,6 +28,16 @@ pub struct AdapterOSStatus {
     pub telemetry_mode: String,
     /// Number of active workers
     pub worker_count: usize,
+    /// Base model loading status
+    pub base_model_loaded: bool,
+    /// Base model ID if loaded
+    pub base_model_id: Option<String>,
+    /// Base model name if loaded
+    pub base_model_name: Option<String>,
+    /// Base model status: "loading" | "loaded" | "unloading" | "unloaded" | "error"
+    pub base_model_status: String,
+    /// Base model memory usage in MB
+    pub base_model_memory_mb: Option<i32>,
 }
 
 /// Tracks when the control plane started
@@ -63,15 +73,19 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
     let adapters_loaded = query_adapter_count(&state.db).await.unwrap_or(0);
     let worker_count = query_worker_count(&state.db).await.unwrap_or(0);
 
+    // Query base model status
+    let base_model_status = query_base_model_status(&state.db).await.unwrap_or_default();
+
     // Determine overall system status
-    let status = if adapters_loaded > 0 && worker_count > 0 {
-        "ok"
-    } else if adapters_loaded > 0 || worker_count > 0 {
-        "degraded"
-    } else {
-        "error"
-    }
-    .to_string();
+    let status =
+        if adapters_loaded > 0 && worker_count > 0 && base_model_status.base_model_loaded {
+            "ok"
+        } else if adapters_loaded > 0 || worker_count > 0 || base_model_status.base_model_loaded {
+            "degraded"
+        } else {
+            "error"
+        }
+        .to_string();
 
     // Get kernel hash from plan (stub for now)
     let kernel_hash = get_kernel_hash()
@@ -89,6 +103,11 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
         kernel_hash,
         telemetry_mode: "local".to_string(),
         worker_count,
+        base_model_loaded: base_model_status.base_model_loaded,
+        base_model_id: base_model_status.base_model_id,
+        base_model_name: base_model_status.base_model_name,
+        base_model_status: base_model_status.base_model_status,
+        base_model_memory_mb: base_model_status.base_model_memory_mb,
     })
 }
 
@@ -107,6 +126,46 @@ async fn query_worker_count(_db: &adapteros_db::Db) -> Result<usize> {
     // For now, return a mock count
     // In production, would query from workers/sessions table
     Ok(0)
+}
+
+/// Base model status for status writer
+#[derive(Debug, Default)]
+struct BaseModelStatusInfo {
+    pub base_model_loaded: bool,
+    pub base_model_id: Option<String>,
+    pub base_model_name: Option<String>,
+    pub base_model_status: String,
+    pub base_model_memory_mb: Option<i32>,
+}
+
+/// Query base model status from database
+async fn query_base_model_status(db: &adapteros_db::Db) -> Result<BaseModelStatusInfo> {
+    // Query base model status for default tenant
+    if let Some(status_record) = db.get_base_model_status("default").await? {
+        // Get model details
+        let model = db.get_model(&status_record.model_id).await?;
+        let model_name = model
+            .map(|m| m.name)
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let is_loaded = status_record.status == "loaded";
+
+        Ok(BaseModelStatusInfo {
+            base_model_loaded: is_loaded,
+            base_model_id: Some(status_record.model_id),
+            base_model_name: Some(model_name),
+            base_model_status: status_record.status,
+            base_model_memory_mb: status_record.memory_usage_mb,
+        })
+    } else {
+        Ok(BaseModelStatusInfo {
+            base_model_loaded: false,
+            base_model_id: None,
+            base_model_name: None,
+            base_model_status: "unloaded".to_string(),
+            base_model_memory_mb: None,
+        })
+    }
 }
 
 /// Get kernel hash from current plan
@@ -219,11 +278,18 @@ mod tests {
             kernel_hash: "a84d9f1c".to_string(),
             telemetry_mode: "local".to_string(),
             worker_count: 2,
+            base_model_loaded: true,
+            base_model_id: Some("qwen2.5-7b".to_string()),
+            base_model_name: Some("Qwen2.5-7B-Instruct".to_string()),
+            base_model_status: "loaded".to_string(),
+            base_model_memory_mb: Some(8192),
         };
 
         let json =
             serde_json::to_string(&status).expect("Test status serialization should succeed");
         assert!(json.contains("\"status\":\"ok\""));
         assert!(json.contains("\"adapters_loaded\":3"));
+        assert!(json.contains("\"base_model_loaded\":true"));
+        assert!(json.contains("\"base_model_status\":\"loaded\""));
     }
 }

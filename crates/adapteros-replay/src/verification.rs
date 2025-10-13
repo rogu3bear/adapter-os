@@ -1,9 +1,9 @@
 //! Hash verification and trace comparison
 
 use anyhow::Result;
-use thiserror::Error;
 use std::path::Path;
-use tracing::{info, debug};
+use thiserror::Error;
+use tracing::info;
 
 use adapteros_core::B3Hash;
 use adapteros_trace::reader::read_trace_bundle;
@@ -35,8 +35,15 @@ pub enum ComparisonResult {
 }
 
 /// Compares two trace files event by event
-pub async fn compare_traces(trace_a_path: &Path, trace_b_path: &Path) -> Result<ComparisonResult, VerificationError> {
-    info!("Comparing traces: {} vs {}", trace_a_path.display(), trace_b_path.display());
+pub async fn compare_traces(
+    trace_a_path: &Path,
+    trace_b_path: &Path,
+) -> Result<ComparisonResult, VerificationError> {
+    info!(
+        "Comparing traces: {} vs {}",
+        trace_a_path.display(),
+        trace_b_path.display()
+    );
 
     let bundle_a = read_trace_bundle(trace_a_path)?;
     let bundle_b = read_trace_bundle(trace_b_path)?;
@@ -52,7 +59,12 @@ pub async fn compare_traces(trace_a_path: &Path, trace_b_path: &Path) -> Result<
         });
     }
 
-    for (i, (event_a, event_b)) in bundle_a.events.iter().zip(bundle_b.events.iter()).enumerate() {
+    for (i, (event_a, event_b)) in bundle_a
+        .events
+        .iter()
+        .zip(bundle_b.events.iter())
+        .enumerate()
+    {
         if event_a.blake3_hash != event_b.blake3_hash {
             return Ok(ComparisonResult::Divergent {
                 reason: format!(

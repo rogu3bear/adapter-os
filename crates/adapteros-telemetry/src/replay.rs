@@ -12,6 +12,19 @@ pub struct ReplayBundle {
     pub plan_id: String,
     pub seed_global: B3Hash,
     pub events: Vec<ReplayEvent>,
+    /// RNG checkpoints for deterministic replay verification
+    #[serde(default)]
+    pub rng_checkpoints: Vec<RngCheckpoint>,
+}
+
+/// RNG checkpoint for mid-inference state capture
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RngCheckpoint {
+    pub timestamp_ticks: u64,
+    pub phase: String,
+    pub label: String,
+    pub step_count: u64,
+    pub global_nonce: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +99,7 @@ pub fn load_replay_bundle<P: AsRef<Path>>(path: P) -> Result<ReplayBundle> {
         plan_id,
         seed_global,
         events,
+        rng_checkpoints: Vec::new(), // Will be populated from events if present
     })
 }
 
@@ -100,8 +114,8 @@ pub fn find_divergence(
         if expected[i].event_hash != actual[i].event_hash {
             return Some(ReplayDivergence {
                 token_idx: i,
-                expected_hash: expected[i].event_hash.clone(),
-                actual_hash: actual[i].event_hash.clone(),
+                expected_hash: expected[i].event_hash,
+                actual_hash: actual[i].event_hash,
                 context: format!(
                     "Expected: {:?}, Actual: {:?}",
                     expected[i].event_type, actual[i].event_type

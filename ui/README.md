@@ -27,7 +27,7 @@ pnpm install
 pnpm dev
 ```
 
-The dev server runs on http://localhost:3000 and proxies API requests to the backend.
+The dev server runs on http://localhost:3200 and proxies API requests to the backend.
 
 ### Environment Variables
 

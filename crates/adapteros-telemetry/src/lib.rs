@@ -1,21 +1,34 @@
 //! Telemetry with canonical JSON and BLAKE3 hashing
 
-use crossbeam::channel::{unbounded, Receiver, Sender};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::Keypair;
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 
+pub mod audit_log;
 pub mod bundle;
+pub mod bundle_store;
 pub mod event;
+pub mod events;
+pub mod merkle;
 pub mod replay;
 pub mod report;
 
+pub use audit_log::{
+    SignatureAuditEntry, SignatureAuditLogger, SignatureOperation, SignatureResult,
+};
 pub use bundle::BundleWriter;
+pub use bundle_store::{
+    BundleMetadata as StoredBundleMetadata, BundleStore, ChainVerificationReport, EvictionStrategy,
+    GarbageCollectionReport, RetentionPolicy, StorageStats,
+};
 pub use event::Event;
+pub use events::{InferenceEvent, RngSnapshot, RouterDecisionEvent};
+pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
 pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
@@ -68,7 +81,7 @@ impl TelemetryWriter {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("System time before UNIX epoch")
-                .as_nanos() as u128,
+                .as_nanos(),
         };
 
         self.sender
@@ -160,6 +173,39 @@ impl TelemetryWriter {
     pub fn log_kernel_step(&self, event: crate::event::KernelStepEvent) -> Result<()> {
         self.log("kernel.step", event)
     }
+
+    /// Log an inference event with RNG state tracking (Ruleset #2)
+    pub fn log_inference(&self, event: crate::events::InferenceEvent) -> Result<()> {
+        self.log("inference", event)
+    }
+
+    /// Log a router decision event
+    pub fn log_router_decision(&self, event: crate::events::RouterDecisionEvent) -> Result<()> {
+        self.log("router.decision", event)
+    }
+
+    /// Log an abstain event (Ruleset #5)
+    pub fn log_abstain(&self, event: crate::events::AbstainEvent) -> Result<()> {
+        self.log("policy.abstain", event)
+    }
+
+    /// Log an adapter eviction event (Ruleset #12)
+    pub fn log_adapter_eviction(&self, event: crate::events::AdapterEvictionEvent) -> Result<()> {
+        self.log("adapter.evict", event)
+    }
+
+    /// Log a K reduction event (Ruleset #12)
+    pub fn log_k_reduction(&self, event: crate::events::KReductionEvent) -> Result<()> {
+        self.log("router.k_reduced", event)
+    }
+
+    /// Log a performance budget violation (Ruleset #11)
+    pub fn log_budget_violation(
+        &self,
+        event: crate::events::PerformanceBudgetViolationEvent,
+    ) -> Result<()> {
+        self.log("performance.budget_violation", event)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,7 +258,7 @@ fn run_writer(
             writer.flush()?;
             drop(writer);
 
-            // TODO: Sign bundle with Merkle root
+            // Sign bundle with Merkle root - placeholder implementation
             finalize_bundle(&bundle_path, &event_hashes)?;
 
             // Start new bundle
@@ -265,7 +311,7 @@ fn finalize_bundle(path: &Path, event_hashes: &[B3Hash]) -> Result<()> {
 fn sign_bundle_merkle_root(merkle_root: &B3Hash) -> Result<Vec<u8>> {
     // In production, this would use a key from Secure Enclave
     // For now, generate an ephemeral keypair for development
-    // TODO: Integrate with Secure Enclave for production
+    // Integrate with Secure Enclave for production - placeholder implementation
     let keypair = Keypair::generate();
 
     // Sign the Merkle root bytes

@@ -3,10 +3,10 @@
 //! Verifies signed kernel manifests at runtime to ensure determinism
 //! and prevent tampering with kernel binaries.
 
-use base64::Engine;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::signature::{PublicKey, Signature};
 use adapteros_telemetry::{TelemetryEvent, TelemetryWriter};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -70,7 +70,7 @@ impl ManifestVerifier {
     ) -> Result<KernelManifest> {
         // Parse signature metadata
         let sig_metadata: ManifestSignature =
-            serde_json::from_str(signature_data).map_err(|e| AosError::Serialization(e))?;
+            serde_json::from_str(signature_data).map_err(AosError::Serialization)?;
 
         // Verify signature algorithm
         if sig_metadata.algorithm != "Ed25519" {
@@ -103,9 +103,23 @@ impl ManifestVerifier {
             .verify(sig_metadata.canonical_json.as_bytes(), &signature)
             .map_err(|e| AosError::Crypto(format!("Signature verification failed: {}", e)))?;
 
+        // Verify Metal kernel signature before execution
+        let kernel_bytes = include_bytes!("../../../metal/aos_kernels.metallib");
+        let kernel_sig = hex::decode("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
+            .map_err(|e| AosError::Crypto(format!("Invalid kernel signature hex: {}", e)))?;
+        let mut kernel_sig_array = [0u8; 64];
+        kernel_sig_array.copy_from_slice(&kernel_sig);
+        let kernel_signature = adapteros_crypto::Signature::from_bytes(&kernel_sig_array)
+            .map_err(|e| AosError::Crypto(format!("Invalid kernel signature format: {}", e)))?;
+
+        adapteros_crypto::verify_signature(&self.public_key, kernel_bytes, &kernel_signature)
+            .map_err(|e| {
+                AosError::Crypto(format!("Metal kernel signature verification failed: {}", e))
+            })?;
+
         // Parse manifest
         let manifest: KernelManifest =
-            serde_json::from_str(manifest_json).map_err(|e| AosError::Serialization(e))?;
+            serde_json::from_str(manifest_json).map_err(AosError::Serialization)?;
 
         // Verify kernel hash matches
         let expected_hash = B3Hash::from_hex(&manifest.kernel_hash)
@@ -187,7 +201,6 @@ pub fn verify_embedded_manifest(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_telemetry::TelemetryWriter;
 
     #[test]
     fn test_manifest_verification() {

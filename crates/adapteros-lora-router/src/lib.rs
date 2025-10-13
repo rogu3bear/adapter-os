@@ -4,6 +4,7 @@ pub mod calibration;
 pub mod code_features;
 pub mod features;
 pub mod metrics;
+pub mod orthogonal;
 pub mod scoring;
 
 use adapteros_core::Result;
@@ -20,6 +21,7 @@ pub use metrics::{
     AdapterMetrics, MemoryMetrics, MemoryPressure, RouterMonitoringMetrics, RouterOverheadMetrics,
     ThroughputMetrics,
 };
+pub use orthogonal::OrthogonalConstraints;
 pub use scoring::{create_scorer, EntropyFloorScorer, ScoringFunction, WeightedScorer};
 
 /// Router weights for feature importance
@@ -35,6 +37,15 @@ pub struct RouterWeights {
     pub path_tokens_weight: f32,
     /// Weight for prompt verb (0.1 - weak signal)
     pub prompt_verb_weight: f32,
+
+    // MPLoRA additions
+    // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    /// Weight for orthogonal constraints (0.05 - weak signal)
+    pub orthogonal_weight: f32,
+    /// Weight for adapter diversity (0.03 - weak signal)
+    pub diversity_weight: f32,
+    /// Weight for similarity penalty (0.02 - weak signal)
+    pub similarity_penalty: f32,
 }
 
 impl Default for RouterWeights {
@@ -45,6 +56,9 @@ impl Default for RouterWeights {
             symbol_hits_weight: 0.2,
             path_tokens_weight: 0.15,
             prompt_verb_weight: 0.1,
+            orthogonal_weight: 0.05,
+            diversity_weight: 0.03,
+            similarity_penalty: 0.02,
         }
     }
 }
@@ -58,6 +72,32 @@ impl RouterWeights {
             symbol_hits_weight: symbols,
             path_tokens_weight: paths,
             prompt_verb_weight: verb,
+            orthogonal_weight: 0.05,
+            diversity_weight: 0.03,
+            similarity_penalty: 0.02,
+        }
+    }
+
+    /// Create custom weights with MPLoRA parameters
+    pub fn new_with_mplora(
+        language: f32,
+        framework: f32,
+        symbols: f32,
+        paths: f32,
+        verb: f32,
+        orthogonal: f32,
+        diversity: f32,
+        similarity: f32,
+    ) -> Self {
+        Self {
+            language_weight: language,
+            framework_weight: framework,
+            symbol_hits_weight: symbols,
+            path_tokens_weight: paths,
+            prompt_verb_weight: verb,
+            orthogonal_weight: orthogonal,
+            diversity_weight: diversity,
+            similarity_penalty: similarity,
         }
     }
 
@@ -68,6 +108,9 @@ impl RouterWeights {
             + self.symbol_hits_weight
             + self.path_tokens_weight
             + self.prompt_verb_weight
+            + self.orthogonal_weight
+            + self.diversity_weight
+            + self.similarity_penalty
     }
 
     /// Load weights from JSON file
@@ -81,7 +124,8 @@ impl RouterWeights {
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let content = serde_json::to_string_pretty(&self)
             .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
-        std::fs::write(path.as_ref(), content).map_err(|e| adapteros_core::AosError::Io(e.to_string()))
+        std::fs::write(path.as_ref(), content)
+            .map_err(|e| adapteros_core::AosError::Io(e.to_string()))
     }
 }
 
@@ -111,6 +155,17 @@ pub struct Router {
     token_count: usize,
     /// Log first N tokens fully (default: 128 per Telemetry Ruleset #9)
     full_log_tokens: usize,
+
+    // MPLoRA enhancements
+    // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    /// Orthogonal constraints tracker
+    orthogonal_constraints: Option<OrthogonalConstraints>,
+    /// Whether orthogonal constraints are enabled
+    orthogonal_enabled: bool,
+    /// Compression ratio for multi-path outputs
+    compression_ratio: f32,
+    /// Whether shared downsample is enabled
+    shared_downsample: bool,
 }
 
 impl Router {
@@ -124,6 +179,10 @@ impl Router {
             telemetry: None,
             token_count: 0,
             full_log_tokens: 128, // Per Telemetry Ruleset #9
+            orthogonal_constraints: None,
+            orthogonal_enabled: false,
+            compression_ratio: 0.8,
+            shared_downsample: false,
         }
     }
 
@@ -141,6 +200,46 @@ impl Router {
     /// Set full log token count
     pub fn set_full_log_tokens(&mut self, count: usize) {
         self.full_log_tokens = count;
+    }
+
+    /// Enable orthogonal constraints for MPLoRA
+    /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    pub fn set_orthogonal_constraints(
+        &mut self,
+        enabled: bool,
+        similarity_threshold: f32,
+        penalty_weight: f32,
+        history_window: usize,
+    ) {
+        self.orthogonal_enabled = enabled;
+        if enabled {
+            self.orthogonal_constraints = Some(OrthogonalConstraints::new(
+                similarity_threshold,
+                penalty_weight,
+                history_window,
+            ));
+        } else {
+            self.orthogonal_constraints = None;
+        }
+    }
+
+    /// Set compression ratio for multi-path outputs
+    pub fn set_compression_ratio(&mut self, ratio: f32) {
+        self.compression_ratio = ratio.clamp(0.1, 1.0);
+    }
+
+    /// Enable shared downsample matrix
+    pub fn set_shared_downsample(&mut self, enabled: bool) {
+        self.shared_downsample = enabled;
+    }
+
+    /// Get current diversity score from orthogonal constraints
+    pub fn diversity_score(&self) -> f32 {
+        if let Some(ref constraints) = self.orthogonal_constraints {
+            constraints.diversity_score()
+        } else {
+            1.0 // Maximum diversity when constraints are disabled
+        }
     }
 
     /// Compute weighted feature score from 22-dimensional feature vector
@@ -241,6 +340,26 @@ impl Router {
             .collect();
 
         let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
+
+        // Apply orthogonal constraints if enabled
+        if self.orthogonal_enabled {
+            if let Some(ref mut constraints) = self.orthogonal_constraints {
+                // Compute orthogonal penalty
+                let penalty = constraints.compute_penalty(&indices, &gates_q15);
+
+                // Apply penalty to gates (reduce similar adapter weights)
+                if penalty > 0.0 {
+                    // Apply penalty scaling to reduce similar adapter activations
+                    let _penalty_scale = 1.0 - (penalty * self.feature_weights.orthogonal_weight);
+                    // TODO: Implement penalty scaling in future iteration
+                    // Note: In a full implementation, we would re-run the routing with penalty
+                    // For now, we just track the penalty for telemetry
+                }
+
+                // Update activation history
+                constraints.update_history(&indices, &gates_q15);
+            }
+        }
 
         // Log router decision to telemetry
         let entropy = Self::compute_entropy(&gates);

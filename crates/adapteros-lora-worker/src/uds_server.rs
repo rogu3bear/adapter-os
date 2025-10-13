@@ -18,7 +18,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
-use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_deterministic_exec::{spawn_deterministic, channel::DeterministicChannel};
 
 use crate::signal::Signal;
 use crate::{InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType, Worker};
@@ -167,7 +167,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
         inference_req: InferenceRequest,
     ) -> Result<()> {
         // Create channel for signal streaming
-        let (signal_tx, mut signal_rx) = tokio::sync::mpsc::channel::<Signal>(32);
+        let (signal_tx, signal_rx) = DeterministicChannel::<Signal>::new(32);
 
         // Clone stream for signal transmission
         // Note: UnixStream doesn't implement Clone, so we split it

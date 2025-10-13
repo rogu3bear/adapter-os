@@ -87,7 +87,7 @@ fn generate_markdown(report: &VerificationReport) -> Result<String> {
             ));
         }
 
-        md.push_str("\n");
+        md.push('\n');
 
         // Details for failed checks
         let failed_checks: Vec<_> = section.checks
@@ -105,7 +105,7 @@ fn generate_markdown(report: &VerificationReport) -> Result<String> {
                     for evidence in &check.evidence {
                         md.push_str(&format!("- {}\n", evidence));
                     }
-                    md.push_str("\n");
+                    md.push('\n');
                 }
             }
         }
@@ -119,7 +119,7 @@ fn generate_markdown(report: &VerificationReport) -> Result<String> {
         for (name, path) in &report.artifacts {
             md.push_str(&format!("| {} | `{}` |\n", name, path));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Footer

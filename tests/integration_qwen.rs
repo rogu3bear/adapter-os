@@ -128,7 +128,6 @@ async fn test_gqa_configuration() {
 }
 
 /// Test LoRA memory calculation
-#[allow(dead_code)]
 async fn test_lora_memory_calculation() {
     let config = mplora_plan::config::ModelConfig {
         name: "test".to_string(),

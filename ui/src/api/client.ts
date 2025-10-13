@@ -2,11 +2,12 @@
 
 import * as types from './types';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8080/api';
 
 class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
+  private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
@@ -27,13 +28,46 @@ class ApiClient {
     return this.token;
   }
 
+  private async computeRequestId(method: string, path: string, body: string): Promise<string> {
+    const canonical = `${method}:${path}:${body}`;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(canonical);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
+  }
+
+  private logRequest(id: string, method: string, path: string) {
+    this.requestLog.push({
+      id,
+      method,
+      path,
+      timestamp: new Date().toISOString(),
+    });
+    // Keep last 1000 requests
+    if (this.requestLog.length > 1000) {
+      this.requestLog.shift();
+    }
+  }
+
+  public getRequestLog() {
+    return this.requestLog;
+  }
+
   private async request<T>(
     path: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    
+    // Compute deterministic request ID
+    const method = options.method || 'GET';
+    const body = options.body || '';
+    const requestId = await this.computeRequestId(method, path, body.toString());
+    
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      'X-Request-ID': requestId,
       ...options.headers,
     };
 
@@ -41,10 +75,19 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
+    // Store in local audit buffer
+    this.logRequest(requestId, method, path);
+
     const response = await fetch(url, {
       ...options,
       headers,
     });
+    
+    // Validate returned request ID matches
+    const returnedId = response.headers.get('X-Request-ID');
+    if (returnedId && returnedId !== requestId) {
+      console.warn('Request ID mismatch:', { sent: requestId, received: returnedId });
+    }
 
     if (!response.ok) {
       const error: types.ErrorResponse = await response.json().catch(() => ({
@@ -139,6 +182,33 @@ class ApiClient {
     return this.request<types.NodeDetailsResponse>(`/v1/nodes/${nodeId}/details`);
   }
 
+  // Workers
+  async listWorkers(tenantId?: string, nodeId?: string): Promise<types.WorkerResponse[]> {
+    const params = new URLSearchParams();
+    if (tenantId) params.append('tenant_id', tenantId);
+    if (nodeId) params.append('node_id', nodeId);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.WorkerResponse[]>(`/v1/workers${query}`);
+  }
+
+  async spawnWorker(request: types.SpawnWorkerRequest): Promise<types.WorkerResponse> {
+    return this.request<types.WorkerResponse>('/v1/workers/spawn', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async stopWorker(workerId: string, force: boolean = false): Promise<void> {
+    return this.request<void>(`/v1/workers/${workerId}/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    });
+  }
+
+  async getWorkerDetails(workerId: string): Promise<types.WorkerDetailsResponse> {
+    return this.request<types.WorkerDetailsResponse>(`/v1/workers/${workerId}/details`);
+  }
+
   // Plans
   async listPlans(): Promise<types.Plan[]> {
     return this.request<types.Plan[]>('/v1/plans');
@@ -213,10 +283,24 @@ class ApiClient {
     });
   }
 
-  async applyPolicy(data: types.ApplyPolicyRequest): Promise<void> {
-    return this.request('/v1/policies/apply', {
+  async applyPolicy(data: types.ApplyPolicyRequest): Promise<types.PolicyPackResponse> {
+    return this.request<types.PolicyPackResponse>('/v1/policies/apply', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async createPolicy(cpid: string, content: string): Promise<types.PolicyPackResponse> {
+    return this.request<types.PolicyPackResponse>('/v1/policies/apply', {
+      method: 'POST',
+      body: JSON.stringify({ cpid, content }),
+    });
+  }
+
+  async updatePolicy(cpid: string, content: string): Promise<types.PolicyPackResponse> {
+    return this.request<types.PolicyPackResponse>('/v1/policies/apply', {
+      method: 'POST',
+      body: JSON.stringify({ cpid, content }),
     });
   }
 
@@ -377,6 +461,12 @@ class ApiClient {
 
   async getAdapterMetrics(): Promise<types.AdapterMetrics[]> {
     return this.request<types.AdapterMetrics[]>('/v1/metrics/adapters');
+  }
+
+  // Base Model Status
+  async getBaseModelStatus(tenantId?: string): Promise<types.BaseModelStatus> {
+    const query = tenantId ? `?tenant_id=${tenantId}` : '';
+    return this.request<types.BaseModelStatus>(`/v1/models/status${query}`);
   }
 
   // Routing
@@ -587,6 +677,143 @@ class ApiClient {
     return this.request<void>(`/v1/domain-adapters/${adapterId}`, {
       method: 'DELETE',
     });
+  }
+
+  // Monitoring API
+  async listMonitoringRules(tenantId?: string): Promise<types.MonitoringRule[]> {
+    const query = tenantId ? `?tenant_id=${tenantId}` : '';
+    return this.request<types.MonitoringRule[]>(`/v1/monitoring/rules${query}`);
+  }
+
+  async createMonitoringRule(data: types.CreateMonitoringRuleRequest): Promise<types.MonitoringRule> {
+    return this.request<types.MonitoringRule>('/v1/monitoring/rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteMonitoringRule(ruleId: string): Promise<void> {
+    return this.request<void>(`/v1/monitoring/rules/${ruleId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listAlerts(filters?: types.AlertFilters): Promise<types.Alert[]> {
+    const params = new URLSearchParams();
+    if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
+    if (filters?.worker_id) params.append('worker_id', filters.worker_id);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.severity) params.append('severity', filters.severity);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.Alert[]>(`/v1/monitoring/alerts${query}`);
+  }
+
+  async acknowledgeAlert(alertId: string, data: types.AcknowledgeAlertRequest): Promise<types.Alert> {
+    return this.request<types.Alert>(`/v1/monitoring/alerts/${alertId}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listHealthMetrics(tenantId?: string): Promise<types.HealthMetric[]> {
+    const query = tenantId ? `?tenant_id=${tenantId}` : '';
+    return this.request<types.HealthMetric[]>(`/v1/monitoring/health-metrics${query}`);
+  }
+
+  // Replay API
+  async listReplaySessions(tenantId?: string): Promise<types.ReplaySession[]> {
+    const query = tenantId ? `?tenant_id=${tenantId}` : '';
+    return this.request<types.ReplaySession[]>(`/v1/replay/sessions${query}`);
+  }
+
+  async getReplaySession(sessionId: string): Promise<types.ReplaySession> {
+    return this.request<types.ReplaySession>(`/v1/replay/sessions/${sessionId}`);
+  }
+
+  async createReplaySession(data: types.CreateReplaySessionRequest): Promise<types.ReplaySession> {
+    return this.request<types.ReplaySession>('/v1/replay/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async verifyReplaySession(sessionId: string): Promise<types.ReplayVerificationResponse> {
+    return this.request<types.ReplayVerificationResponse>(`/v1/replay/sessions/${sessionId}/verify`, {
+      method: 'POST',
+    });
+  }
+
+  // Process debugging methods
+  async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
+    const params = new URLSearchParams();
+    if (filters?.level) params.append('level', filters.level);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.start_time) params.append('start_time', filters.start_time);
+    if (filters?.end_time) params.append('end_time', filters.end_time);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.ProcessLog[]>(`/v1/workers/${workerId}/logs${query}`);
+  }
+
+  async getProcessCrashes(workerId: string): Promise<types.ProcessCrash[]> {
+    return this.request<types.ProcessCrash[]>(`/v1/workers/${workerId}/crashes`);
+  }
+
+  async startDebugSession(workerId: string, config: types.DebugSessionConfig): Promise<types.DebugSession> {
+    return this.request<types.DebugSession>(`/v1/workers/${workerId}/debug`, {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+  }
+
+  async runTroubleshootingStep(workerId: string, step: types.TroubleshootingStep): Promise<types.TroubleshootingResult> {
+    return this.request<types.TroubleshootingResult>(`/v1/workers/${workerId}/troubleshoot`, {
+      method: 'POST',
+      body: JSON.stringify(step),
+    });
+  }
+
+  // Monitoring methods
+  async listMonitoringRules(tenantId?: string): Promise<types.MonitoringRule[]> {
+    const params = new URLSearchParams();
+    if (tenantId) params.append('tenant_id', tenantId);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.MonitoringRule[]>(`/v1/monitoring/rules${query}`);
+  }
+
+  async createMonitoringRule(data: types.CreateMonitoringRuleRequest): Promise<types.MonitoringRule> {
+    return this.request<types.MonitoringRule>('/v1/monitoring/rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listAlerts(filters?: types.AlertFilters): Promise<types.Alert[]> {
+    const params = new URLSearchParams();
+    if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
+    if (filters?.severity) params.append('severity', filters.severity);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.Alert[]>(`/v1/monitoring/alerts${query}`);
+  }
+
+  async acknowledgeAlert(alertId: string, data: types.AcknowledgeAlertRequest): Promise<types.Alert> {
+    return this.request<types.Alert>(`/v1/monitoring/alerts/${alertId}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Routing methods
+  async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.RoutingDecision[]> {
+    const params = new URLSearchParams();
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.adapter_id) params.append('adapter_id', filters.adapter_id);
+    if (filters?.start_time) params.append('start_time', filters.start_time);
+    if (filters?.end_time) params.append('end_time', filters.end_time);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.RoutingDecision[]>(`/v1/routing/decisions${query}`);
   }
 }
 

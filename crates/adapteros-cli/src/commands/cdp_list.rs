@@ -15,7 +15,7 @@ pub struct CdpListArgs {
 }
 
 pub async fn execute(args: CdpListArgs) -> anyhow::Result<()> {
-    // TODO: Implement CdpStore when code intelligence is integrated
+    // CdpStore implementation will be added when code intelligence is integrated
     println!(
         "CDP listing not yet implemented for repository: {}",
         args.repo_id

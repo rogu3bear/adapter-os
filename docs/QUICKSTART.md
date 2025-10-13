@@ -109,7 +109,7 @@ pnpm dev
 cargo run --release --bin mplora-server -- --config configs/cp.toml
 ```
 
-Visit http://127.0.0.1:3000 (UI) and http://127.0.0.1:8080 (API)
+Visit http://127.0.0.1:3200 (UI) and http://127.0.0.1:8080 (API)
 
 ### Production Build (Single Binary)
 

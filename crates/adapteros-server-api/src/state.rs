@@ -1,3 +1,4 @@
+use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_orchestrator::TrainingService;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,34 @@ pub struct MetricsConfig {
     pub bearer_token: String,
 }
 
+/// Cryptographic state for signing and verification
+pub struct CryptoState {
+    pub signing_keypair: Keypair,
+    pub jwt_keypair: Keypair,
+}
+
+impl CryptoState {
+    pub fn new() -> Self {
+        Self {
+            signing_keypair: Keypair::generate(),
+            jwt_keypair: Keypair::generate(),
+        }
+    }
+
+    pub fn from_keypairs(signing: Keypair, jwt: Keypair) -> Self {
+        Self {
+            signing_keypair: signing,
+            jwt_keypair: jwt,
+        }
+    }
+}
+
+impl Default for CryptoState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Shared application state passed to all handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -25,6 +54,7 @@ pub struct AppState {
     pub training_service: Arc<TrainingService>,
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
     pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>>,
+    pub crypto: Arc<CryptoState>,
 }
 
 impl AppState {
@@ -42,6 +72,7 @@ impl AppState {
             training_service: Arc::new(TrainingService::new()),
             git_subsystem: None,
             file_change_tx: None,
+            crypto: Arc::new(CryptoState::new()),
         }
     }
 

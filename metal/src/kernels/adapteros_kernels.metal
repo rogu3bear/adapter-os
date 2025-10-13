@@ -27,3 +27,4 @@ using namespace metal;
 #include "mlp.metal"
 #include "attention.metal"
 #include "flash_attention.metal"
+#include "mplora.metal"

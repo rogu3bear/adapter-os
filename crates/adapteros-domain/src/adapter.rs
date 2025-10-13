@@ -1,9 +1,9 @@
 //! Core domain adapter trait and types
 
-use adapteros_deterministic_exec::DeterministicExecutor;
-use adapteros_numerics::noise::{Tensor, EpsilonStats};
-use adapteros_trace::Event;
 use adapteros_core::B3Hash;
+use adapteros_deterministic_exec::DeterministicExecutor;
+use adapteros_numerics::noise::{EpsilonStats, Tensor};
+use adapteros_trace::Event;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -38,10 +38,10 @@ impl TensorData {
     pub fn new(tensor: Tensor, dtype: String) -> Self {
         let shape = tensor.shape.clone();
         let element_count = tensor.len();
-        
+
         // Compute hash of tensor data
         let hash = B3Hash::hash(&Self::serialize_tensor_for_hash(&tensor));
-        
+
         Self {
             tensor,
             metadata: TensorMetadata {
@@ -53,33 +53,33 @@ impl TensorData {
             },
         }
     }
-    
+
     /// Add custom metadata
     pub fn with_custom_metadata(mut self, key: String, value: serde_json::Value) -> Self {
         self.metadata.custom.insert(key, value);
         self
     }
-    
+
     /// Verify tensor hash
     pub fn verify_hash(&self) -> bool {
         let computed_hash = B3Hash::hash(&Self::serialize_tensor_for_hash(&self.tensor));
         computed_hash == self.metadata.hash
     }
-    
+
     /// Serialize tensor data for hashing (deterministic)
     fn serialize_tensor_for_hash(tensor: &Tensor) -> Vec<u8> {
         let mut bytes = Vec::new();
-        
+
         // Add shape
         for dim in &tensor.shape {
             bytes.extend_from_slice(&dim.to_le_bytes());
         }
-        
+
         // Add data
         for val in &tensor.data {
             bytes.extend_from_slice(&val.to_le_bytes());
         }
-        
+
         bytes
     }
 }
@@ -117,10 +117,10 @@ pub struct AdapterMetadata {
 pub trait DomainAdapter: Send + Sync {
     /// Get adapter name
     fn name(&self) -> &str;
-    
+
     /// Get adapter metadata
     fn metadata(&self) -> &AdapterMetadata;
-    
+
     /// Prepare adapter for execution
     ///
     /// This method is called once during initialization to set up the adapter
@@ -133,7 +133,7 @@ pub trait DomainAdapter: Send + Sync {
     /// # Returns
     /// * `Result<()>` - Success or error
     fn prepare(&mut self, executor: &mut DeterministicExecutor) -> Result<()>;
-    
+
     /// Forward pass through the adapter
     ///
     /// This is the main inference method that transforms input tensors
@@ -146,7 +146,7 @@ pub trait DomainAdapter: Send + Sync {
     /// # Returns
     /// * `Result<TensorData>` - Output tensor data or error
     fn forward(&mut self, input: &TensorData) -> Result<TensorData>;
-    
+
     /// Postprocess output tensor
     ///
     /// This method applies any final transformations to the output tensor
@@ -161,7 +161,7 @@ pub trait DomainAdapter: Send + Sync {
     /// # Returns
     /// * `Result<TensorData>` - Postprocessed tensor data or error
     fn postprocess(&mut self, output: &TensorData) -> Result<TensorData>;
-    
+
     /// Get current epsilon statistics
     ///
     /// Returns the numerical error statistics for the last forward pass.
@@ -171,14 +171,14 @@ pub trait DomainAdapter: Send + Sync {
     /// # Returns
     /// * `Option<EpsilonStats>` - Error statistics if available
     fn epsilon_stats(&self) -> Option<EpsilonStats>;
-    
+
     /// Reset adapter state
     ///
     /// Clears any internal state and prepares the adapter for a new
     /// inference session. This is important for maintaining determinism
     /// across multiple runs.
     fn reset(&mut self);
-    
+
     /// Generate trace event for this operation
     ///
     /// Creates a trace event that will be logged to the trace bundle.
@@ -225,26 +225,26 @@ impl AdapterRegistry {
             adapters: HashMap::new(),
         }
     }
-    
+
     /// Register an adapter
     pub fn register(&mut self, adapter: Box<dyn DomainAdapter>) -> Result<()> {
         let name = adapter.name().to_string();
-        
+
         if self.adapters.contains_key(&name) {
             return Err(DomainAdapterError::InvalidManifest {
                 reason: format!("Adapter {} is already registered", name),
             });
         }
-        
+
         self.adapters.insert(name, adapter);
         Ok(())
     }
-    
+
     /// Get an adapter by name
     pub fn get(&self, name: &str) -> Option<&dyn DomainAdapter> {
         self.adapters.get(name).map(|a| a.as_ref())
     }
-    
+
     /// Get a mutable reference to an adapter
     pub fn get_mut(&mut self, name: &str) -> Option<&mut (dyn DomainAdapter + '_)> {
         if let Some(adapter) = self.adapters.get_mut(name) {
@@ -253,12 +253,12 @@ impl AdapterRegistry {
             None
         }
     }
-    
+
     /// List all registered adapters
     pub fn list_adapters(&self) -> Vec<&str> {
         self.adapters.keys().map(|k| k.as_str()).collect()
     }
-    
+
     /// Remove an adapter
     pub fn unregister(&mut self, name: &str) -> Result<()> {
         if self.adapters.remove(name).is_none() {
@@ -279,38 +279,39 @@ impl Default for AdapterRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_tensor_data_creation() {
         let tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
         let tensor_data = TensorData::new(tensor, "f32".to_string());
-        
+
         assert_eq!(tensor_data.metadata.shape, vec![3]);
         assert_eq!(tensor_data.metadata.element_count, 3);
         assert_eq!(tensor_data.metadata.dtype, "f32");
     }
-    
+
     #[test]
     fn test_tensor_data_hash_verification() {
         let tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
         let tensor_data = TensorData::new(tensor, "f32".to_string());
-        
+
         assert!(tensor_data.verify_hash());
     }
-    
+
     #[test]
     fn test_tensor_data_custom_metadata() {
         let tensor = Tensor::new(vec![1.0], vec![1]);
-        let tensor_data = TensorData::new(tensor, "f32".to_string())
-            .with_custom_metadata("key".to_string(), serde_json::Value::String("value".to_string()));
-        
+        let tensor_data = TensorData::new(tensor, "f32".to_string()).with_custom_metadata(
+            "key".to_string(),
+            serde_json::Value::String("value".to_string()),
+        );
+
         assert!(tensor_data.metadata.custom.contains_key("key"));
     }
-    
+
     #[test]
     fn test_adapter_registry() {
-        let mut registry = AdapterRegistry::new();
+        let registry = AdapterRegistry::new();
         assert_eq!(registry.list_adapters().len(), 0);
     }
 }
-

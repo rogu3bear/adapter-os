@@ -486,6 +486,7 @@ pub fn find_by_aos_error(error_name: &str) -> Option<ErrorCode> {
 }
 
 /// Map AosError variant names to error codes (fallback to E9000)
+#[allow(dead_code)] // TODO: Implement error mapping in future iteration
 pub fn map_aos_error(name: &str) -> &'static str {
     match name {
         "PolicyViolation" => "E2001",
