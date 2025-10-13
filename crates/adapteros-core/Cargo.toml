@@ -11,18 +11,24 @@ blake3 = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_jcs = { workspace = true }
 schemars = { workspace = true, optional = true }
 hkdf = { workspace = true }
 sha2 = { workspace = true }
 hex = "0.4"
+lazy_static = "1.4"
+tracing = { workspace = true }
 rand = { workspace = true, optional = true }
 rusqlite = { workspace = true }
+sqlx = { workspace = true, optional = true }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 
 [dev-dependencies]
 proptest = { workspace = true }
+rand = { workspace = true }
 
 [features]
 default = ["schemars-support"]
 test-utils = ["rand"]
 schemars-support = ["schemars"]
+sqlx = ["dep:sqlx"]

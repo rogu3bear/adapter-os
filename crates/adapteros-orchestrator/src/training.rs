@@ -3,8 +3,8 @@
 //! Handles scheduling, executing, and monitoring adapter training jobs.
 //! Integrates with MLX backend for actual training operations.
 
-use anyhow::{Context, Result};
 use adapteros_core::AosError;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

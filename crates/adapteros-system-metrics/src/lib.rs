@@ -11,10 +11,17 @@
 //!
 //! Follows AdapterOS patterns for telemetry, policy enforcement, and error handling.
 
+pub mod alerting;
+pub mod anomaly;
+pub mod baselines;
 pub mod collector;
+pub mod dashboard;
 pub mod database;
 pub mod gpu;
 pub mod monitor;
+pub mod monitoring_types;
+pub mod notifications;
+pub mod persistence;
 pub mod policy;
 pub mod telemetry;
 pub mod types;
@@ -24,12 +31,19 @@ pub use database::SystemMetricsDb;
 pub use monitor::{SystemMonitor, SystemMonitoringService};
 pub use policy::SystemMetricsPolicy;
 pub use types::*;
+// Re-export monitoring types for API compatibility
+pub use alerting::{AlertEvaluator, AlertingConfig};
+pub use anomaly::{AnomalyConfig, AnomalyDetector};
+pub use baselines::{BaselineConfig, BaselineService};
+pub use dashboard::{DashboardConfig, DashboardService};
+pub use monitoring_types::*;
+pub use notifications::{NotificationConfig, NotificationSenderImpl, NotificationService};
+pub use persistence::{MetricsPersistenceService, PersistenceConfig};
 
 // Re-export types for backward compatibility
 pub use types::{MetricsConfig, ThresholdsConfig};
 
-use adapteros_core::Result;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 /// System metrics collection result
 #[derive(Debug, Clone)]
@@ -65,7 +79,7 @@ pub struct NetworkMetrics {
 }
 
 /// GPU metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GpuMetrics {
     pub utilization: Option<f64>, // Align with SQLite REAL storage
     pub memory_used: Option<u64>,
@@ -74,18 +88,4 @@ pub struct GpuMetrics {
     pub power_usage: Option<f64>, // Align with SQLite REAL storage
     pub mlx_memory_used: Option<u64>,
     pub mlx_utilization: Option<f64>, // Align with SQLite REAL storage
-}
-
-impl Default for GpuMetrics {
-    fn default() -> Self {
-        Self {
-            utilization: None,
-            memory_used: None,
-            memory_total: None,
-            temperature: None,
-            power_usage: None,
-            mlx_memory_used: None,
-            mlx_utilization: None,
-        }
-    }
 }

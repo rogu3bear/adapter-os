@@ -9,7 +9,7 @@ use crate::signal::{Signal, SignalBuilder, SignalPriority, SignalType};
 use adapteros_lora_lifecycle::{AdapterTransitionEvent, AdapterActivationEvent, AdapterEvictionEvent};
 use adapteros_profiler::AdapterMetrics;
 use serde_json::json;
-use tokio::sync::mpsc;
+use adapteros_deterministic_exec::channel::{DeterministicChannel, Sender};
 
 /// Bridge for converting lifecycle events to signals
 ///
@@ -20,20 +20,20 @@ use tokio::sync::mpsc;
 /// # Example
 /// ```no_run
 /// use adapteros_lora_worker::training_signal_bridge::TrainingSignalBridge;
-/// use tokio::sync::mpsc;
+/// use adapteros_deterministic_exec::channel::DeterministicChannel;
 ///
-/// let (signal_tx, signal_rx) = mpsc::channel(100);
+/// let (signal_tx, signal_rx) = DeterministicChannel::new(100);
 /// let mut bridge = TrainingSignalBridge::new(signal_tx);
 ///
 /// // Bridge will convert lifecycle events to signals
 /// ```
 pub struct TrainingSignalBridge {
-    signal_tx: mpsc::Sender<Signal>,
+    signal_tx: Sender<Signal>,
 }
 
 impl TrainingSignalBridge {
     /// Create a new training signal bridge
-    pub fn new(signal_tx: mpsc::Sender<Signal>) -> Self {
+    pub fn new(signal_tx: Sender<Signal>) -> Self {
         Self { signal_tx }
     }
 
@@ -170,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_adapter_transition_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = TrainingSignalBridge::new(tx);
 
         let event = AdapterTransitionEvent {
@@ -189,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_adapter_promoted_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = TrainingSignalBridge::new(tx);
 
         bridge
@@ -203,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_k_reduced_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = TrainingSignalBridge::new(tx);
 
         bridge.on_k_reduced(3, 2, "memory_pressure").await;
@@ -215,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_profiler_metrics_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = TrainingSignalBridge::new(tx);
 
         bridge.on_profiler_metrics("adapter_2", 15.5, 450.0, 1024 * 1024 * 10).await;

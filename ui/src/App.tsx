@@ -24,7 +24,11 @@ import {
   Clock,
   Search,
   Menu,
-  X
+  X,
+  Bell,
+  Brain,
+  Workflow,
+  Link
 } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Dashboard } from './components/Dashboard';
@@ -41,10 +45,23 @@ import { LoginForm } from './components/LoginForm';
 import { ContactsPage } from './components/ContactsPage';
 import { TrainingStreamPage } from './components/TrainingStreamPage';
 import { DiscoveryStreamPage } from './components/DiscoveryStreamPage';
+import { InferencePlayground } from './components/InferencePlayground';
+import { RouterConfigPage } from './components/RouterConfigPage';
+import { GitIntegrationPage } from './components/GitIntegrationPage';
+import { AuditDashboard } from './components/AuditDashboard';
+import { AlertsPage } from './components/AlertsPage';
+// Consolidated components for simplified navigation
+import { Operations } from './components/Operations';
+import { Settings } from './components/Settings';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Toaster } from './components/ui/sonner';
+import { ReplayPanel } from './components/ReplayPanel';
+import { BreadcrumbProvider } from './contexts/BreadcrumbContext';
+import { BreadcrumbNavigation } from './components/BreadcrumbNavigation';
+import { HelpTooltip } from './components/ui/help-tooltip';
+import { RoleGuidance } from './components/RoleGuidance';
 import apiClient from './api/client';
-import { User, UserRole, Tenant } from './api/types';
+import { User, UserRole, Tenant, ReplaySession } from './api/types';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -55,6 +72,8 @@ export default function App() {
   const [selectedTenant, setSelectedTenant] = useState<string>('default');
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [replayMode, setReplayMode] = useState(false);
+  const [replaySessionId, setReplaySessionId] = useState<string | null>(null);
 
   useEffect(() => {
     // Load selected tenant from localStorage
@@ -156,24 +175,44 @@ export default function App() {
     );
   }
 
+  // Simplified navigation structure - 5 main categories
+  // Citation: docs/architecture/MasterPlan.md L1-L44
   const navigationItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Admin', 'Operator', 'SRE', 'Compliance', 'Auditor', 'Viewer'] },
-    { id: 'tenants', label: 'Tenants', icon: Users, roles: ['Admin'] },
-    { id: 'nodes', label: 'Nodes', icon: Server, roles: ['Admin', 'Operator', 'SRE'] },
-    { id: 'adapters', label: 'Adapters', icon: Code, roles: ['Admin', 'Operator', 'SRE', 'Viewer'] },
-    { id: 'plans', label: 'Plans', icon: FileText, roles: ['Admin', 'Operator', 'SRE'] },
-    { id: 'promotion', label: 'Promotion', icon: ArrowUp, roles: ['Admin', 'Operator'] },
-    { id: 'telemetry', label: 'Telemetry', icon: Activity, roles: ['Admin', 'SRE', 'Compliance', 'Auditor'] },
-    { id: 'policies', label: 'Policies', icon: Shield, roles: ['Admin', 'Compliance'] },
-    { id: 'code', label: 'Code Intelligence', icon: GitBranch, roles: ['Admin', 'Operator', 'SRE', 'Viewer'] },
-    // Contacts and Streams pages - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8
-    { id: 'contacts', label: 'Contacts', icon: Users, roles: ['Admin', 'Operator', 'SRE', 'Viewer'] },
-    { id: 'training', label: 'Training', icon: Activity, roles: ['Admin', 'Operator', 'SRE'] },
-    { id: 'discovery', label: 'Discovery', icon: Search, roles: ['Admin', 'Operator', 'SRE', 'Viewer'] }
+    { 
+      id: 'dashboard', 
+      label: 'Dashboard', 
+      icon: BarChart3, 
+      roles: ['Admin', 'Operator', 'Compliance', 'Viewer'] 
+    },
+    { 
+      id: 'adapters', 
+      label: 'Adapters', 
+      icon: Code, 
+      roles: ['Admin', 'Operator', 'Viewer'] 
+    },
+    { 
+      id: 'policies', 
+      label: 'Policies', 
+      icon: Shield, 
+      roles: ['Admin', 'Compliance'] 
+    },
+    { 
+      id: 'operations', 
+      label: 'Operations', 
+      icon: Activity, 
+      roles: ['Admin', 'Operator', 'Compliance', 'Viewer'] 
+    },
+    { 
+      id: 'settings', 
+      label: 'Settings', 
+      icon: Settings, 
+      roles: ['Admin'] 
+    }
   ].filter(item => item.roles.includes(user.role));
 
   return (
-    <div className={`min-h-screen bg-background ${isDarkMode ? 'dark' : ''}`}>
+    <BreadcrumbProvider>
+      <div className={`min-h-screen bg-background ${isDarkMode ? 'dark' : ''}`}>
       {/* Header */}
       <header className="border-b bg-card">
         <div className="flex h-16 items-center justify-between px-6">
@@ -215,6 +254,15 @@ export default function App() {
             )}
             <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
             <span className="text-muted-foreground hidden md:inline">{user.email}</span>
+            <Button 
+              variant={replayMode ? "default" : "outline"} 
+              size="sm"
+              onClick={() => setReplayMode(!replayMode)}
+              aria-label="Toggle replay mode"
+              title={replayMode ? "Switch to Live Mode" : "Switch to Replay Mode"}
+            >
+              {replayMode ? '▶️ Replay' : '⏯️ Live'}
+            </Button>
             <Button variant="outline" size="sm" onClick={toggleTheme}>
               {isDarkMode ? '☀️' : '🌙'}
             </Button>
@@ -248,22 +296,28 @@ export default function App() {
             {navigationItems.map((item) => {
               const Icon = item.icon;
               return (
-                <Button
-                  key={item.id}
-                  variant={activeTab === item.id ? "default" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setMobileMenuOpen(false);
-                  }}
-                  aria-label={`Navigate to ${item.label}`}
-                  aria-current={activeTab === item.id ? "page" : undefined}
-                >
-                  <Icon className="icon-standard mr-2" aria-hidden="true" />
-                  {item.label}
-                </Button>
+                <HelpTooltip key={item.id} helpId={item.id}>
+                  <Button
+                    variant={activeTab === item.id ? "default" : "ghost"}
+                    className="w-full justify-start"
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    aria-label={`Navigate to ${item.label}`}
+                    aria-current={activeTab === item.id ? "page" : undefined}
+                  >
+                    <Icon className="icon-standard mr-2" aria-hidden="true" />
+                    {item.label}
+                  </Button>
+                </HelpTooltip>
               );
             })}
+            
+            {/* Role Guidance */}
+            <div className="mt-6">
+              <RoleGuidance userRole={user.role} />
+            </div>
           </div>
         </nav>
         
@@ -278,24 +332,27 @@ export default function App() {
 
         {/* Content Area */}
         <main className="flex-1 p-4 md:p-6">
+          <BreadcrumbNavigation />
+          {replayMode && (
+            <div className="mb-4">
+              <ReplayPanel 
+                tenantId={selectedTenant} 
+                onSessionSelect={(session: ReplaySession | null) => setReplaySessionId(session?.id || null)} 
+              />
+            </div>
+          )}
           <ErrorBoundary>
+            {/* Simplified navigation routing - 5 main categories */}
             {activeTab === 'dashboard' && <Dashboard user={user} selectedTenant={selectedTenant} onNavigate={setActiveTab} />}
-            {activeTab === 'tenants' && <Tenants user={user} selectedTenant={selectedTenant} />}
-            {activeTab === 'nodes' && <Nodes user={user} selectedTenant={selectedTenant} />}
             {activeTab === 'adapters' && <Adapters user={user} selectedTenant={selectedTenant} />}
-            {activeTab === 'plans' && <Plans user={user} selectedTenant={selectedTenant} />}
-            {activeTab === 'promotion' && <Promotion user={user} selectedTenant={selectedTenant} />}
-            {activeTab === 'telemetry' && <Telemetry user={user} selectedTenant={selectedTenant} />}
             {activeTab === 'policies' && <Policies user={user} selectedTenant={selectedTenant} />}
-            {activeTab === 'code' && <CodeIntelligence user={user} selectedTenant={selectedTenant} />}
-            {/* Contacts and Streams pages - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8 */}
-            {activeTab === 'contacts' && <ContactsPage selectedTenant={selectedTenant} />}
-            {activeTab === 'training' && <TrainingStreamPage selectedTenant={selectedTenant} />}
-            {activeTab === 'discovery' && <DiscoveryStreamPage selectedTenant={selectedTenant} />}
+            {activeTab === 'operations' && <Operations user={user} selectedTenant={selectedTenant} />}
+            {activeTab === 'settings' && <Settings user={user} selectedTenant={selectedTenant} />}
           </ErrorBoundary>
         </main>
       </div>
       <Toaster />
-    </div>
+      </div>
+    </BreadcrumbProvider>
   );
 }

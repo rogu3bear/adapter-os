@@ -18,6 +18,7 @@ pub enum OutputMode {
 
 impl OutputMode {
     /// Detect output mode from environment
+    #[allow(dead_code)] // TODO: Implement environment detection in future iteration
     pub fn from_env() -> Self {
         if is_ci() {
             Self::Quiet
@@ -150,7 +151,7 @@ impl OutputWriter {
     }
 
     /// Emit CLI error event and return event ID
-    fn emit_cli_error(&self, code: &str, msg: &str) -> String {
+    fn emit_cli_error(&self, _code: &str, _msg: &str) -> String {
         // Call into mplora-telemetry if linked; else return "-"
         // For now, return placeholder since we can't do async here
         // In a real implementation, this would be handled differently
@@ -217,6 +218,7 @@ impl OutputWriter {
 }
 
 /// Detect if running in CI environment
+#[allow(dead_code)] // TODO: Implement CI detection in future iteration
 pub fn is_ci() -> bool {
     // Check common CI environment variables
     env::var("CI")

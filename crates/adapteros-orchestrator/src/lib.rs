@@ -52,12 +52,12 @@ impl Orchestrator {
     /// Create a new orchestrator with standard gates
     pub fn new(config: OrchestratorConfig) -> Self {
         let gates: Vec<Box<dyn Gate>> = vec![
-            Box::new(DeterminismGate::default()),
+            Box::new(DeterminismGate),
             Box::new(MetricsGate::default()),
-            Box::new(MetallibGate::default()),
-            Box::new(SbomGate::default()),
+            Box::new(MetallibGate),
+            Box::new(SbomGate),
             Box::new(PerformanceGate::default()),
-            Box::new(SecurityGate::default()),
+            Box::new(SecurityGate),
         ];
 
         Self { config, gates }

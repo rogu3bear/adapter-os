@@ -5,7 +5,6 @@ use crate::types::{GitSession, SessionStatus};
 use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -23,6 +22,7 @@ pub enum BranchOperation {
 #[derive(Clone)]
 pub struct BranchManager {
     config: BranchManagerConfig,
+    #[allow(dead_code)] // TODO: Implement database integration in future iteration
     db: adapteros_db::Db,
     active_sessions: Arc<RwLock<HashMap<String, GitSession>>>,
     repositories: Arc<RwLock<HashMap<String, PathBuf>>>,

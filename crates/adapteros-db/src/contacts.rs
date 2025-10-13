@@ -193,7 +193,7 @@ impl Db {
 
         // Insert interaction entry
         let id = Uuid::now_v7().to_string();
-        let context_json = context.map(|c| serde_json::to_string(c)).transpose()?;
+        let context_json = context.map(serde_json::to_string).transpose()?;
 
         sqlx::query(
             "INSERT INTO contact_interactions (id, contact_id, trace_id, cpid, interaction_type, context_json)

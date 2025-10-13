@@ -204,12 +204,11 @@ impl UdsClient {
             .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
 
         // Create SSE request
-        let mut request = format!(
-            "GET /signals HTTP/1.1\r\n\
+        let mut request = "GET /signals HTTP/1.1\r\n\
              Host: worker\r\n\
              Accept: text/event-stream\r\n\
              Cache-Control: no-cache\r\n"
-        );
+            .to_string();
 
         // Add trace ID filter if provided
         if let Some(trace) = &trace_id {

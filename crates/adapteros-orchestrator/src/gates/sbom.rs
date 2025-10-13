@@ -1,8 +1,8 @@
 //! SBOM gate: verifies SBOM is present and valid
 
 use crate::{Gate, OrchestratorConfig};
-use anyhow::{Context, Result};
 use adapteros_sbom::SpdxDocument;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 

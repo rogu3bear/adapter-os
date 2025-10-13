@@ -4,7 +4,10 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build all crates
-	cargo build --release
+	cargo build --release --locked --offline
+	./scripts/build_metadata.sh
+	./scripts/record_env.sh
+	./scripts/strip_timestamps.sh
 
 test: ## Run all tests
 	cargo test --all-features
@@ -62,5 +65,11 @@ menu-bar-install: menu-bar ## Install menu bar app to /usr/local/bin
 
 sbom: ## Generate SBOM
 	cargo xtask sbom
+
+determinism-report: ## Generate determinism report
+	cargo xtask determinism-report
+
+verify-artifacts: ## Verify and sign artifacts
+	./scripts/verify_artifacts.sh
 
 .DEFAULT_GOAL := help

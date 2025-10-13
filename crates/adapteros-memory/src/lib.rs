@@ -21,44 +21,48 @@
 //! - Buffer relocations are detected and logged
 //! - Page migrations are tracked and recorded
 
-pub mod watchdog;
-pub mod heap_observer;
-pub mod pointer_canonicalizer;
 pub mod buffer_relocation;
+pub mod heap_observer;
 pub mod memory_map;
+pub mod pointer_canonicalizer;
 pub mod replay_integration;
+pub mod unified_memory;
+pub mod watchdog;
 
-pub use watchdog::MemoryWatchdog;
-pub use heap_observer::MetalHeapObserver;
-pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use buffer_relocation::BufferRelocationDetector;
+pub use heap_observer::MetalHeapObserver;
 pub use memory_map::MemoryMapHasher;
+pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use replay_integration::ReplayMemoryLogger;
+pub use unified_memory::{
+    AllocationRequest, MemoryBlock, MemoryStats, MemoryType, UnifiedMemoryManager,
+};
+pub use watchdog::MemoryWatchdog;
 
 /// Error types for memory watchdog operations
 #[derive(thiserror::Error, Debug)]
 pub enum MemoryWatchdogError {
     #[error("Metal heap observation failed: {0}")]
     HeapObservationFailed(String),
-    
+
     #[error("Pointer canonicalization failed: {0}")]
     PointerCanonicalizationFailed(String),
-    
+
     #[error("Buffer relocation detection failed: {0}")]
     BufferRelocationFailed(String),
-    
+
     #[error("Memory map hashing failed: {0}")]
     MemoryMapHashingFailed(String),
-    
+
     #[error("Replay integration failed: {0}")]
     ReplayIntegrationFailed(String),
-    
+
     #[error("Memory layout mismatch: expected {expected}, got {actual}")]
     MemoryLayoutMismatch { expected: String, actual: String },
-    
+
     #[error("Page migration detected: {details}")]
     PageMigrationDetected { details: String },
-    
+
     #[error("Buffer relocation detected: {details}")]
     BufferRelocationDetected { details: String },
 }
@@ -152,8 +156,8 @@ impl Default for MemoryWatchdogConfig {
             enable_pointer_canonicalization: true,
             enable_buffer_relocation_detection: true,
             enable_memory_map_hashing: true,
-            sampling_rate: 1.0, // Sample all events by default
-            pressure_warning_threshold: 0.85, // 85% memory usage
+            sampling_rate: 1.0,                // Sample all events by default
+            pressure_warning_threshold: 0.85,  // 85% memory usage
             pressure_critical_threshold: 0.95, // 95% memory usage
         }
     }

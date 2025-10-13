@@ -13,21 +13,19 @@
 //! 4. **RNG State Reconstruction**: Random number generation matches original via HKDF seeding
 //! 5. **Event-Driven Scheduling**: Uses recorded events to drive scheduling instead of runtime queue
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::collections::HashMap;
 
 use adapteros_core::B3Hash;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod bundle;
 pub mod session;
 pub mod verification;
 
-pub use session::{ReplaySession, ReplayStats, replay_trace};
-pub use verification::{ComparisonResult, compare_traces, VerificationMode};
+pub use bundle::{ReplayBundle, ReplaySignatureMetadata};
+pub use session::{replay_trace, ReplaySession, ReplayStats};
+pub use verification::{compare_traces, ComparisonResult, VerificationMode};
 
 /// Error types for replay operations
 #[derive(Error, Debug)]
@@ -103,7 +101,3 @@ impl ReplayState {
         }
     }
 }
-
-
-
-

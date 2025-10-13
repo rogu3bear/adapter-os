@@ -3,14 +3,16 @@
 //! Run with:
 //!   aos-secd --socket /var/run/aos-secd.sock
 
-use clap::Parser;
 use adapteros_core::AosError;
-use adapteros_secd::{remove_pid, serve_uds, write_pid, AuditLogger, Heartbeat, KeyLifecycleManager};
+use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
+use adapteros_secd::{
+    remove_pid, serve_uds, write_pid, AuditLogger, Heartbeat, KeyLifecycleManager,
+};
+use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
-use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig, spawn_deterministic};
 
 #[derive(Parser, Debug)]
 #[clap(name = "aos-secd", about = "AdapterOS Secure Enclave Daemon")]

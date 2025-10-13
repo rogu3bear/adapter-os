@@ -9,8 +9,8 @@
 //! - LoRA: https://arxiv.org/abs/2106.09685
 //! - Metal Performance Shaders: https://developer.apple.com/documentation/metalperformanceshaders
 
-use metal::*;
 use adapteros_core::{AosError, Result};
+use metal::*;
 use std::sync::Arc;
 
 use super::ring_buffer::RingBuffer;
@@ -139,8 +139,7 @@ impl FusedQkvKernel {
         encoder.set_buffer(7, ring_buffer.get_buffer().map(|v| &**v), 0);
 
         // Set LoRA configuration
-        let lora_config_bytes =
-            serde_json::to_vec(lora_config).map_err(|e| AosError::Serialization(e))?;
+        let lora_config_bytes = serde_json::to_vec(lora_config).map_err(AosError::Serialization)?;
         let lora_config_buffer = self.device.new_buffer_with_data(
             lora_config_bytes.as_ptr() as *const std::ffi::c_void,
             lora_config_bytes.len() as u64,
@@ -150,7 +149,7 @@ impl FusedQkvKernel {
 
         // Set GQA configuration
         let gqa_config_bytes =
-            serde_json::to_vec(&self.gqa_config).map_err(|e| AosError::Serialization(e))?;
+            serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
         let gqa_config_buffer = self.device.new_buffer_with_data(
             gqa_config_bytes.as_ptr() as *const std::ffi::c_void,
             gqa_config_bytes.len() as u64,
@@ -161,7 +160,7 @@ impl FusedQkvKernel {
         // Calculate threadgroup size optimized for GQA
         let threadgroup_size = MTLSize::new(32, 8, 1);
         let grid_size = MTLSize::new(
-            (input.length() / 4) as u64,
+            input.length() / 4,
             self.gqa_config.num_attention_heads as u64,
             1,
         );
@@ -236,7 +235,7 @@ impl FlashAttentionKernel {
 
         // Set GQA configuration
         let gqa_config_bytes =
-            serde_json::to_vec(&self.gqa_config).map_err(|e| AosError::Serialization(e))?;
+            serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
         let gqa_config_buffer = self.device.new_buffer_with_data(
             gqa_config_bytes.as_ptr() as *const std::ffi::c_void,
             gqa_config_bytes.len() as u64,
@@ -247,7 +246,7 @@ impl FlashAttentionKernel {
         // Calculate threadgroup size
         let threadgroup_size = MTLSize::new(16, 16, 1);
         let grid_size = MTLSize::new(
-            (q.length() / 4) as u64,
+            q.length() / 4,
             self.gqa_config.num_attention_heads as u64,
             1,
         );

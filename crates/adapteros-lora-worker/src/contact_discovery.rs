@@ -6,10 +6,10 @@
 //! Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.4
 //! Pattern from: crates/adapteros-lora-worker/src/signal_handlers.rs
 
-use async_trait::async_trait;
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, info, warn};

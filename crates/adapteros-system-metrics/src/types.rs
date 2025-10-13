@@ -4,7 +4,6 @@
 //! across telemetry, API, and database layers.
 
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Serializable system metrics for API responses
 #[derive(Debug, Clone, Serialize, Deserialize)]

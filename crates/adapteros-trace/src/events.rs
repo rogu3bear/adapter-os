@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use adapteros_core::B3Hash;
 use crate::schema::{Event, EventMetadata};
+use adapteros_core::B3Hash;
 
 /// Builder for creating events
 pub struct EventBuilder {
@@ -90,19 +90,23 @@ pub fn inference_start_event(
     session_id: String,
     global_seed: B3Hash,
 ) -> Event {
-    EventBuilder::new(tick_id, "inference_start".to_string(), "inference.start".to_string())
-        .with_metadata(EventMetadata {
-            global_seed,
-            plan_id,
-            cpid,
-            tenant_id,
-            session_id,
-            adapter_ids: Vec::new(),
-            memory_usage_mb: 0,
-            gpu_utilization_pct: 0.0,
-            custom: HashMap::new(),
-        })
-        .build()
+    EventBuilder::new(
+        tick_id,
+        "inference_start".to_string(),
+        "inference.start".to_string(),
+    )
+    .with_metadata(EventMetadata {
+        global_seed,
+        plan_id,
+        cpid,
+        tenant_id,
+        session_id,
+        adapter_ids: Vec::new(),
+        memory_usage_mb: 0,
+        gpu_utilization_pct: 0.0,
+        custom: HashMap::new(),
+    })
+    .build()
 }
 
 /// Inference end event
@@ -112,10 +116,20 @@ pub fn inference_end_event(
     total_tokens: u32,
     total_time_ms: u64,
 ) -> Event {
-    EventBuilder::new(tick_id, "inference_end".to_string(), "inference.end".to_string())
-        .add_output("total_tokens".to_string(), serde_json::Value::Number(total_tokens.into()))
-        .add_output("total_time_ms".to_string(), serde_json::Value::Number(total_time_ms.into()))
-        .build()
+    EventBuilder::new(
+        tick_id,
+        "inference_end".to_string(),
+        "inference.end".to_string(),
+    )
+    .add_output(
+        "total_tokens".to_string(),
+        serde_json::Value::Number(total_tokens.into()),
+    )
+    .add_output(
+        "total_time_ms".to_string(),
+        serde_json::Value::Number(total_time_ms.into()),
+    )
+    .build()
 }
 
 /// Token generation event
@@ -125,23 +139,33 @@ pub fn token_generated_event(
     logits: Vec<f32>,
     adapter_ids: Vec<String>,
 ) -> Event {
-    let logits_json: Vec<serde_json::Value> = logits.into_iter().map(|f| serde_json::Value::Number(serde_json::Number::from_f64(f as f64).unwrap())).collect();
-    
-    EventBuilder::new(tick_id, format!("token_{}", token_id), "inference.token".to_string())
-        .add_input("token_id".to_string(), serde_json::Value::Number(token_id.into()))
-        .add_output("logits".to_string(), serde_json::Value::Array(logits_json))
-        .with_metadata(EventMetadata {
-            global_seed: B3Hash::hash(b"default"),
-            plan_id: "default".to_string(),
-            cpid: "default".to_string(),
-            tenant_id: "default".to_string(),
-            session_id: "default".to_string(),
-            adapter_ids,
-            memory_usage_mb: 0,
-            gpu_utilization_pct: 0.0,
-            custom: HashMap::new(),
-        })
-        .build()
+    let logits_json: Vec<serde_json::Value> = logits
+        .into_iter()
+        .map(|f| serde_json::Value::Number(serde_json::Number::from_f64(f as f64).unwrap()))
+        .collect();
+
+    EventBuilder::new(
+        tick_id,
+        format!("token_{}", token_id),
+        "inference.token".to_string(),
+    )
+    .add_input(
+        "token_id".to_string(),
+        serde_json::Value::Number(token_id.into()),
+    )
+    .add_output("logits".to_string(), serde_json::Value::Array(logits_json))
+    .with_metadata(EventMetadata {
+        global_seed: B3Hash::hash(b"default"),
+        plan_id: "default".to_string(),
+        cpid: "default".to_string(),
+        tenant_id: "default".to_string(),
+        session_id: "default".to_string(),
+        adapter_ids,
+        memory_usage_mb: 0,
+        gpu_utilization_pct: 0.0,
+        custom: HashMap::new(),
+    })
+    .build()
 }
 
 /// Kernel execution event
@@ -152,16 +176,38 @@ pub fn kernel_execute_event(
     output_tensors: Vec<String>,
     execution_time_ms: u64,
 ) -> Event {
-    EventBuilder::new(tick_id, format!("kernel_{}", kernel_name), "kernel.execute".to_string())
-        .add_input("kernel_name".to_string(), serde_json::Value::String(kernel_name))
-        .add_input("input_tensors".to_string(), serde_json::Value::Array(
-            input_tensors.into_iter().map(|s| serde_json::Value::String(s)).collect()
-        ))
-        .add_output("output_tensors".to_string(), serde_json::Value::Array(
-            output_tensors.into_iter().map(|s| serde_json::Value::String(s)).collect()
-        ))
-        .add_output("execution_time_ms".to_string(), serde_json::Value::Number(execution_time_ms.into()))
-        .build()
+    EventBuilder::new(
+        tick_id,
+        format!("kernel_{}", kernel_name),
+        "kernel.execute".to_string(),
+    )
+    .add_input(
+        "kernel_name".to_string(),
+        serde_json::Value::String(kernel_name),
+    )
+    .add_input(
+        "input_tensors".to_string(),
+        serde_json::Value::Array(
+            input_tensors
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        ),
+    )
+    .add_output(
+        "output_tensors".to_string(),
+        serde_json::Value::Array(
+            output_tensors
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        ),
+    )
+    .add_output(
+        "execution_time_ms".to_string(),
+        serde_json::Value::Number(execution_time_ms.into()),
+    )
+    .build()
 }
 
 /// Adapter load event
@@ -171,23 +217,42 @@ pub fn adapter_load_event(
     adapter_size_mb: u64,
     load_time_ms: u64,
 ) -> Event {
-    EventBuilder::new(tick_id, format!("load_{}", adapter_id), "adapter.load".to_string())
-        .add_input("adapter_id".to_string(), serde_json::Value::String(adapter_id))
-        .add_output("adapter_size_mb".to_string(), serde_json::Value::Number(adapter_size_mb.into()))
-        .add_output("load_time_ms".to_string(), serde_json::Value::Number(load_time_ms.into()))
-        .build()
+    EventBuilder::new(
+        tick_id,
+        format!("load_{}", adapter_id),
+        "adapter.load".to_string(),
+    )
+    .add_input(
+        "adapter_id".to_string(),
+        serde_json::Value::String(adapter_id),
+    )
+    .add_output(
+        "adapter_size_mb".to_string(),
+        serde_json::Value::Number(adapter_size_mb.into()),
+    )
+    .add_output(
+        "load_time_ms".to_string(),
+        serde_json::Value::Number(load_time_ms.into()),
+    )
+    .build()
 }
 
 /// Adapter unload event
-pub fn adapter_unload_event(
-    tick_id: u64,
-    adapter_id: String,
-    unload_time_ms: u64,
-) -> Event {
-    EventBuilder::new(tick_id, format!("unload_{}", adapter_id), "adapter.unload".to_string())
-        .add_input("adapter_id".to_string(), serde_json::Value::String(adapter_id))
-        .add_output("unload_time_ms".to_string(), serde_json::Value::Number(unload_time_ms.into()))
-        .build()
+pub fn adapter_unload_event(tick_id: u64, adapter_id: String, unload_time_ms: u64) -> Event {
+    EventBuilder::new(
+        tick_id,
+        format!("unload_{}", adapter_id),
+        "adapter.unload".to_string(),
+    )
+    .add_input(
+        "adapter_id".to_string(),
+        serde_json::Value::String(adapter_id),
+    )
+    .add_output(
+        "unload_time_ms".to_string(),
+        serde_json::Value::Number(unload_time_ms.into()),
+    )
+    .build()
 }
 
 /// Router decision event
@@ -197,15 +262,34 @@ pub fn router_decision_event(
     gate_values: Vec<f32>,
     entropy: f32,
 ) -> Event {
-    let gate_values_json: Vec<serde_json::Value> = gate_values.into_iter().map(|f| serde_json::Value::Number(serde_json::Number::from_f64(f as f64).unwrap())).collect();
-    
-    EventBuilder::new(tick_id, "router_decision".to_string(), "router.decision".to_string())
-        .add_output("selected_adapters".to_string(), serde_json::Value::Array(
-            selected_adapters.into_iter().map(|s| serde_json::Value::String(s)).collect()
-        ))
-        .add_output("gate_values".to_string(), serde_json::Value::Array(gate_values_json))
-        .add_output("entropy".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(entropy as f64).unwrap()))
-        .build()
+    let gate_values_json: Vec<serde_json::Value> = gate_values
+        .into_iter()
+        .map(|f| serde_json::Value::Number(serde_json::Number::from_f64(f as f64).unwrap()))
+        .collect();
+
+    EventBuilder::new(
+        tick_id,
+        "router_decision".to_string(),
+        "router.decision".to_string(),
+    )
+    .add_output(
+        "selected_adapters".to_string(),
+        serde_json::Value::Array(
+            selected_adapters
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        ),
+    )
+    .add_output(
+        "gate_values".to_string(),
+        serde_json::Value::Array(gate_values_json),
+    )
+    .add_output(
+        "entropy".to_string(),
+        serde_json::Value::Number(serde_json::Number::from_f64(entropy as f64).unwrap()),
+    )
+    .build()
 }
 
 /// Memory allocation event
@@ -215,23 +299,42 @@ pub fn memory_alloc_event(
     size_bytes: u64,
     memory_type: String,
 ) -> Event {
-    EventBuilder::new(tick_id, format!("alloc_{}", allocation_id), "memory.alloc".to_string())
-        .add_input("allocation_id".to_string(), serde_json::Value::String(allocation_id))
-        .add_input("size_bytes".to_string(), serde_json::Value::Number(size_bytes.into()))
-        .add_input("memory_type".to_string(), serde_json::Value::String(memory_type))
-        .build()
+    EventBuilder::new(
+        tick_id,
+        format!("alloc_{}", allocation_id),
+        "memory.alloc".to_string(),
+    )
+    .add_input(
+        "allocation_id".to_string(),
+        serde_json::Value::String(allocation_id),
+    )
+    .add_input(
+        "size_bytes".to_string(),
+        serde_json::Value::Number(size_bytes.into()),
+    )
+    .add_input(
+        "memory_type".to_string(),
+        serde_json::Value::String(memory_type),
+    )
+    .build()
 }
 
 /// Memory deallocation event
-pub fn memory_dealloc_event(
-    tick_id: u64,
-    allocation_id: String,
-    size_bytes: u64,
-) -> Event {
-    EventBuilder::new(tick_id, format!("dealloc_{}", allocation_id), "memory.dealloc".to_string())
-        .add_input("allocation_id".to_string(), serde_json::Value::String(allocation_id))
-        .add_input("size_bytes".to_string(), serde_json::Value::Number(size_bytes.into()))
-        .build()
+pub fn memory_dealloc_event(tick_id: u64, allocation_id: String, size_bytes: u64) -> Event {
+    EventBuilder::new(
+        tick_id,
+        format!("dealloc_{}", allocation_id),
+        "memory.dealloc".to_string(),
+    )
+    .add_input(
+        "allocation_id".to_string(),
+        serde_json::Value::String(allocation_id),
+    )
+    .add_input(
+        "size_bytes".to_string(),
+        serde_json::Value::Number(size_bytes.into()),
+    )
+    .build()
 }
 
 /// Policy check event
@@ -241,23 +344,33 @@ pub fn policy_check_event(
     result: bool,
     details: String,
 ) -> Event {
-    EventBuilder::new(tick_id, format!("policy_{}", policy_name), "policy.check".to_string())
-        .add_input("policy_name".to_string(), serde_json::Value::String(policy_name))
-        .add_output("result".to_string(), serde_json::Value::Bool(result))
-        .add_output("details".to_string(), serde_json::Value::String(details))
-        .build()
+    EventBuilder::new(
+        tick_id,
+        format!("policy_{}", policy_name),
+        "policy.check".to_string(),
+    )
+    .add_input(
+        "policy_name".to_string(),
+        serde_json::Value::String(policy_name),
+    )
+    .add_output("result".to_string(), serde_json::Value::Bool(result))
+    .add_output("details".to_string(), serde_json::Value::String(details))
+    .build()
 }
 
 /// Telemetry event
-pub fn telemetry_event(
-    tick_id: u64,
-    event_type: String,
-    payload: serde_json::Value,
-) -> Event {
-    EventBuilder::new(tick_id, format!("telemetry_{}", event_type), "telemetry".to_string())
-        .add_input("event_type".to_string(), serde_json::Value::String(event_type))
-        .add_output("payload".to_string(), payload)
-        .build()
+pub fn telemetry_event(tick_id: u64, event_type: String, payload: serde_json::Value) -> Event {
+    EventBuilder::new(
+        tick_id,
+        format!("telemetry_{}", event_type),
+        "telemetry".to_string(),
+    )
+    .add_input(
+        "event_type".to_string(),
+        serde_json::Value::String(event_type),
+    )
+    .add_output("payload".to_string(), payload)
+    .build()
 }
 
 #[cfg(test)]
@@ -267,7 +380,10 @@ mod tests {
     #[test]
     fn test_event_builder() {
         let event = EventBuilder::new(1, "test_op".to_string(), "test_event".to_string())
-            .add_input("key1".to_string(), serde_json::Value::String("value1".to_string()))
+            .add_input(
+                "key1".to_string(),
+                serde_json::Value::String("value1".to_string()),
+            )
             .add_output("key2".to_string(), serde_json::Value::Number(42.into()))
             .build();
 
@@ -297,12 +413,8 @@ mod tests {
 
     #[test]
     fn test_token_generated_event() {
-        let event = token_generated_event(
-            1,
-            123,
-            vec![0.1, 0.2, 0.3],
-            vec!["adapter1".to_string()],
-        );
+        let event =
+            token_generated_event(1, 123, vec![0.1, 0.2, 0.3], vec!["adapter1".to_string()]);
 
         assert_eq!(event.tick_id, 1);
         assert_eq!(event.event_type, "inference.token");

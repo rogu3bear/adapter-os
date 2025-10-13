@@ -7,8 +7,8 @@
 //! Critical: No raw tensor data is included in error messages to prevent
 //! sensitive data leaks in logs.
 
-use metal::Buffer;
 use adapteros_core::{AosError, Result};
+use metal::Buffer;
 
 /// Validates buffer layouts before kernel dispatch
 pub struct LayoutValidator {
@@ -67,7 +67,7 @@ impl LayoutValidator {
 
         // Check alignment
         let buffer_addr = buffer.contents() as usize;
-        if buffer_addr % self.expected_alignment != 0 {
+        if !buffer_addr.is_multiple_of(self.expected_alignment) {
             return Err(AosError::KernelLayoutMismatch {
                 tensor: name.to_string(),
                 expected: format!("{}-byte aligned", self.expected_alignment),
@@ -109,7 +109,7 @@ impl LayoutValidator {
 
         // Still check alignment
         let buffer_addr = buffer.contents() as usize;
-        if buffer_addr % self.expected_alignment != 0 {
+        if !buffer_addr.is_multiple_of(self.expected_alignment) {
             return Err(AosError::KernelLayoutMismatch {
                 tensor: name.to_string(),
                 expected: format!("{}-byte aligned", self.expected_alignment),

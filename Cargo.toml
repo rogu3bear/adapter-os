@@ -18,7 +18,8 @@ members = [
     "crates/adapteros-lora-kernel-mtl",
     "crates/adapteros-lora-kernel-prof",
     "crates/adapteros-system-metrics",
-    # "crates/adapteros-lora-mlx",  # Temporarily disabled due to PyO3 linker issues
+    "crates/adapteros-lora-mlx-ffi",  # MLX FFI implementation
+    "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
     "crates/adapteros-lora-rag",
@@ -43,6 +44,7 @@ members = [
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-graph",
+    "crates/adapteros-codegraph",
     "crates/adapteros-replay",
     "crates/adapteros-trace",
     "crates/adapteros-numerics",
@@ -50,6 +52,7 @@ members = [
     "crates/adapteros-lint",
     "crates/adapteros-verify",
     "crates/adapteros-domain",
+    "crates/adapteros-base-llm",
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "xtask",
@@ -159,6 +162,7 @@ hex = "0.4"
 base64 = "0.22"
 hostname = "0.3"
 zeroize = "1.0"
+async-trait = "0.1"
 
 # Auth & Security
 argon2 = "0.5"
@@ -180,7 +184,7 @@ proptest = "1.4"
 opt-level = 3
 lto = true
 codegen-units = 1
-strip = true
+strip = "symbols"  # Strip symbols but preserve UUID load commands
 
 [profile.dev]
 opt-level = 0
@@ -212,6 +216,10 @@ path = "tests/deterministic_exec.rs"
 [[test]]
 name = "replay_identical"
 path = "tests/replay_identical.rs"
+
+[[test]]
+name = "cross_platform_determinism"
+path = "tests/cross_platform_determinism.rs"
 
 # Test dependencies
 [dev-dependencies]
@@ -252,3 +260,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3.0"
 anyhow = "1.0"
+axum = "0.7"
+tower = "0.4"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v7", "serde"] }

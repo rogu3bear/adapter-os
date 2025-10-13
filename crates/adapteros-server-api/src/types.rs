@@ -1,13 +1,61 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use std::collections::HashMap;
+use utoipa::ToSchema;
 
 /// API error response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
+    #[serde(default = "default_error_code")]
+    pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
+    pub details: Option<serde_json::Value>,
+}
+
+fn default_error_code() -> String {
+    "INTERNAL_ERROR".to_string()
+}
+
+impl ErrorResponse {
+    pub fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            code: "INTERNAL_ERROR".to_string(),
+            details: None,
+        }
+    }
+
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = code.into();
+        self
+    }
+
+    pub fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
+        self.details = Some(serde_json::Value::String(details.into()));
+        self
+    }
+}
+
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> Response {
+        let status = match self.code.as_str() {
+            "NOT_FOUND" => StatusCode::NOT_FOUND,
+            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+            "FORBIDDEN" => StatusCode::FORBIDDEN,
+            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
+            "CONFLICT" => StatusCode::CONFLICT,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+
+        (status, axum::Json(self)).into_response()
+    }
 }
 
 /// Login request
@@ -97,6 +145,20 @@ pub struct ImportModelRequest {
     pub tokenizer_cfg_hash_b3: String,
     pub license_hash_b3: Option<String>,
     pub metadata_json: Option<String>,
+}
+
+/// Base model status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BaseModelStatusResponse {
+    pub model_id: String,
+    pub model_name: String,
+    pub status: String,
+    pub loaded_at: Option<String>,
+    pub unloaded_at: Option<String>,
+    pub error_message: Option<String>,
+    pub memory_usage_mb: Option<i32>,
+    pub is_loaded: bool,
+    pub updated_at: String,
 }
 
 /// Build plan request
@@ -307,6 +369,366 @@ pub struct PolicyValidationResponse {
 pub struct ApplyPolicyRequest {
     pub cpid: String,
     pub content: String,
+}
+
+// ===== Process Debugging Types =====
+
+/// Process log entry
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessLogResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub level: String,
+    pub message: String,
+    pub timestamp: String,
+    pub metadata_json: Option<String>,
+}
+
+/// Process crash dump
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessCrashDumpResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub crash_type: String,
+    pub stack_trace: Option<String>,
+    pub memory_snapshot_json: Option<String>,
+    pub crash_timestamp: String,
+    pub recovery_action: Option<String>,
+    pub recovered_at: Option<String>,
+}
+
+/// Process performance profile
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessPerformanceProfileResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub profile_type: String,
+    pub profile_data_json: String,
+    pub duration_seconds: i32,
+    pub created_at: String,
+}
+
+/// Process debug session
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessDebugSessionResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub session_type: String,
+    pub status: String,
+    pub config_json: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub results_json: Option<String>,
+}
+
+/// Process troubleshooting step
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessTroubleshootingStepResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub step_name: String,
+    pub step_type: String,
+    pub status: String,
+    pub command: Option<String>,
+    pub output: Option<String>,
+    pub error_message: Option<String>,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
+/// Start debug session request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StartDebugSessionRequest {
+    pub worker_id: String,
+    pub session_type: String,
+    pub config_json: String,
+}
+
+/// Run troubleshooting step request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RunTroubleshootingStepRequest {
+    pub worker_id: String,
+    pub step_name: String,
+    pub step_type: String,
+    pub command: Option<String>,
+}
+
+// ===== Advanced Process Control Types =====
+
+/// Process template
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessTemplateResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub config_json: String,
+    pub plan_id: Option<String>,
+    pub auto_scaling_config_json: Option<String>,
+    pub dependencies_json: Option<String>,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process bulk operation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessBulkOperationResponse {
+    pub id: String,
+    pub operation_type: String,
+    pub tenant_id: String,
+    pub target_workers_json: String,
+    pub config_json: Option<String>,
+    pub status: String,
+    pub progress_json: Option<String>,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub error_message: Option<String>,
+    pub created_by: Option<String>,
+}
+
+/// Process auto-scaling rule
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessAutoScalingRuleResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub rule_name: String,
+    pub enabled: bool,
+    pub metric_type: String,
+    pub threshold_value: f64,
+    pub threshold_duration_seconds: i32,
+    pub scale_action: String,
+    pub scale_factor: f64,
+    pub min_workers: i32,
+    pub max_workers: i32,
+    pub cooldown_seconds: i32,
+    pub last_triggered_at: Option<String>,
+    pub created_at: String,
+}
+
+/// Process migration
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMigrationResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub source_node_id: String,
+    pub target_node_id: String,
+    pub migration_type: String,
+    pub status: String,
+    pub migration_config_json: Option<String>,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub error_message: Option<String>,
+    pub rollback_data_json: Option<String>,
+}
+
+/// Process orchestration workflow
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessOrchestrationWorkflowResponse {
+    pub id: String,
+    pub name: String,
+    pub tenant_id: String,
+    pub workflow_type: String,
+    pub steps_json: String,
+    pub triggers_json: Option<String>,
+    pub status: String,
+    pub last_executed_at: Option<String>,
+    pub execution_count: i32,
+    pub success_count: i32,
+    pub failure_count: i32,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Create process template request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateProcessTemplateRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub config_json: String,
+    pub plan_id: Option<String>,
+    pub auto_scaling_config_json: Option<String>,
+    pub dependencies_json: Option<String>,
+}
+
+/// Start bulk operation request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StartBulkOperationRequest {
+    pub operation_type: String,
+    pub target_workers_json: String,
+    pub config_json: Option<String>,
+}
+
+/// Create auto-scaling rule request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateAutoScalingRuleRequest {
+    pub rule_name: String,
+    pub metric_type: String,
+    pub threshold_value: f64,
+    pub threshold_duration_seconds: i32,
+    pub scale_action: String,
+    pub scale_factor: f64,
+    pub min_workers: i32,
+    pub max_workers: i32,
+    pub cooldown_seconds: i32,
+}
+
+/// Start process migration request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StartProcessMigrationRequest {
+    pub worker_id: String,
+    pub target_node_id: String,
+    pub migration_type: String,
+    pub migration_config_json: Option<String>,
+}
+
+/// Create orchestration workflow request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateOrchestrationWorkflowRequest {
+    pub name: String,
+    pub workflow_type: String,
+    pub steps_json: String,
+    pub triggers_json: Option<String>,
+}
+
+// ===== Process Configuration Management Types =====
+
+/// Process configuration template
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessConfigTemplateResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub config_schema_json: String,
+    pub default_values_json: Option<String>,
+    pub validation_rules_json: Option<String>,
+    pub environment_specific_configs_json: Option<String>,
+    pub version: String,
+    pub is_active: bool,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process configuration instance
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessConfigInstanceResponse {
+    pub id: String,
+    pub template_id: String,
+    pub worker_id: String,
+    pub environment: String,
+    pub config_values_json: String,
+    pub validation_status: String,
+    pub validation_errors_json: Option<String>,
+    pub applied_at: Option<String>,
+    pub applied_by: Option<String>,
+    pub rollback_config_json: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process configuration history entry
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessConfigHistoryResponse {
+    pub id: String,
+    pub instance_id: String,
+    pub version: String,
+    pub config_values_json: String,
+    pub change_type: String,
+    pub change_description: Option<String>,
+    pub changed_by: Option<String>,
+    pub changed_at: String,
+    pub diff_json: Option<String>,
+}
+
+/// Process configuration validation result
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessConfigValidationResponse {
+    pub id: String,
+    pub instance_id: String,
+    pub validation_type: String,
+    pub status: String,
+    pub message: String,
+    pub details_json: Option<String>,
+    pub validated_at: String,
+    pub validated_by: Option<String>,
+}
+
+/// Process configuration deployment
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessConfigDeploymentResponse {
+    pub id: String,
+    pub instance_id: String,
+    pub deployment_type: String,
+    pub status: String,
+    pub scheduled_at: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub deployed_by: Option<String>,
+    pub deployment_config_json: Option<String>,
+    pub rollback_plan_json: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: String,
+}
+
+/// Process configuration compliance check
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessConfigComplianceResponse {
+    pub id: String,
+    pub instance_id: String,
+    pub compliance_standard: String,
+    pub check_name: String,
+    pub status: String,
+    pub details_json: Option<String>,
+    pub remediation_steps_json: Option<String>,
+    pub checked_at: String,
+    pub checked_by: Option<String>,
+}
+
+/// Create configuration template request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateConfigTemplateRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub config_schema_json: String,
+    pub default_values_json: Option<String>,
+    pub validation_rules_json: Option<String>,
+    pub environment_specific_configs_json: Option<String>,
+}
+
+/// Create configuration instance request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateConfigInstanceRequest {
+    pub template_id: String,
+    pub worker_id: String,
+    pub environment: String,
+    pub config_values_json: String,
+}
+
+/// Validate configuration request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ValidateConfigRequest {
+    pub instance_id: String,
+    pub validation_types: Vec<String>,
+}
+
+/// Deploy configuration request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DeployConfigRequest {
+    pub instance_id: String,
+    pub deployment_type: String,
+    pub scheduled_at: Option<String>,
+    pub deployment_config_json: Option<String>,
+}
+
+/// Rollback configuration request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RollbackConfigRequest {
+    pub instance_id: String,
+    pub target_version: Option<String>,
+    pub reason: String,
 }
 
 // ===== Adapter Types =====
@@ -1433,4 +1855,282 @@ pub struct DomainAdapterExecutionResponse {
     pub execution_time_ms: u64,
     pub trace_events: Vec<String>,
     pub executed_at: String,
+}
+
+// ===== Advanced Process Monitoring and Alerting Types =====
+
+/// Process monitoring rule
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMonitoringRuleResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub rule_type: String,
+    pub metric_name: String,
+    pub threshold_value: f64,
+    pub threshold_operator: String,
+    pub severity: String,
+    pub evaluation_window_seconds: i32,
+    pub cooldown_seconds: i32,
+    pub is_active: bool,
+    pub notification_channels: Option<serde_json::Value>,
+    pub escalation_rules: Option<serde_json::Value>,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process health metric
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessHealthMetricResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub tenant_id: String,
+    pub metric_name: String,
+    pub metric_value: f64,
+    pub metric_unit: Option<String>,
+    pub tags: Option<serde_json::Value>,
+    pub collected_at: String,
+}
+
+/// Process alert
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessAlertResponse {
+    pub id: String,
+    pub rule_id: String,
+    pub worker_id: String,
+    pub tenant_id: String,
+    pub alert_type: String,
+    pub severity: String,
+    pub title: String,
+    pub message: String,
+    pub metric_value: Option<f64>,
+    pub threshold_value: Option<f64>,
+    pub status: String,
+    pub acknowledged_by: Option<String>,
+    pub acknowledged_at: Option<String>,
+    pub resolved_at: Option<String>,
+    pub suppression_reason: Option<String>,
+    pub suppression_until: Option<String>,
+    pub escalation_level: i32,
+    pub notification_sent: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process anomaly
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessAnomalyResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub tenant_id: String,
+    pub anomaly_type: String,
+    pub metric_name: String,
+    pub detected_value: f64,
+    pub expected_range_min: Option<f64>,
+    pub expected_range_max: Option<f64>,
+    pub confidence_score: f64,
+    pub severity: String,
+    pub description: Option<String>,
+    pub detection_method: String,
+    pub model_version: Option<String>,
+    pub status: String,
+    pub investigated_by: Option<String>,
+    pub investigation_notes: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+}
+
+/// Process performance baseline
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessPerformanceBaselineResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub tenant_id: String,
+    pub metric_name: String,
+    pub baseline_value: f64,
+    pub baseline_type: String,
+    pub calculation_period_days: i32,
+    pub confidence_interval: Option<f64>,
+    pub standard_deviation: Option<f64>,
+    pub percentile_95: Option<f64>,
+    pub percentile_99: Option<f64>,
+    pub is_active: bool,
+    pub calculated_at: String,
+    pub expires_at: Option<String>,
+}
+
+/// Process monitoring dashboard
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMonitoringDashboardResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub dashboard_config: serde_json::Value,
+    pub is_shared: bool,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process monitoring widget
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMonitoringWidgetResponse {
+    pub id: String,
+    pub dashboard_id: String,
+    pub widget_type: String,
+    pub widget_config: serde_json::Value,
+    pub position_x: i32,
+    pub position_y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub refresh_interval_seconds: i32,
+    pub is_visible: bool,
+    pub created_at: String,
+}
+
+/// Process monitoring notification
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMonitoringNotificationResponse {
+    pub id: String,
+    pub alert_id: String,
+    pub notification_type: String,
+    pub recipient: String,
+    pub message: String,
+    pub status: String,
+    pub sent_at: Option<String>,
+    pub delivered_at: Option<String>,
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+    pub created_at: String,
+}
+
+/// Process monitoring schedule
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMonitoringScheduleResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub schedule_type: String,
+    pub schedule_config: serde_json::Value,
+    pub is_active: bool,
+    pub last_run_at: Option<String>,
+    pub next_run_at: Option<String>,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Process monitoring report
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProcessMonitoringReportResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub report_type: String,
+    pub report_config: serde_json::Value,
+    pub generated_at: String,
+    pub report_data: Option<serde_json::Value>,
+    pub file_path: Option<String>,
+    pub file_size_bytes: Option<i64>,
+    pub created_by: Option<String>,
+}
+
+/// Create monitoring rule request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateProcessMonitoringRuleRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub rule_type: String,
+    pub metric_name: String,
+    pub threshold_value: f64,
+    pub threshold_operator: String,
+    pub severity: String,
+    pub evaluation_window_seconds: Option<i32>,
+    pub cooldown_seconds: Option<i32>,
+    pub notification_channels: Option<serde_json::Value>,
+    pub escalation_rules: Option<serde_json::Value>,
+}
+
+/// Create monitoring dashboard request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateProcessMonitoringDashboardRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub dashboard_config: serde_json::Value,
+    pub is_shared: Option<bool>,
+}
+
+/// Create monitoring widget request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateProcessMonitoringWidgetRequest {
+    pub dashboard_id: String,
+    pub widget_type: String,
+    pub widget_config: serde_json::Value,
+    pub position_x: i32,
+    pub position_y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub refresh_interval_seconds: Option<i32>,
+}
+
+/// Create monitoring schedule request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateProcessMonitoringScheduleRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub schedule_type: String,
+    pub schedule_config: serde_json::Value,
+}
+
+/// Create monitoring report request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateProcessMonitoringReportRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub report_type: String,
+    pub report_config: serde_json::Value,
+}
+
+/// Acknowledge alert request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AcknowledgeProcessAlertRequest {
+    pub alert_id: String,
+    pub acknowledgment_note: Option<String>,
+}
+
+/// Resolve alert request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ResolveProcessAlertRequest {
+    pub alert_id: String,
+    pub resolution_note: Option<String>,
+}
+
+/// Suppress alert request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SuppressProcessAlertRequest {
+    pub alert_id: String,
+    pub suppression_reason: String,
+    pub suppression_until: Option<String>,
+}
+
+/// Update anomaly status request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateProcessAnomalyStatusRequest {
+    pub anomaly_id: String,
+    pub status: String,
+    pub investigation_notes: Option<String>,
+}
+
+/// Git status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GitStatusResponse {
+    pub branch: String,
+    pub modified_files: Vec<String>,
+    pub staged_files: Vec<String>,
+    pub untracked_files: Vec<String>,
 }

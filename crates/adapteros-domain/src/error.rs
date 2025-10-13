@@ -68,4 +68,3 @@ pub enum DomainAdapterError {
 
 /// Result type for domain adapter operations
 pub type Result<T> = std::result::Result<T, DomainAdapterError>;
-

@@ -119,7 +119,7 @@ impl AdapterProfiler {
         *counter += 1;
 
         // Sample at 5% (1 in 20)
-        if *counter % 20 == 0 {
+        if (*counter).is_multiple_of(20) {
             if let Some(ref telemetry) = self.telemetry {
                 let metrics = self.get_all_metrics();
                 telemetry.log("profiling_snapshot", ProfilingSnapshot { metrics })?;

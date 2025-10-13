@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use crate::types::{
-    CreateDomainAdapterRequest, DomainAdapterResponse, DomainAdapterManifestResponse,
-    DomainAdapterExecutionResponse, EpsilonStatsResponse, ErrorResponse, LoadDomainAdapterRequest,
+    CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
+    DomainAdapterResponse, EpsilonStatsResponse, ErrorResponse, LoadDomainAdapterRequest,
     TestDomainAdapterRequest, TestDomainAdapterResponse,
 };
 use axum::{
@@ -10,7 +10,7 @@ use axum::{
     response::Json,
 };
 use chrono::Utc;
-use adapteros_core::error::AosError;
+// use adapteros_core::error::AosError; // unused
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -24,96 +24,22 @@ use uuid::Uuid;
     )
 )]
 pub async fn list_domain_adapters(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<DomainAdapterResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual database query
-    // For now, return mock data
-    let mock_adapters = vec![
-        DomainAdapterResponse {
-            id: "1".to_string(),
-            name: "text-adapter-v1".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Deterministic Text Processing Adapter".to_string(),
-            domain_type: "text".to_string(),
-            model: "mlx_lora_base_v1".to_string(),
-            hash: "b3d9c2e1f0a9d8c7b6a50123456789ab".to_string(),
-            input_format: "UTF8 canonical".to_string(),
-            output_format: "BPE deterministic".to_string(),
-            config: {
-                let mut config = HashMap::new();
-                config.insert("vocab_size".to_string(), serde_json::Value::Number(32000.into()));
-                config.insert("max_seq_len".to_string(), serde_json::Value::Number(512.into()));
-                config
-            },
-            status: "loaded".to_string(),
-            epsilon_stats: Some(EpsilonStatsResponse {
-                mean_error: 0.001,
-                max_error: 0.005,
-                error_count: 1247,
-                last_updated: Utc::now().to_rfc3339(),
-            }),
-            last_execution: Some(Utc::now().to_rfc3339()),
-            execution_count: 1247,
-            created_at: "2024-01-15T10:30:00Z".to_string(),
-            updated_at: Utc::now().to_rfc3339(),
-        },
-        DomainAdapterResponse {
-            id: "2".to_string(),
-            name: "vision-adapter-v1".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Deterministic Vision Processing Adapter".to_string(),
-            domain_type: "vision".to_string(),
-            model: "resnet50_quantized_v2".to_string(),
-            hash: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6".to_string(),
-            input_format: "RGB8 canonical".to_string(),
-            output_format: "Quantized Conv Features".to_string(),
-            config: {
-                let mut config = HashMap::new();
-                config.insert("image_size".to_string(), serde_json::Value::Array(vec![
-                    serde_json::Value::Number(224.into()),
-                    serde_json::Value::Number(224.into()),
-                ]));
-                config.insert("channels".to_string(), serde_json::Value::Number(3.into()));
-                config
-            },
-            status: "loaded".to_string(),
-            epsilon_stats: Some(EpsilonStatsResponse {
-                mean_error: 0.002,
-                max_error: 0.008,
-                error_count: 89,
-                last_updated: Utc::now().to_rfc3339(),
-            }),
-            last_execution: Some(Utc::now().to_rfc3339()),
-            execution_count: 89,
-            created_at: "2024-01-20T14:15:00Z".to_string(),
-            updated_at: Utc::now().to_rfc3339(),
-        },
-        DomainAdapterResponse {
-            id: "3".to_string(),
-            name: "telemetry-adapter-v1".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Deterministic Telemetry Signal Normalization Adapter".to_string(),
-            domain_type: "telemetry".to_string(),
-            model: "signal_denoiser_v1".to_string(),
-            hash: "f0e1d2c3b4a5f6e7d8c9b0a1f2e3d4c5".to_string(),
-            input_format: "Raw Sensor Data".to_string(),
-            output_format: "Normalized Signal".to_string(),
-            config: {
-                let mut config = HashMap::new();
-                config.insert("sampling_rate".to_string(), serde_json::Value::Number(serde_json::Number::from(1000)));
-                config.insert("window_size".to_string(), serde_json::Value::Number(serde_json::Number::from(128)));
-                config
-            },
-            status: "unloaded".to_string(),
-            epsilon_stats: None,
-            last_execution: None,
-            execution_count: 0,
-            created_at: "2024-02-01T09:45:00Z".to_string(),
-            updated_at: Utc::now().to_rfc3339(),
-        },
-    ];
+    // TODO: Implement domain adapter database methods
+    // let adapters = state.db.list_domain_adapters().await
+    //     .map_err(|e| {
+    //         tracing::error!("Failed to list domain adapters: {}", e);
+    //         (
+    //             StatusCode::INTERNAL_SERVER_ERROR,
+    //             Json(ErrorResponse::new("Failed to list domain adapters").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+    //         )
+    //     })?;
 
-    Ok(Json(mock_adapters))
+    // Mock response for now
+    let adapters = vec![];
+
+    Ok(Json(adapters))
 }
 
 /// Get a specific domain adapter
@@ -129,36 +55,36 @@ pub async fn list_domain_adapters(
     )
 )]
 pub async fn get_domain_adapter(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual database query
-    // For now, return mock data
-    let mock_adapter = DomainAdapterResponse {
-        id: adapter_id.clone(),
-        name: format!("{}-v1", adapter_id),
-        version: "0.1.0".to_string(),
-        description: "Mock domain adapter".to_string(),
-        domain_type: "text".to_string(),
-        model: "mock_model".to_string(),
-        hash: "mock_hash".to_string(),
-        input_format: "mock_input".to_string(),
-        output_format: "mock_output".to_string(),
-        config: HashMap::new(),
-        status: "loaded".to_string(),
-        epsilon_stats: Some(EpsilonStatsResponse {
-            mean_error: 0.001,
-            max_error: 0.005,
-            error_count: 100,
-            last_updated: Utc::now().to_rfc3339(),
-        }),
-        last_execution: Some(Utc::now().to_rfc3339()),
-        execution_count: 100,
-        created_at: Utc::now().to_rfc3339(),
-        updated_at: Utc::now().to_rfc3339(),
-    };
+    // Citation: crates/adapteros-server-api/src/handlers/git_repository.rs L280-L304
+    // TODO: Implement domain adapter database methods
+    // let adapter = state.db.get_domain_adapter(&adapter_id).await
+    //     .map_err(|e| {
+    //         tracing::error!("Failed to get domain adapter: {}", e);
+    //         (
+    //             StatusCode::INTERNAL_SERVER_ERROR,
+    //             Json(ErrorResponse::new("Failed to get domain adapter").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+    //         )
+    //     })?;
 
-    Ok(Json(mock_adapter))
+    // Mock response for now
+    let adapter = None;
+
+    let adapter = adapter.ok_or_else(|| {
+        tracing::warn!("Domain adapter not found: {}", adapter_id);
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("Domain adapter not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!("Adapter ID: {}", adapter_id)),
+            ),
+        )
+    })?;
+
+    Ok(Json(adapter))
 }
 
 /// Create a new domain adapter
@@ -179,15 +105,15 @@ pub async fn create_domain_adapter(
     if req.name.is_empty() || req.domain_type.is_empty() || req.model.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "name, domain_type, and model are required".to_string(),
-                details: None,
-            }),
+            Json(
+                ErrorResponse::new("name, domain_type, and model are required")
+                    .with_code("INTERNAL_ERROR"),
+            ),
         ));
     }
 
-    // TODO: Implement actual domain adapter creation
-    // This would involve:
+    // Domain adapter creation - placeholder implementation
+    // Future implementation would involve:
     // 1. Creating the adapter manifest
     // 2. Registering with the deterministic executor
     // 3. Storing in database
@@ -232,7 +158,7 @@ pub async fn load_domain_adapter(
     Path(adapter_id): Path<String>,
     Json(_req): Json<LoadDomainAdapterRequest>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual adapter loading
+    // Adapter loading - placeholder implementation
     // This would involve:
     // 1. Loading the adapter manifest
     // 2. Registering with the deterministic executor
@@ -281,7 +207,7 @@ pub async fn unload_domain_adapter(
     State(_state): State<AppState>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual adapter unloading
+    // Adapter unloading - placeholder implementation
     // This would involve:
     // 1. Unregistering from the deterministic executor
     // 2. Updating the adapter status
@@ -326,7 +252,7 @@ pub async fn test_domain_adapter(
     Path(adapter_id): Path<String>,
     Json(req): Json<TestDomainAdapterRequest>,
 ) -> Result<Json<TestDomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual determinism testing
+    // Determinism testing - placeholder implementation
     // This would involve:
     // 1. Running the adapter multiple times with the same input
     // 2. Comparing outputs for byte-identical results
@@ -365,7 +291,7 @@ pub async fn get_domain_adapter_manifest(
     State(_state): State<AppState>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<DomainAdapterManifestResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual manifest retrieval
+    // Manifest retrieval - placeholder implementation
     // This would involve loading the TOML manifest file
 
     let manifest = DomainAdapterManifestResponse {
@@ -404,7 +330,7 @@ pub async fn execute_domain_adapter(
     Path(adapter_id): Path<String>,
     Json(input_data): Json<serde_json::Value>,
 ) -> Result<Json<DomainAdapterExecutionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual adapter execution
+    // Adapter execution - placeholder implementation
     // This would involve:
     // 1. Preparing the input data
     // 2. Running through the deterministic executor
@@ -446,7 +372,7 @@ pub async fn delete_domain_adapter(
     State(_state): State<AppState>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual adapter deletion
+    // Adapter deletion - placeholder implementation
     // This would involve:
     // 1. Unloading the adapter if loaded
     // 2. Removing from database

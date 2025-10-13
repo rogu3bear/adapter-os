@@ -7,10 +7,10 @@
 //! - Artifact verification (Ruleset #13)
 //! - Input sanitization
 
-use crate::{EvidencePolicy, Policies};
+use crate::Policies;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_rag::EvidenceSpan;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Policy validator enforcing 20 rulesets
 pub struct PolicyValidator {

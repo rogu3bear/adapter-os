@@ -3,14 +3,15 @@
 use crate::branch_manager::BranchManager;
 use crate::config::CommitConfig;
 use crate::types::{ChangeBatch, ChangeType, FileChangeEvent};
-use crossbeam_channel::{bounded, Receiver, Sender};
 use adapteros_core::{AosError, Result};
+use adapteros_deterministic_exec::select::{select_2, SelectResult2};
+use adapteros_deterministic_exec::spawn_deterministic;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{debug, error, info};
-use adapteros_deterministic_exec::spawn_deterministic;
 
 /// Auto-commit daemon that batches changes per adapter
 pub struct CommitDaemon {
@@ -75,38 +76,45 @@ impl CommitDaemon {
             let mut ticker = interval(config.interval());
 
             loop {
-                tokio::select! {
-                    // Process incoming file change events
-                    result = tokio::task::spawn_blocking({
-                        let receiver = receiver.clone();
-                        move || receiver.recv()
-                    }) => {
-                        match result {
-                            Ok(Ok(event)) => {
-                                if let Err(e) = Self::process_event(event, &batches, config.max_changes_per_commit).await {
-                                    error!("Failed to process file change event: {}", e);
-                                }
-                            }
-                            Ok(Err(e)) => {
-                                error!("Failed to receive event: {}", e);
-                            }
-                            Err(e) => {
-                                error!("Task join error: {}", e);
-                            }
-                        }
-                    }
+                // Create futures for deterministic select
+                let tick_future = ticker.tick();
+                let event_future = tokio::task::spawn_blocking({
+                    let receiver = receiver.clone();
+                    move || receiver.recv()
+                });
 
+                // Use deterministic select: tick (left) has priority over event (right)
+                match select_2(tick_future, event_future).await {
                     // Periodic commit tick
-                    _ = ticker.tick() => {
-                        if let Err(e) = Self::commit_batches(
-                            &batches,
-                            &db,
-                            &branch_manager,
-                            &config,
-                        ).await {
+                    SelectResult2::First(_) => {
+                        if let Err(e) =
+                            Self::commit_batches(&batches, &db, &branch_manager, &config).await
+                        {
                             error!("Failed to commit batches: {}", e);
                         }
                     }
+                    // Process incoming file change events
+                    SelectResult2::Second(join_result) => match join_result {
+                        Ok(recv_result) => match recv_result {
+                            Ok(event) => {
+                                if let Err(e) = Self::process_event(
+                                    event,
+                                    &batches,
+                                    config.max_changes_per_commit,
+                                )
+                                .await
+                                {
+                                    error!("Failed to process file change event: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to receive event: {}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!("Task join error: {}", e);
+                        }
+                    },
                 }
 
                 // Check if we should stop

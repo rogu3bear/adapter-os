@@ -307,7 +307,7 @@ impl ResourceUsageEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    // use std::time::Duration; // unused
 
     #[tokio::test]
     async fn test_resource_limiter_creation() {

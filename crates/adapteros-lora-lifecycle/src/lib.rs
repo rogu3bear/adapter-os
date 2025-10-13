@@ -8,6 +8,7 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::{sqlx, Db};
+use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_manifest::Policies;
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
 use adapteros_telemetry::TelemetryWriter;
@@ -17,7 +18,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
-use adapteros_deterministic_exec::spawn_deterministic;
 
 /// Telemetry event for adapter state transitions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,24 +317,22 @@ impl LifecycleManager {
                         }
                     }
                     // Check for demotion
-                    else if self.policy.should_demote(metric) {
-                        if record.demote() {
-                            info!(
-                                "Auto-demoted adapter {} from {} to {}",
-                                record.adapter_id, old_state, record.state
-                            );
+                    else if self.policy.should_demote(metric) && record.demote() {
+                        info!(
+                            "Auto-demoted adapter {} from {} to {}",
+                            record.adapter_id, old_state, record.state
+                        );
 
-                            if let Some(ref telemetry) = self.telemetry {
-                                telemetry.log(
-                                    "adapter_demoted",
-                                    AdapterTransitionEvent {
-                                        adapter_id: record.adapter_id.clone(),
-                                        from_state: old_state.to_string(),
-                                        to_state: record.state.to_string(),
-                                        reason: "low_activation".to_string(),
-                                    },
-                                )?;
-                            }
+                        if let Some(ref telemetry) = self.telemetry {
+                            telemetry.log(
+                                "adapter_demoted",
+                                AdapterTransitionEvent {
+                                    adapter_id: record.adapter_id.clone(),
+                                    from_state: old_state.to_string(),
+                                    to_state: record.state.to_string(),
+                                    reason: "low_activation".to_string(),
+                                },
+                            )?;
                         }
                     }
                 }

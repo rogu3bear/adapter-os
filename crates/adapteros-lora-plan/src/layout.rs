@@ -55,7 +55,7 @@ impl TensorLayout {
         let mut adapter_layouts = Vec::new();
         for adapter in &manifest.adapters {
             // Pad rank to next multiple of 16 for vectorization
-            let rank_padded = ((adapter.rank + 15) / 16) * 16;
+            let rank_padded = adapter.rank.div_ceil(16) * 16;
 
             adapter_layouts.push(AdapterLayout {
                 id: adapter.id.clone(),

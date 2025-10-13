@@ -14,3 +14,8 @@ serde_jcs = { workspace = true }
 crossbeam = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true }
+tracing = { workspace = true }
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

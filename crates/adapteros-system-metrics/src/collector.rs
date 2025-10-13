@@ -1,13 +1,13 @@
+#![allow(unused_variables)]
+
 //! System metrics collector implementation
 //!
 //! Provides real-time system resource monitoring using sysinfo crate.
 //! Follows AdapterOS patterns for error handling and telemetry integration.
 
 use crate::{DiskMetrics, GpuMetrics, NetworkMetrics, SystemMetrics};
-use adapteros_core::{AosError, Result};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use sysinfo::{Disks, Networks, System};
-use tracing::debug;
+use std::time::SystemTime;
+use sysinfo::System;
 
 /// System metrics collector
 pub struct SystemMetricsCollector {
@@ -95,10 +95,10 @@ impl SystemMetricsCollector {
     /// Collect disk I/O metrics
     fn collect_disk_metrics(&mut self, time_delta: f32) -> DiskMetrics {
         let disks = sysinfo::Disks::new_with_refreshed_list();
-        let mut total_read_bytes = 0u64;
-        let mut total_write_bytes = 0u64;
-        let mut total_read_ops = 0u64;
-        let mut total_write_ops = 0u64;
+        let total_read_bytes = 0u64;
+        let total_write_bytes = 0u64;
+        let total_read_ops = 0u64;
+        let total_write_ops = 0u64;
         let mut total_space = 0u64;
         let mut available_space = 0u64;
 
@@ -229,6 +229,6 @@ mod tests {
     fn test_headroom_calculation() {
         let collector = SystemMetricsCollector::new();
         let headroom = collector.headroom_pct();
-        assert!(headroom >= 0.0 && headroom <= 100.0);
+        assert!((0.0..=100.0).contains(&headroom));
     }
 }

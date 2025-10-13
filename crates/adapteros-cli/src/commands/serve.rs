@@ -253,6 +253,13 @@ pub async fn run(
                 model_path: std::path::PathBuf::from(&model_path),
             }
         }
+        BackendType::CoreML => {
+            output.verbose("Using CoreML backend (macOS Neural Engine)");
+            // CoreML backend not yet implemented
+            output.error("CoreML backend not yet implemented");
+            output.info("Please use Metal or MLX backend instead");
+            return Err(anyhow::anyhow!("CoreML backend not implemented"));
+        }
     };
 
     let mut kernels = adapteros_lora_worker::create_backend(backend_choice)
@@ -268,7 +275,7 @@ pub async fn run(
         for (adapter_id, adapter_spec) in manifest.adapters.iter().enumerate() {
             let adapter_path = format!("./adapters/{}.safetensors", adapter_spec.id);
             if std::path::Path::new(&adapter_path).exists() {
-                let config = adapteros_lora_mlx::LoRAConfig {
+                let config = adapteros_lora_mlx_ffi::LoRAConfig {
                     rank: adapter_spec.rank as usize,
                     alpha: adapter_spec.alpha,
                     target_modules: adapter_spec.target_modules.clone(),
@@ -280,7 +287,7 @@ pub async fn run(
                     adapter_spec.id, adapter_id
                 ));
 
-                match adapteros_lora_mlx::LoRAAdapter::load(&adapter_path, adapter_spec.id.clone(), config)
+                match adapteros_lora_mlx_ffi::LoRAAdapter::load(&adapter_path, adapter_spec.id.clone(), config)
                 {
                     Ok(adapter) => {
                         // Load adapter weights into backend
@@ -316,7 +323,7 @@ pub async fn run(
         &tokenizer_path,
         &model_path,
         telemetry,
-    )?;
+    ).await?;
     output.success("Worker initialized");
 
     output.blank();

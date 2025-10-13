@@ -263,7 +263,7 @@ fn get_process_cpu_time() -> Result<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    // use std::time::Duration; // unused
 
     #[tokio::test]
     async fn test_health_monitor_creation() {

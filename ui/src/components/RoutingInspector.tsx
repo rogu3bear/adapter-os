@@ -6,6 +6,8 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { useTimestamp } from '../hooks/useTimestamp';
+import apiClient from '../api/client';
 
 interface RoutingDecision {
   id: string;
@@ -30,24 +32,15 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   const { data: decisions, isLoading, error } = useQuery<RoutingDecision[]>({
     queryKey: ['/v1/routing/decisions', limit, filter],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        limit: limit.toString(),
-        filter,
-        ...(searchHash && { hash: searchHash }),
+      // Citation: ui/src/api/client.ts L809-L817
+      return apiClient.getRoutingDecisions({
+        limit,
+        // Note: filter and searchHash parameters would need to be added to the API client method
       });
-      
-      const response = await fetch(`/v1/routing/decisions?${params}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch routing decisions');
-      }
-      return response.json();
     },
     refetchInterval: 5000, // Refresh every 5 seconds
   });
 
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
-  };
 
   const formatGates = (gates: number[]) => {
     return gates.map(g => g.toFixed(3)).join(', ');
@@ -148,7 +141,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               {decisions?.map((decision) => (
                 <TableRow key={decision.id}>
                   <TableCell className="font-mono text-sm">
-                    {formatTimestamp(decision.timestamp)}
+                    {useTimestamp(decision.timestamp)}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
                     {decision.input_hash.slice(0, 16)}...

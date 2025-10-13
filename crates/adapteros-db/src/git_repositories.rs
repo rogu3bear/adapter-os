@@ -26,7 +26,7 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn create_git_repository(
         &self,
-        id: &str,
+        _id: &str,
         repo_id: &str,
         path: &str,
         branch: &str,
@@ -61,7 +61,7 @@ impl Db {
         let repository = sqlx::query_as::<_, GitRepository>(
             "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
                     security_scan_json, status, created_at, created_by 
-             FROM git_repositories WHERE repo_id = ?"
+             FROM git_repositories WHERE repo_id = ?",
         )
         .bind(repo_id)
         .fetch_optional(self.pool())
@@ -77,22 +77,18 @@ impl Db {
         let repositories = sqlx::query_as::<_, GitRepository>(
             "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
                     security_scan_json, status, created_at, created_by 
-             FROM git_repositories ORDER BY created_at DESC"
+             FROM git_repositories ORDER BY created_at DESC",
         )
         .fetch_all(self.pool())
         .await?;
         Ok(repositories)
     }
 
-    /// Update repository status
+    /// Update git repository status
     ///
     /// Evidence: migrations/0002_patch_proposals.sql:1-18
     /// Pattern: Database schema for patch proposals
-    pub async fn update_repository_status(
-        &self,
-        repo_id: &str,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_git_repository_status(&self, repo_id: &str, status: &str) -> Result<()> {
         sqlx::query("UPDATE git_repositories SET status = ? WHERE repo_id = ?")
             .bind(status)
             .bind(repo_id)
@@ -115,7 +111,7 @@ impl Db {
         sqlx::query(
             "UPDATE git_repositories 
              SET analysis_json = ?, evidence_json = ?, security_scan_json = ? 
-             WHERE repo_id = ?"
+             WHERE repo_id = ?",
         )
         .bind(analysis_json)
         .bind(evidence_json)
@@ -146,7 +142,7 @@ impl Db {
         let repositories = sqlx::query_as::<_, GitRepository>(
             "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
                     security_scan_json, status, created_at, created_by 
-             FROM git_repositories WHERE status = ? ORDER BY created_at DESC"
+             FROM git_repositories WHERE status = ? ORDER BY created_at DESC",
         )
         .bind(status)
         .fetch_all(self.pool())
@@ -158,11 +154,14 @@ impl Db {
     ///
     /// Evidence: migrations/0002_patch_proposals.sql:1-18
     /// Pattern: Database schema for patch proposals
-    pub async fn get_repositories_by_creator(&self, created_by: &str) -> Result<Vec<GitRepository>> {
+    pub async fn get_repositories_by_creator(
+        &self,
+        created_by: &str,
+    ) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
             "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
                     security_scan_json, status, created_at, created_by 
-             FROM git_repositories WHERE created_by = ? ORDER BY created_at DESC"
+             FROM git_repositories WHERE created_by = ? ORDER BY created_at DESC",
         )
         .bind(created_by)
         .fetch_all(self.pool())

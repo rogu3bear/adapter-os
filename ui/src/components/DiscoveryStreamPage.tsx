@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
+import { useTimestamp } from '../hooks/useTimestamp';
 
 interface DiscoveryEvent {
   type: string;
@@ -190,7 +191,7 @@ export function DiscoveryStreamPage({ selectedTenant }: DiscoveryStreamPageProps
             {events.map((event, idx) => (
               <div key={idx} className="flex gap-2 items-center">
                 <span className="text-gray-500 dark:text-gray-400">
-                  {new Date(event.timestamp).toLocaleTimeString()}
+                  {useTimestamp(new Date(event.timestamp).toISOString())}
                 </span>
                 <span className="text-blue-600 dark:text-blue-400">{event.payload.repo_id}</span>
                 <span>{event.type}</span>

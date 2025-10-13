@@ -132,6 +132,29 @@ pub struct ThresholdViolationEvent {
     pub timestamp: u64,
 }
 
+/// Drift detection event (system.drift_detected)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriftDetectedEvent {
+    pub baseline_hash: String,
+    pub current_hash: String,
+    pub severity: String,
+    pub field_count: usize,
+    pub fields_changed: Vec<String>,
+    pub should_block: bool,
+    pub timestamp: u64,
+}
+
+/// Fingerprint captured event (system.fingerprint_captured)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FingerprintCapturedEvent {
+    pub fingerprint_hash: String,
+    pub device_model: String,
+    pub soc_id: String,
+    pub os_version: String,
+    pub os_build: String,
+    pub timestamp: u64,
+}
+
 /// Kernel noise tracking event (kernel.noise)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelNoiseEvent {

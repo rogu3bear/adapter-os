@@ -59,6 +59,20 @@ pub struct BundleSignature {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct BaseModelStatus {
+    pub id: String,
+    pub tenant_id: String,
+    pub model_id: String,
+    pub status: String,
+    pub loaded_at: Option<String>,
+    pub unloaded_at: Option<String>,
+    pub error_message: Option<String>,
+    pub memory_usage_mb: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Worker {
     pub id: String,
     pub tenant_id: String,
@@ -116,5 +130,105 @@ impl Db {
         .fetch_all(self.pool())
         .await?;
         Ok(models)
+    }
+
+    /// Update base model status
+    pub async fn update_base_model_status(
+        &self,
+        tenant_id: &str,
+        model_id: &str,
+        status: &str,
+        error_message: Option<&str>,
+        memory_usage_mb: Option<i32>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Check if status record exists
+        let existing = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM base_model_status WHERE tenant_id = ? AND model_id = ?",
+        )
+        .bind(tenant_id)
+        .bind(model_id)
+        .fetch_one(self.pool())
+        .await?;
+
+        if existing > 0 {
+            // Update existing record
+            sqlx::query(
+                "UPDATE base_model_status SET status = ?, error_message = ?, memory_usage_mb = ?, updated_at = ? WHERE tenant_id = ? AND model_id = ?"
+            )
+            .bind(status)
+            .bind(error_message)
+            .bind(memory_usage_mb)
+            .bind(&now)
+            .bind(tenant_id)
+            .bind(model_id)
+            .execute(self.pool())
+            .await?;
+        } else {
+            // Insert new record
+            let id = Uuid::now_v7().to_string();
+            sqlx::query(
+                "INSERT INTO base_model_status (id, tenant_id, model_id, status, error_message, memory_usage_mb, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(&id)
+            .bind(tenant_id)
+            .bind(model_id)
+            .bind(status)
+            .bind(error_message)
+            .bind(memory_usage_mb)
+            .bind(&now)
+            .bind(&now)
+            .execute(self.pool())
+            .await?;
+        }
+
+        // Update loaded_at/unloaded_at timestamps based on status
+        match status {
+            "loaded" => {
+                sqlx::query(
+                    "UPDATE base_model_status SET loaded_at = ? WHERE tenant_id = ? AND model_id = ?"
+                )
+                .bind(&now)
+                .bind(tenant_id)
+                .bind(model_id)
+                .execute(self.pool())
+                .await?;
+            }
+            "unloaded" => {
+                sqlx::query(
+                    "UPDATE base_model_status SET unloaded_at = ? WHERE tenant_id = ? AND model_id = ?"
+                )
+                .bind(&now)
+                .bind(tenant_id)
+                .bind(model_id)
+                .execute(self.pool())
+                .await?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// Get base model status for tenant
+    pub async fn get_base_model_status(&self, tenant_id: &str) -> Result<Option<BaseModelStatus>> {
+        let status = sqlx::query_as::<_, BaseModelStatus>(
+            "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 1"
+        )
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(status)
+    }
+
+    /// List all base model statuses
+    pub async fn list_base_model_statuses(&self) -> Result<Vec<BaseModelStatus>> {
+        let statuses = sqlx::query_as::<_, BaseModelStatus>(
+            "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status ORDER BY updated_at DESC"
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(statuses)
     }
 }

@@ -11,6 +11,9 @@ import { EmptyState } from './ui/empty-state';
 import apiClient from '../api/client';
 import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '../api/types';
 import { useSSE } from '../hooks/useSSE';
+import { useTimestamp } from '../hooks/useTimestamp';
+import { canonicalKey } from './ui/utils';
+import { HashChainView } from './HashChainView';
 import { toast } from 'sonner';
 
 interface TelemetryProps {
@@ -202,6 +205,15 @@ export function Telemetry({ user, selectedTenant }: TelemetryProps) {
                   {verifyResult.valid ? '✓ Signature is valid' : '✗ Signature is invalid'}
                 </AlertDescription>
               </Alert>
+              
+              {selectedBundle && (
+                <HashChainView 
+                  manifestHash={selectedBundle.manifest_hash_b3 || 'N/A'}
+                  policyHash={selectedBundle.policy_hash_b3 || 'N/A'}
+                  verified={verifyResult.valid}
+                />
+              )}
+              
               <div className="form-field">
                 <p className="form-label">Bundle ID</p>
                 <p className="text-sm text-muted-foreground font-mono">{verifyResult.bundle_id}</p>
@@ -216,7 +228,7 @@ export function Telemetry({ user, selectedTenant }: TelemetryProps) {
               </div>
               <div className="form-field">
                 <p className="form-label">Signed At</p>
-                <p className="text-sm text-muted-foreground">{new Date(verifyResult.signed_at).toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
               </div>
               {verifyResult.verification_error && (
                 <div className="form-field">

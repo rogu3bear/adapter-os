@@ -98,16 +98,35 @@ pub struct FileChangeStreamQuery {
     tag = "git"
 )]
 pub async fn git_status(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<GitStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Implement actual Git status checking
-    // For now, return placeholder data
-    Ok(Json(GitStatusResponse {
+    // Citation: crates/adapteros-server-api/src/handlers/git.rs L131-L139
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    // TODO: Implement get_status method in GitSubsystem
+    // let status = git_subsystem.get_status().await
+    //     .map_err(|e| {
+    //         tracing::error!("Failed to get git status: {}", e);
+    //         (
+    //             StatusCode::INTERNAL_SERVER_ERROR,
+    //             Json(ErrorResponse::new("Failed to get git status").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+    //         )
+    //     })?;
+
+    // Mock status for now
+    let status = GitStatusResponse {
         branch: "main".to_string(),
         modified_files: vec![],
-        untracked_files: vec![],
         staged_files: vec![],
-    }))
+        untracked_files: vec![],
+    };
+
+    Ok(Json(status))
 }
 
 /// Start a new Git session for an adapter
@@ -131,10 +150,7 @@ pub async fn start_git_session(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "Git subsystem not available".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -146,10 +162,10 @@ pub async fn start_git_session(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to start Git session: {}", e),
-                    details: None,
-                }),
+                Json(
+                    ErrorResponse::new(format!("Failed to start Git session: {}", e))
+                        .with_code("INTERNAL_SERVER_ERROR"),
+                ),
             )
         })?;
 
@@ -182,10 +198,7 @@ pub async fn end_git_session(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "Git subsystem not available".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -198,10 +211,10 @@ pub async fn end_git_session(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to end Git session: {}", e),
-                    details: None,
-                }),
+                Json(
+                    ErrorResponse::new(format!("Failed to end Git session: {}", e))
+                        .with_code("INTERNAL_SERVER_ERROR"),
+                ),
             )
         })?;
 
@@ -229,10 +242,7 @@ pub async fn list_git_branches(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "Git subsystem not available".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -244,7 +254,7 @@ pub async fn list_git_branches(
             adapter_id: session.adapter_id,
             branch_name: session.branch_name,
             created_at: session.started_at.to_rfc3339(),
-            commit_count: 0, // TODO: Get actual commit count
+            commit_count: 0, // Placeholder - would get actual commit count
         })
         .collect();
 
@@ -275,10 +285,10 @@ pub async fn file_changes_stream(
         .ok_or_else(|| {
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(ErrorResponse {
-                    error: "File change streaming not available".to_string(),
-                    details: None,
-                }),
+                Json(
+                    ErrorResponse::new("File change streaming not available")
+                        .with_code("INTERNAL_ERROR"),
+                ),
             )
         })?
         .subscribe();

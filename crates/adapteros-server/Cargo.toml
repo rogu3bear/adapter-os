@@ -20,6 +20,7 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-verify = { path = "../adapteros-verify" }
 
 # Workspace dependencies
 anyhow.workspace = true

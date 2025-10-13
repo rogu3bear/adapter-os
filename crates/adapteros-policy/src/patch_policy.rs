@@ -3,10 +3,10 @@
 //! Integrates security validation, test execution, and linter checks
 //! into a comprehensive patch validation pipeline.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Comprehensive patch policy engine
 #[derive(Debug)]

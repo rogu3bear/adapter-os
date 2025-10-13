@@ -15,11 +15,13 @@ pub fn generate_html_report<P: AsRef<Path>, Q: AsRef<Path>>(
     let bundle = load_replay_bundle(bundle_path)?;
     let html = create_report_html(&bundle)?;
 
-    let mut file = File::create(output_path.as_ref())
-        .map_err(|e| adapteros_core::AosError::Telemetry(format!("Failed to create report: {}", e)))?;
+    let mut file = File::create(output_path.as_ref()).map_err(|e| {
+        adapteros_core::AosError::Telemetry(format!("Failed to create report: {}", e))
+    })?;
 
-    file.write_all(html.as_bytes())
-        .map_err(|e| adapteros_core::AosError::Telemetry(format!("Failed to write report: {}", e)))?;
+    file.write_all(html.as_bytes()).map_err(|e| {
+        adapteros_core::AosError::Telemetry(format!("Failed to write report: {}", e))
+    })?;
 
     Ok(())
 }

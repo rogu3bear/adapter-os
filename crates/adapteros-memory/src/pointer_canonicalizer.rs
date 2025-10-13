@@ -6,7 +6,7 @@
 //! - Detecting when OS memory tricks affect pointer reuse
 //! - Providing deterministic pointer mapping for replay
 
-use crate::{Result, MemoryWatchdogError};
+use crate::{MemoryWatchdogError, Result};
 use adapteros_core::B3Hash;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -109,14 +109,18 @@ impl PointerCanonicalizer {
         size_bytes: u64,
         context: String,
     ) -> Result<Uuid> {
-        let logical_order = self.logical_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let logical_order = self
+            .logical_order_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let timestamp = current_timestamp();
         let allocation_id = Uuid::new_v4();
 
         // Check if this pointer was reused
         let was_reused = {
             let history = self.allocation_history.read();
-            history.iter().any(|alloc| alloc.pointer_addr == pointer_addr)
+            history
+                .iter()
+                .any(|alloc| alloc.pointer_addr == pointer_addr)
         };
 
         let previous_allocation_id = if was_reused {
@@ -150,7 +154,7 @@ impl PointerCanonicalizer {
         {
             let mut history = self.allocation_history.write();
             history.push_back(allocation.clone());
-            
+
             // Trim history if too large
             while history.len() > self.max_history_size {
                 history.pop_front();
@@ -189,10 +193,11 @@ impl PointerCanonicalizer {
 
     /// Update reuse pattern for a reused pointer
     fn update_reuse_pattern(&self, allocation: &PointerAllocation) -> Result<()> {
-        let canonical_addr = self.canonicalize_pointer(allocation.pointer_addr, allocation.logical_order);
-        
+        let canonical_addr =
+            self.canonicalize_pointer(allocation.pointer_addr, allocation.logical_order);
+
         let mut patterns = self.reuse_patterns.write();
-        
+
         if let Some(pattern) = patterns.get_mut(&canonical_addr) {
             // Update existing pattern
             pattern.reuse_count += 1;
@@ -209,7 +214,7 @@ impl PointerCanonicalizer {
                 last_allocation_timestamp: allocation.timestamp,
                 allocation_ids: vec![allocation.allocation_id],
             };
-            
+
             patterns.insert(canonical_addr, pattern);
         }
 
@@ -227,22 +232,22 @@ impl PointerCanonicalizer {
     pub fn generate_canonical_layout(&self) -> Result<CanonicalMemoryLayout> {
         let timestamp = current_timestamp();
         let layout_id = Uuid::new_v4();
-        
+
         let reuse_patterns: Vec<PointerReusePattern> = {
             let patterns = self.reuse_patterns.read();
             patterns.values().cloned().collect()
         };
-        
+
         let total_allocations = {
             let active = self.active_allocations.read();
             active.len()
         };
-        
+
         let total_reused = reuse_patterns.iter().map(|p| p.reuse_count as usize).sum();
-        
+
         // Calculate layout hash
         let layout_hash = self.calculate_layout_hash(&reuse_patterns);
-        
+
         let layout = CanonicalMemoryLayout {
             layout_id,
             layout_hash,
@@ -251,36 +256,36 @@ impl PointerCanonicalizer {
             total_reused,
             timestamp,
         };
-        
+
         // Store canonical layout
         {
             let mut layouts = self.canonical_layouts.write();
             layouts.push(layout.clone());
         }
-        
+
         info!(
             "Generated canonical memory layout: id={}, allocations={}, reused={}",
             layout_id, total_allocations, total_reused
         );
-        
+
         Ok(layout)
     }
 
     /// Calculate layout hash for determinism verification
     fn calculate_layout_hash(&self, patterns: &[PointerReusePattern]) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash patterns in deterministic order
         let mut sorted_patterns: Vec<_> = patterns.iter().collect();
         sorted_patterns.sort_by_key(|p| p.logical_order);
-        
+
         for pattern in sorted_patterns {
             hasher.update(&pattern.logical_order.to_le_bytes());
             hasher.update(&pattern.canonical_addr.to_le_bytes());
             hasher.update(&pattern.reuse_count.to_le_bytes());
             hasher.update(&pattern.first_allocation_timestamp.to_le_bytes());
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
@@ -301,12 +306,12 @@ impl PointerCanonicalizer {
         let active = self.active_allocations.read();
         let history = self.allocation_history.read();
         let patterns = self.reuse_patterns.read();
-        
+
         let total_allocations = history.len();
         let active_allocations = active.len();
         let reused_pointers = patterns.len();
         let total_reuses: u32 = patterns.values().map(|p| p.reuse_count).sum();
-        
+
         AllocationStats {
             total_allocations,
             active_allocations,
@@ -338,21 +343,22 @@ impl PointerCanonicalizer {
             let mut layouts = self.canonical_layouts.write();
             layouts.clear();
         }
-        
-        self.logical_order_counter.store(1, std::sync::atomic::Ordering::SeqCst);
+
+        self.logical_order_counter
+            .store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Verify layout consistency
     pub fn verify_layout_consistency(&self, expected_layout: &CanonicalMemoryLayout) -> Result<()> {
         let current_layout = self.generate_canonical_layout()?;
-        
+
         if current_layout.layout_hash != expected_layout.layout_hash {
             return Err(MemoryWatchdogError::MemoryLayoutMismatch {
                 expected: format!("{:?}", expected_layout.layout_hash),
                 actual: format!("{:?}", current_layout.layout_hash),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -383,7 +389,7 @@ mod tests {
     fn test_pointer_canonicalizer_creation() {
         let canonicalizer = PointerCanonicalizer::new(1000);
         let stats = canonicalizer.get_allocation_stats();
-        
+
         assert_eq!(stats.total_allocations, 0);
         assert_eq!(stats.active_allocations, 0);
         assert_eq!(stats.reused_pointers, 0);
@@ -392,36 +398,36 @@ mod tests {
     #[test]
     fn test_pointer_allocation_recording() {
         let canonicalizer = PointerCanonicalizer::new(1000);
-        
+
         let allocation_id = canonicalizer
             .record_allocation(0x1000, 1024, "test".to_string())
             .unwrap();
-        
+
         let stats = canonicalizer.get_allocation_stats();
         assert_eq!(stats.total_allocations, 1);
         assert_eq!(stats.active_allocations, 1);
         assert_eq!(stats.reused_pointers, 0);
-        
+
         assert!(!allocation_id.is_nil());
     }
 
     #[test]
     fn test_pointer_reuse_detection() {
         let canonicalizer = PointerCanonicalizer::new(1000);
-        
+
         // First allocation
         let _allocation_id1 = canonicalizer
             .record_allocation(0x1000, 1024, "test1".to_string())
             .unwrap();
-        
+
         // Deallocate
         canonicalizer.record_deallocation(0x1000).unwrap();
-        
+
         // Second allocation at same address (reuse)
         let _allocation_id2 = canonicalizer
             .record_allocation(0x1000, 2048, "test2".to_string())
             .unwrap();
-        
+
         let stats = canonicalizer.get_allocation_stats();
         assert_eq!(stats.total_allocations, 2);
         assert_eq!(stats.reused_pointers, 1);
@@ -431,18 +437,18 @@ mod tests {
     #[test]
     fn test_canonical_layout_generation() {
         let canonicalizer = PointerCanonicalizer::new(1000);
-        
+
         // Record some allocations
         let _allocation_id1 = canonicalizer
             .record_allocation(0x1000, 1024, "test1".to_string())
             .unwrap();
-        
+
         let _allocation_id2 = canonicalizer
             .record_allocation(0x2000, 2048, "test2".to_string())
             .unwrap();
-        
+
         let layout = canonicalizer.generate_canonical_layout().unwrap();
-        
+
         assert_eq!(layout.total_allocations, 2);
         assert_eq!(layout.total_reused, 0);
         assert!(!layout.layout_id.is_nil());
@@ -451,52 +457,56 @@ mod tests {
     #[test]
     fn test_layout_consistency_verification() {
         let canonicalizer = PointerCanonicalizer::new(1000);
-        
+
         // Generate initial layout
         let initial_layout = canonicalizer.generate_canonical_layout().unwrap();
-        
+
         // Verify consistency
-        canonicalizer.verify_layout_consistency(&initial_layout).unwrap();
-        
+        canonicalizer
+            .verify_layout_consistency(&initial_layout)
+            .unwrap();
+
         // Record allocations that will create reuse patterns
         let _allocation_id1 = canonicalizer
             .record_allocation(0x1000, 1024, "test1".to_string())
             .unwrap();
-        
+
         let _allocation_id2 = canonicalizer
             .record_allocation(0x2000, 2048, "test2".to_string())
             .unwrap();
-        
+
         // Record a reuse to create a pattern
         let _allocation_id3 = canonicalizer
             .record_allocation(0x1000, 1024, "test1_reuse".to_string())
             .unwrap();
-        
+
         // Generate new layout after allocations
         let new_layout = canonicalizer.generate_canonical_layout().unwrap();
-        
+
         // Layouts should be different due to reuse patterns
         assert_ne!(initial_layout.layout_hash, new_layout.layout_hash);
-        
+
         // Verification should fail with old layout
         let result = canonicalizer.verify_layout_consistency(&initial_layout);
         assert!(result.is_err());
-        
+
         // But should pass with new layout
-        canonicalizer.verify_layout_consistency(&new_layout).unwrap();
+        canonicalizer
+            .verify_layout_consistency(&new_layout)
+            .unwrap();
     }
 
     #[test]
     fn test_pointer_canonicalization() {
         let canonicalizer = PointerCanonicalizer::new(1000);
-        
+
         // Test that same logical order produces same canonical address
         let canonical1 = canonicalizer.canonicalize_pointer(0x1000, 1);
         let canonical2 = canonicalizer.canonicalize_pointer(0x2000, 1);
-        
+
         // Should be same for same logical order (canonicalization ignores actual address)
         assert_eq!(canonical1, canonical2);
-        
+
         // But different for different logical orders
         let canonical3 = canonicalizer.canonicalize_pointer(0x3000, 2);
         assert_ne!(canonical1, canonical3);

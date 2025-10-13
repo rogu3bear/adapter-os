@@ -1,8 +1,8 @@
 //! Configuration loader with precedence: CLI > ENV > manifest
 
-use crate::types::*;
 use crate::precedence::ConfigBuilder;
 use crate::types::PrecedenceLevel;
+use crate::types::*;
 use adapteros_core::{AosError, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -33,8 +33,7 @@ impl ConfigLoader {
         cli_args: Vec<String>,
         manifest_path: Option<String>,
     ) -> Result<crate::precedence::DeterministicConfig> {
-        let mut builder = ConfigBuilder::new()
-            .with_cli_args(cli_args.clone());
+        let mut builder = ConfigBuilder::new().with_cli_args(cli_args.clone());
 
         // Load manifest file first (lowest precedence)
         if let Some(ref path) = manifest_path {
@@ -51,16 +50,15 @@ impl ConfigLoader {
         let mut config = builder.build()?;
         config.freeze()?;
 
-        tracing::info!("Configuration loaded and frozen: {}", config.get_metadata().hash);
+        tracing::info!(
+            "Configuration loaded and frozen: {}",
+            config.get_metadata().hash
+        );
         Ok(config)
     }
 
     /// Load configuration from manifest file
-    fn load_manifest(
-        &self,
-        mut builder: ConfigBuilder,
-        path: &str,
-    ) -> Result<ConfigBuilder> {
+    fn load_manifest(&self, mut builder: ConfigBuilder, path: &str) -> Result<ConfigBuilder> {
         let manifest_path = Path::new(path);
         if !manifest_path.exists() {
             return Err(AosError::Config(format!(
@@ -69,17 +67,13 @@ impl ConfigLoader {
             )));
         }
 
-        let content = fs::read_to_string(manifest_path)
-            .map_err(|e| AosError::Config(format!(
-                "Failed to read manifest file {}: {}",
-                path, e
-            )))?;
+        let content = fs::read_to_string(manifest_path).map_err(|e| {
+            AosError::Config(format!("Failed to read manifest file {}: {}", path, e))
+        })?;
 
-        let manifest: Value = toml::from_str(&content)
-            .map_err(|e| AosError::Config(format!(
-                "Failed to parse manifest file {}: {}",
-                path, e
-            )))?;
+        let manifest: Value = toml::from_str(&content).map_err(|e| {
+            AosError::Config(format!("Failed to parse manifest file {}: {}", path, e))
+        })?;
 
         builder = builder.with_manifest_path(path.to_string());
 
@@ -137,7 +131,7 @@ impl ConfigLoader {
         let mut i = 0;
         while i < cli_args.len() {
             let arg = &cli_args[i];
-            
+
             if arg.starts_with("--") {
                 let key = arg.strip_prefix("--").unwrap().to_string();
                 let value = if i + 1 < cli_args.len() && !cli_args[i + 1].starts_with("--") {
@@ -150,14 +144,10 @@ impl ConfigLoader {
                 // Convert CLI key format to schema key format
                 let schema_key = self.convert_cli_key_to_schema_key(&key);
 
-                builder = builder.add_value(
-                    schema_key,
-                    value,
-                    PrecedenceLevel::Cli,
-                    "cli".to_string(),
-                );
+                builder =
+                    builder.add_value(schema_key, value, PrecedenceLevel::Cli, "cli".to_string());
             }
-            
+
             i += 1;
         }
 
@@ -180,7 +170,7 @@ impl ConfigLoader {
     /// Flatten nested TOML value into dot-notation keys
     fn flatten_toml_value(&self, value: &Value, prefix: String) -> HashMap<String, String> {
         let mut result = HashMap::new();
-        
+
         match value {
             Value::Object(map) => {
                 for (key, val) in map {
@@ -189,7 +179,7 @@ impl ConfigLoader {
                     } else {
                         format!("{}.{}", prefix, key)
                     };
-                    
+
                     let flattened = self.flatten_toml_value(val, new_prefix);
                     result.extend(flattened);
                 }
@@ -220,23 +210,18 @@ impl ConfigLoader {
                 result.insert(prefix, "null".to_string());
             }
         }
-        
+
         result
     }
 
     /// Validate configuration file format
     pub fn validate_manifest(&self, path: &str) -> Result<()> {
-        let content = fs::read_to_string(path)
-            .map_err(|e| AosError::Config(format!(
-                "Failed to read manifest file {}: {}",
-                path, e
-            )))?;
+        let content = fs::read_to_string(path).map_err(|e| {
+            AosError::Config(format!("Failed to read manifest file {}: {}", path, e))
+        })?;
 
         toml::from_str::<Value>(&content)
-            .map_err(|e| AosError::Config(format!(
-                "Invalid TOML format in {}: {}",
-                path, e
-            )))?;
+            .map_err(|e| AosError::Config(format!("Invalid TOML format in {}: {}", path, e)))?;
 
         Ok(())
     }
@@ -256,13 +241,15 @@ impl Default for ConfigLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_load_manifest() {
         let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, r#"
+        writeln!(
+            temp_file,
+            r#"
 [server]
 host = "127.0.0.1"
 port = 8080
@@ -273,38 +260,48 @@ pool_size = 10
 
 [policy]
 strict_mode = true
-"#).unwrap();
+"#
+        )
+        .unwrap();
         temp_file.flush().unwrap();
 
         let loader = ConfigLoader::new();
-        let config = loader.load(
-            vec![],
-            Some(temp_file.path().to_string_lossy().to_string()),
-        ).unwrap();
+        let config = loader
+            .load(vec![], Some(temp_file.path().to_string_lossy().to_string()))
+            .unwrap();
 
         assert_eq!(config.get("server.host"), Some(&"127.0.0.1".to_string()));
         assert_eq!(config.get("server.port"), Some(&"8080".to_string()));
-        assert_eq!(config.get("database.url"), Some(&"sqlite://test.db".to_string()));
+        assert_eq!(
+            config.get("database.url"),
+            Some(&"sqlite://test.db".to_string())
+        );
         assert_eq!(config.get("policy.strict_mode"), Some(&"true".to_string()));
     }
 
     #[test]
     fn test_precedence_order() {
-        let mut temp_file = NamedTempFile::new();
-        writeln!(temp_file, r#"
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(
+            temp_file,
+            r#"
 [server]
 port = 8080
-"#).unwrap();
+"#
+        )
+        .unwrap();
         temp_file.flush().unwrap();
 
         // Set environment variable
         std::env::set_var("ADAPTEROS_SERVER_PORT", "9090");
 
         let loader = ConfigLoader::new();
-        let config = loader.load(
-            vec!["--server.port".to_string(), "7070".to_string()],
-            Some(temp_file.path().to_string_lossy().to_string()),
-        ).unwrap();
+        let config = loader
+            .load(
+                vec!["--server.port".to_string(), "7070".to_string()],
+                Some(temp_file.path().to_string_lossy().to_string()),
+            )
+            .unwrap();
 
         // CLI should win
         assert_eq!(config.get("server.port"), Some(&"7070".to_string()));
@@ -317,8 +314,8 @@ port = 8080
     fn test_config_freeze() {
         let loader = ConfigLoader::new();
         let config = loader.load(vec![], None).unwrap();
-        
+
         assert!(config.is_frozen());
-        assert!(!config.metadata.hash.is_empty());
+        assert!(!config.get_metadata().hash.is_empty());
     }
 }

@@ -1,8 +1,8 @@
 //! Real LLM backend implementations for patch generation
 
 use crate::patch_generator::{LlmBackend, PatchContext};
-use async_trait::async_trait;
 use adapteros_core::{AosError, Result};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{debug, warn};
@@ -126,7 +126,9 @@ Generate a patch addressing this description. Include:
     /// Generate text using MLX model
     async fn generate_text(&self, _prompt: &str) -> Result<String> {
         // MLX backend temporarily disabled
-        Err(AosError::Mlx("MLX backend temporarily disabled".to_string()))
+        Err(AosError::Mlx(
+            "MLX backend temporarily disabled".to_string(),
+        ))
     }
 }
 
@@ -300,9 +302,7 @@ mod tests {
     #[test]
     fn test_response_parsing() {
         let config = LocalLlmConfig::default();
-        let backend = LocalLlmBackend {
-            config,
-        };
+        let backend = LocalLlmBackend { config };
 
         let response = r#"This patch adds error handling to the function.
 

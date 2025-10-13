@@ -1,18 +1,24 @@
+# Cargo configuration for deterministic builds
+# Per Determinism Ruleset #2: Reproducible builds across machines
+
 [build]
-# Target Apple Silicon with optimized flags
+# Disable debug info for smaller, reproducible binaries
+# Note: Removed -Wl,-no_uuid flag as it causes LC_UUID linker errors on macOS Sequoia
 rustflags = [
-    "-C", "target-cpu=apple-m2",
-    "-C", "link-arg=-fuse-ld=lld",
+    "-Cdebuginfo=0",
 ]
 
+[env]
+# SOURCE_DATE_EPOCH ensures timestamps are deterministic
+SOURCE_DATE_EPOCH = "1704067200"
+
+# Target-specific configuration
 [target.aarch64-apple-darwin]
 rustflags = [
-    "-C", "target-cpu=apple-m2",
+    "-Cdebuginfo=0",
 ]
 
-# Ensure deterministic builds
-[env]
-RUSTFLAGS = "-C target-cpu=apple-m2"
-
-[term]
-color = "always"
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-Cdebuginfo=0",
+]

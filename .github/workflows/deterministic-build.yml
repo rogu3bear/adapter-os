@@ -1,0 +1,83 @@
+name: Deterministic Build Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deterministic-build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+        
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        
+    - name: Build Release
+      run: cargo build --release
+      
+    - name: Generate Merkle Report M1
+      run: |
+        cargo run --release --bin aosctl -- telemetry-verify --bundle-dir ./var/telemetry --json > report_m1.json
+        
+    - name: Generate Merkle Report M2
+      run: |
+        cargo run --release --bin aosctl -- telemetry-verify --bundle-dir ./var/telemetry --json > report_m2.json
+        
+    - name: Generate Merkle Report M3
+      run: |
+        cargo run --release --bin aosctl -- telemetry-verify --bundle-dir ./var/telemetry --json > report_m3.json
+        
+    - name: Generate Merkle Report M4
+      run: |
+        cargo run --release --bin aosctl -- telemetry-verify --bundle-dir ./var/telemetry --json > report_m4.json
+        
+    - name: Verify Deterministic Merkle Roots
+      run: |
+        echo "Verifying Merkle root consistency across multiple runs..."
+        diff <(jq .merkle_root report_m1.json) <(jq .merkle_root report_m2.json)
+        diff <(jq .merkle_root report_m2.json) <(jq .merkle_root report_m3.json)
+        diff <(jq .merkle_root report_m3.json) <(jq .merkle_root report_m4.json)
+        diff <(jq .merkle_root report_m1.json) <(jq .merkle_root report_m4.json)
+        
+    - name: Check Merkle Root Determinism
+      run: |
+        if [[ $? -ne 0 ]]; then 
+          echo "❌ Merkle roots are not deterministic across runs"
+          exit 104
+        else
+          echo "✅ Merkle roots are deterministic across runs"
+        fi
+        
+    - name: Verify Bundle Signatures
+      run: |
+        cargo run --release --bin aosctl -- verify-telemetry --bundle-dir ./var/telemetry
+        
+    - name: Test Deterministic Compression
+      run: |
+        ./scripts/archive_audit.sh ./var/telemetry/bundle_000000.ndjson test_archive.zst
+        
+    - name: Verify Compression Determinism
+      run: |
+        ./scripts/archive_audit.sh ./var/telemetry/bundle_000000.ndjson test_archive2.zst
+        if [[ $(wc -c < test_archive.zst) -eq $(wc -c < test_archive2.zst) ]]; then
+          echo "✅ Compression is deterministic"
+        else
+          echo "❌ Compression is not deterministic"
+          exit 105
+        fi

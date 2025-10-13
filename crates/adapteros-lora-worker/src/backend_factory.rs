@@ -11,6 +11,8 @@ pub enum BackendChoice {
     Metal,
     /// MLX backend (Python/MLX)
     Mlx { model_path: PathBuf },
+    /// CoreML backend (macOS Neural Engine)
+    CoreML,
 }
 
 /// Create a backend based on runtime choice
@@ -53,12 +55,13 @@ pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
             }
         }
 
-        BackendChoice::Mlx { model_path: _ } => {
-            // MLX backend temporarily disabled due to PyO3 linker issues
-            Err(adapteros_core::AosError::Mlx(
-                "MLX backend temporarily disabled".to_string(),
-            ))
-        }
+        BackendChoice::Mlx { model_path: _ } => Err(adapteros_core::AosError::Other(
+            "MLX backend temporarily disabled due to dependency issues".to_string(),
+        )),
+
+        BackendChoice::CoreML => Err(adapteros_core::AosError::Other(
+            "CoreML backend temporarily disabled due to dependency issues".to_string(),
+        )),
     }
 }
 
@@ -81,5 +84,12 @@ mod tests {
         });
         // May fail if model not present, that's ok
         let _ = backend;
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_create_coreml_backend() {
+        let backend = create_backend(BackendChoice::CoreML);
+        assert!(backend.is_ok());
     }
 }

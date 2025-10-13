@@ -1,26 +1,37 @@
+#![allow(unused_variables)]
+
 use crate::auth::{generate_token, verify_password, Claims};
 use crate::middleware::{require_any_role, require_role};
 use crate::state::AppState;
 use crate::types::*;
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
+use adapteros_system_metrics::{
+    AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
+    CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
+    UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
+};
+use axum::response::Response;
+use sqlx::Row;
 
 pub mod domain_adapters;
 pub mod git;
 pub mod git_repository;
+pub mod replay;
 
 // Re-export domain adapter handlers
-pub use domain_adapters::*;
+use adapteros_db::sqlx;
+use adapteros_db::users::Role;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
 };
-use adapteros_db::sqlx;
-use adapteros_db::users::Role;
+pub use domain_adapters::*;
 use serde::Deserialize;
-use serde_json::json;
+// use serde_json::json; // unused
+use std::collections::HashMap;
 
 /// Health check endpoint
 #[utoipa::path(
@@ -80,79 +91,103 @@ pub async fn auth_login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    tracing::debug!("Login attempt for email: {}", req.email);
+
     // Get user by email
     let user = state
         .db
         .get_user_by_email(&req.email)
         .await
         .map_err(|e| {
+            tracing::error!("Database error during user lookup: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
+            tracing::warn!("User not found: {}", req.email);
             (
                 StatusCode::UNAUTHORIZED,
-                Json(ErrorResponse {
-                    error: "invalid credentials".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("invalid credentials").with_code("INVALID_CREDENTIALS")),
             )
         })?;
+
+    tracing::debug!(
+        "User found: {} (role: {}, disabled: {})",
+        user.id,
+        user.role,
+        user.disabled
+    );
 
     // Check if user is disabled
     if user.disabled {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "user disabled".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("user disabled").with_code("USER_DISABLED")),
         ));
     }
 
     // Verify password (temporarily bypassed for testing)
+    tracing::debug!("Verifying password for user: {}", user.id);
     let valid = if user.pw_hash == "password" {
         // Simple plain text check for testing
-        req.password == "password"
+        tracing::debug!("Using plain text password check");
+        let result = req.password == "password";
+        tracing::debug!("Password check result: {}", result);
+        result
     } else {
         // Use proper Argon2 verification for production
+        tracing::debug!("Using Argon2 password verification");
         verify_password(&req.password, &user.pw_hash).map_err(|e| {
+            tracing::error!("Password verification error: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "authentication error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("authentication error")
+                        .with_code("AUTHENTICATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
     };
 
     if !valid {
+        tracing::warn!("Password verification failed for user: {}", user.id);
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "invalid credentials".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("invalid credentials").with_code("INVALID_CREDENTIALS")),
         ));
     }
 
+    tracing::debug!("Password verification successful for user: {}", user.id);
+
     // Generate JWT
-    let token =
-        generate_token(&user.id, &user.email, &user.role, &state.jwt_secret).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "token generation failed".to_string(),
-                    details: Some(e.to_string()),
-                }),
-            )
-        })?;
+    tracing::debug!("Generating JWT token for user: {}", user.id);
+    let token = generate_token(
+        &user.id,
+        &user.email,
+        &user.role,
+        "default",
+        &state.jwt_secret,
+    )
+    .map_err(|e| {
+        tracing::error!("JWT token generation failed: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("token generation failed")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    tracing::debug!("JWT token generated successfully for user: {}", user.id);
 
     Ok(Json(LoginResponse {
         token,
@@ -169,10 +204,11 @@ pub async fn list_tenants(
     let tenants = state.db.list_tenants().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -204,30 +240,29 @@ pub async fn create_tenant(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to create tenant".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to create tenant")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
     let tenant = state.db.get_tenant(&id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     let tenant = tenant.ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "tenant not found after creation".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("tenant not found after creation").with_code("NOT_FOUND")),
         )
     })?;
 
@@ -260,10 +295,11 @@ pub async fn update_tenant(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to update tenant".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to update tenant")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
     }
@@ -279,10 +315,11 @@ pub async fn update_tenant(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to update tenant".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to update tenant")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
     }
@@ -297,10 +334,11 @@ pub async fn update_tenant(
     .map_err(|e| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "tenant not found".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("tenant not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -331,10 +369,11 @@ pub async fn pause_tenant(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to pause tenant".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to pause tenant")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -360,10 +399,11 @@ pub async fn archive_tenant(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to archive tenant".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to archive tenant")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -394,10 +434,11 @@ pub async fn assign_tenant_policies(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to assign policy".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to assign policy")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
     }
@@ -439,10 +480,7 @@ pub async fn assign_tenant_adapters(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to assign adapter".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(ErrorResponse::new("failed to assign adapter").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
             )
         })?;
     }
@@ -486,15 +524,16 @@ pub async fn list_nodes(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<NodeResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     let nodes = state.db.list_nodes().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -518,7 +557,7 @@ pub async fn register_node(
     Extension(claims): Extension<Claims>,
     Json(req): Json<RegisterNodeRequest>,
 ) -> Result<Json<NodeResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     let id = state
         .db
@@ -527,30 +566,29 @@ pub async fn register_node(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to register node".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to register node")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
     let node = state.db.get_node(&id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     let node = node.ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "node not found after registration".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("node not found after registration").with_code("NOT_FOUND")),
         )
     })?;
 
@@ -569,7 +607,7 @@ pub async fn test_node_connection(
     Extension(claims): Extension<Claims>,
     Path(node_id): Path<String>,
 ) -> Result<Json<NodePingResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Get node from database
     let node = state
@@ -579,19 +617,17 @@ pub async fn test_node_connection(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "node not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("node not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -603,10 +639,11 @@ pub async fn test_node_connection(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to create HTTP client".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to create HTTP client")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -637,7 +674,7 @@ pub async fn mark_node_offline(
     Extension(claims): Extension<Claims>,
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Update node status in database
     let timestamp = chrono::Utc::now().to_rfc3339();
@@ -651,10 +688,11 @@ pub async fn mark_node_offline(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to update node status".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to update node status")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -667,16 +705,17 @@ pub async fn evict_node(
     Extension(claims): Extension<Claims>,
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Check for running workers on this node
     let workers = state.db.list_all_workers().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -685,10 +724,11 @@ pub async fn evict_node(
     if node_has_workers {
         return Err((
             StatusCode::CONFLICT,
-            Json(ErrorResponse {
-                error: "node has running workers".to_string(),
-                details: Some("Stop all workers before evicting node".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("node has running workers")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Stop all workers before evicting node"),
+            ),
         ));
     }
 
@@ -699,10 +739,11 @@ pub async fn evict_node(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to delete node".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to delete node")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -715,7 +756,7 @@ pub async fn get_node_details(
     Extension(claims): Extension<Claims>,
     Path(node_id): Path<String>,
 ) -> Result<Json<NodeDetailsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Get node from database
     let node = state
@@ -725,19 +766,17 @@ pub async fn get_node_details(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "node not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("node not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -745,10 +784,11 @@ pub async fn get_node_details(
     let all_workers = state.db.list_all_workers().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -812,14 +852,105 @@ pub async fn import_model(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to import model".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to import model")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
     Ok(StatusCode::CREATED)
+}
+
+/// Get base model status
+#[utoipa::path(
+    get,
+    path = "/v1/models/status",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Base model status", body = BaseModelStatusResponse),
+        (status = 404, description = "No base model status found", body = ErrorResponse)
+    )
+)]
+pub async fn get_base_model_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<ListJobsQuery>,
+) -> Result<Json<BaseModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Compliance])?;
+
+    let tenant_id = query.tenant_id.unwrap_or_else(|| "default".to_string());
+
+    // Get base model status from database
+    let status_record = state
+        .db
+        .get_base_model_status(&tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // If no status record exists, return default unloaded status
+    if let Some(status_record) = status_record {
+        // Get model details
+        let model = state
+            .db
+            .get_model(&status_record.model_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
+                )
+            })?;
+
+        let is_loaded = status_record.status == "loaded";
+
+        Ok(Json(BaseModelStatusResponse {
+            model_id: status_record.model_id,
+            model_name: model.name,
+            status: status_record.status,
+            loaded_at: status_record.loaded_at,
+            unloaded_at: status_record.unloaded_at,
+            error_message: status_record.error_message,
+            memory_usage_mb: status_record.memory_usage_mb,
+            is_loaded,
+            updated_at: status_record.updated_at,
+        }))
+    } else {
+        // Return default unloaded status when no record exists
+        Ok(Json(BaseModelStatusResponse {
+            model_id: "none".to_string(),
+            model_name: "No Model Loaded".to_string(),
+            status: "unloaded".to_string(),
+            loaded_at: None,
+            unloaded_at: None,
+            error_message: None,
+            memory_usage_mb: None,
+            is_loaded: false,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        }))
+    }
 }
 
 #[derive(Deserialize)]
@@ -840,10 +971,11 @@ pub async fn list_jobs(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -871,10 +1003,11 @@ pub async fn build_plan(
     let payload = serde_json::to_string(&req).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "serialization error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("serialization error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -890,10 +1023,11 @@ pub async fn build_plan(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to create job".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to create job")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -921,19 +1055,21 @@ pub async fn cp_promote(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to load plan".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to load plan")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "plan not found".to_string(),
-                    details: Some(format!("Plan ID: {}", req.plan_id)),
-                }),
+                Json(
+                    ErrorResponse::new("plan not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Plan ID: {}", req.plan_id)),
+                ),
             )
         })?;
 
@@ -941,10 +1077,11 @@ pub async fn cp_promote(
     let audits = state.db.list_all_audits().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to load audits".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to load audits")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -959,13 +1096,14 @@ pub async fn cp_promote(
         .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "no passing audit found for CPID".to_string(),
-                    details: Some(format!(
-                        "Run audit and ensure it passes before promotion: {}",
-                        req.cpid
-                    )),
-                }),
+                Json(
+                    ErrorResponse::new("no passing audit found for CPID")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(format!(
+                            "Run audit and ensure it passes before promotion: {}",
+                            req.cpid
+                        )),
+                ),
             )
         })?;
 
@@ -974,10 +1112,11 @@ pub async fn cp_promote(
         serde_json::from_str(&latest_audit.result_json).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to parse audit results".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to parse audit results")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -1011,10 +1150,11 @@ pub async fn cp_promote(
     if !failures.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "quality gates failed".to_string(),
-                details: Some(failures.join("; ")),
-            }),
+            Json(
+                ErrorResponse::new("quality gates failed")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(failures.join("; ")),
+            ),
         ));
     }
 
@@ -1036,19 +1176,21 @@ pub async fn cp_promote(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to get CP pointer".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to get CP pointer")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "CP pointer not found".to_string(),
-                    details: Some(format!("CPID: {}", req.cpid)),
-                }),
+                Json(
+                    ErrorResponse::new("CP pointer not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("CPID: {}", req.cpid)),
+                ),
             )
         })?;
 
@@ -1057,10 +1199,11 @@ pub async fn cp_promote(
     let quality_json = serde_json::to_string(&quality_metrics).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to serialize quality metrics".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to serialize quality metrics")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -1069,10 +1212,11 @@ pub async fn cp_promote(
         crate::signing::sign_promotion(&req.cpid, &claims.email, &quality_json).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to sign promotion".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to sign promotion")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -1080,10 +1224,11 @@ pub async fn cp_promote(
     let mut tx = state.db.pool().begin().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to start transaction".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to start transaction")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -1095,10 +1240,11 @@ pub async fn cp_promote(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to deactivate CP pointers".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to deactivate CP pointers")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -1110,10 +1256,11 @@ pub async fn cp_promote(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to activate CP pointer".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to activate CP pointer")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -1140,10 +1287,7 @@ pub async fn cp_promote(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to insert promotion record".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(ErrorResponse::new("failed to insert promotion record").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
         )
     })?;
 
@@ -1151,10 +1295,11 @@ pub async fn cp_promote(
     tx.commit().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to commit transaction".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to commit transaction")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -1184,7 +1329,7 @@ pub async fn worker_spawn(
     Extension(claims): Extension<Claims>,
     Json(req): Json<SpawnWorkerRequest>,
 ) -> Result<Json<WorkerResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Look up node by ID
     let node = state
@@ -1194,19 +1339,21 @@ pub async fn worker_spawn(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "node not found".to_string(),
-                    details: Some(format!("Node ID: {}", req.node_id)),
-                }),
+                Json(
+                    ErrorResponse::new("node not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Node ID: {}", req.node_id)),
+                ),
             )
         })?;
 
@@ -1228,10 +1375,11 @@ pub async fn worker_spawn(
         .map_err(|e| {
             (
                 StatusCode::BAD_GATEWAY,
-                Json(ErrorResponse {
-                    error: "failed to contact node agent".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to contact node agent")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -1239,30 +1387,33 @@ pub async fn worker_spawn(
         let error_text = response.text().await.unwrap_or_default();
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "node agent spawn failed".to_string(),
-                details: Some(error_text),
-            }),
+            Json(
+                ErrorResponse::new("node agent spawn failed")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(error_text),
+            ),
         ));
     }
 
     let spawn_response: serde_json::Value = response.json().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to parse node agent response".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to parse node agent response")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     let pid = spawn_response["pid"].as_i64().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "invalid response from node agent".to_string(),
-                details: Some("missing or invalid PID field".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("invalid response from node agent")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("missing or invalid PID field"),
+            ),
         )
     })? as i32;
 
@@ -1286,10 +1437,11 @@ pub async fn worker_spawn(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to register worker in database".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to register worker in database")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -1318,7 +1470,7 @@ pub async fn list_workers(
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListWorkersQuery>,
 ) -> Result<Json<Vec<WorkerResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre, Role::Admin])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let workers = if let Some(tenant_id) = query.tenant_id {
         state
@@ -1328,20 +1480,22 @@ pub async fn list_workers(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "database error".to_string(),
-                        details: Some(e.to_string()),
-                    }),
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
                 )
             })?
     } else {
         state.db.list_all_workers().await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
     };
@@ -1398,20 +1552,22 @@ pub async fn list_plans(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "database error".to_string(),
-                        details: Some(e.to_string()),
-                    }),
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
                 )
             })?
     } else {
         state.db.list_all_plans().await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
     };
@@ -1443,7 +1599,7 @@ pub async fn get_plan_details(
     Extension(claims): Extension<Claims>,
     Path(plan_id): Path<String>,
 ) -> Result<Json<PlanDetailsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     let plan = state
         .db
@@ -1452,19 +1608,17 @@ pub async fn get_plan_details(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "plan not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -1522,7 +1676,7 @@ pub async fn rebuild_plan(
     Extension(claims): Extension<Claims>,
     Path(plan_id): Path<String>,
 ) -> Result<Json<PlanRebuildResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     let plan = state
         .db
@@ -1531,19 +1685,17 @@ pub async fn rebuild_plan(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "plan not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -1597,10 +1749,11 @@ pub async fn rebuild_plan(
             tracing::error!("Failed to create new plan: {}", e);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Failed to rebuild plan".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("Failed to rebuild plan")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             ))
         }
     }
@@ -1612,7 +1765,7 @@ pub async fn compare_plans(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ComparePlansRequest>,
 ) -> Result<Json<PlanComparisonResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     let plan1 = state
         .db
@@ -1621,19 +1774,20 @@ pub async fn compare_plans(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("plan {} not found", req.plan_id_1),
-                    details: None,
-                }),
+                Json(
+                    ErrorResponse::new(format!("plan {} not found", req.plan_id_1))
+                        .with_code("NOT_FOUND"),
+                ),
             )
         })?;
 
@@ -1644,19 +1798,20 @@ pub async fn compare_plans(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("plan {} not found", req.plan_id_2),
-                    details: None,
-                }),
+                Json(
+                    ErrorResponse::new(format!("plan {} not found", req.plan_id_2))
+                        .with_code("NOT_FOUND"),
+                ),
             )
         })?;
 
@@ -1688,19 +1843,17 @@ pub async fn export_plan_manifest(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "plan not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -1857,10 +2010,7 @@ pub async fn sign_policy(
         tracing::error!("Failed to query signing key: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to retrieve signing key".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(ErrorResponse::new("Failed to retrieve signing key").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
         )
     })?;
 
@@ -1885,10 +2035,11 @@ pub async fn sign_policy(
                 tracing::error!("Failed to store signing key: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "Failed to store signing key".to_string(),
-                        details: Some(e.to_string()),
-                    }),
+                    Json(
+                        ErrorResponse::new("Failed to store signing key")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
                 )
             })?;
 
@@ -1908,10 +2059,11 @@ pub async fn sign_policy(
             tracing::error!("Failed to sign CPID: {}", e);
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Signing failed".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("Signing failed")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             ));
         }
     };
@@ -2008,7 +2160,7 @@ pub async fn purge_old_bundles(
     Extension(claims): Extension<Claims>,
     Json(_req): Json<PurgeOldBundlesRequest>,
 ) -> Result<Json<PurgeOldBundlesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre, Role::Admin])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Stub - would apply retention policy and delete old bundles
     Ok(Json(PurgeOldBundlesResponse {
@@ -2035,19 +2187,21 @@ pub async fn cp_rollback(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to get current CP pointer".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to get current CP pointer")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "no active CP pointer found".to_string(),
-                    details: Some(format!("Tenant: {}", req.tenant_id)),
-                }),
+                Json(
+                    ErrorResponse::new("no active CP pointer found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Tenant: {}", req.tenant_id)),
+                ),
             )
         })?;
 
@@ -2055,13 +2209,14 @@ pub async fn cp_rollback(
     if current_cp.name != req.cpid {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "CPID mismatch".to_string(),
-                details: Some(format!(
-                    "Current active CPID is '{}', not '{}'",
-                    current_cp.name, req.cpid
-                )),
-            }),
+            Json(
+                ErrorResponse::new("CPID mismatch")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(format!(
+                        "Current active CPID is '{}', not '{}'",
+                        current_cp.name, req.cpid
+                    )),
+            ),
         ));
     }
 
@@ -2080,23 +2235,25 @@ pub async fn cp_rollback(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to query previous CP".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to query previous CP")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     let previous_cp = all_pointers.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "no previous CP pointer available for rollback".to_string(),
-                details: Some(format!(
-                    "This is the first/only CP for tenant {}",
-                    req.tenant_id
-                )),
-            }),
+            Json(
+                ErrorResponse::new("no previous CP pointer available for rollback")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(format!(
+                        "This is the first/only CP for tenant {}",
+                        req.tenant_id
+                    )),
+            ),
         )
     })?;
 
@@ -2104,10 +2261,11 @@ pub async fn cp_rollback(
     let mut tx = state.db.pool().begin().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to start transaction".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to start transaction")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -2119,10 +2277,11 @@ pub async fn cp_rollback(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to deactivate CP pointers".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to deactivate CP pointers")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -2134,10 +2293,11 @@ pub async fn cp_rollback(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to activate previous CP pointer".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to activate previous CP pointer")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -2145,10 +2305,11 @@ pub async fn cp_rollback(
     tx.commit().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to commit transaction".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to commit transaction")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -2171,7 +2332,7 @@ pub async fn cp_rollback(
 
 /// Dry run CP promotion (validate gates without executing)
 pub async fn cp_dry_run_promote(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<DryRunPromotionRequest>,
 ) -> Result<Json<DryRunPromotionResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -2240,7 +2401,7 @@ pub async fn propose_patch(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ProposePatchRequest>,
 ) -> Result<Json<ProposePatchResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Validate inputs
     validate_repo_id(&req.repo_id)?;
@@ -2251,20 +2412,22 @@ pub async fn propose_patch(
     let workers = state.db.list_all_workers().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list workers".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list workers")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     if workers.is_empty() {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "no workers available".to_string(),
-                details: Some("No active workers found for patch proposal".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("no workers available")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("No active workers found for patch proposal"),
+            ),
         ));
     }
 
@@ -2358,24 +2521,27 @@ pub async fn propose_patch(
         }
         Err(UdsClientError::WorkerNotAvailable(msg)) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "worker not available".to_string(),
-                details: Some(msg),
-            }),
+            Json(
+                ErrorResponse::new("worker not available")
+                    .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details(msg),
+            ),
         )),
         Err(UdsClientError::Timeout(msg)) => Err((
             StatusCode::REQUEST_TIMEOUT,
-            Json(ErrorResponse {
-                error: "patch generation timeout".to_string(),
-                details: Some(msg),
-            }),
+            Json(
+                ErrorResponse::new("patch generation timeout")
+                    .with_code("REQUEST_TIMEOUT")
+                    .with_string_details(msg),
+            ),
         )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "patch generation failed".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("patch generation failed")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )),
     }
 }
@@ -2401,10 +2567,7 @@ pub async fn infer(
     if req.prompt.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "prompt cannot be empty".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("prompt cannot be empty").with_code("INTERNAL_ERROR")),
         ));
     }
 
@@ -2419,20 +2582,22 @@ pub async fn infer(
     let workers = state.db.list_all_workers().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list workers".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list workers")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     if workers.is_empty() {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "no workers available".to_string(),
-                details: Some("No active workers found for inference".to_string()),
-            }),
+            Json(
+                ErrorResponse::new("no workers available")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("No active workers found for inference"),
+            ),
         ));
     }
 
@@ -2468,26 +2633,560 @@ pub async fn infer(
         }
         Err(UdsClientError::WorkerNotAvailable(msg)) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "worker not available".to_string(),
-                details: Some(msg),
-            }),
+            Json(
+                ErrorResponse::new("worker not available")
+                    .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details(msg),
+            ),
         )),
         Err(UdsClientError::Timeout(msg)) => Err((
             StatusCode::REQUEST_TIMEOUT,
-            Json(ErrorResponse {
-                error: "inference timeout".to_string(),
-                details: Some(msg),
-            }),
+            Json(
+                ErrorResponse::new("inference timeout")
+                    .with_code("REQUEST_TIMEOUT")
+                    .with_string_details(msg),
+            ),
         )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "inference failed".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("inference failed")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )),
     }
+}
+
+// ===== Process Debugging Endpoints =====
+
+/// List process logs for a worker
+#[utoipa::path(
+    get,
+    path = "/v1/workers/{worker_id}/logs",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID"),
+        ("level" = Option<String>, Query, description = "Filter by log level"),
+        ("limit" = Option<i32>, Query, description = "Maximum number of logs to return")
+    ),
+    responses(
+        (status = 200, description = "Process logs", body = Vec<ProcessLogResponse>)
+    )
+)]
+pub async fn list_process_logs(
+    State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(_worker_id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessLogResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let _level_filter = params.get("level");
+    let _limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(100);
+
+    // Database query for process logs - placeholder implementation
+    // For now, return empty list
+    Ok(Json(vec![]))
+}
+
+/// Get process crash dumps for a worker
+#[utoipa::path(
+    get,
+    path = "/v1/workers/{worker_id}/crashes",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    responses(
+        (status = 200, description = "Process crash dumps", body = Vec<ProcessCrashDumpResponse>)
+    )
+)]
+pub async fn list_process_crashes(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+) -> Result<Json<Vec<ProcessCrashDumpResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Database query for crash dumps - placeholder implementation
+    Ok(Json(vec![]))
+}
+
+/// Start a debug session for a worker
+#[utoipa::path(
+    post,
+    path = "/v1/workers/{worker_id}/debug",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    request_body = StartDebugSessionRequest,
+    responses(
+        (status = 200, description = "Debug session started", body = ProcessDebugSessionResponse)
+    )
+)]
+pub async fn start_debug_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+    Json(req): Json<StartDebugSessionRequest>,
+) -> Result<Json<ProcessDebugSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Debug session creation - placeholder implementation
+    Ok(Json(ProcessDebugSessionResponse {
+        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        worker_id: worker_id.clone(),
+        session_type: req.session_type,
+        status: "active".to_string(),
+        config_json: req.config_json,
+        started_at: chrono::Utc::now().to_rfc3339(),
+        ended_at: None,
+        results_json: None,
+    }))
+}
+
+/// Run a troubleshooting step for a worker
+#[utoipa::path(
+    post,
+    path = "/v1/workers/{worker_id}/troubleshoot",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    request_body = RunTroubleshootingStepRequest,
+    responses(
+        (status = 200, description = "Troubleshooting step started", body = ProcessTroubleshootingStepResponse)
+    )
+)]
+pub async fn run_troubleshooting_step(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+    Json(req): Json<RunTroubleshootingStepRequest>,
+) -> Result<Json<ProcessTroubleshootingStepResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Troubleshooting step execution - placeholder implementation
+    Ok(Json(ProcessTroubleshootingStepResponse {
+        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        worker_id: worker_id.clone(),
+        step_name: req.step_name,
+        step_type: req.step_type,
+        status: "running".to_string(),
+        command: req.command,
+        output: None,
+        error_message: None,
+        started_at: chrono::Utc::now().to_rfc3339(),
+        completed_at: None,
+    }))
+}
+
+// ===== Advanced Process Monitoring and Alerting Endpoints =====
+
+/// List process monitoring rules
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/rules",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("rule_type" = Option<String>, Query, description = "Filter by rule type"),
+        ("is_active" = Option<bool>, Query, description = "Filter by active status")
+    ),
+    responses(
+        (status = 200, description = "Process monitoring rules", body = Vec<ProcessMonitoringRuleResponse>)
+    )
+)]
+pub async fn list_process_monitoring_rules(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessMonitoringRuleResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let tenant_filter = params.get("tenant_id");
+    let rule_type_filter = params.get("rule_type");
+    let is_active_filter = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
+
+    // Database query for monitoring rules - placeholder implementation
+    // For now, return empty list
+    Ok(Json(vec![]))
+}
+
+/// Create process monitoring rule
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/rules",
+    request_body = CreateProcessMonitoringRuleRequest,
+    responses(
+        (status = 200, description = "Monitoring rule created", body = ProcessMonitoringRuleResponse)
+    )
+)]
+pub async fn create_process_monitoring_rule(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateProcessMonitoringRuleRequest>,
+) -> Result<Json<ProcessMonitoringRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Monitoring rule creation - placeholder implementation
+    Ok(Json(ProcessMonitoringRuleResponse {
+        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        name: req.name,
+        description: req.description,
+        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
+        rule_type: req.rule_type,
+        metric_name: req.metric_name,
+        threshold_value: req.threshold_value,
+        threshold_operator: req.threshold_operator,
+        severity: req.severity,
+        evaluation_window_seconds: req.evaluation_window_seconds.unwrap_or(300),
+        cooldown_seconds: req.cooldown_seconds.unwrap_or(60),
+        is_active: true,
+        notification_channels: req.notification_channels,
+        escalation_rules: req.escalation_rules,
+        created_by: Some(claims.sub.clone()),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// List process alerts
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/alerts",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
+        ("status" = Option<String>, Query, description = "Filter by alert status"),
+        ("severity" = Option<String>, Query, description = "Filter by severity")
+    ),
+    responses(
+        (status = 200, description = "Process alerts", body = Vec<ProcessAlertResponse>)
+    )
+)]
+pub async fn list_process_alerts(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessAlertResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let tenant_filter = params.get("tenant_id");
+    let worker_filter = params.get("worker_id");
+    let status_filter = params.get("status");
+    let severity_filter = params.get("severity");
+
+    // TODO: Implement database query for alerts
+    Ok(Json(vec![]))
+}
+
+/// Acknowledge process alert
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/alerts/{alert_id}/acknowledge",
+    params(
+        ("alert_id" = String, Path, description = "Alert ID")
+    ),
+    request_body = AcknowledgeProcessAlertRequest,
+    responses(
+        (status = 200, description = "Alert acknowledged", body = ProcessAlertResponse)
+    )
+)]
+pub async fn acknowledge_process_alert(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(alert_id): Path<String>,
+    Json(req): Json<AcknowledgeProcessAlertRequest>,
+) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // TODO: Implement alert acknowledgment
+    Ok(Json(ProcessAlertResponse {
+        id: alert_id.clone(),
+        rule_id: "rule-123".to_string(),
+        worker_id: "worker-123".to_string(),
+        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
+        alert_type: "threshold".to_string(),
+        severity: "warning".to_string(),
+        title: "High CPU Usage".to_string(),
+        message: "CPU usage exceeded threshold".to_string(),
+        metric_value: Some(85.0),
+        threshold_value: Some(80.0),
+        status: "acknowledged".to_string(),
+        acknowledged_by: Some(claims.sub.clone()),
+        acknowledged_at: Some(chrono::Utc::now().to_rfc3339()),
+        resolved_at: None,
+        suppression_reason: None,
+        suppression_until: None,
+        escalation_level: 0,
+        notification_sent: true,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// List process anomalies
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/anomalies",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
+        ("status" = Option<String>, Query, description = "Filter by anomaly status"),
+        ("severity" = Option<String>, Query, description = "Filter by severity")
+    ),
+    responses(
+        (status = 200, description = "Process anomalies", body = Vec<ProcessAnomalyResponse>)
+    )
+)]
+pub async fn list_process_anomalies(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessAnomalyResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let tenant_filter = params.get("tenant_id");
+    let worker_filter = params.get("worker_id");
+    let status_filter = params.get("status");
+    let severity_filter = params.get("severity");
+
+    // TODO: Implement database query for anomalies
+    Ok(Json(vec![]))
+}
+
+/// Update process anomaly status
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/anomalies/{anomaly_id}/status",
+    params(
+        ("anomaly_id" = String, Path, description = "Anomaly ID")
+    ),
+    request_body = UpdateProcessAnomalyStatusRequest,
+    responses(
+        (status = 200, description = "Anomaly status updated", body = ProcessAnomalyResponse)
+    )
+)]
+pub async fn update_process_anomaly_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(anomaly_id): Path<String>,
+    Json(req): Json<UpdateProcessAnomalyStatusRequest>,
+) -> Result<Json<ProcessAnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // TODO: Implement anomaly status update
+    Ok(Json(ProcessAnomalyResponse {
+        id: anomaly_id.clone(),
+        worker_id: "worker-123".to_string(),
+        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
+        anomaly_type: "spike".to_string(),
+        metric_name: "cpu_usage".to_string(),
+        detected_value: 95.0,
+        expected_range_min: Some(20.0),
+        expected_range_max: Some(80.0),
+        confidence_score: 0.95,
+        severity: "critical".to_string(),
+        description: Some("CPU usage spike detected".to_string()),
+        detection_method: "statistical".to_string(),
+        model_version: Some("v1.0".to_string()),
+        status: req.status.clone(),
+        investigated_by: Some(claims.sub.clone()),
+        investigation_notes: req.investigation_notes,
+        resolved_at: if req.status == "resolved" {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else {
+            None
+        },
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// List process monitoring dashboards
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/dashboards",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("is_shared" = Option<bool>, Query, description = "Filter by shared status")
+    ),
+    responses(
+        (status = 200, description = "Process monitoring dashboards", body = Vec<ProcessMonitoringDashboardResponse>)
+    )
+)]
+pub async fn list_process_monitoring_dashboards(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessMonitoringDashboardResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let tenant_filter = params.get("tenant_id");
+    let is_shared_filter = params.get("is_shared").and_then(|s| s.parse::<bool>().ok());
+
+    // TODO: Implement database query for dashboards
+    Ok(Json(vec![]))
+}
+
+/// Create process monitoring dashboard
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/dashboards",
+    request_body = CreateProcessMonitoringDashboardRequest,
+    responses(
+        (status = 200, description = "Dashboard created", body = ProcessMonitoringDashboardResponse)
+    )
+)]
+pub async fn create_process_monitoring_dashboard(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateProcessMonitoringDashboardRequest>,
+) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // TODO: Implement dashboard creation
+    Ok(Json(ProcessMonitoringDashboardResponse {
+        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        name: req.name,
+        description: req.description,
+        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
+        dashboard_config: req.dashboard_config,
+        is_shared: req.is_shared.unwrap_or(false),
+        created_by: Some(claims.sub.clone()),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// List process health metrics
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/health-metrics",
+    params(
+        ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
+        ("metric_name" = Option<String>, Query, description = "Filter by metric name"),
+        ("start_time" = Option<String>, Query, description = "Start time for metrics"),
+        ("end_time" = Option<String>, Query, description = "End time for metrics")
+    ),
+    responses(
+        (status = 200, description = "Process health metrics", body = Vec<ProcessHealthMetricResponse>)
+    )
+)]
+pub async fn list_process_health_metrics(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessHealthMetricResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let worker_filter = params.get("worker_id");
+    let metric_filter = params.get("metric_name");
+    let start_time_filter = params.get("start_time");
+    let end_time_filter = params.get("end_time");
+
+    // Build filters for health metrics query
+    let filters = adapteros_system_metrics::MetricFilters {
+        worker_id: worker_filter.cloned(),
+        tenant_id: None, // Will be filtered by user's tenant access
+        metric_name: metric_filter.cloned(),
+        start_time: start_time_filter
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        end_time: end_time_filter
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        limit: Some(1000), // Limit results
+    };
+
+    // Query health metrics from database
+    let metrics = adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Convert ProcessHealthMetric to ProcessHealthMetricResponse
+    let response_metrics: Vec<ProcessHealthMetricResponse> = metrics
+        .into_iter()
+        .map(|metric| ProcessHealthMetricResponse {
+            id: metric.id,
+            worker_id: metric.worker_id,
+            tenant_id: metric.tenant_id,
+            metric_name: metric.metric_name,
+            metric_value: metric.metric_value,
+            metric_unit: metric.metric_unit,
+            tags: metric.tags,
+            collected_at: metric.collected_at.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(response_metrics))
+}
+
+/// List process monitoring reports
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/reports",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("report_type" = Option<String>, Query, description = "Filter by report type")
+    ),
+    responses(
+        (status = 200, description = "Process monitoring reports", body = Vec<ProcessMonitoringReportResponse>)
+    )
+)]
+pub async fn list_process_monitoring_reports(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<ProcessMonitoringReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let tenant_filter = params.get("tenant_id");
+    let report_type_filter = params.get("report_type");
+
+    // TODO: Implement database query for reports
+    Ok(Json(vec![]))
+}
+
+/// Create process monitoring report
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/reports",
+    request_body = CreateProcessMonitoringReportRequest,
+    responses(
+        (status = 200, description = "Report created", body = ProcessMonitoringReportResponse)
+    )
+)]
+pub async fn create_process_monitoring_report(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateProcessMonitoringReportRequest>,
+) -> Result<Json<ProcessMonitoringReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // TODO: Implement report generation
+    Ok(Json(ProcessMonitoringReportResponse {
+        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        name: req.name,
+        description: req.description,
+        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
+        report_type: req.report_type,
+        report_config: req.report_config,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        report_data: None,
+        file_path: None,
+        file_size_bytes: None,
+        created_by: Some(claims.sub.clone()),
+    }))
 }
 
 // ===== Adapter Management Endpoints =====
@@ -2513,10 +3212,11 @@ pub async fn list_adapters(
     let adapters = state.db.list_adapters().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list adapters".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list adapters")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -2601,19 +3301,17 @@ pub async fn get_adapter(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "adapter not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -2676,10 +3374,10 @@ pub async fn register_adapter(
     if req.adapter_id.is_empty() || req.name.is_empty() || req.hash_b3.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "adapter_id, name, and hash_b3 are required".to_string(),
-                details: None,
-            }),
+            Json(
+                ErrorResponse::new("adapter_id, name, and hash_b3 are required")
+                    .with_code("BAD_REQUEST"),
+            ),
         ));
     }
 
@@ -2695,10 +3393,11 @@ pub async fn register_adapter(
     let languages_json = serde_json::to_string(&req.languages).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "invalid languages array".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("invalid languages array")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -2717,10 +3416,11 @@ pub async fn register_adapter(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to register adapter".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to register adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -2764,10 +3464,11 @@ pub async fn delete_adapter(
     state.db.delete_adapter(&adapter_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to delete adapter".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to delete adapter")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -2804,10 +3505,11 @@ pub async fn get_adapter_activations(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to get activations".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to get activations")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -2832,7 +3534,7 @@ pub async fn promote_adapter_state(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Sre])?;
+    require_any_role(&claims, &[Role::Operator])?;
 
     // Get current adapter state
     let adapter = state
@@ -2842,19 +3544,17 @@ pub async fn promote_adapter_state(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "adapter not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -2887,10 +3587,11 @@ pub async fn promote_adapter_state(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to update adapter state".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to update adapter state")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -2922,19 +3623,17 @@ pub async fn download_adapter_manifest(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "adapter not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -2974,10 +3673,11 @@ pub async fn get_adapter_health(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to get activations".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to get activations")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -3055,10 +3755,11 @@ pub async fn list_repositories(
     let repos = state.db.list_repositories().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list repositories".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list repositories")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -3117,10 +3818,11 @@ pub async fn register_repository(
     let languages_json = serde_json::to_string(&req.languages).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "invalid languages array".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("invalid languages array")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -3136,10 +3838,11 @@ pub async fn register_repository(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to register repository".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to register repository")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -3185,10 +3888,11 @@ pub async fn trigger_repository_scan(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to update status".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to update status")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -3229,19 +3933,17 @@ pub async fn get_repository_status(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "repository not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
             )
         })?;
 
@@ -3348,10 +4050,11 @@ pub async fn get_adapter_metrics(
     let adapters = state.db.list_adapters().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list adapters".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list adapters")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -3496,10 +4199,7 @@ pub async fn get_commit(
     // Stub - would query commits table
     Err((
         StatusCode::NOT_FOUND,
-        Json(ErrorResponse {
-            error: "commit not found".to_string(),
-            details: None,
-        }),
+        Json(ErrorResponse::new("commit not found").with_code("NOT_FOUND")),
     ))
 }
 
@@ -3522,10 +4222,7 @@ pub async fn get_commit_diff(
     // Stub - would fetch from git
     Err((
         StatusCode::NOT_FOUND,
-        Json(ErrorResponse {
-            error: "commit not found".to_string(),
-            details: None,
-        }),
+        Json(ErrorResponse::new("commit not found").with_code("NOT_FOUND")),
     ))
 }
 
@@ -3647,10 +4344,11 @@ pub async fn list_audits_extended(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to fetch audits".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to fetch audits")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -3685,19 +4383,17 @@ pub async fn get_promotion(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "database error".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?
     .ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "promotion not found".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("promotion not found").with_code("NOT_FOUND")),
         )
     })?;
 
@@ -3717,10 +4413,11 @@ pub async fn metrics_handler(State(state): State<AppState>) -> axum::response::R
             tracing::error!("Failed to acquire config read lock: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal error".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("internal error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
                 .into_response();
         }
@@ -3728,10 +4425,7 @@ pub async fn metrics_handler(State(state): State<AppState>) -> axum::response::R
     if !config.metrics.enabled {
         return (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "metrics disabled".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("metrics disabled").with_code("INTERNAL_ERROR")),
         )
             .into_response();
     }
@@ -3752,10 +4446,11 @@ pub async fn metrics_handler(State(state): State<AppState>) -> axum::response::R
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to render metrics".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to render metrics")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
                 .into_response();
         }
@@ -4224,10 +4919,11 @@ pub async fn list_contacts(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to fetch contacts".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to fetch contacts")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4263,13 +4959,14 @@ pub async fn create_contact(
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "invalid category".to_string(),
-                details: Some(
-                    "category must be one of: user, system, adapter, repository, external"
-                        .to_string(),
-                ),
-            }),
+            Json(
+                ErrorResponse::new("invalid category")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "category must be one of: user, system, adapter, repository, external"
+                            .to_string(),
+                    ),
+            ),
         ));
     }
 
@@ -4295,10 +4992,11 @@ pub async fn create_contact(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to create contact".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to create contact")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4334,17 +5032,15 @@ pub async fn get_contact(
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "contact not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("contact not found").with_code("NOT_FOUND")),
             ),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to fetch contact".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to fetch contact")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             ),
         })?;
 
@@ -4380,20 +5076,18 @@ pub async fn delete_contact(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to delete contact".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to delete contact")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
     if result.rows_affected() == 0 {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "contact not found".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("contact not found").with_code("NOT_FOUND")),
         ));
     }
 
@@ -4433,17 +5127,15 @@ pub async fn get_contact_interactions(
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "contact not found".to_string(),
-                    details: None,
-                }),
+                Json(ErrorResponse::new("contact not found").with_code("NOT_FOUND")),
             ),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to fetch contact".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to fetch contact")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             ),
         })?;
 
@@ -4461,10 +5153,11 @@ pub async fn get_contact_interactions(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to fetch interactions".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to fetch interactions")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4488,23 +5181,21 @@ pub async fn list_training_jobs(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<TrainingJobResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Sre]).map_err(|_| {
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
     let jobs = state.training_service.list_jobs().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list training jobs".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list training jobs")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4527,23 +5218,21 @@ pub async fn get_training_job(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Sre]).map_err(|_| {
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "training job not found".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("training job not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4567,10 +5256,7 @@ pub async fn start_training(
     require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -4583,10 +5269,11 @@ pub async fn start_training(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to start training".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to start training")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -4612,10 +5299,7 @@ pub async fn cancel_training(
     require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -4626,10 +5310,11 @@ pub async fn cancel_training(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "failed to cancel training".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to cancel training")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -4652,13 +5337,10 @@ pub async fn get_training_logs(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Sre]).map_err(|_| {
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -4669,10 +5351,11 @@ pub async fn get_training_logs(
         .map_err(|e| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "failed to get logs".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("failed to get logs")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -4695,23 +5378,21 @@ pub async fn get_training_metrics(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Sre]).map_err(|_| {
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "training job not found".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("training job not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4737,27 +5418,21 @@ pub async fn list_training_templates(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<TrainingTemplateResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Sre, Role::Viewer],
-    )
-    .map_err(|_| {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
     let templates = state.training_service.list_templates().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to list templates".to_string(),
-                details: Some(e.to_string()),
-            }),
+            Json(
+                ErrorResponse::new("failed to list templates")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -4780,17 +5455,10 @@ pub async fn get_training_template(
     Extension(claims): Extension<Claims>,
     Path(template_id): Path<String>,
 ) -> Result<Json<TrainingTemplateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Sre, Role::Viewer],
-    )
-    .map_err(|_| {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer]).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "insufficient permissions".to_string(),
-                details: None,
-            }),
+            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -4801,10 +5469,11 @@ pub async fn get_training_template(
         .map_err(|e| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "template not found".to_string(),
-                    details: Some(e.to_string()),
-                }),
+                Json(
+                    ErrorResponse::new("template not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -4813,3 +5482,1230 @@ pub async fn get_training_template(
 
 // Git integration handlers
 // pub mod git; // Already declared above
+
+// ===== Advanced Process Monitoring Handlers =====
+
+/// List monitoring rules
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/rules",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("is_active" = Option<bool>, Query, description = "Filter by active status")
+    ),
+    responses(
+        (status = 200, description = "Monitoring rules", body = Vec<MonitoringRuleResponse>)
+    )
+)]
+pub async fn list_monitoring_rules(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<MonitoringRuleResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let tenant_id = params.get("tenant_id");
+    let is_active = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
+
+    let rules = adapteros_system_metrics::ProcessMonitoringRule::list(
+        state.db.pool(),
+        tenant_id.map(|s| s.as_str()),
+        is_active,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let response: Vec<MonitoringRuleResponse> = rules.into_iter().map(|rule| rule.into()).collect();
+
+    Ok(Json(response))
+}
+
+/// Create monitoring rule
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/rules",
+    request_body = CreateMonitoringRuleApiRequest,
+    responses(
+        (status = 200, description = "Rule created", body = MonitoringRuleResponse)
+    )
+)]
+pub async fn create_monitoring_rule(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateMonitoringRuleApiRequest>,
+) -> Result<Json<MonitoringRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let rule_request = req.try_into().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid request")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e),
+            ),
+        )
+    })?;
+
+    let rule_id =
+        adapteros_system_metrics::ProcessMonitoringRule::create(state.db.pool(), rule_request)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+    // Get the created rule
+    let rules = adapteros_system_metrics::ProcessMonitoringRule::list(state.db.pool(), None, None)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let rule = rules.into_iter().find(|r| r.id == rule_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("rule not found").with_code("NOT_FOUND")),
+        )
+    })?;
+
+    Ok(Json(rule.into()))
+}
+
+/// Update monitoring rule
+#[utoipa::path(
+    put,
+    path = "/v1/monitoring/rules/{rule_id}",
+    params(
+        ("rule_id" = String, Path, description = "Rule ID")
+    ),
+    request_body = UpdateMonitoringRuleApiRequest,
+    responses(
+        (status = 200, description = "Rule updated", body = MonitoringRuleResponse)
+    )
+)]
+pub async fn update_monitoring_rule(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(rule_id): Path<String>,
+    Json(req): Json<UpdateMonitoringRuleApiRequest>,
+) -> Result<Json<MonitoringRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let update_request = req.into();
+
+    adapteros_system_metrics::ProcessMonitoringRule::update(
+        state.db.pool(),
+        &rule_id,
+        update_request,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Get the updated rule
+    let rules = adapteros_system_metrics::ProcessMonitoringRule::list(state.db.pool(), None, None)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let rule = rules.into_iter().find(|r| r.id == rule_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("rule not found").with_code("NOT_FOUND")),
+        )
+    })?;
+
+    Ok(Json(rule.into()))
+}
+
+/// Delete monitoring rule
+#[utoipa::path(
+    delete,
+    path = "/v1/monitoring/rules/{rule_id}",
+    params(
+        ("rule_id" = String, Path, description = "Rule ID")
+    ),
+    responses(
+        (status = 200, description = "Rule deleted")
+    )
+)]
+pub async fn delete_monitoring_rule(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(rule_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    adapteros_system_metrics::ProcessMonitoringRule::delete(state.db.pool(), &rule_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(StatusCode::OK)
+}
+
+/// List alerts
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/alerts",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
+        ("status" = Option<String>, Query, description = "Filter by status"),
+        ("severity" = Option<String>, Query, description = "Filter by severity"),
+        ("limit" = Option<i64>, Query, description = "Limit results")
+    ),
+    responses(
+        (status = 200, description = "Alerts", body = Vec<AlertResponse>)
+    )
+)]
+pub async fn list_alerts(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<AlertResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let filters = adapteros_system_metrics::AlertFilters {
+        tenant_id: params.get("tenant_id").cloned(),
+        worker_id: params.get("worker_id").cloned(),
+        status: params
+            .get("status")
+            .and_then(|s| adapteros_system_metrics::AlertStatus::from_string(s.to_string()).into()),
+        severity: params.get("severity").and_then(|s| {
+            adapteros_system_metrics::AlertSeverity::from_string(s.to_string()).into()
+        }),
+        start_time: None,
+        end_time: None,
+        limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
+    };
+
+    let alerts = adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response: Vec<AlertResponse> = alerts.into_iter().map(|alert| alert.into()).collect();
+
+    Ok(Json(response))
+}
+
+/// Acknowledge alert
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/alerts/{alert_id}/acknowledge",
+    params(
+        ("alert_id" = String, Path, description = "Alert ID")
+    ),
+    request_body = AcknowledgeAlertRequest,
+    responses(
+        (status = 200, description = "Alert acknowledged", body = AlertResponse)
+    )
+)]
+pub async fn acknowledge_alert(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(alert_id): Path<String>,
+    Json(req): Json<AcknowledgeAlertRequest>,
+) -> Result<Json<AlertResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    adapteros_system_metrics::ProcessAlert::update_status(
+        state.db.pool(),
+        &alert_id,
+        adapteros_system_metrics::AlertStatus::Acknowledged,
+        Some(&req.user),
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Get the updated alert
+    let filters = adapteros_system_metrics::AlertFilters {
+        tenant_id: None,
+        worker_id: None,
+        status: None,
+        severity: None,
+        start_time: None,
+        end_time: None,
+        limit: Some(1),
+    };
+
+    let alerts = adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let alert = alerts
+        .into_iter()
+        .find(|a| a.id == alert_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("alert not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    Ok(Json(alert.into()))
+}
+
+/// Resolve alert
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/alerts/{alert_id}/resolve",
+    params(
+        ("alert_id" = String, Path, description = "Alert ID")
+    ),
+    responses(
+        (status = 200, description = "Alert resolved", body = AlertResponse)
+    )
+)]
+pub async fn resolve_alert(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(alert_id): Path<String>,
+) -> Result<Json<AlertResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    adapteros_system_metrics::ProcessAlert::update_status(
+        state.db.pool(),
+        &alert_id,
+        adapteros_system_metrics::AlertStatus::Resolved,
+        None,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Get the updated alert
+    let filters = adapteros_system_metrics::AlertFilters {
+        tenant_id: None,
+        worker_id: None,
+        status: None,
+        severity: None,
+        start_time: None,
+        end_time: None,
+        limit: Some(1),
+    };
+
+    let alerts = adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let alert = alerts
+        .into_iter()
+        .find(|a| a.id == alert_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("alert not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    Ok(Json(alert.into()))
+}
+
+/// List anomalies
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/anomalies",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
+        ("status" = Option<String>, Query, description = "Filter by status"),
+        ("anomaly_type" = Option<String>, Query, description = "Filter by anomaly type"),
+        ("limit" = Option<i64>, Query, description = "Limit results")
+    ),
+    responses(
+        (status = 200, description = "Anomalies", body = Vec<AnomalyResponse>)
+    )
+)]
+pub async fn list_anomalies(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<AnomalyResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let filters = adapteros_system_metrics::AnomalyFilters {
+        tenant_id: params.get("tenant_id").cloned(),
+        worker_id: params.get("worker_id").cloned(),
+        status: params.get("status").and_then(|s| {
+            adapteros_system_metrics::AnomalyStatus::from_string(s.to_string()).into()
+        }),
+        anomaly_type: params.get("anomaly_type").cloned(),
+        start_time: None,
+        end_time: None,
+        limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
+    };
+
+    let anomalies = adapteros_system_metrics::ProcessAnomaly::list(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response: Vec<AnomalyResponse> = anomalies
+        .into_iter()
+        .map(|anomaly| anomaly.into())
+        .collect();
+
+    Ok(Json(response))
+}
+
+/// Update anomaly status
+#[utoipa::path(
+    put,
+    path = "/v1/monitoring/anomalies/{anomaly_id}",
+    params(
+        ("anomaly_id" = String, Path, description = "Anomaly ID")
+    ),
+    request_body = UpdateAnomalyStatusRequest,
+    responses(
+        (status = 200, description = "Anomaly updated", body = AnomalyResponse)
+    )
+)]
+pub async fn update_anomaly_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(anomaly_id): Path<String>,
+    Json(req): Json<UpdateAnomalyStatusRequest>,
+) -> Result<Json<AnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Update anomaly status in database
+    sqlx::query!(
+        "UPDATE process_anomalies SET status = ?, investigation_notes = ?, investigated_by = ? WHERE id = ?",
+        req.status,
+        req.investigation_notes,
+        req.investigated_by,
+        anomaly_id
+    )
+    .execute(state.db.pool())
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("database error").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
+        )
+    })?;
+
+    // Get the updated anomaly
+    let filters = adapteros_system_metrics::AnomalyFilters {
+        tenant_id: None,
+        worker_id: None,
+        status: None,
+        anomaly_type: None,
+        start_time: None,
+        end_time: None,
+        limit: Some(1),
+    };
+
+    let anomalies = adapteros_system_metrics::ProcessAnomaly::list(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let anomaly = anomalies
+        .into_iter()
+        .find(|a| a.id == anomaly_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("anomaly not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    Ok(Json(anomaly.into()))
+}
+
+/// Get performance baselines
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/baselines",
+    params(
+        ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
+        ("metric_name" = Option<String>, Query, description = "Filter by metric name")
+    ),
+    responses(
+        (status = 200, description = "Performance baselines", body = Vec<BaselineResponse>)
+    )
+)]
+pub async fn get_performance_baselines(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<BaselineResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let worker_id = params.get("worker_id");
+    let metric_name = params.get("metric_name");
+
+    let mut query =
+        "SELECT * FROM process_performance_baselines WHERE is_active = true".to_string();
+    let mut params_vec: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
+    let mut param_count = 0;
+
+    if let Some(worker) = worker_id {
+        param_count += 1;
+        query.push_str(&format!(" AND worker_id = ${}", param_count));
+        params_vec.push(Box::new(worker.to_string()));
+    }
+
+    if let Some(metric) = metric_name {
+        param_count += 1;
+        query.push_str(&format!(" AND metric_name = ${}", param_count));
+        params_vec.push(Box::new(metric.to_string()));
+    }
+
+    query.push_str(" ORDER BY calculated_at DESC");
+
+    let rows = sqlx::query(&query)
+        .fetch_all(state.db.pool())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let mut baselines = Vec::new();
+    for row in rows {
+        let baseline = adapteros_system_metrics::PerformanceBaseline {
+            id: row.get("id"),
+            worker_id: row.get("worker_id"),
+            tenant_id: row.get("tenant_id"),
+            metric_name: row.get("metric_name"),
+            baseline_value: row.get("baseline_value"),
+            baseline_type: adapteros_system_metrics::BaselineType::from_string(
+                row.get("baseline_type"),
+            ),
+            calculation_period_days: row.get("calculation_period_days"),
+            confidence_interval: row.get("confidence_interval"),
+            standard_deviation: row.get("standard_deviation"),
+            percentile_95: row.get("percentile_95"),
+            percentile_99: row.get("percentile_99"),
+            is_active: row.get("is_active"),
+            calculated_at: chrono::DateTime::parse_from_rfc3339(
+                &row.get::<String, _>("calculated_at"),
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .with_timezone(&chrono::Utc),
+            expires_at: row
+                .try_get::<Option<String>, _>("expires_at")
+                .ok()
+                .flatten()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc)),
+        };
+        baselines.push(baseline.into());
+    }
+
+    Ok(Json(baselines))
+}
+
+/// Recalculate baseline
+#[utoipa::path(
+    post,
+    path = "/v1/monitoring/baselines/recalculate",
+    request_body = RecalculateBaselineRequest,
+    responses(
+        (status = 200, description = "Baseline recalculated", body = BaselineResponse)
+    )
+)]
+pub async fn recalculate_baseline(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<RecalculateBaselineRequest>,
+) -> Result<Json<BaselineResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // This would typically call the baseline service
+    // For now, we'll return a placeholder response
+    let baseline = adapteros_system_metrics::PerformanceBaseline {
+        id: uuid::Uuid::new_v4().to_string(),
+        worker_id: req.worker_id,
+        tenant_id: "default".to_string(),
+        metric_name: req.metric_name,
+        baseline_value: 0.0,
+        baseline_type: adapteros_system_metrics::BaselineType::Statistical,
+        calculation_period_days: req.calculation_period_days.unwrap_or(7),
+        confidence_interval: Some(0.95),
+        standard_deviation: Some(0.0),
+        percentile_95: Some(0.0),
+        percentile_99: Some(0.0),
+        is_active: true,
+        calculated_at: chrono::Utc::now(),
+        expires_at: Some(chrono::Utc::now() + chrono::Duration::days(90)),
+    };
+
+    Ok(Json(baseline.into()))
+}
+
+/// Get dashboard configuration
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/dashboards/{dashboard_id}/config",
+    params(
+        ("dashboard_id" = String, Path, description = "Dashboard ID")
+    ),
+    responses(
+        (status = 200, description = "Dashboard configuration", body = adapteros_system_metrics::DashboardConfig)
+    )
+)]
+pub async fn get_dashboard_config(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dashboard_id): Path<String>,
+) -> Result<Json<adapteros_system_metrics::DashboardConfig>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let dashboard_service =
+        adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(state.db.clone()));
+
+    let config = dashboard_service
+        .get_dashboard_config(&dashboard_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get dashboard config")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(config))
+}
+
+/// Get dashboard data
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/dashboards/{dashboard_id}/data",
+    params(
+        ("dashboard_id" = String, Path, description = "Dashboard ID"),
+        ("time_range" = Option<String>, Query, description = "Time range (1h, 6h, 24h, 7d, 30d)")
+    ),
+    responses(
+        (status = 200, description = "Dashboard data", body = adapteros_system_metrics::DashboardData)
+    )
+)]
+pub async fn get_dashboard_data(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dashboard_id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<adapteros_system_metrics::DashboardData>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let dashboard_service =
+        adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(state.db.clone()));
+    let time_range = params.get("time_range").map(|s| s.as_str());
+
+    let data = dashboard_service
+        .get_dashboard_data(&dashboard_id, time_range)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get dashboard data")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(data))
+}
+
+/// Export dashboard data
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/dashboards/{dashboard_id}/export/{format}",
+    params(
+        ("dashboard_id" = String, Path, description = "Dashboard ID"),
+        ("format" = String, Path, description = "Export format (json, csv)"),
+        ("time_range" = Option<String>, Query, description = "Time range (1h, 6h, 24h, 7d, 30d)")
+    ),
+    responses(
+        (status = 200, description = "Dashboard data export")
+    )
+)]
+pub async fn export_dashboard_data(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((dashboard_id, format)): Path<(String, String)>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let dashboard_service =
+        adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(state.db.clone()));
+    let time_range = params.get("time_range").map(|s| s.as_str());
+
+    let export_data = dashboard_service
+        .export_dashboard_data(&dashboard_id, &format, time_range)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to export dashboard data")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let content_type = match format.as_str() {
+        "json" => "application/json",
+        "csv" => "text/csv",
+        _ => "text/plain",
+    };
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", content_type)
+        .header(
+            "Content-Disposition",
+            format!(
+                "attachment; filename=\"dashboard_{}.{}\"",
+                dashboard_id, format
+            ),
+        )
+        .body(axum::body::Body::from(export_data))
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to create response")
+                        .with_code("INTERNAL_SERVER_ERROR"),
+                ),
+            )
+        })?;
+
+    Ok(response)
+}
+
+// ===== Enhanced SSE Streams for Advanced Monitoring =====
+
+/// SSE stream for alerts
+/// Pushes real-time alerts as they are created or updated
+pub async fn alerts_stream(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = stream::unfold(state, |state| async move {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Fetch recent alerts
+        let filters = adapteros_system_metrics::AlertFilters {
+            tenant_id: None,
+            worker_id: None,
+            status: None,
+            severity: None,
+            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
+            end_time: None,
+            limit: Some(50),
+        };
+
+        let alerts =
+            match adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters).await {
+                Ok(alerts) => alerts,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch alerts for SSE: {}", e);
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        state,
+                    ));
+                }
+            };
+
+        let alert_data = serde_json::json!({
+            "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "count": alerts.len()
+        });
+
+        Some((
+            Ok(Event::default()
+                .event("alerts")
+                .data(serde_json::to_string(&alert_data).unwrap_or_else(|_| "{}".to_string()))),
+            state,
+        ))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// SSE stream for anomalies
+/// Pushes real-time anomaly detections
+pub async fn anomalies_stream(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = stream::unfold(state, |state| async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+
+        // Fetch recent anomalies
+        let filters = adapteros_system_metrics::AnomalyFilters {
+            tenant_id: None,
+            worker_id: None,
+            status: None,
+            anomaly_type: None,
+            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(10)),
+            end_time: None,
+            limit: Some(20),
+        };
+
+        let anomalies =
+            match adapteros_system_metrics::ProcessAnomaly::list(state.db.pool(), filters).await {
+                Ok(anomalies) => anomalies,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch anomalies for SSE: {}", e);
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        state,
+                    ));
+                }
+            };
+
+        let anomaly_data = serde_json::json!({
+            "anomalies": anomalies.iter().map(|a| adapteros_system_metrics::AnomalyResponse::from(a.clone())).collect::<Vec<_>>(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "count": anomalies.len()
+        });
+
+        Some((
+            Ok(Event::default()
+                .event("anomalies")
+                .data(serde_json::to_string(&anomaly_data).unwrap_or_else(|_| "{}".to_string()))),
+            state,
+        ))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// SSE stream for dashboard-specific metrics
+/// Pushes metrics tailored for dashboard widgets
+pub async fn dashboard_metrics_stream(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(dashboard_id): Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = stream::unfold((state, dashboard_id), |(state, dashboard_id)| async move {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        // Get dashboard configuration (placeholder for now)
+        let dashboard_config = serde_json::json!({
+            "widgets": [
+                {
+                    "type": "time_series",
+                    "metric": "cpu_usage",
+                    "aggregation": "avg",
+                    "window": "1h"
+                },
+                {
+                    "type": "gauge",
+                    "metric": "gpu_utilization",
+                    "threshold_warning": 80,
+                    "threshold_critical": 95
+                },
+                {
+                    "type": "alert_list",
+                    "severities": ["critical", "error"],
+                    "limit": 10
+                }
+            ],
+            "refresh_interval": 30,
+            "time_range": "24h"
+        });
+
+        // Fetch metrics for each widget
+        let mut widget_data = Vec::new();
+
+        for widget in dashboard_config["widgets"].as_array().unwrap_or(&vec![]) {
+            let widget_type = widget["type"].as_str().unwrap_or("unknown");
+            let metric_name = widget["metric"].as_str().unwrap_or("");
+
+            let filters = adapteros_system_metrics::MetricFilters {
+                worker_id: None,
+                tenant_id: None,
+                metric_name: Some(metric_name.to_string()),
+                start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+                end_time: None,
+                limit: Some(100),
+            };
+
+            let metrics = match adapteros_system_metrics::ProcessHealthMetric::query(
+                state.db.pool(),
+                filters,
+            )
+            .await
+            {
+                Ok(metrics) => metrics,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch metrics for widget: {}", e);
+                    continue;
+                }
+            };
+
+            let widget_result = match widget_type {
+                "time_series" => {
+                    let points: Vec<serde_json::Value> = metrics
+                        .iter()
+                        .map(|m| {
+                            serde_json::json!({
+                                "timestamp": m.collected_at.to_rfc3339(),
+                                "value": m.metric_value,
+                                "worker_id": m.worker_id
+                            })
+                        })
+                        .collect();
+
+                    serde_json::json!({
+                        "widget_id": "time_series_1",
+                        "widget_type": "time_series",
+                        "data": {
+                            "metric": metric_name,
+                            "points": points,
+                            "aggregation": widget["aggregation"],
+                            "window": widget["window"]
+                        }
+                    })
+                }
+                "gauge" => {
+                    let current_value = metrics.last().map(|m| m.metric_value).unwrap_or(0.0);
+                    let status = if current_value
+                        >= widget["threshold_critical"].as_f64().unwrap_or(95.0)
+                    {
+                        "critical"
+                    } else if current_value >= widget["threshold_warning"].as_f64().unwrap_or(80.0)
+                    {
+                        "warning"
+                    } else {
+                        "healthy"
+                    };
+
+                    serde_json::json!({
+                        "widget_id": "gauge_1",
+                        "widget_type": "gauge",
+                        "data": {
+                            "metric": metric_name,
+                            "current_value": current_value,
+                            "threshold_warning": widget["threshold_warning"],
+                            "threshold_critical": widget["threshold_critical"],
+                            "status": status
+                        }
+                    })
+                }
+                "alert_list" => {
+                    let alert_filters = adapteros_system_metrics::AlertFilters {
+                        tenant_id: None,
+                        worker_id: None,
+                        status: Some(adapteros_system_metrics::AlertStatus::Active),
+                        severity: None,
+                        start_time: None,
+                        end_time: None,
+                        limit: Some(widget["limit"].as_i64().unwrap_or(10)),
+                    };
+
+                    let alerts = match adapteros_system_metrics::ProcessAlert::list(
+                        state.db.pool(),
+                        alert_filters,
+                    )
+                    .await
+                    {
+                        Ok(alerts) => alerts,
+                        Err(e) => {
+                            tracing::warn!("Failed to fetch alerts for widget: {}", e);
+                            vec![]
+                        }
+                    };
+
+                    let alert_summaries: Vec<serde_json::Value> = alerts
+                        .iter()
+                        .map(|a| {
+                            serde_json::json!({
+                                "id": a.id,
+                                "title": a.title,
+                                "severity": a.severity.to_string(),
+                                "status": a.status.to_string(),
+                                "worker_id": a.worker_id,
+                                "created_at": a.created_at.to_rfc3339(),
+                                "acknowledged_by": a.acknowledged_by
+                            })
+                        })
+                        .collect();
+
+                    serde_json::json!({
+                        "widget_id": "alert_list_1",
+                        "widget_type": "alert_list",
+                        "data": {
+                            "alerts": alert_summaries,
+                            "total_count": alerts.len(),
+                            "unacknowledged_count": alerts.iter().filter(|a| a.status.to_string() == "active").count()
+                        }
+                    })
+                }
+                _ => {
+                    serde_json::json!({
+                        "widget_id": "unknown_1",
+                        "widget_type": widget_type,
+                        "data": {},
+                        "error": "Unknown widget type"
+                    })
+                }
+            };
+
+            widget_data.push(widget_result);
+        }
+
+        let dashboard_data = serde_json::json!({
+            "dashboard_id": dashboard_id,
+            "widgets": widget_data,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "refresh_interval": dashboard_config["refresh_interval"]
+        });
+
+        Some((
+            Ok(Event::default()
+                .event("dashboard_metrics")
+                .data(serde_json::to_string(&dashboard_data).unwrap_or_else(|_| "{}".to_string()))),
+            (state, dashboard_id),
+        ))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// Enhanced system metrics stream with monitoring data
+/// Includes GPU metrics, inference latency, active alerts count, and recent anomalies
+pub async fn enhanced_system_metrics_stream(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = stream::unfold(state, |state| async move {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        // Fetch basic system metrics
+        let metrics = match get_system_metrics_internal(&state).await {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("Failed to fetch metrics for SSE: {}", e);
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data(format!("{{\"error\": \"{}\"}}", e))),
+                    state,
+                ));
+            }
+        };
+
+        // Fetch active alerts count
+        let alert_filters = adapteros_system_metrics::AlertFilters {
+            tenant_id: None,
+            worker_id: None,
+            status: Some(adapteros_system_metrics::AlertStatus::Active),
+            severity: None,
+            start_time: None,
+            end_time: None,
+            limit: Some(1), // Just count, not actual alerts
+        };
+
+        let active_alerts_count = match adapteros_system_metrics::ProcessAlert::list(
+            state.db.pool(),
+            alert_filters,
+        )
+        .await
+        {
+            Ok(alerts) => alerts.len(),
+            Err(_) => 0,
+        };
+
+        // Fetch recent anomalies count
+        let anomaly_filters = adapteros_system_metrics::AnomalyFilters {
+            tenant_id: None,
+            worker_id: None,
+            status: Some(adapteros_system_metrics::AnomalyStatus::Detected),
+            anomaly_type: None,
+            start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+            end_time: None,
+            limit: Some(1), // Just count, not actual anomalies
+        };
+
+        let recent_anomalies_count =
+            match adapteros_system_metrics::ProcessAnomaly::list(state.db.pool(), anomaly_filters)
+                .await
+            {
+                Ok(anomalies) => anomalies.len(),
+                Err(_) => 0,
+            };
+
+        // Fetch worker health status
+        let workers = match sqlx::query!("SELECT id, status FROM workers WHERE status = 'active'")
+            .fetch_all(state.db.pool())
+            .await
+        {
+            Ok(workers) => workers.len(),
+            Err(_) => 0,
+        };
+
+        let enhanced_metrics = serde_json::json!({
+            "system_metrics": {
+                "cpu_usage": metrics.cpu_usage,
+                "memory_usage": metrics.memory_usage,
+                "gpu_utilization": metrics.gpu_utilization,
+                "gpu_memory_used": 0.0,
+                "gpu_temperature": 0.0,
+                "disk_usage": metrics.disk_usage,
+                "network_rx": 0.0,
+                "network_tx": 0.0
+            },
+            "monitoring_metrics": {
+                "active_alerts_count": active_alerts_count,
+                "recent_anomalies_count": recent_anomalies_count,
+                "active_workers_count": workers,
+                "inference_latency_p95": 0.0, // Placeholder - would come from worker
+                "active_inference_sessions": 0, // Placeholder - would come from worker
+                "adapter_swap_latency": 0.0, // Placeholder - would come from worker
+                "lora_routing_overhead": 0.0 // Placeholder - would come from worker
+            },
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+
+        Some((
+            Ok(Event::default().event("enhanced_metrics").data(
+                serde_json::to_string(&enhanced_metrics).unwrap_or_else(|_| "{}".to_string()),
+            )),
+            state,
+        ))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}

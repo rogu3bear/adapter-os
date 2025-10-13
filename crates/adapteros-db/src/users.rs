@@ -10,12 +10,8 @@ pub enum Role {
     Admin,
     #[serde(rename = "operator")]
     Operator,
-    #[serde(rename = "sre")]
-    Sre,
     #[serde(rename = "compliance")]
     Compliance,
-    #[serde(rename = "auditor")]
-    Auditor,
     #[serde(rename = "viewer")]
     Viewer,
 }
@@ -25,9 +21,7 @@ impl std::fmt::Display for Role {
         match self {
             Role::Admin => write!(f, "admin"),
             Role::Operator => write!(f, "operator"),
-            Role::Sre => write!(f, "sre"),
             Role::Compliance => write!(f, "compliance"),
-            Role::Auditor => write!(f, "auditor"),
             Role::Viewer => write!(f, "viewer"),
         }
     }
@@ -40,9 +34,7 @@ impl std::str::FromStr for Role {
         match s {
             "admin" => Ok(Role::Admin),
             "operator" => Ok(Role::Operator),
-            "sre" => Ok(Role::Sre),
             "compliance" => Ok(Role::Compliance),
-            "auditor" => Ok(Role::Auditor),
             "viewer" => Ok(Role::Viewer),
             _ => Err(anyhow::anyhow!("invalid role: {}", s)),
         }

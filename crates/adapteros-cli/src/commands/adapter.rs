@@ -3,57 +3,80 @@
 use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
-
-// UDS communication helper functions
+use tracing::{info, error, warn};
 
 /// Adapter state structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct AdapterState {
-    id: String,
-    vram_mb: u64,
-    active: bool,
+pub struct AdapterState {
+    pub id: String,
+    pub vram_mb: u64,
+    pub active: bool,
 }
 
 /// Adapter profile structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct AdapterProfile {
-    state: String,
-    activation_pct: f32,
-    activations: u64,
-    total_tokens: u64,
-    avg_latency_us: f32,
-    memory_kb: u64,
-    quality_delta: f32,
-    recent_activations: Vec<ActivationWindow>,
+pub struct AdapterProfile {
+    pub state: String,
+    pub activation_pct: f32,
+    pub activations: u64,
+    pub total_tokens: u64,
+    pub avg_latency_us: f32,
+    pub memory_kb: u64,
+    pub quality_delta: f32,
+    pub recent_activations: Vec<ActivationWindow>,
 }
 
+/// Activation window for profiling data
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct ActivationWindow {
-    start_token: u64,
-    end_token: u64,
-    count: u64,
+pub struct ActivationWindow {
+    pub start_token: u64,
+    pub end_token: u64,
+    pub count: u64,
 }
 
 /// Connect to worker via UDS and fetch adapter states
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Socket connection fails
+/// - Response parsing fails
+/// - Timeout exceeded
 async fn connect_and_fetch_adapter_states(
     socket_path: &std::path::Path,
 ) -> Result<Vec<AdapterState>> {
     use adapteros_client::UdsClient;
     use std::time::Duration;
 
+    info!(socket_path = ?socket_path, "Fetching adapter states via UDS");
+
     let client = UdsClient::new(Duration::from_secs(5));
     let json_response = client
         .list_adapters(socket_path)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to list adapters: {}", e))?;
+        .map_err(|e| {
+            error!(error = %e, "Failed to list adapters via UDS");
+            anyhow::anyhow!("Failed to list adapters: {}", e)
+        })?;
 
-    let adapters: Vec<AdapterState> =
-        serde_json::from_str(&json_response).unwrap_or_else(|_| vec![]);
+    let adapters: Vec<AdapterState> = serde_json::from_str(&json_response)
+        .map_err(|e| {
+            error!(error = %e, "Failed to parse adapter response");
+            anyhow::anyhow!("Failed to parse adapter response: {}", e)
+        })?;
 
+    info!(count = adapters.len(), "Retrieved adapter states");
     Ok(adapters)
 }
 
 /// Connect to worker via UDS and fetch adapter profile
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Socket connection fails
+/// - Response parsing fails
+/// - Adapter not found
 async fn connect_and_fetch_adapter_profile(
     socket_path: &std::path::Path,
     adapter_id: &str,
@@ -61,18 +84,34 @@ async fn connect_and_fetch_adapter_profile(
     use adapteros_client::UdsClient;
     use std::time::Duration;
 
+    info!(socket_path = ?socket_path, adapter_id = %adapter_id, "Fetching adapter profile via UDS");
+
     let client = UdsClient::new(Duration::from_secs(5));
     let json_response = client
         .get_adapter_profile(socket_path, adapter_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to get adapter profile: {}", e))?;
+        .map_err(|e| {
+            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter profile");
+            anyhow::anyhow!("Failed to get adapter profile: {}", e)
+        })?;
 
-    let profile: AdapterProfile = serde_json::from_str(&json_response)?;
+    let profile: AdapterProfile = serde_json::from_str(&json_response)
+        .map_err(|e| {
+            error!(error = %e, "Failed to parse adapter profile");
+            anyhow::anyhow!("Failed to parse adapter profile: {}", e)
+        })?;
 
+    info!(adapter_id = %adapter_id, "Retrieved adapter profile");
     Ok(profile)
 }
 
 /// Send adapter command via UDS
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Socket connection fails
+/// - Command execution fails
 async fn send_adapter_command(
     socket_path: &std::path::Path,
     command: &str,
@@ -81,16 +120,27 @@ async fn send_adapter_command(
     use adapteros_client::UdsClient;
     use std::time::Duration;
 
+    info!(
+        socket_path = ?socket_path,
+        command = %command,
+        adapter_id = %adapter_id,
+        "Sending adapter command via UDS"
+    );
+
     let client = UdsClient::new(Duration::from_secs(5));
     client
         .adapter_command(socket_path, adapter_id, command)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to send adapter command: {}", e))?;
+        .map_err(|e| {
+            error!(error = %e, command = %command, adapter_id = %adapter_id, "Failed to send adapter command");
+            anyhow::anyhow!("Failed to send adapter command: {}", e)
+        })?;
 
+    info!(command = %command, adapter_id = %adapter_id, "Adapter command sent successfully");
     Ok(())
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum AdapterCommand {
     /// List all adapters with their states
     List,
@@ -106,7 +156,12 @@ pub enum AdapterCommand {
     Unpin { adapter_id: String },
 }
 
+/// Handle adapter lifecycle commands
+///
+/// Routes adapter commands to appropriate handlers
 pub async fn handle_adapter_command(cmd: AdapterCommand) -> Result<()> {
+    info!(command = ?cmd, "Handling adapter command");
+    
     match cmd {
         AdapterCommand::List => list_adapters().await,
         AdapterCommand::Profile { adapter_id } => profile_adapter(&adapter_id).await,
@@ -117,7 +172,9 @@ pub async fn handle_adapter_command(cmd: AdapterCommand) -> Result<()> {
     }
 }
 
+/// List all adapters with their current states
 async fn list_adapters() -> Result<()> {
+    info!("Listing adapter lifecycle status");
     println!("📊 Adapter Lifecycle Status\n");
 
     // Try to connect to worker via UDS
@@ -224,7 +281,9 @@ async fn list_adapters() -> Result<()> {
     Ok(())
 }
 
+/// Display detailed profile for an adapter
 async fn profile_adapter(adapter_id: &str) -> Result<()> {
+    info!(adapter_id = %adapter_id, "Profiling adapter");
     println!("📈 Adapter Profile: {}\n", adapter_id);
 
     // Try to connect to worker via UDS
@@ -284,7 +343,9 @@ async fn profile_adapter(adapter_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Promote adapter to higher priority state
 async fn promote_adapter(adapter_id: &str) -> Result<()> {
+    info!(adapter_id = %adapter_id, "Promoting adapter");
     let socket_path = std::path::PathBuf::from("./var/run/aos/default/worker.sock");
 
     if !socket_path.exists() {
@@ -307,7 +368,9 @@ async fn promote_adapter(adapter_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Demote adapter to lower priority state
 async fn demote_adapter(adapter_id: &str) -> Result<()> {
+    info!(adapter_id = %adapter_id, "Demoting adapter");
     let socket_path = std::path::PathBuf::from("./var/run/aos/default/worker.sock");
 
     if !socket_path.exists() {
@@ -330,7 +393,9 @@ async fn demote_adapter(adapter_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Pin adapter to resident state (prevent eviction)
 async fn pin_adapter(adapter_id: &str) -> Result<()> {
+    info!(adapter_id = %adapter_id, "Pinning adapter");
     let socket_path = std::path::PathBuf::from("./var/run/aos/default/worker.sock");
 
     if !socket_path.exists() {
@@ -353,7 +418,9 @@ async fn pin_adapter(adapter_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Unpin adapter (allow eviction)
 async fn unpin_adapter(adapter_id: &str) -> Result<()> {
+    info!(adapter_id = %adapter_id, "Unpinning adapter");
     let socket_path = std::path::PathBuf::from("./var/run/aos/default/worker.sock");
 
     if !socket_path.exists() {

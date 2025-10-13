@@ -1,8 +1,9 @@
 //! Job alert watcher and notification system
 
-use anyhow::Result;
 use adapteros_db::{Db, Job};
+use adapteros_deterministic_exec::{spawn_deterministic, DeterministicJoinHandle};
 use adapteros_server::config::AlertingConfig;
+use anyhow::Result;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -190,11 +191,17 @@ impl AlertWatcher {
 }
 
 /// Helper function to spawn alert watcher as a background task
-pub fn spawn_alert_watcher(db: Db, config: AlertingConfig) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+pub fn spawn_alert_watcher(
+    db: Db,
+    config: AlertingConfig,
+) -> Result<DeterministicJoinHandle, adapteros_core::AosError> {
+    spawn_deterministic("Alert watcher".to_string(), async move {
         let watcher = AlertWatcher::new(db, config);
         if let Err(e) = watcher.start().await {
             error!("Alert watcher crashed: {}", e);
         }
+    })
+    .map_err(|e| {
+        adapteros_core::AosError::Internal(format!("Failed to spawn alert watcher: {}", e))
     })
 }
