@@ -1,0 +1,43 @@
+[package]
+name = "adapteros-server-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-db = { path = "../adapteros-db" }
+adapteros-git = { path = "../adapteros-git" }
+adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-lora-router = { path = "../adapteros-lora-router" }
+adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
+adapteros-system-metrics = { path = "../adapteros-system-metrics" }
+anyhow = "1.0"
+argon2 = "0.5"
+axum = { version = "0.7", features = ["macros"] }
+base64 = "0.21"
+chrono = "0.4"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+git2 = "0.18"
+hex = "0.4"
+hyper = "1.0"
+hyper-util = "0.1"
+jsonwebtoken = "9.2"
+rand = "0.8"
+regex = "1.0"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+tempfile = "3.0"
+thiserror = "1.0"
+tracing = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
+uuid = { version = "1.0", features = ["v7"] }
+futures-util = "0.3"
+glob = "0.3"

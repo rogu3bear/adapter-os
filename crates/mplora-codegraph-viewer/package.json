@@ -1,0 +1,15 @@
+{
+  "name": "mplora-codegraph-viewer",
+  "version": "0.1.0",
+  "description": "Interactive CodeGraph visualization desktop application",
+  "private": true,
+  "scripts": {
+    "dev": "cd src-tauri && cargo tauri dev",
+    "build": "cd frontend && pnpm install && pnpm build && cd ../src-tauri && cargo tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.5.1"
+  }
+}
+

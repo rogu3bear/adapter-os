@@ -1,0 +1,40 @@
+[package]
+name = "adapteros-node"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "adapteros-node"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-artifacts = { path = "../adapteros-artifacts" }
+adapteros-policy = { path = "../adapteros-policy" }
+
+# Workspace dependencies
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+nix.workspace = true
+
+# Additional
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rustls = "0.23"
+tokio-rustls = "0.26"
+clap.workspace = true
+rand = "0.8"
+uuid.workspace = true
+hostname.workspace = true

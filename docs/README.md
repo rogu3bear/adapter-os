@@ -1,0 +1,226 @@
+# MPLoRA Documentation
+
+Welcome to the MPLoRA documentation. This directory contains comprehensive technical documentation for understanding, deploying, and extending the MPLoRA inference runtime.
+
+## Quick Navigation
+
+### 🚀 Getting Started
+- **[Quick Start Guide](QUICKSTART.md)** - Get up and running in 10 minutes
+  - Backend setup and configuration
+  - Web UI deployment
+  - Common tasks and troubleshooting
+
+### 🏗️ Core Architecture
+- **[System Architecture](architecture.md)** - High-level system design and component overview
+  - Worker architecture and inference pipeline
+  - Router and adapter management
+  - Memory management and eviction
+  - Policy enforcement system
+
+- **[Control Plane](control-plane.md)** - Control plane architecture and APIs
+  - Tenant management
+  - Plan building and promotion
+  - Telemetry and metrics collection
+  - REST API reference
+
+- **[Database Schema](database-schema/README.md)** - Database design and workflow animations
+  - Static ER diagrams with comprehensive field documentation
+  - Animated workflow sequences for operational processes
+  - Real-time monitoring and performance visualization
+  - Security and compliance workflows
+
+### 🤖 Model Integration
+- **[MLX Integration](MLX_INTEGRATION.md)** - Apple MLX framework integration
+  - Model loading and conversion
+  - PyO3 bindings
+  - Metal kernel integration
+  - Performance optimization
+
+- **[Qwen Integration](qwen-integration.md)** - Qwen model support
+  - Model configuration
+  - Tokenizer setup
+  - Chat templates
+  - Fine-tuning guide
+
+### 🔧 Advanced Topics
+
+#### Code Intelligence
+- **[Code Intelligence Overview](code-intelligence/README.md)** - Complete code analysis stack
+  - Architecture and design
+  - Multi-language support
+  - Framework detection
+  - Patch generation and validation
+
+**Detailed Guides:**
+- [Architecture](code-intelligence/code-intelligence-architecture.md) - System design and components
+- [Tiers](code-intelligence/code-intelligence-tiers.md) - Feature tiers and capabilities
+- [API Reference](code-intelligence/code-api-registry.md) - REST API documentation
+- [CLI Commands](code-intelligence/code-cli-commands.md) - Command-line interface
+- [Policies](code-intelligence/code-policies.md) - Policy configuration
+- [Router Features](code-intelligence/code-router-features.md) - Routing integration
+- [Evaluation](code-intelligence/code-evaluation.md) - Metrics and testing
+
+#### Metal Kernels
+- **[Metal Kernels](metal/phase4-metal-kernels.md)** - Custom Metal GPU kernels
+  - Fused attention operations
+  - LoRA application kernels
+  - Quantization support
+  - Performance optimization
+
+### 🔒 Safety & Security
+- **[Runaway Prevention](runaway-prevention.md)** - Safety mechanisms
+  - Memory pressure handling
+  - Router skew detection
+  - Determinism enforcement
+  - Incident response procedures
+
+- **[Code Graph Specification](codegraph-spec.md)** - Code analysis security
+  - Graph construction
+  - Security boundaries
+  - Validation rules
+
+## Documentation by Audience
+
+### For Developers
+Start here if you're building on MPLoRA or contributing to the codebase:
+1. [Quick Start Guide](QUICKSTART.md)
+2. [System Architecture](architecture.md)
+3. [Code Intelligence](code-intelligence/README.md)
+4. See `examples/` in project root
+
+### For Operators
+Start here if you're deploying and managing MPLoRA:
+1. [Quick Start Guide](QUICKSTART.md)
+2. [Control Plane](control-plane.md)
+3. [Runaway Prevention](runaway-prevention.md)
+4. [MLX Integration](MLX_INTEGRATION.md)
+
+### For Researchers
+Start here if you're experimenting with models and adapters:
+1. [System Architecture](architecture.md)
+2. [MLX Integration](MLX_INTEGRATION.md)
+3. [Qwen Integration](qwen-integration.md)
+4. [Metal Kernels](metal/phase4-metal-kernels.md)
+
+### For Security Auditors
+Start here if you're evaluating MPLoRA for compliance:
+1. [Runaway Prevention](runaway-prevention.md)
+2. [Code Graph Specification](codegraph-spec.md)
+3. [Code Intelligence Policies](code-intelligence/code-policies.md)
+4. See policy rulesets in project workspace rules
+
+## API Documentation
+
+### REST API
+- Control Plane API: See [control-plane.md](control-plane.md)
+- Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/code-api-registry.md)
+
+### Rust API
+Generate and browse Rust API documentation:
+```bash
+cargo doc --no-deps --open
+```
+
+## Directory Structure
+
+```
+docs/
+├── README.md                    # This file
+├── QUICKSTART.md               # Quick start guide
+├── architecture.md             # System architecture
+├── control-plane.md            # Control plane docs
+├── MLX_INTEGRATION.md          # MLX integration
+├── qwen-integration.md         # Qwen model docs
+├── runaway-prevention.md       # Safety mechanisms
+├── codegraph-spec.md           # Code graph spec
+├── database-schema/            # Database schema documentation
+│   ├── README.md              # Schema documentation index
+│   ├── schema-diagram.md       # Static ER diagram
+│   ├── workflows/             # Animated workflow diagrams
+│   │   ├── adapter-lifecycle.md
+│   │   ├── promotion-pipeline.md
+│   │   ├── monitoring-flow.md
+│   │   └── ...                # Additional workflows
+│   └── examples/              # Usage examples and tutorials
+├── code-intelligence/          # Code intelligence docs
+│   ├── README.md              # Code intelligence overview
+│   ├── code-intelligence-architecture.md
+│   ├── code-intelligence-tiers.md
+│   ├── code-api-*.md          # API documentation
+│   ├── code-cli-commands.md   # CLI reference
+│   ├── code-policies.md       # Policy configuration
+│   └── ...                    # Additional guides
+└── metal/                      # Metal kernel docs
+    └── phase4-metal-kernels.md
+```
+
+## Key Concepts
+
+### Adapters
+LoRA (Low-Rank Adaptation) modules that modify base model behavior:
+- Loaded dynamically based on routing decisions
+- Memory-efficient with shared base model
+- Tiered by importance and activation frequency
+
+### Router
+K-sparse routing system that selects top-K adapters per token:
+- Quantized gates (Q15) for efficiency
+- Entropy floor to prevent collapse
+- Code-aware routing with feature extraction
+
+### Plan
+Immutable deployment unit containing:
+- Model configuration
+- Adapter registry
+- Policy rules
+- Kernel hashes
+
+### Control Point (CP)
+Versioned configuration snapshot for promotion and rollback:
+- Deterministic execution
+- Gate-checked promotion
+- Audit trail with telemetry
+
+### Telemetry
+Event logging system for observability:
+- Canonical JSON format
+- BLAKE3 hashing for integrity
+- Bundle rotation and signing
+
+## Implementation History
+
+Previous implementation tracking documents have been archived to keep the main documentation clean:
+- Location: `../archive/implementation-history/`
+- Includes: Phase completion docs, status updates, implementation plans
+- Purpose: Historical reference for development process
+
+## Contributing to Documentation
+
+When adding or updating documentation:
+1. Follow the existing structure and format
+2. Add navigation links to this README
+3. Use clear headings and code examples
+4. Update the API documentation when changing interfaces
+5. Keep the quick start guide up to date
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contribution guidelines.
+
+## Getting Help
+
+- **Questions**: Check the relevant documentation section above
+- **Issues**: Review troubleshooting in [QUICKSTART.md](QUICKSTART.md)
+- **Examples**: See `examples/` directory in project root
+- **Tests**: See `tests/` directory for usage patterns
+- **API Reference**: Run `cargo doc --open`
+
+## License
+
+MPLoRA is dual-licensed under Apache 2.0 or MIT at your option.
+See [LICENSE-APACHE](../LICENSE-APACHE) and [LICENSE-MIT](../LICENSE-MIT) for details.
+
+---
+
+**Last Updated**: October 2025  
+**MPLoRA Version**: Development  
+**Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
+

@@ -1,0 +1,45 @@
+[package]
+name = "mplora-fuzz"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+# Dependencies from main workspace for fuzzing
+adapteros-manifest = { path = "../crates/adapteros-manifest" }
+adapteros-sbom = { path = "../crates/adapteros-sbom" }
+adapteros-policy = { path = "../crates/adapteros-policy" }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Prevent this from activating dev-dependencies in the main workspace
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+
+[[bin]]
+name = "manifest_parse"
+path = "fuzz_targets/manifest_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sbom_parse"
+path = "fuzz_targets/sbom_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "policy_parse"
+path = "fuzz_targets/policy_parse.rs"
+test = false
+doc = false

@@ -1,0 +1,9 @@
+[package]
+name = "mplora-db"
+version = "0.2.0"
+edition = "2021"
+authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+adapteros-db = { path = "../../adapteros-db" }

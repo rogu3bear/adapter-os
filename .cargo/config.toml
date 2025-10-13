@@ -1,0 +1,18 @@
+[build]
+# Target Apple Silicon with optimized flags
+rustflags = [
+    "-C", "target-cpu=apple-m2",
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "target-cpu=apple-m2",
+]
+
+# Ensure deterministic builds
+[env]
+RUSTFLAGS = "-C target-cpu=apple-m2"
+
+[term]
+color = "always"

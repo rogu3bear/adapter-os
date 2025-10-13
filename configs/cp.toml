@@ -1,0 +1,69 @@
+# AdapterOS Control Plane Configuration
+
+[server]
+# Use 8080 for development (UI expects this)
+port = 8080
+bind = "127.0.0.1"
+
+[db]
+path = "var/aos-cp.sqlite3"
+
+[security]
+# Set to false for development mode (allows running without root/PF rules)
+# MUST be true in production!
+require_pf_deny = false
+mtls_required = false
+jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+
+[paths]
+artifacts_root = "/srv/aos/artifacts"
+bundles_root = "/srv/aos/bundles"
+plan_dir = "plan"
+
+[worker.safety]
+# Timeout configuration
+inference_timeout_secs = 30
+evidence_timeout_secs = 5
+router_timeout_ms = 100
+policy_timeout_ms = 50
+
+# Circuit breaker configuration
+circuit_breaker_threshold = 5
+circuit_breaker_timeout_secs = 60
+
+# Resource limits
+max_concurrent_requests = 10
+max_tokens_per_second = 40
+max_memory_per_request_mb = 50
+max_cpu_time_per_request_secs = 30
+max_requests_per_minute = 100
+
+# Health monitoring
+health_check_interval_secs = 30
+max_response_time_secs = 60
+max_memory_growth_mb = 100
+max_cpu_time_secs = 300
+max_consecutive_failures = 3
+
+# Deadlock detection
+deadlock_check_interval_secs = 5
+max_wait_time_secs = 30
+max_lock_depth = 10
+recovery_timeout_secs = 10
+
+[rate_limits]
+requests_per_minute = 100
+burst_size = 20
+inference_per_minute = 50
+
+[metrics]
+enabled = true
+bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+
+[alerting]
+enabled = true
+alert_dir = "var/alerts"
+max_alerts_per_file = 10000
+rotate_size_mb = 50

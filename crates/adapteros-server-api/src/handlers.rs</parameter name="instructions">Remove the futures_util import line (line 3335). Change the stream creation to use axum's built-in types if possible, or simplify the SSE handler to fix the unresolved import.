@@ -1,0 +1,40 @@
+use axum::response::sse::{Event, KeepAlive, Sse};
+use std::convert::Infallible;
+use std::time::Duration;
+
+pub async fn system_metrics_stream(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use axum::response::sse::sse;
+
+    sse({
+        let stream = async_stream::stream!({
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                let metrics = match get_system_metrics_internal(&state).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch metrics for SSE: {}", e);
+                        yield Event::default().event("error").data(format!("{{\"error\": \"{}\"}}", e));
+                        continue;
+                    }
+                };
+
+                let json = match serde_json::to_string(&metrics) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize metrics: {}", e);
+                        yield Event::default().event("error").data("{\"error\": \"serialization failed\"}");
+                        continue;
+                    }
+                };
+
+                yield Event::default().event("metrics").data(json);
+            }
+        });
+
+        stream
+    })
+}

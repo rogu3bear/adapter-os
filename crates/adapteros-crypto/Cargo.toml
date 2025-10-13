@@ -1,0 +1,21 @@
+[package]
+name = "adapteros-crypto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+aes-gcm = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = "0.4"
+base64 = "0.22"

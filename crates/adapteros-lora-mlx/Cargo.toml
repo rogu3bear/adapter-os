@@ -1,0 +1,33 @@
+[package]
+name = "adapteros-lora-mlx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Workspace dependencies
+adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+safetensors.workspace = true
+
+# PyO3 for Python/MLX bindings
+pyo3.workspace = true
+numpy.workspace = true
+
+# Utilities
+tracing.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+zeroize = { version = "1.7", features = ["derive"] }
+
+[build-dependencies]
+pyo3-build-config = "0.22"
+
+[dev-dependencies]
+tempfile.workspace = true

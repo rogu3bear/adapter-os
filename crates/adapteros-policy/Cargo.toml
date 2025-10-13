@@ -1,0 +1,18 @@
+[package]
+name = "adapteros-policy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+regex = "1.10"
+tokio = { workspace = true }
+once_cell = "1.19"

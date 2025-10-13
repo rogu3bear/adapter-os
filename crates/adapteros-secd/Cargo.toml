@@ -1,0 +1,31 @@
+[package]
+name = "adapteros-secd"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "aos-secd"
+path = "src/main.rs"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-db = { path = "../adapteros-db" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+tokio = { workspace = true, features = ["full"] }
+security-framework = "2.11"
+core-foundation = "0.9"
+ed25519-dalek = "2.1"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+base64 = "0.22"
+hex = "0.4"
+clap = { workspace = true, features = ["derive"] }
+nix = { workspace = true }
+

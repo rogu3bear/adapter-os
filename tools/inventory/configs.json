@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2025-10-13",
+  "precedence_order": ["CLI flags", "Environment variables", "Manifest file", "Defaults"],
+  "total_config_files": 7,
+  "config_files": [
+    {
+      "path": "configs/cp.toml",
+      "type": "control_plane",
+      "precedence": "manifest",
+      "sections": [
+        "server",
+        "db",
+        "security",
+        "paths",
+        "worker.safety",
+        "rate_limits",
+        "metrics",
+        "alerting"
+      ],
+      "description": "Main control plane configuration for server, database, security, and worker safety limits"
+    },
+    {
+      "path": "metal/toolchain.toml",
+      "type": "build",
+      "precedence": "manifest",
+      "description": "Metal compiler toolchain pinning and flags"
+    },
+    {
+      "path": "metal/compiler_lockbox.toml",
+      "type": "determinism",
+      "precedence": "manifest",
+      "description": "Compiler lockbox for deterministic Metal builds"
+    },
+    {
+      "path": "deny.toml",
+      "type": "security",
+      "precedence": "manifest",
+      "description": "Cargo deny configuration for dependency auditing"
+    },
+    {
+      "path": "crates/adapteros-domain/manifests/text_example.toml",
+      "type": "domain_adapter",
+      "precedence": "manifest",
+      "description": "Example text domain adapter manifest"
+    },
+    {
+      "path": "crates/adapteros-domain/manifests/vision_example.toml",
+      "type": "domain_adapter",
+      "precedence": "manifest",
+      "description": "Example vision domain adapter manifest"
+    },
+    {
+      "path": "crates/adapteros-domain/manifests/telemetry_example.toml",
+      "type": "domain_adapter",
+      "precedence": "manifest",
+      "description": "Example telemetry domain adapter manifest"
+    }
+  ],
+  "environment_variables": {
+    "documented": [
+      "RUST_LOG",
+      "AOS_DB_PATH",
+      "AOS_ARTIFACTS_ROOT",
+      "AOS_BUNDLES_ROOT",
+      "METAL_DEVICE_WRAPPER_TYPE"
+    ],
+    "precedence": "env",
+    "note": "Post-freeze, env reads will be forbidden in strict mode"
+  },
+  "cli_flags": {
+    "locations": [
+      "crates/mplora-cli/src/main.rs",
+      "crates/mplora-server/src/main.rs"
+    ],
+    "precedence": "highest",
+    "examples": [
+      "--config",
+      "--db-path",
+      "--port",
+      "--bind",
+      "--plan-id"
+    ]
+  },
+  "target_config_system": {
+    "crate": "adapteros-config",
+    "location": "crates/adapteros-config",
+    "modules": [
+      "src/precedence.rs",
+      "src/loader.rs",
+      "src/guards.rs",
+      "src/lib.rs"
+    ],
+    "key_types": [
+      "DeterministicConfig",
+      "ConfigSource",
+      "ConfigLoader"
+    ],
+    "freeze_mechanism": "Once loaded at startup, config is frozen and hashed; included in trace root",
+    "env_guard": "Runtime panic if std::env::var() called post-freeze in strict mode"
+  },
+  "config_precedence_rules": {
+    "cli_overrides_env": true,
+    "env_overrides_manifest": true,
+    "manifest_overrides_defaults": true,
+    "frozen_at": "startup",
+    "hash_included_in": "trace root node"
+  },
+  "ad_hoc_env_reads": {
+    "note": "These need to be replaced with DeterministicConfig injection",
+    "locations_to_audit": [
+      "crates/mplora-server/src/main.rs",
+      "crates/mplora-worker/src/lib.rs",
+      "crates/mplora-cli/src/main.rs",
+      "crates/mplora-kernel-mtl/src/lib.rs"
+    ]
+  }
+}
+

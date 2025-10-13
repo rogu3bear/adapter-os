@@ -1,0 +1,10 @@
+[package]
+name = "adapteros-lora-kernel-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+thiserror = { workspace = true }

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.adapteros.menu</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/aos-menu</string>
+    </array>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardErrorPath</key>
+    <string>/tmp/aos-menu.err</string>
+    
+    <key>StandardOutPath</key>
+    <string>/tmp/aos-menu.out</string>
+    
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
+

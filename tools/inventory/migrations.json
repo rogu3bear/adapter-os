@@ -1,0 +1,185 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2025-10-13",
+  "total_migrations": 13,
+  "migration_directory": "migrations/",
+  "migrations": [
+    {
+      "version": 1,
+      "file": "migrations/0001_init.sql",
+      "checksum": "25d7d3b15277fd1c91a35395b363c5c544ad81e4a513a8bf8bb6efecc8b63373",
+      "purpose": "Initial database schema with users, tenants, adapters, plans, CP pointers, telemetry bundles",
+      "tables": [
+        "users",
+        "tenants",
+        "adapters",
+        "plans",
+        "plan_adapters",
+        "cp_pointers",
+        "telemetry_bundles",
+        "nodes"
+      ],
+      "backward_compatible": false,
+      "note": "Foundation schema, not reversible"
+    },
+    {
+      "version": 2,
+      "file": "migrations/0002_patch_proposals.sql",
+      "checksum": "1741460aad84c03d0c13a49c5abfaf119619fdc96da030af159aeb4a38ab832e",
+      "purpose": "Add patch proposals table for code change tracking",
+      "tables": [
+        "patch_proposals"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 3,
+      "file": "migrations/0003_ephemeral_adapters.sql",
+      "checksum": "dfe920cfc598b5d0d2aef4e41a7f72dae8a43b35924e8e934bc5323179d44993",
+      "purpose": "Ephemeral adapters table for commit-aware routing",
+      "tables": [
+        "ephemeral_adapters"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 4,
+      "file": "migrations/0004_signing_keys.sql",
+      "checksum": "8d621e611a8cb6eb3c307a5748b982ed626f783d90395cbd28fa46cb8c833a92",
+      "purpose": "Add signing public key storage for bundle verification",
+      "tables_modified": [
+        "cp_pointers"
+      ],
+      "columns_added": [
+        "signing_public_key"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 5,
+      "file": "migrations/0005_code_intelligence.sql",
+      "checksum": "352c33a811b4b93096f614b833918405f388d27b08be8c19a09cdf5f6bd8dae6",
+      "purpose": "Code intelligence tables for repository tracking and commit metadata",
+      "tables": [
+        "repositories",
+        "commits",
+        "code_policies"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 6,
+      "file": "migrations/0006_production_safety.sql",
+      "checksum": "1ff11ec96c73fc87a6f801838dc6bad0cab9ef20c56678402918d6eefb9b4939",
+      "purpose": "Production safety features: promotions signing, JWT rotation, alerting",
+      "tables": [
+        "promotions",
+        "jwt_rotation",
+        "alerts"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 7,
+      "file": "migrations/0007_adapter_provenance.sql",
+      "checksum": "2287046006480389eed62db2f4f1d8cd64170199f21331cc8ee4a3673e93aea0",
+      "purpose": "Adapter provenance tracking for cryptographic signer and registrar information",
+      "tables": [
+        "adapter_provenance"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 8,
+      "file": "migrations/0008_enclave_audit.sql",
+      "checksum": "df91a7e5d3a63c415e319a0b276774d13dd1df87f6fd8bacad965a4a8df4bdcc",
+      "purpose": "Enclave operation audit trail and key lifecycle tracking",
+      "tables": [
+        "enclave_operations",
+        "key_lifecycle"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 11,
+      "file": "migrations/0011_system_metrics.sql",
+      "checksum": "8e19599c2f9f45e532e8f98fb3bd6b705adb155ebfe13edf642296c0c81f3727",
+      "purpose": "System metrics storage with proper indexing",
+      "tables": [
+        "system_metrics"
+      ],
+      "backward_compatible": true,
+      "note": "Gap in version numbering (9, 10 missing)"
+    },
+    {
+      "version": 12,
+      "file": "migrations/0012_enhanced_adapter_schema.sql",
+      "checksum": "2965a4ff357589a5d331b69be796d62590af0220ff348b05381fc5ed5aa24c39",
+      "purpose": "Enhanced adapter schema for code intelligence fields and lifecycle state management",
+      "tables_modified": [
+        "adapters"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 13,
+      "file": "migrations/0013_git_repository_integration.sql",
+      "checksum": "dca124426036f8e49c62da8a23a01db73c11874d20fde65ccafc40a30b993c75",
+      "purpose": "Git repository integration for patch proposals",
+      "tables": [
+        "git_repositories"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 14,
+      "file": "migrations/0014_contacts_and_streams.sql",
+      "checksum": "d8fd66196a81d8072257d82ebc2f57031206f2d5c510cca3e3d8df983c7698a5",
+      "purpose": "Contacts table and interaction tracking for inference-driven discovery",
+      "tables": [
+        "contacts",
+        "interactions"
+      ],
+      "backward_compatible": true
+    },
+    {
+      "version": 15,
+      "file": "migrations/0015_git_sessions.sql",
+      "checksum": "6595442a70e305764df02092c3e4425cc211785780172c38d9e0658132acea15",
+      "purpose": "Git session and file change tracking for adapter branch lifecycle and Cursor integration",
+      "tables": [
+        "adapter_git_sessions",
+        "git_file_changes"
+      ],
+      "backward_compatible": true
+    }
+  ],
+  "disabled_migrations": [
+    "migrations/0009_*.disabled",
+    "migrations/0010_*.disabled"
+  ],
+  "next_migration": {
+    "version": 16,
+    "suggested_file": "migrations/0016_next_feature.sql"
+  },
+  "schema_version_table": {
+    "status": "not_yet_created",
+    "planned": "migrations/0017_schema_version.sql",
+    "purpose": "Track applied migrations with version, applied_at timestamp, and checksum verification"
+  },
+  "rollback_playbooks": {
+    "status": "not_yet_created",
+    "planned_location": "docs/rollback/",
+    "required_for": [
+      "0015_git_sessions.sql",
+      "0014_contacts_and_streams.sql",
+      "0013_git_repository_integration.sql"
+    ]
+  },
+  "loader_crate": {
+    "location": "crates/adapteros-db/src/lib.rs",
+    "migration_tool": "refinery",
+    "planned_version_gate": "Check schema_version table at startup; refuse to start on mismatch"
+  }
+}
+

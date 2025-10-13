@@ -1,0 +1,29 @@
+[package]
+name = "adapteros-memory"
+version = "0.1.0"
+edition = "2021"
+description = "Unified Memory Watchdog for AdapterOS - monitors page-outs and OS memory tricks"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+parking_lot = "0.12"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+blake3 = "1.5"
+hex = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "0.30"
+core-foundation = "0.9"
+core-graphics = "0.23"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.0"

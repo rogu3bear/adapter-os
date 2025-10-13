@@ -1,0 +1,54 @@
+[package]
+name = "adapteros-domain"
+version = "0.1.0"
+edition = "2021"
+authors = ["AdapterOS Team"]
+description = "Domain-specific adapter layer for AdapterOS with deterministic execution"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# AdapterOS core dependencies
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-trace = { path = "../adapteros-trace" }
+adapteros-numerics = { path = "../adapteros-numerics" }
+adapteros-core = { path = "../adapteros-core" }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml = "0.8"
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# Hashing
+blake3 = { workspace = true }
+
+# UUID
+uuid = { workspace = true, features = ["v7", "serde"] }
+
+# Parking lot
+parking_lot = { workspace = true }
+
+# Unicode normalization for text processing
+unicode-normalization = "0.1"
+
+# Random number generation (for deterministic executor)
+rand = { workspace = true }
+rand_chacha = "0.3"
+
+# HKDF for seed derivation
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+

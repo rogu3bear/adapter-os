@@ -1,0 +1,19 @@
+[package]
+name = "adapteros-chat"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Internal crates
+adapteros-core = { path = "../adapteros-core" }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Utilities
+thiserror.workspace = true
+anyhow.workspace = true

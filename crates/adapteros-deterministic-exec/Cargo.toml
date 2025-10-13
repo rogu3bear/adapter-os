@@ -1,0 +1,28 @@
+[package]
+name = "adapteros-deterministic-exec"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic async executor for AdapterOS with serial task execution and event logging"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+blake3 = { workspace = true }
+hkdf = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+rand_chacha = "0.3"
+sha2 = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+proptest = { workspace = true }

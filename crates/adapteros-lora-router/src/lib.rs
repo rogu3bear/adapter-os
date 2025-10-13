@@ -1,0 +1,726 @@
+//! Top-K sparse router with Q15 gate quantization
+
+pub mod calibration;
+pub mod code_features;
+pub mod features;
+pub mod metrics;
+pub mod scoring;
+
+use adapteros_core::Result;
+use adapteros_telemetry::TelemetryWriter;
+use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+
+pub use calibration::{
+    CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
+};
+pub use code_features::{CodeFeatureExtractor, CodeFeatures as CodeFeaturesExt};
+pub use features::{extract_attn_entropy, CodeFeatures, PromptVerb};
+pub use metrics::{
+    AdapterMetrics, MemoryMetrics, MemoryPressure, RouterMonitoringMetrics, RouterOverheadMetrics,
+    ThroughputMetrics,
+};
+pub use scoring::{create_scorer, EntropyFloorScorer, ScoringFunction, WeightedScorer};
+
+/// Router weights for feature importance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterWeights {
+    /// Weight for language detection (0.3 - strong signal)
+    pub language_weight: f32,
+    /// Weight for framework detection (0.25 - strong signal)
+    pub framework_weight: f32,
+    /// Weight for symbol hits (0.2 - moderate signal)
+    pub symbol_hits_weight: f32,
+    /// Weight for path tokens (0.15 - moderate signal)
+    pub path_tokens_weight: f32,
+    /// Weight for prompt verb (0.1 - weak signal)
+    pub prompt_verb_weight: f32,
+}
+
+impl Default for RouterWeights {
+    fn default() -> Self {
+        Self {
+            language_weight: 0.3,
+            framework_weight: 0.25,
+            symbol_hits_weight: 0.2,
+            path_tokens_weight: 0.15,
+            prompt_verb_weight: 0.1,
+        }
+    }
+}
+
+impl RouterWeights {
+    /// Create custom weights
+    pub fn new(language: f32, framework: f32, symbols: f32, paths: f32, verb: f32) -> Self {
+        Self {
+            language_weight: language,
+            framework_weight: framework,
+            symbol_hits_weight: symbols,
+            path_tokens_weight: paths,
+            prompt_verb_weight: verb,
+        }
+    }
+
+    /// Get total weight (for normalization check)
+    pub fn total_weight(&self) -> f32 {
+        self.language_weight
+            + self.framework_weight
+            + self.symbol_hits_weight
+            + self.path_tokens_weight
+            + self.prompt_verb_weight
+    }
+
+    /// Load weights from JSON file
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let content = std::fs::read_to_string(path.as_ref())
+            .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
+        serde_json::from_str(&content).map_err(|e| adapteros_core::AosError::Io(e.to_string()))
+    }
+
+    /// Save weights to JSON file
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let content = serde_json::to_string_pretty(&self)
+            .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
+        std::fs::write(path.as_ref(), content).map_err(|e| adapteros_core::AosError::Io(e.to_string()))
+    }
+}
+
+/// Telemetry event for router decisions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterDecisionEvent {
+    pub adapter_ids: Vec<u16>,
+    pub gates: Vec<i16>, // Q15 quantized
+    pub k_active: usize,
+    pub entropy: Option<f32>,
+    pub token_index: Option<usize>,
+}
+
+/// Router for selecting K adapters with quantized gates
+pub struct Router {
+    /// Feature weights for scoring
+    feature_weights: RouterWeights,
+    /// Number of top adapters to select
+    k: usize,
+    /// Temperature for softmax
+    tau: f32,
+    /// Entropy floor to prevent collapse
+    eps: f32,
+    /// Telemetry writer
+    telemetry: Option<TelemetryWriter>,
+    /// Token counter for sampling
+    token_count: usize,
+    /// Log first N tokens fully (default: 128 per Telemetry Ruleset #9)
+    full_log_tokens: usize,
+}
+
+impl Router {
+    /// Create a new router with custom feature weights
+    pub fn new_with_weights(feature_weights: RouterWeights, k: usize, tau: f32, eps: f32) -> Self {
+        Self {
+            feature_weights,
+            k,
+            tau,
+            eps,
+            telemetry: None,
+            token_count: 0,
+            full_log_tokens: 128, // Per Telemetry Ruleset #9
+        }
+    }
+
+    /// Create a new router with default weights (for backward compatibility)
+    pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Self {
+        // Legacy constructor - ignores old weights vector, uses default RouterWeights
+        Self::new_with_weights(RouterWeights::default(), k, tau, eps)
+    }
+
+    /// Set telemetry writer
+    pub fn set_telemetry(&mut self, telemetry: TelemetryWriter) {
+        self.telemetry = Some(telemetry);
+    }
+
+    /// Set full log token count
+    pub fn set_full_log_tokens(&mut self, count: usize) {
+        self.full_log_tokens = count;
+    }
+
+    /// Compute weighted feature score from 22-dimensional feature vector
+    ///
+    /// Feature vector layout:
+    /// - [0..8]: language one-hot (8 dims)
+    /// - [8..11]: framework scores (3 dims)
+    /// - [11]: symbol hits (1 dim)
+    /// - [12]: path tokens (1 dim)
+    /// - [13..21]: prompt verb one-hot (8 dims)
+    /// - [21]: attention entropy (1 dim)
+    fn compute_weighted_score(&self, features: &[f32]) -> f32 {
+        // Support both legacy (21) and new (22) feature vectors
+        if features.len() != 21 && features.len() != 22 {
+            // Fallback for unexpected feature vectors
+            return features.iter().sum::<f32>() * 0.1;
+        }
+
+        let mut score = 0.0;
+
+        // Language component (take max of one-hot as language strength)
+        let lang_strength = features[0..8].iter().fold(0.0f32, |a, &b| a.max(b));
+        score += lang_strength * self.feature_weights.language_weight;
+
+        // Framework component (sum of top 3 framework scores)
+        let framework_strength = features[8..11].iter().sum::<f32>();
+        score += framework_strength * self.feature_weights.framework_weight;
+
+        // Symbol hits component
+        score += features[11] * self.feature_weights.symbol_hits_weight;
+
+        // Path tokens component
+        score += features[12] * self.feature_weights.path_tokens_weight;
+
+        // Prompt verb component (max of one-hot)
+        let verb_strength = features[13..21].iter().fold(0.0f32, |a, &b| a.max(b));
+        score += verb_strength * self.feature_weights.prompt_verb_weight;
+
+        score
+    }
+
+    /// Score and select top-K adapters
+    pub fn route(&mut self, features: &[f32], priors: &[f32]) -> Decision {
+        // Compute weighted feature score once
+        let feature_score = self.compute_weighted_score(features);
+
+        // Compute scores for each adapter combining prior and features
+        let mut scores: Vec<(usize, f32)> = priors
+            .iter()
+            .enumerate()
+            .map(|(i, &prior)| {
+                let score = prior + feature_score;
+                (i, score)
+            })
+            .collect();
+
+        // Sort by score descending, then by index for determinism
+        scores.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        // Take top K
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
+
+        // Softmax with temperature
+        let max_score = top_k
+            .iter()
+            .map(|(_, s)| s)
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_scores: Vec<f32> = top_k
+            .iter()
+            .map(|(_, s)| ((s - max_score) / self.tau).exp())
+            .collect();
+        let sum_exp: f32 = exp_scores.iter().sum();
+
+        // Normalize and apply entropy floor
+        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        let min_gate = self.eps / self.k as f32;
+        for g in &mut gates {
+            *g = g.max(min_gate);
+        }
+
+        // Renormalize
+        let sum_gates: f32 = gates.iter().sum();
+        for g in &mut gates {
+            *g /= sum_gates;
+        }
+
+        // Quantize to Q15
+        let gates_q15: SmallVec<[i16; 8]> = gates
+            .iter()
+            .map(|&g| {
+                let q = (g * 32767.0).round() as i16;
+                q.max(0)
+            })
+            .collect();
+
+        let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
+
+        // Log router decision to telemetry
+        let entropy = Self::compute_entropy(&gates);
+        let _ = self.log_router_decision(&indices, &gates_q15, Some(entropy));
+
+        Decision { indices, gates_q15 }
+    }
+
+    /// Compute Shannon entropy of gate distribution
+    fn compute_entropy(gates: &[f32]) -> f32 {
+        gates
+            .iter()
+            .filter(|&&g| g > 0.0)
+            .map(|&g| -g * g.log2())
+            .sum()
+    }
+
+    /// Route with k0 detection (no adapters qualify)
+    pub fn route_with_k0_detection(&mut self, features: &[f32], priors: &[f32]) -> Decision {
+        if priors.is_empty() {
+            // Log k0 event
+            let _ = self.log_k0_event("no_adapters_available", features);
+            return Decision {
+                indices: SmallVec::new(),
+                gates_q15: SmallVec::new(),
+            };
+        }
+
+        // Compute weighted feature score once
+        let feature_score = self.compute_weighted_score(features);
+
+        // Compute scores for each adapter combining prior and features
+        let mut scores: Vec<(usize, f32)> = priors
+            .iter()
+            .enumerate()
+            .map(|(i, &prior)| {
+                let score = prior + feature_score;
+                (i, score)
+            })
+            .collect();
+
+        // Check if any adapter qualifies (score > threshold)
+        let qualifying_count = scores.iter().filter(|(_, score)| *score > 0.1).count();
+
+        if qualifying_count == 0 {
+            // Log k0 event
+            let _ = self.log_k0_event("no_adapters_qualify", features);
+            return Decision {
+                indices: SmallVec::new(),
+                gates_q15: SmallVec::new(),
+            };
+        }
+
+        // Sort by score descending, then by index for determinism
+        scores.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        // Take top K
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
+
+        // Softmax with temperature
+        let max_score = top_k
+            .iter()
+            .map(|(_, s)| s)
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_scores: Vec<f32> = top_k
+            .iter()
+            .map(|(_, s)| ((s - max_score) / self.tau).exp())
+            .collect();
+        let sum_exp: f32 = exp_scores.iter().sum();
+
+        // Normalize and apply entropy floor
+        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        let min_gate = self.eps / self.k as f32;
+        for g in &mut gates {
+            *g = g.max(min_gate);
+        }
+
+        // Renormalize
+        let sum_gates: f32 = gates.iter().sum();
+        for g in &mut gates {
+            *g /= sum_gates;
+        }
+
+        // Quantize to Q15
+        let gates_q15: SmallVec<[i16; 8]> = gates
+            .iter()
+            .map(|&g| {
+                let q = (g * 32767.0).round() as i16;
+                q.max(0)
+            })
+            .collect();
+
+        let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
+
+        Decision { indices, gates_q15 }
+    }
+
+    /// Log k0 event when no adapters are selected
+    fn log_k0_event(&mut self, reason: &str, input: &[f32]) -> Result<()> {
+        use adapteros_core::B3Hash;
+
+        // Convert f32 slice to bytes for hashing
+        let input_bytes: Vec<u8> = input.iter().flat_map(|&f| f.to_le_bytes()).collect();
+
+        let input_hash = B3Hash::hash(&input_bytes);
+
+        // Log to telemetry system
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "router.k0",
+                serde_json::json!({
+                    "reason": reason,
+                    "input_hash": input_hash.to_short_hex(),
+                    "token_index": self.token_count,
+                }),
+            )?;
+        }
+
+        tracing::warn!(
+            "Router k0 event: {} (input_hash: {})",
+            reason,
+            input_hash.to_short_hex()
+        );
+
+        Ok(())
+    }
+
+    /// Log router decision to telemetry
+    fn log_router_decision(
+        &mut self,
+        adapter_ids: &[u16],
+        gates_q15: &[i16],
+        entropy: Option<f32>,
+    ) -> Result<()> {
+        // Increment token counter
+        self.token_count += 1;
+
+        // Log first N tokens fully, then sample at 5% (per Telemetry Ruleset #9)
+        let should_log = self.token_count <= self.full_log_tokens || rand::random::<f32>() < 0.05;
+
+        if should_log {
+            if let Some(ref telemetry) = self.telemetry {
+                telemetry.log(
+                    "router.decision",
+                    RouterDecisionEvent {
+                        adapter_ids: adapter_ids.to_vec(),
+                        gates: gates_q15.to_vec(),
+                        k_active: adapter_ids.len(),
+                        entropy,
+                        token_index: Some(self.token_count),
+                    },
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Route using code features (convenience method)
+    pub fn route_with_code_features(
+        &mut self,
+        code_features: &CodeFeatures,
+        adapter_info: &[AdapterInfo],
+    ) -> Decision {
+        // Generate priors for each adapter based on code features
+        let mut priors: Vec<f32> = vec![1.0; adapter_info.len()];
+
+        // Apply framework priors
+        for (i, adapter) in adapter_info.iter().enumerate() {
+            if let Some(framework) = &adapter.framework {
+                if let Some(&boost) = code_features.framework_prior.get(framework) {
+                    priors[i] += boost * 0.5; // Scale framework boost
+                }
+            }
+        }
+
+        // Apply language priors
+        let lang_idx = code_features
+            .lang_one_hot
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| idx);
+
+        if let Some(lang_idx) = lang_idx {
+            for (i, adapter) in adapter_info.iter().enumerate() {
+                if adapter.supports_language(lang_idx) {
+                    priors[i] += 0.3;
+                }
+            }
+        }
+
+        // Convert code features to vector
+        let feature_vec = code_features.to_vector();
+
+        // Route using the computed priors
+        self.route(&feature_vec, &priors)
+    }
+
+    /// Get scoring explanation for debugging/audit
+    pub fn explain_score(&self, features: &[f32]) -> ScoringExplanation {
+        // Accept both 21 (without entropy) and 22 (with entropy) dimensions
+        if features.len() != 21 && features.len() != 22 {
+            return ScoringExplanation {
+                language_score: 0.0,
+                framework_score: 0.0,
+                symbol_hits_score: 0.0,
+                path_tokens_score: 0.0,
+                prompt_verb_score: 0.0,
+                total_score: features.iter().sum::<f32>() * 0.1,
+            };
+        }
+
+        let lang_strength = features[0..8].iter().fold(0.0f32, |a, &b| a.max(b));
+        let framework_strength = features[8..11].iter().sum::<f32>();
+        let symbol_hits = features[11];
+        let path_tokens = features[12];
+        let verb_strength = features[13..21].iter().fold(0.0f32, |a, &b| a.max(b));
+
+        let language_score = lang_strength * self.feature_weights.language_weight;
+        let framework_score = framework_strength * self.feature_weights.framework_weight;
+        let symbol_hits_score = symbol_hits * self.feature_weights.symbol_hits_weight;
+        let path_tokens_score = path_tokens * self.feature_weights.path_tokens_weight;
+        let prompt_verb_score = verb_strength * self.feature_weights.prompt_verb_weight;
+
+        ScoringExplanation {
+            language_score,
+            framework_score,
+            symbol_hits_score,
+            path_tokens_score,
+            prompt_verb_score,
+            total_score: language_score
+                + framework_score
+                + symbol_hits_score
+                + path_tokens_score
+                + prompt_verb_score,
+        }
+    }
+}
+
+/// Scoring explanation for debugging and audit
+#[derive(Debug, Clone)]
+pub struct ScoringExplanation {
+    pub language_score: f32,
+    pub framework_score: f32,
+    pub symbol_hits_score: f32,
+    pub path_tokens_score: f32,
+    pub prompt_verb_score: f32,
+    pub total_score: f32,
+}
+
+impl ScoringExplanation {
+    /// Format as human-readable string
+    pub fn format(&self) -> String {
+        format!(
+            "Scoring Breakdown:\n\
+             - Language:     {:.3} (weight: 0.30)\n\
+             - Framework:    {:.3} (weight: 0.25)\n\
+             - Symbol Hits:  {:.3} (weight: 0.20)\n\
+             - Path Tokens:  {:.3} (weight: 0.15)\n\
+             - Prompt Verb:  {:.3} (weight: 0.10)\n\
+             = Total Score:  {:.3}",
+            self.language_score,
+            self.framework_score,
+            self.symbol_hits_score,
+            self.path_tokens_score,
+            self.prompt_verb_score,
+            self.total_score,
+        )
+    }
+}
+
+/// Adapter information for routing
+#[derive(Debug, Clone)]
+pub struct AdapterInfo {
+    pub id: String,
+    pub framework: Option<String>,
+    pub languages: Vec<usize>, // Language indices
+    pub tier: String,
+}
+
+impl AdapterInfo {
+    /// Check if adapter supports a language
+    pub fn supports_language(&self, lang_idx: usize) -> bool {
+        self.languages.contains(&lang_idx)
+    }
+}
+
+/// Router decision with indices and quantized gates
+#[derive(Debug, Clone)]
+pub struct Decision {
+    pub indices: SmallVec<[u16; 8]>,
+    pub gates_q15: SmallVec<[i16; 8]>,
+}
+
+impl Decision {
+    /// Convert Q15 gates back to float
+    pub fn gates_f32(&self) -> Vec<f32> {
+        self.gates_q15.iter().map(|&q| q as f32 / 32767.0).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_router_topk() {
+        let weights = vec![1.0; 10];
+        let mut router = Router::new(weights, 3, 1.0, 0.02, [0u8; 32]);
+
+        let features = vec![0.5; 10];
+        let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6, 0.0];
+
+        let decision = router.route(&features, &priors);
+
+        assert_eq!(decision.indices.len(), 3);
+        assert_eq!(decision.gates_q15.len(), 3);
+
+        // Gates should sum to approximately 1.0
+        let sum: f32 = decision.gates_f32().iter().sum();
+        assert!((sum - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_entropy_floor() {
+        let weights = vec![1.0; 5];
+        let mut router = Router::new(weights, 3, 1.0, 0.1, [0u8; 32]);
+
+        let features = vec![0.0; 5];
+        let priors = vec![1.0, 0.0, 0.0, 0.0, 0.0]; // One dominant prior
+
+        let decision = router.route(&features, &priors);
+        let gates = decision.gates_f32();
+
+        // All gates should be >= entropy floor / k
+        let min_gate = 0.1 / 3.0;
+        for &g in &gates {
+            assert!(g >= min_gate - 0.001);
+        }
+    }
+
+    #[test]
+    fn test_route_with_code_features() {
+        let weights = vec![1.0; 21]; // 21-dim feature vector
+        let mut router = Router::new(weights, 3, 1.0, 0.02, [0u8; 32]);
+
+        let code_features = CodeFeatures::from_context("Fix this python bug in django app");
+
+        let adapters = vec![
+            AdapterInfo {
+                id: "python-general".to_string(),
+                framework: None,
+                languages: vec![0], // Python index
+                tier: "persistent".to_string(),
+            },
+            AdapterInfo {
+                id: "django-specific".to_string(),
+                framework: Some("django".to_string()),
+                languages: vec![0], // Python index
+                tier: "persistent".to_string(),
+            },
+            AdapterInfo {
+                id: "rust-general".to_string(),
+                framework: None,
+                languages: vec![1], // Rust index
+                tier: "persistent".to_string(),
+            },
+        ];
+
+        let decision = router.route_with_code_features(&code_features, &adapters);
+
+        assert_eq!(decision.indices.len(), 3);
+
+        // Django adapter should likely be selected due to framework prior
+        // (though exact ordering depends on weights)
+        println!("Selected indices: {:?}", decision.indices);
+        println!("Gates: {:?}", decision.gates_f32());
+    }
+
+    #[test]
+    fn test_weighted_scoring_influences_selection() {
+        // Create two different weight configurations
+        let heavy_language_weights = RouterWeights::new(
+            0.8,  // language - very high
+            0.05, // framework
+            0.05, // symbols
+            0.05, // paths
+            0.05, // verb
+        );
+
+        let heavy_framework_weights = RouterWeights::new(
+            0.05, // language
+            0.8,  // framework - very high
+            0.05, // symbols
+            0.05, // paths
+            0.05, // verb
+        );
+
+        let router1 = Router::new_with_weights(heavy_language_weights, 3, 1.0, 0.02);
+        let router2 = Router::new_with_weights(heavy_framework_weights, 3, 1.0, 0.02);
+
+        // Create code features with strong Python + Django signal
+        let features = CodeFeatures::from_context("def main(): # Python Django application");
+        let feature_vec = features.to_vector();
+
+        // Get scoring explanations
+        let explanation1 = router1.explain_score(&feature_vec);
+        let explanation2 = router2.explain_score(&feature_vec);
+
+        // With heavy language weights, language score should dominate
+        assert!(
+            explanation1.language_score > explanation1.framework_score,
+            "Language-weighted router should prioritize language score"
+        );
+
+        println!("Heavy language weights: {}", explanation1.format());
+        println!("\nHeavy framework weights: {}", explanation2.format());
+
+        // Language contribution should be much higher in router1
+        assert!(
+            explanation1.language_score > explanation2.language_score * 2.0,
+            "Language score should be much higher with language-heavy weights: {} vs {}",
+            explanation1.language_score,
+            explanation2.language_score
+        );
+
+        // Framework contribution should be much higher in router2
+        assert!(
+            explanation2.framework_score > explanation1.framework_score * 2.0,
+            "Framework score should be much higher with framework-heavy weights: {} vs {}",
+            explanation2.framework_score,
+            explanation1.framework_score
+        );
+    }
+
+    #[test]
+    fn test_feature_score_components() {
+        let weights = RouterWeights::default();
+        let router = Router::new_with_weights(weights, 3, 1.0, 0.02);
+
+        // Create features with known components
+        let features = CodeFeatures::from_context("Fix the bug in this Python function");
+        let feature_vec = features.to_vector();
+
+        let explanation = router.explain_score(&feature_vec);
+
+        // All scores should be non-negative
+        assert!(explanation.language_score >= 0.0);
+        assert!(explanation.framework_score >= 0.0);
+        assert!(explanation.symbol_hits_score >= 0.0);
+        assert!(explanation.path_tokens_score >= 0.0);
+        assert!(explanation.prompt_verb_score >= 0.0);
+
+        // Total should equal sum of components
+        let sum = explanation.language_score
+            + explanation.framework_score
+            + explanation.symbol_hits_score
+            + explanation.path_tokens_score
+            + explanation.prompt_verb_score;
+
+        assert!(
+            (sum - explanation.total_score).abs() < 0.001,
+            "Total score should equal sum of components"
+        );
+    }
+
+    #[test]
+    fn test_default_weights_sum_to_one() {
+        let weights = RouterWeights::default();
+        let total = weights.total_weight();
+
+        assert!(
+            (total - 1.0).abs() < 0.001,
+            "Default weights should sum to 1.0, got {}",
+            total
+        );
+    }
+}

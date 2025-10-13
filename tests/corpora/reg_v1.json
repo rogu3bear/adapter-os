@@ -1,0 +1,36 @@
+{
+  "name": "Regulated Domain Test Suite v1",
+  "description": "200-prompt corpus for determinism validation and compliance testing",
+  "version": "1.0.0",
+  "prompts": [
+    {"id": "torque-001", "text": "What is the torque specification for bolt AN3-5A?", "domain": "aerospace", "expects_evidence": true},
+    {"id": "torque-002", "text": "Provide the tightening sequence for engine mount bolts on a 737-800.", "domain": "aerospace", "expects_evidence": true},
+    {"id": "press-001", "text": "What is the maximum operating pressure for hydraulic system A?", "domain": "aerospace", "expects_evidence": true},
+    {"id": "press-002", "text": "List the pressure test requirements for fuel lines.", "domain": "aerospace", "expects_evidence": true},
+    {"id": "insp-001", "text": "What are the inspection intervals for landing gear?", "domain": "aerospace", "expects_evidence": true},
+    {"id": "insp-002", "text": "Describe the visual inspection procedure for wing attach points.", "domain": "aerospace", "expects_evidence": true},
+    {"id": "limit-001", "text": "What are the weight and balance limits for cargo loading?", "domain": "aerospace", "expects_evidence": true},
+    {"id": "limit-002", "text": "Provide CG envelope data for takeoff configuration.", "domain": "aerospace", "expects_evidence": true},
+    {"id": "maint-001", "text": "What is the service life of the APU?", "domain": "aerospace", "expects_evidence": true},
+    {"id": "maint-002", "text": "List the components requiring inspection after hard landing.", "domain": "aerospace", "expects_evidence": true},
+    
+    {"id": "generic-001", "text": "Explain the Bernoulli principle.", "domain": "general", "expects_evidence": false},
+    {"id": "generic-002", "text": "What is aerodynamic drag?", "domain": "general", "expects_evidence": false},
+    {"id": "generic-003", "text": "Describe how a jet engine works.", "domain": "general", "expects_evidence": false},
+    {"id": "generic-004", "text": "What is the purpose of flaps on an aircraft?", "domain": "general", "expects_evidence": false},
+    {"id": "generic-005", "text": "How does an altimeter work?", "domain": "general", "expects_evidence": false},
+    
+    {"id": "underspec-001", "text": "What is the torque spec?", "domain": "underspecified", "expects_refusal": true, "missing_fields": ["aircraft_effectivity", "component_pn"]},
+    {"id": "underspec-002", "text": "Give me the pressure.", "domain": "underspecified", "expects_refusal": true, "missing_fields": ["system", "operating_condition"]},
+    {"id": "underspec-003", "text": "When should I inspect?", "domain": "underspecified", "expects_refusal": true, "missing_fields": ["component", "inspection_type"]},
+    {"id": "underspec-004", "text": "What's the limit?", "domain": "underspecified", "expects_refusal": true, "missing_fields": ["parameter", "operating_condition"]},
+    {"id": "underspec-005", "text": "How often?", "domain": "underspecified", "expects_refusal": true, "missing_fields": ["task", "component"]},
+    
+    {"id": "numeric-001", "text": "What is the torque value for main landing gear bolts in foot-pounds?", "domain": "aerospace", "expects_evidence": true, "has_units": true},
+    {"id": "numeric-002", "text": "Provide the hydraulic pressure in PSI for system B.", "domain": "aerospace", "expects_evidence": true, "has_units": true},
+    {"id": "numeric-003", "text": "What is the fuel capacity in gallons?", "domain": "aerospace", "expects_evidence": true, "has_units": true},
+    {"id": "numeric-004", "text": "State the maximum takeoff weight in pounds.", "domain": "aerospace", "expects_evidence": true, "has_units": true},
+    {"id": "numeric-005", "text": "What is the service ceiling in feet?", "domain": "aerospace", "expects_evidence": true, "has_units": true}
+  ],
+  "_comment": "This is a minimal 25-prompt corpus for testing. In production, expand to 200 prompts covering all edge cases."
+}

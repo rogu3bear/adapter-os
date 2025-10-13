@@ -1,0 +1,369 @@
+{
+  "schema_version": "1.0.0",
+  "build_timestamp": "2024-12-19T00:00:00Z",
+  "metal_sdk_version": "26.0",
+  "compiler_version": "Apple metal version 32023.830 (metalfe-32023.830.2)",
+  "kernels": [
+    {
+      "name": "fused_mlp",
+      "version": "1.0.0",
+      "description": "Fused MLP with SwiGLU activation, LoRA support, and bias",
+      "parameters": "MlpParams",
+      "blake3_hash": "3d354f04988d4b88be559bbfa905313391929d6f09bba290f8e4b2e4f093ee34",
+      "features": [
+        "SwiGLU activation",
+        "LoRA support",
+        "Deterministic math",
+        "Memory optimization"
+      ],
+      "references": [
+        "https://arxiv.org/abs/2002.05202",
+        "https://arxiv.org/abs/2106.09685"
+      ]
+    },
+    {
+      "name": "fused_qkv_gqa",
+      "version": "1.0.0",
+      "description": "Fused QKV with Grouped Query Attention (GQA) support",
+      "parameters": "AttentionParams",
+      "blake3_hash": "3d354f04988d4b88be559bbfa905313391929d6f09bba290f8e4b2e4f093ee34",
+      "features": [
+        "Grouped Query Attention",
+        "LoRA support",
+        "Deterministic math",
+        "Memory optimization"
+      ],
+      "references": [
+        "https://arxiv.org/abs/2305.13245",
+        "https://arxiv.org/abs/2106.09685"
+      ]
+    },
+    {
+      "name": "flash_attention",
+      "version": "1.0.0",
+      "description": "Memory-efficient attention computation with GQA support",
+      "parameters": "FlashAttentionParams",
+      "blake3_hash": "3d354f04988d4b88be559bbfa905313391929d6f09bba290f8e4b2e4f093ee34",
+      "features": [
+        "Flash Attention",
+        "Grouped Query Attention",
+        "Deterministic math",
+        "Memory efficiency"
+      ],
+      "references": [
+        "https://arxiv.org/abs/2205.14135",
+        "https://arxiv.org/abs/2305.13245"
+      ]
+    }
+  ],
+  "parameter_structures": [
+    {
+      "name": "MlpParams",
+      "description": "MLP kernel parameter structure",
+      "fields": [
+        {
+          "name": "input",
+          "type": "device const float*",
+          "description": "Input tensor [batch_size, hidden_size]"
+        },
+        {
+          "name": "output",
+          "type": "device float*",
+          "description": "Output tensor [batch_size, hidden_size]"
+        },
+        {
+          "name": "gate_weight",
+          "type": "device const float*",
+          "description": "Gate projection weights [hidden_size, intermediate_size]"
+        },
+        {
+          "name": "up_weight",
+          "type": "device const float*",
+          "description": "Up projection weights [hidden_size, intermediate_size]"
+        },
+        {
+          "name": "down_weight",
+          "type": "device const float*",
+          "description": "Down projection weights [intermediate_size, hidden_size]"
+        },
+        {
+          "name": "gate_bias",
+          "type": "device const float*",
+          "description": "Gate bias [intermediate_size] (nullable)"
+        },
+        {
+          "name": "up_bias",
+          "type": "device const float*",
+          "description": "Up bias [intermediate_size] (nullable)"
+        },
+        {
+          "name": "down_bias",
+          "type": "device const float*",
+          "description": "Down bias [hidden_size] (nullable)"
+        },
+        {
+          "name": "gate_lora_a",
+          "type": "device const float*",
+          "description": "Gate LoRA A matrix [hidden_size, rank]"
+        },
+        {
+          "name": "gate_lora_b",
+          "type": "device const float*",
+          "description": "Gate LoRA B matrix [rank, intermediate_size]"
+        },
+        {
+          "name": "up_lora_a",
+          "type": "device const float*",
+          "description": "Up LoRA A matrix [hidden_size, rank]"
+        },
+        {
+          "name": "up_lora_b",
+          "type": "device const float*",
+          "description": "Up LoRA B matrix [rank, intermediate_size]"
+        },
+        {
+          "name": "down_lora_a",
+          "type": "device const float*",
+          "description": "Down LoRA A matrix [intermediate_size, rank]"
+        },
+        {
+          "name": "down_lora_b",
+          "type": "device const float*",
+          "description": "Down LoRA B matrix [rank, hidden_size]"
+        },
+        {
+          "name": "lora_config",
+          "type": "constant LoraConfig&",
+          "description": "LoRA configuration parameters"
+        },
+        {
+          "name": "ring_buffer",
+          "type": "constant RingBuffer&",
+          "description": "Ring buffer for active adapters"
+        },
+        {
+          "name": "dropout_seed",
+          "type": "constant uint&",
+          "description": "Seed for deterministic dropout"
+        }
+      ]
+    },
+    {
+      "name": "AttentionParams",
+      "description": "Attention kernel parameter structure",
+      "fields": [
+        {
+          "name": "input",
+          "type": "device const float*",
+          "description": "Input tensor [batch_size, hidden_size]"
+        },
+        {
+          "name": "q_output",
+          "type": "device float*",
+          "description": "Query output [batch_size, num_attention_heads, head_dim]"
+        },
+        {
+          "name": "k_output",
+          "type": "device float*",
+          "description": "Key output [batch_size, num_key_value_heads, head_dim]"
+        },
+        {
+          "name": "v_output",
+          "type": "device float*",
+          "description": "Value output [batch_size, num_key_value_heads, head_dim]"
+        },
+        {
+          "name": "q_weight",
+          "type": "device const float*",
+          "description": "Query weights [hidden_size, hidden_size]"
+        },
+        {
+          "name": "k_weight",
+          "type": "device const float*",
+          "description": "Key weights [hidden_size, kv_width]"
+        },
+        {
+          "name": "v_weight",
+          "type": "device const float*",
+          "description": "Value weights [hidden_size, kv_width]"
+        },
+        {
+          "name": "q_lora_a",
+          "type": "device const float*",
+          "description": "Query LoRA A matrix [hidden_size, rank]"
+        },
+        {
+          "name": "q_lora_b",
+          "type": "device const float*",
+          "description": "Query LoRA B matrix [rank, hidden_size]"
+        },
+        {
+          "name": "k_lora_a",
+          "type": "device const float*",
+          "description": "Key LoRA A matrix [hidden_size, rank]"
+        },
+        {
+          "name": "k_lora_b",
+          "type": "device const float*",
+          "description": "Key LoRA B matrix [rank, kv_width]"
+        },
+        {
+          "name": "v_lora_a",
+          "type": "device const float*",
+          "description": "Value LoRA A matrix [hidden_size, rank]"
+        },
+        {
+          "name": "v_lora_b",
+          "type": "device const float*",
+          "description": "Value LoRA B matrix [rank, kv_width]"
+        },
+        {
+          "name": "gqa_config",
+          "type": "constant GqaConfig&",
+          "description": "Grouped Query Attention configuration"
+        },
+        {
+          "name": "lora_config",
+          "type": "constant LoraConfig&",
+          "description": "LoRA configuration parameters"
+        },
+        {
+          "name": "ring_buffer",
+          "type": "constant RingBuffer&",
+          "description": "Ring buffer for active adapters"
+        }
+      ]
+    },
+    {
+      "name": "FlashAttentionParams",
+      "description": "Flash Attention kernel parameter structure",
+      "fields": [
+        {
+          "name": "q",
+          "type": "device const float*",
+          "description": "Query tensor [batch_size, num_heads, seq_len, head_dim]"
+        },
+        {
+          "name": "k",
+          "type": "device const float*",
+          "description": "Key tensor [batch_size, num_kv_heads, seq_len, head_dim]"
+        },
+        {
+          "name": "v",
+          "type": "device const float*",
+          "description": "Value tensor [batch_size, num_kv_heads, seq_len, head_dim]"
+        },
+        {
+          "name": "output",
+          "type": "device float*",
+          "description": "Output tensor [batch_size, num_heads, seq_len, head_dim]"
+        },
+        {
+          "name": "gqa_config",
+          "type": "constant GqaConfig&",
+          "description": "Grouped Query Attention configuration"
+        }
+      ]
+    }
+  ],
+  "configuration_structures": [
+    {
+      "name": "LoraConfig",
+      "description": "LoRA configuration structure",
+      "fields": [
+        {
+          "name": "rank",
+          "type": "uint",
+          "description": "LoRA rank"
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "description": "LoRA scaling factor"
+        },
+        {
+          "name": "target_module",
+          "type": "uint",
+          "description": "Target module identifier"
+        },
+        {
+          "name": "dropout_rate",
+          "type": "float",
+          "description": "Dropout rate (0.0 = no dropout)"
+        }
+      ]
+    },
+    {
+      "name": "GqaConfig",
+      "description": "Grouped Query Attention configuration structure",
+      "fields": [
+        {
+          "name": "num_attention_heads",
+          "type": "uint",
+          "description": "Number of attention heads"
+        },
+        {
+          "name": "num_key_value_heads",
+          "type": "uint",
+          "description": "Number of key-value heads (GQA)"
+        },
+        {
+          "name": "head_dim",
+          "type": "uint",
+          "description": "Dimension of each head"
+        },
+        {
+          "name": "kv_width",
+          "type": "uint",
+          "description": "Width of key-value projections"
+        },
+        {
+          "name": "hidden_size",
+          "type": "uint",
+          "description": "Hidden dimension size"
+        },
+        {
+          "name": "rope_theta",
+          "type": "float",
+          "description": "RoPE base frequency (10000.0 for Qwen)"
+        },
+        {
+          "name": "attention_scale",
+          "type": "float",
+          "description": "Attention scaling factor (can be custom or sqrt-based)"
+        },
+        {
+          "name": "dropout_rate",
+          "type": "float",
+          "description": "Dropout rate for attention"
+        }
+      ]
+    },
+    {
+      "name": "RingBuffer",
+      "description": "Ring buffer for active adapters",
+      "fields": [
+        {
+          "name": "top_k",
+          "type": "uint",
+          "description": "Number of active adapters (K-sparse)"
+        },
+        {
+          "name": "current_pos",
+          "type": "uint",
+          "description": "Current position in ring buffer"
+        },
+        {
+          "name": "adapter_indices",
+          "type": "uint[8]",
+          "description": "Max K=8 adapter indices"
+        },
+        {
+          "name": "gates",
+          "type": "uint16_t[8]",
+          "description": "Q15 format gate values"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[package]
+name = "adapteros-lora-plan"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-lora-quant = { path = "../adapteros-lora-quant" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+safetensors = { workspace = true }
+memmap2 = { workspace = true }
+adapteros-chat = { path = "../adapteros-chat" }
+tempfile = "3.0"

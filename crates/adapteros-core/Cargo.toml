@@ -1,0 +1,28 @@
+[package]
+name = "adapteros-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true, optional = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+rand = { workspace = true, optional = true }
+rusqlite = { workspace = true }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[features]
+default = ["schemars-support"]
+test-utils = ["rand"]
+schemars-support = ["schemars"]

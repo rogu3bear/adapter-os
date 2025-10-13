@@ -1,0 +1,13 @@
+{
+  "kernel_hash": "b3:placeholder_hash_will_be_replaced_by_ci",
+  "xcrun_version": "xcrun 1.0.0",
+  "sdk_version": "14.0",
+  "rust_version": "1.75.0",
+  "build_timestamp": "2024-01-15T10:30:00Z",
+  "toolchain_metadata": {
+    "xcode_version": "15.2",
+    "sdk_version": "14.0",
+    "rust_version": "1.75.0",
+    "metal_version": "3.1"
+  }
+}

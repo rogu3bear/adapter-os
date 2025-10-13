@@ -1,0 +1,31 @@
+[package]
+name = "adapteros-trace"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Core dependencies
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# AdapterOS dependencies
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-graph = { path = "../adapteros-graph" }
+
+# Schema & Validation
+schemars = "0.8"
+serde_jcs = "0.1"
+
+# Async runtime
+tokio = { workspace = true }
+
+# Filesystem
+tempfile = { workspace = true }

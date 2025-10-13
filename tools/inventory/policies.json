@@ -1,0 +1,249 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2025-10-13",
+  "canonical_20_packs": [
+    "Egress",
+    "Determinism",
+    "Router",
+    "Evidence",
+    "Refusal",
+    "Numeric",
+    "RAG",
+    "Isolation",
+    "Telemetry",
+    "Retention",
+    "Performance",
+    "Memory",
+    "Artifacts",
+    "Secrets",
+    "Build/Release",
+    "Compliance",
+    "Incident",
+    "Output",
+    "Adapters",
+    "Deterministic I/O"
+  ],
+  "current_implementation": {
+    "implemented_count": 7,
+    "partial_count": 2,
+    "missing_count": 11,
+    "location": "crates/mplora-policy/src"
+  },
+  "policies": [
+    {
+      "id": 1,
+      "name": "Egress",
+      "status": "implemented",
+      "file": "crates/mplora-policy/src/egress.rs",
+      "functions": [
+        "validate_pf_rules",
+        "validate_no_network_sockets",
+        "validate_egress_policy"
+      ],
+      "description": "PF firewall validation, outbound blocking, Unix domain socket enforcement",
+      "enforcement_point": "worker startup, runtime checks"
+    },
+    {
+      "id": 2,
+      "name": "Determinism",
+      "status": "partial",
+      "file": "crates/mplora-policy/src/lib.rs",
+      "functions": [
+        "determinism_policy"
+      ],
+      "related_crates": [
+        "adapteros-deterministic-exec",
+        "adapteros-replay",
+        "adapteros-graph"
+      ],
+      "description": "Kernel hash verification, RNG seeding, replay validation",
+      "enforcement_point": "kernel loading, execution start, replay verification"
+    },
+    {
+      "id": 3,
+      "name": "Router",
+      "status": "implemented",
+      "file": "crates/mplora-router/src/lib.rs",
+      "description": "K-sparse routing, Q15 quantization, entropy floor, deterministic tie-breaking",
+      "enforcement_point": "adapter selection, gate computation"
+    },
+    {
+      "id": 4,
+      "name": "Evidence",
+      "status": "implemented",
+      "file": "crates/mplora-policy/src/lib.rs",
+      "functions": [
+        "check_evidence"
+      ],
+      "description": "Evidence span requirements, open-book enforcement",
+      "enforcement_point": "pre-generation policy check"
+    },
+    {
+      "id": 5,
+      "name": "Refusal",
+      "status": "implemented",
+      "file": "crates/mplora-policy/src/refusal.rs",
+      "functions": [
+        "RefusalResponse::insufficient_evidence",
+        "RefusalResponse::low_confidence",
+        "RefusalResponse::missing_fields"
+      ],
+      "description": "Abstention on low confidence, insufficient evidence, missing fields",
+      "enforcement_point": "post-inference policy check"
+    },
+    {
+      "id": 6,
+      "name": "Numeric",
+      "status": "implemented",
+      "file": "crates/mplora-policy/src/numeric.rs",
+      "functions": [
+        "validate_numeric_units"
+      ],
+      "related_crates": [
+        "adapteros-numerics"
+      ],
+      "description": "Unit normalization, numeric sanity checks, epsilon tracking",
+      "enforcement_point": "output validation"
+    },
+    {
+      "id": 7,
+      "name": "RAG",
+      "status": "implemented",
+      "file": "crates/mplora-rag/src/lib.rs",
+      "description": "Per-tenant index isolation, deterministic retrieval ordering, embedding hash verification",
+      "enforcement_point": "evidence retrieval"
+    },
+    {
+      "id": 8,
+      "name": "Isolation",
+      "status": "partial",
+      "file": "crates/mplora-worker/src/lib.rs",
+      "description": "Process per tenant, UID/GID separation, capability-scoped paths",
+      "enforcement_point": "tenant initialization",
+      "note": "Needs full UID/GID isolation implementation"
+    },
+    {
+      "id": 9,
+      "name": "Telemetry",
+      "status": "implemented",
+      "file": "crates/mplora-telemetry/src/lib.rs",
+      "description": "Canonical JSON events, sampling rules, BLAKE3 hashing, bundle rotation",
+      "enforcement_point": "event logging throughout system"
+    },
+    {
+      "id": 10,
+      "name": "Retention",
+      "status": "missing",
+      "description": "Bundle retention policies, CPID-based retention, incident preservation",
+      "enforcement_point": "bundle GC",
+      "needed_location": "crates/adapteros-policy/src/packs/retention.rs"
+    },
+    {
+      "id": 11,
+      "name": "Performance",
+      "status": "partial",
+      "file": "crates/mplora-policy/src/lib.rs",
+      "functions": [
+        "performance_policy"
+      ],
+      "description": "Latency budgets (p95 < 24ms), router overhead thresholds, throughput gates",
+      "enforcement_point": "promotion gate, runtime monitoring"
+    },
+    {
+      "id": 12,
+      "name": "Memory",
+      "status": "implemented",
+      "file": "crates/mplora-policy/src/lib.rs",
+      "functions": [
+        "check_memory_headroom",
+        "check_memory_pressure",
+        "memory_policy"
+      ],
+      "related_crates": [
+        "adapteros-memory",
+        "mplora-lifecycle"
+      ],
+      "description": "15% headroom requirement, eviction order, K reduction before evict",
+      "enforcement_point": "memory watermark monitoring"
+    },
+    {
+      "id": 13,
+      "name": "Artifacts",
+      "status": "implemented",
+      "file": "crates/mplora-artifacts/src/lib.rs",
+      "description": "Ed25519 signature verification, SBOM validation, CAS-only loading",
+      "enforcement_point": "artifact import, bundle loading"
+    },
+    {
+      "id": 14,
+      "name": "Secrets",
+      "status": "implemented",
+      "file": "crates/mplora-secd/src/lib.rs",
+      "description": "Secure Enclave KEK management, envelope encryption, no env var secrets",
+      "enforcement_point": "key derivation, artifact encryption"
+    },
+    {
+      "id": 15,
+      "name": "Build/Release",
+      "status": "partial",
+      "related_crates": [
+        "adapteros-compiler-lock"
+      ],
+      "description": "Toolchain pinning, kernel hash verification, hallucination thresholds, signed plans",
+      "enforcement_point": "promotion gate, CI pipeline",
+      "needed_location": "crates/adapteros-policy/src/packs/build_release.rs"
+    },
+    {
+      "id": 16,
+      "name": "Compliance",
+      "status": "missing",
+      "description": "Control matrix mapping, evidence linking, ITAR suite verification",
+      "enforcement_point": "promotion gate, audit reporting",
+      "needed_location": "crates/adapteros-policy/src/packs/compliance.rs"
+    },
+    {
+      "id": 17,
+      "name": "Incident",
+      "status": "missing",
+      "description": "Runbook procedures for memory/router/determinism/violation incidents",
+      "enforcement_point": "incident detection, automated response",
+      "needed_location": "crates/adapteros-policy/src/packs/incident.rs"
+    },
+    {
+      "id": 18,
+      "name": "Output",
+      "status": "missing",
+      "description": "JSON format enforcement, trace requirements, forbidden topic filters",
+      "enforcement_point": "response builder",
+      "needed_location": "crates/adapteros-policy/src/packs/output.rs"
+    },
+    {
+      "id": 19,
+      "name": "Adapters",
+      "status": "partial",
+      "file": "crates/mplora-lifecycle/src/lib.rs",
+      "description": "Activation thresholds, quality delta requirements, registry admission",
+      "enforcement_point": "adapter registration, eviction checks"
+    },
+    {
+      "id": 20,
+      "name": "Deterministic I/O",
+      "status": "missing",
+      "description": "Hashed file wrappers, no wall-clock timestamps, stubbed network in strict mode",
+      "enforcement_point": "I/O layer, filesystem operations",
+      "needed_location": "crates/adapteros-policy/src/packs/deterministic_io.rs"
+    }
+  ],
+  "registry_structure": {
+    "target_location": "crates/adapteros-policy/src/registry.rs",
+    "trait_definition": "pub trait Policy { fn enforce(&self, ctx: &Context) -> Result<Audit, Violation>; }",
+    "index": "pub static POLICY_INDEX: [PolicySpec; 20]",
+    "per_pack_modules": "crates/adapteros-policy/src/packs/{name}.rs"
+  },
+  "integration_points": {
+    "worker": "crates/adapteros-lora-worker/src/lib.rs",
+    "server": "crates/adapteros-server/src/main.rs",
+    "cli": "crates/adapteros-cli/src/commands/policy.rs"
+  }
+}
+

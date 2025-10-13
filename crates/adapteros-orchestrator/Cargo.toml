@@ -1,0 +1,47 @@
+[package]
+name = "adapteros-orchestrator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Core
+anyhow.workspace = true
+thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml = "0.9"
+
+# CLI
+clap = { workspace = true, features = ["derive"] }
+
+# Internal crates
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-sbom = { path = "../adapteros-sbom" }
+adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-db = { path = "../adapteros-db" }
+
+# Database
+sqlx = { workspace = true }
+
+# Async
+tokio = { workspace = true, features = ["full"] }
+async-trait = "0.1"
+
+# Logging
+tracing = { workspace = true }
+
+# Filesystem
+walkdir.workspace = true
+
+# Utilities
+hex.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
+
+[[bin]]
+name = "adapteros-orchestrator"
+path = "src/main.rs"
