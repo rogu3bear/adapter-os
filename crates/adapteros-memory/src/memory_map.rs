@@ -4,7 +4,7 @@
 //! layouts across runs. This is critical for determinism verification as
 //! different memory layouts can lead to different execution paths.
 
-use crate::{MemoryLayoutHash, Result, MemoryWatchdogError};
+use crate::{MemoryLayoutHash, MemoryWatchdogError, Result};
 use adapteros_core::B3Hash;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
-use metal::{Device, Heap, Buffer, foreign_types::ForeignType};
+use metal::{foreign_types::ForeignType, Buffer, Device, Heap};
 
 /// Memory region information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +120,9 @@ impl MemoryMapHasher {
         }
 
         let region_id = Uuid::new_v4();
-        let allocation_order = self.allocation_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let allocation_order = self
+            .allocation_order_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let _timestamp = current_timestamp();
 
         let region_hash = self.calculate_region_hash(base_addr, size_bytes, &metadata);
@@ -142,7 +144,10 @@ impl MemoryMapHasher {
 
         debug!(
             "Added memory region: id={}, type={:?}, addr=0x{:x}, size={}",
-            region_id, region_type.clone(), base_addr, size_bytes
+            region_id,
+            region_type.clone(),
+            base_addr,
+            size_bytes
         );
 
         Ok(region_id)
@@ -200,7 +205,12 @@ impl MemoryMapHasher {
             "storage_mode": format!("{:?}", buffer.storage_mode()),
         });
 
-        self.add_region(MemoryRegionType::MetalBuffer, base_addr, size_bytes, metadata)
+        self.add_region(
+            MemoryRegionType::MetalBuffer,
+            base_addr,
+            size_bytes,
+            metadata,
+        )
     }
 
     /// Add a Metal buffer to the map (non-macOS)
@@ -219,7 +229,12 @@ impl MemoryMapHasher {
             "storage_mode": "shared",
         });
 
-        self.add_region(MemoryRegionType::MetalBuffer, base_addr, size_bytes, metadata)
+        self.add_region(
+            MemoryRegionType::MetalBuffer,
+            base_addr,
+            size_bytes,
+            metadata,
+        )
     }
 
     /// Remove a memory region from the map
@@ -288,35 +303,40 @@ impl MemoryMapHasher {
     }
 
     /// Calculate region hash
-    fn calculate_region_hash(&self, base_addr: u64, size_bytes: u64, metadata: &serde_json::Value) -> B3Hash {
+    fn calculate_region_hash(
+        &self,
+        base_addr: u64,
+        size_bytes: u64,
+        metadata: &serde_json::Value,
+    ) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         hasher.update(&base_addr.to_le_bytes());
         hasher.update(&size_bytes.to_le_bytes());
-        
+
         // Hash metadata deterministically
         if let Ok(metadata_bytes) = serde_json::to_vec(metadata) {
             hasher.update(&metadata_bytes);
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
     /// Calculate complete memory map hash
     fn calculate_memory_map_hash(&self, regions: &[MemoryRegion]) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Sort regions by allocation order for deterministic hashing
         let mut sorted_regions: Vec<_> = regions.iter().collect();
         sorted_regions.sort_by_key(|r| r.allocation_order);
-        
+
         for region in sorted_regions {
             hasher.update(&region.allocation_order.to_le_bytes());
             hasher.update(&region.base_addr.to_le_bytes());
             hasher.update(&region.size_bytes.to_le_bytes());
             hasher.update(region.region_hash.as_bytes());
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
@@ -336,7 +356,7 @@ impl MemoryMapHasher {
 
         // Calculate pointer pattern hash
         let pointer_pattern_hash = self.calculate_pointer_pattern_hash(&snapshot.regions);
-        
+
         // Calculate allocation order hash
         let allocation_order_hash = self.calculate_allocation_order_hash(&snapshot.regions);
 
@@ -351,31 +371,31 @@ impl MemoryMapHasher {
     /// Calculate pointer pattern hash
     fn calculate_pointer_pattern_hash(&self, regions: &[MemoryRegion]) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash pointer patterns (base addresses) in deterministic order
         let mut sorted_regions: Vec<_> = regions.iter().collect();
         sorted_regions.sort_by_key(|r| r.allocation_order);
-        
+
         for region in sorted_regions {
             hasher.update(&region.base_addr.to_le_bytes());
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
     /// Calculate allocation order hash
     fn calculate_allocation_order_hash(&self, regions: &[MemoryRegion]) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash allocation order
         let mut sorted_regions: Vec<_> = regions.iter().collect();
         sorted_regions.sort_by_key(|r| r.allocation_order);
-        
+
         for region in sorted_regions {
             hasher.update(&region.allocation_order.to_le_bytes());
-            hasher.update(&format!("{:?}", region.region_type).as_bytes());
+            hasher.update(format!("{:?}", region.region_type).as_bytes());
         }
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
 
@@ -386,28 +406,28 @@ impl MemoryMapHasher {
         }
 
         let current_hash = self.generate_memory_layout_hash()?;
-        
+
         if current_hash.layout_hash != expected_hash.layout_hash {
             return Err(MemoryWatchdogError::MemoryLayoutMismatch {
                 expected: format!("{:?}", expected_hash.layout_hash),
                 actual: format!("{:?}", current_hash.layout_hash),
             });
         }
-        
+
         if current_hash.pointer_pattern_hash != expected_hash.pointer_pattern_hash {
             return Err(MemoryWatchdogError::MemoryLayoutMismatch {
                 expected: format!("{:?}", expected_hash.pointer_pattern_hash),
                 actual: format!("{:?}", current_hash.pointer_pattern_hash),
             });
         }
-        
+
         if current_hash.allocation_order_hash != expected_hash.allocation_order_hash {
             return Err(MemoryWatchdogError::MemoryLayoutMismatch {
                 expected: format!("{:?}", expected_hash.allocation_order_hash),
                 actual: format!("{:?}", current_hash.allocation_order_hash),
             });
         }
-        
+
         Ok(())
     }
 
@@ -415,16 +435,17 @@ impl MemoryMapHasher {
     pub fn get_memory_stats(&self) -> MemoryMapStats {
         let regions = self.memory_regions.read();
         let snapshots = self.snapshots.read();
-        
+
         let total_regions = regions.len();
         let total_size: u64 = regions.values().map(|r| r.size_bytes).sum();
-        let region_types: HashMap<String, usize> = regions.values()
+        let region_types: HashMap<String, usize> = regions
+            .values()
             .map(|r| (format!("{:?}", r.region_type), 1))
             .fold(HashMap::new(), |mut acc, (k, v)| {
                 *acc.entry(k).or_insert(0) += v;
                 acc
             });
-        
+
         MemoryMapStats {
             total_regions,
             total_size,
@@ -455,14 +476,18 @@ impl MemoryMapHasher {
             let mut snapshots = self.snapshots.write();
             snapshots.clear();
         }
-        
-        self.allocation_order_counter.store(1, std::sync::atomic::Ordering::SeqCst);
+
+        self.allocation_order_counter
+            .store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Enable or disable hashing
     pub fn set_hashing_enabled(&mut self, enabled: bool) {
         self.hashing_enabled = enabled;
-        info!("Memory map hashing {}", if enabled { "enabled" } else { "disabled" });
+        info!(
+            "Memory map hashing {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
     }
 
     /// Check if hashing is enabled
@@ -499,23 +524,23 @@ mod tests {
             if let Some(device) = Device::system_default() {
                 let hasher = MemoryMapHasher::new(Arc::new(device), true);
                 assert!(hasher.is_hashing_enabled());
-                
+
                 let stats = hasher.get_memory_stats();
                 assert_eq!(stats.total_regions, 0);
                 assert_eq!(stats.total_size, 0);
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let hasher = MemoryMapHasher::new(device, true);
+            let device = Arc::new(metal::Device::system_default().unwrap());
+            #[cfg(not(target_os = "macos"))]
+            let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
+                // Create a mock device for testing
+                unsafe { std::mem::transmute(0x1usize) }
+            }));
+            let hasher = MemoryMapHasher::new(device, true);
             assert!(hasher.is_hashing_enabled());
         }
     }
@@ -530,21 +555,18 @@ mod tests {
             unsafe { std::mem::transmute(0x1usize) }
         }));
         let hasher = MemoryMapHasher::new(device, true);
-        
+
         let metadata = serde_json::json!({
             "test": "data",
             "size": 1024,
         });
-        
-        let region_id = hasher.add_region(
-            MemoryRegionType::SystemMemory,
-            0x1000,
-            1024,
-            metadata,
-        ).unwrap();
-        
+
+        let region_id = hasher
+            .add_region(MemoryRegionType::SystemMemory, 0x1000, 1024, metadata)
+            .unwrap();
+
         assert!(!region_id.is_nil());
-        
+
         let stats = hasher.get_memory_stats();
         assert_eq!(stats.total_regions, 1);
         assert_eq!(stats.total_size, 1024);
@@ -560,24 +582,28 @@ mod tests {
             unsafe { std::mem::transmute(0x1usize) }
         }));
         let hasher = MemoryMapHasher::new(device, true);
-        
+
         // Add some regions
-        let _region_id1 = hasher.add_region(
-            MemoryRegionType::SystemMemory,
-            0x1000,
-            1024,
-            serde_json::json!({"type": "system"}),
-        ).unwrap();
-        
-        let _region_id2 = hasher.add_region(
-            MemoryRegionType::GpuMemory,
-            0x2000,
-            2048,
-            serde_json::json!({"type": "gpu"}),
-        ).unwrap();
-        
+        let _region_id1 = hasher
+            .add_region(
+                MemoryRegionType::SystemMemory,
+                0x1000,
+                1024,
+                serde_json::json!({"type": "system"}),
+            )
+            .unwrap();
+
+        let _region_id2 = hasher
+            .add_region(
+                MemoryRegionType::GpuMemory,
+                0x2000,
+                2048,
+                serde_json::json!({"type": "gpu"}),
+            )
+            .unwrap();
+
         let snapshot = hasher.generate_snapshot().unwrap();
-        
+
         assert_eq!(snapshot.region_count, 2);
         assert_eq!(snapshot.total_memory_size, 3072);
         assert!(!snapshot.snapshot_id.is_nil());
@@ -593,20 +619,31 @@ mod tests {
             unsafe { std::mem::transmute(0x1usize) }
         }));
         let hasher = MemoryMapHasher::new(device, true);
-        
+
         // Add a region
-        let _region_id = hasher.add_region(
-            MemoryRegionType::SystemMemory,
-            0x1000,
-            1024,
-            serde_json::json!({"test": "data"}),
-        ).unwrap();
-        
+        let _region_id = hasher
+            .add_region(
+                MemoryRegionType::SystemMemory,
+                0x1000,
+                1024,
+                serde_json::json!({"test": "data"}),
+            )
+            .unwrap();
+
         let layout_hash = hasher.generate_memory_layout_hash().unwrap();
-        
-        assert_ne!(layout_hash.layout_hash, adapteros_core::B3Hash::new([0u8; 32]));
-        assert_ne!(layout_hash.pointer_pattern_hash, adapteros_core::B3Hash::new([0u8; 32]));
-        assert_ne!(layout_hash.allocation_order_hash, adapteros_core::B3Hash::new([0u8; 32]));
+
+        assert_ne!(
+            layout_hash.layout_hash,
+            adapteros_core::B3Hash::new([0u8; 32])
+        );
+        assert_ne!(
+            layout_hash.pointer_pattern_hash,
+            adapteros_core::B3Hash::new([0u8; 32])
+        );
+        assert_ne!(
+            layout_hash.allocation_order_hash,
+            adapteros_core::B3Hash::new([0u8; 32])
+        );
     }
 
     #[test]
@@ -619,21 +656,23 @@ mod tests {
             unsafe { std::mem::transmute(0x1usize) }
         }));
         let hasher = MemoryMapHasher::new(device, true);
-        
+
         // Generate initial layout hash
         let initial_hash = hasher.generate_memory_layout_hash().unwrap();
-        
+
         // Verify consistency
         hasher.verify_layout_consistency(&initial_hash).unwrap();
-        
+
         // Add region and verify inconsistency
-        let _region_id = hasher.add_region(
-            MemoryRegionType::SystemMemory,
-            0x1000,
-            1024,
-            serde_json::json!({"test": "data"}),
-        ).unwrap();
-        
+        let _region_id = hasher
+            .add_region(
+                MemoryRegionType::SystemMemory,
+                0x1000,
+                1024,
+                serde_json::json!({"test": "data"}),
+            )
+            .unwrap();
+
         let result = hasher.verify_layout_consistency(&initial_hash);
         assert!(result.is_err());
     }
@@ -649,10 +688,10 @@ mod tests {
         }));
         let mut hasher = MemoryMapHasher::new(device, true);
         assert!(hasher.is_hashing_enabled());
-        
+
         hasher.set_hashing_enabled(false);
         assert!(!hasher.is_hashing_enabled());
-        
+
         hasher.set_hashing_enabled(true);
         assert!(hasher.is_hashing_enabled());
     }
@@ -667,19 +706,21 @@ mod tests {
             unsafe { std::mem::transmute(0x1usize) }
         }));
         let hasher = MemoryMapHasher::new(device, true);
-        
-        let region_id = hasher.add_region(
-            MemoryRegionType::SystemMemory,
-            0x1000,
-            1024,
-            serde_json::json!({"test": "data"}),
-        ).unwrap();
-        
+
+        let region_id = hasher
+            .add_region(
+                MemoryRegionType::SystemMemory,
+                0x1000,
+                1024,
+                serde_json::json!({"test": "data"}),
+            )
+            .unwrap();
+
         let stats_before = hasher.get_memory_stats();
         assert_eq!(stats_before.total_regions, 1);
-        
+
         hasher.remove_region(region_id).unwrap();
-        
+
         let stats_after = hasher.get_memory_stats();
         assert_eq!(stats_after.total_regions, 0);
     }

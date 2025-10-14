@@ -67,16 +67,9 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   
   const fetchMetrics = async () => {
     try {
-      // Fetch system metrics
-      const response = await fetch('/api/v1/metrics/system', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      
-      if (response.ok) {
-        const data: SystemMetrics = await response.json();
-        setMetrics(data);
+      // Citation: ui/src/api/client.ts L454-L456
+      const data = await apiClient.getSystemMetrics();
+      setMetrics(data);
         
         // Add to history
         setHistory(prev => {

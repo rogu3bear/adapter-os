@@ -1,10 +1,10 @@
 //! Envelope encryption for artifacts using AES-GCM
 
+use adapteros_core::{AosError, Result};
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
-use adapteros_core::{AosError, Result};
 use rand::RngCore;
 
 const NONCE_SIZE: usize = 12;

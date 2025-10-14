@@ -22,6 +22,9 @@
 //! - Hyper HTTP Server: https://docs.rs/hyper/latest/hyper/
 //! - Axum Web Framework: https://docs.rs/axum/latest/axum/
 
+use adapteros_core::AosError;
+use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -31,8 +34,6 @@ use axum::{
 };
 use hyper_util::rt::TokioExecutor;
 use hyper_util::server::conn::auto::Builder;
-use adapteros_core::AosError;
-use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -121,7 +122,7 @@ pub async fn serve_uds_with_worker<K: FusedKernels + 'static, P: AsRef<Path>>(
                 let tower_service = app.clone();
 
                 // Spawn task to handle connection
-                tokio::spawn(async move {
+                let _ = spawn_deterministic("UDS connection handler".to_string(), async move {
                     // Use hyper's service_fn with proper tower adapter
                     let hyper_service = hyper::service::service_fn(
                         |request: hyper::Request<hyper::body::Incoming>| {

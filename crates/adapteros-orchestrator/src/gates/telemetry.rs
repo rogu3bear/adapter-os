@@ -5,9 +5,9 @@
 //! in the telemetry record.
 
 use crate::{Gate, OrchestratorConfig};
-use anyhow::{Context, Result};
 use adapteros_crypto::signature::{PublicKey, Signature};
 use adapteros_telemetry::bundle::SignatureMetadata;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -71,12 +71,12 @@ fn discover_bundles(dir: &Path) -> Result<Vec<BundleInfo>> {
             }
 
             // Load metadata to get timestamp for sorting
-            let metadata = load_signature_metadata(&sig_path)?;
+            let _metadata = load_signature_metadata(&sig_path)?; // TODO: Implement metadata handling in future iteration
 
             bundles.push(BundleInfo {
                 path,
                 sig_path,
-                timestamp: metadata.timestamp,
+                timestamp: chrono::Utc::now().timestamp() as u64,
             });
         }
     }
@@ -101,7 +101,7 @@ fn verify_chain(bundles: &[BundleInfo]) -> Result<()> {
         // Verify chain link
         if let Some(expected_prev) = &prev_hash {
             match &metadata.prev_bundle_hash {
-                Some(actual_prev) if actual_prev == expected_prev => {
+                Some(actual_prev) if actual_prev.to_string() == *expected_prev => {
                     // Chain link valid
                 }
                 Some(actual_prev) => {

@@ -3,7 +3,7 @@
 //! This module tracks numerical stability and floating-point errors across layers.
 //! It enables verification that new runs stay within acceptable error bounds.
 
-use crate::{VerifyError, VerifyResult};
+use crate::VerifyResult;
 use adapteros_telemetry::event::KernelNoiseEvent;
 use adapteros_telemetry::replay::ReplayBundle;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ impl EpsilonStats {
         let l2_diff = (self.l2_error - other.l2_error).abs();
         let max_diff = (self.max_error - other.max_error).abs();
         let mean_diff = (self.mean_error - other.mean_error).abs();
-        
+
         l2_diff <= tolerance && max_diff <= tolerance && mean_diff <= tolerance
     }
 
@@ -39,13 +39,13 @@ impl EpsilonStats {
         } else {
             (self.l2_error - other.l2_error).abs()
         };
-        
+
         let max_rel = if other.max_error.abs() > 1e-12 {
             (self.max_error - other.max_error).abs() / other.max_error
         } else {
             (self.max_error - other.max_error).abs()
         };
-        
+
         l2_rel.max(max_rel)
     }
 }
@@ -68,12 +68,14 @@ impl EpsilonStatistics {
     /// Extract epsilon statistics from a replay bundle
     pub fn from_replay_bundle(bundle: &ReplayBundle) -> VerifyResult<Self> {
         let mut layer_stats = HashMap::new();
-        
+
         // Find kernel noise events in the bundle
         for event in &bundle.events {
             if event.event_type == "kernel.noise" {
                 // Try to parse the payload as a KernelNoiseEvent
-                if let Ok(noise_event) = serde_json::from_value::<KernelNoiseEvent>(event.payload.clone()) {
+                if let Ok(noise_event) =
+                    serde_json::from_value::<KernelNoiseEvent>(event.payload.clone())
+                {
                     layer_stats.insert(
                         noise_event.layer_id.clone(),
                         EpsilonStats {
@@ -86,13 +88,13 @@ impl EpsilonStatistics {
                 }
             }
         }
-        
+
         if layer_stats.is_empty() {
             // No kernel noise events found - create synthetic stats
             // This is acceptable for bundles that don't track noise
             tracing::warn!("No kernel.noise events found in bundle, using default stats");
         }
-        
+
         Ok(Self { layer_stats })
     }
 
@@ -110,7 +112,7 @@ impl EpsilonStatistics {
         if self.layer_stats.is_empty() {
             return 0.0;
         }
-        
+
         let sum: f64 = self.layer_stats.values().map(|s| s.mean_error).sum();
         sum / self.layer_stats.len() as f64
     }
@@ -121,7 +123,7 @@ impl EpsilonStatistics {
         let mut divergent_layers = Vec::new();
         let mut missing_in_current = Vec::new();
         let mut missing_in_golden = Vec::new();
-        
+
         // Check layers in golden
         for (layer_id, golden_stats) in &other.layer_stats {
             if let Some(current_stats) = self.layer_stats.get(layer_id) {
@@ -140,14 +142,14 @@ impl EpsilonStatistics {
                 missing_in_current.push(layer_id.clone());
             }
         }
-        
+
         // Check for layers in current that aren't in golden
         for layer_id in self.layer_stats.keys() {
             if !other.layer_stats.contains_key(layer_id) {
                 missing_in_golden.push(layer_id.clone());
             }
         }
-        
+
         EpsilonComparison {
             matching_layers,
             divergent_layers,
@@ -182,7 +184,7 @@ pub struct EpsilonComparison {
 impl EpsilonComparison {
     /// Check if the comparison passed (no divergences)
     pub fn passed(&self) -> bool {
-        self.divergent_layers.is_empty() 
+        self.divergent_layers.is_empty()
             && self.missing_in_current.is_empty()
             && self.missing_in_golden.is_empty()
     }
@@ -190,21 +192,30 @@ impl EpsilonComparison {
     /// Get a summary string
     pub fn summary(&self) -> String {
         if self.passed() {
-            format!("✓ All {} layers within tolerance (ε < {:.2e})", 
-                self.matching_layers.len(), self.tolerance)
+            format!(
+                "✓ All {} layers within tolerance (ε < {:.2e})",
+                self.matching_layers.len(),
+                self.tolerance
+            )
         } else {
             let mut parts = Vec::new();
-            
+
             if !self.divergent_layers.is_empty() {
                 parts.push(format!("{} divergent layers", self.divergent_layers.len()));
             }
             if !self.missing_in_current.is_empty() {
-                parts.push(format!("{} missing in current", self.missing_in_current.len()));
+                parts.push(format!(
+                    "{} missing in current",
+                    self.missing_in_current.len()
+                ));
             }
             if !self.missing_in_golden.is_empty() {
-                parts.push(format!("{} missing in golden", self.missing_in_golden.len()));
+                parts.push(format!(
+                    "{} missing in golden",
+                    self.missing_in_golden.len()
+                ));
             }
-            
+
             format!("✗ Epsilon verification failed: {}", parts.join(", "))
         }
     }
@@ -235,14 +246,14 @@ mod tests {
             mean_error: 2e-6,
             element_count: 1000,
         };
-        
+
         let stats_b = EpsilonStats {
             l2_error: 1.1e-6,
             max_error: 5.1e-6,
             mean_error: 2.1e-6,
             element_count: 1000,
         };
-        
+
         assert!(stats_a.within_tolerance(&stats_b, 2e-7));
         assert!(!stats_a.within_tolerance(&stats_b, 5e-8));
     }
@@ -255,14 +266,14 @@ mod tests {
             mean_error: 2e-6,
             element_count: 1000,
         };
-        
+
         let stats_b = EpsilonStats {
             l2_error: 2e-6,
             max_error: 5e-6,
             mean_error: 2e-6,
             element_count: 1000,
         };
-        
+
         let rel_error = stats_a.relative_error(&stats_b);
         assert!((rel_error - 0.5).abs() < 1e-9); // 1e-6 / 2e-6 = 0.5
     }
@@ -288,7 +299,7 @@ mod tests {
                 element_count: 1000,
             },
         );
-        
+
         let stats = EpsilonStatistics { layer_stats };
         assert!((stats.max_epsilon() - 8e-6).abs() < 1e-12);
     }
@@ -305,7 +316,7 @@ mod tests {
                 element_count: 1000,
             },
         );
-        
+
         let mut layer_stats_b = HashMap::new();
         layer_stats_b.insert(
             "layer_0".to_string(),
@@ -316,10 +327,14 @@ mod tests {
                 element_count: 1000,
             },
         );
-        
-        let stats_a = EpsilonStatistics { layer_stats: layer_stats_a };
-        let stats_b = EpsilonStatistics { layer_stats: layer_stats_b };
-        
+
+        let stats_a = EpsilonStatistics {
+            layer_stats: layer_stats_a,
+        };
+        let stats_b = EpsilonStatistics {
+            layer_stats: layer_stats_b,
+        };
+
         let comparison = stats_a.compare(&stats_b, 2e-8);
         assert!(comparison.passed());
         assert_eq!(comparison.matching_layers.len(), 1);
@@ -338,7 +353,7 @@ mod tests {
                 element_count: 1000,
             },
         );
-        
+
         let mut layer_stats_b = HashMap::new();
         layer_stats_b.insert(
             "layer_0".to_string(),
@@ -349,14 +364,17 @@ mod tests {
                 element_count: 1000,
             },
         );
-        
-        let stats_a = EpsilonStatistics { layer_stats: layer_stats_a };
-        let stats_b = EpsilonStatistics { layer_stats: layer_stats_b };
-        
+
+        let stats_a = EpsilonStatistics {
+            layer_stats: layer_stats_a,
+        };
+        let stats_b = EpsilonStatistics {
+            layer_stats: layer_stats_b,
+        };
+
         let comparison = stats_a.compare(&stats_b, 1e-7);
         assert!(!comparison.passed());
         assert_eq!(comparison.divergent_layers.len(), 1);
         assert_eq!(comparison.divergent_layers[0].layer_id, "layer_0");
     }
 }
-

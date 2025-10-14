@@ -1,8 +1,8 @@
 //! Performance gate: verifies latency and throughput budgets
 
 use crate::{Gate, OrchestratorConfig};
-use anyhow::Result;
 use adapteros_db::Db;
+use anyhow::Result;
 
 #[derive(Debug)]
 pub struct PerformanceGate {

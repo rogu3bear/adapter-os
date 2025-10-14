@@ -3,8 +3,8 @@
 //! Provides UDS-based communication with the aos-secd daemon for
 //! signing and encryption operations.
 
-use base64::Engine;
 use adapteros_core::{AosError, Result};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
@@ -208,7 +208,6 @@ pub fn default_secd_client() -> SecdClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_secd_client_creation() {

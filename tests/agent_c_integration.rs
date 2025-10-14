@@ -70,7 +70,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn test_manifest_warmup_field() {
         // Test that warmup field is properly parsed from manifest

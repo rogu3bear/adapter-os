@@ -38,17 +38,15 @@ impl DeterministicConfig {
     /// Freeze the configuration, making it immutable
     pub fn freeze(&mut self) -> Result<()> {
         if self.frozen {
-            return Err(AosError::Config(
-                "Configuration already frozen".to_string()
-            ));
+            return Err(AosError::Config("Configuration already frozen".to_string()));
         }
 
         // Compute hash of frozen configuration
         let hash = self.compute_hash()?;
         self.metadata.hash = hash;
-        
+
         self.frozen = true;
-        
+
         tracing::info!("Configuration frozen with hash: {}", self.metadata.hash);
         Ok(())
     }
@@ -68,7 +66,9 @@ impl DeterministicConfig {
 
     /// Get a configuration value with default
     pub fn get_or_default(&self, key: &str, default: &str) -> String {
-        self.get(key).map(|s| s.clone()).unwrap_or_else(|| default.to_string())
+        self.get(key)
+            .cloned()
+            .unwrap_or_else(|| default.to_string())
     }
 
     /// Get all configuration values
@@ -89,11 +89,11 @@ impl DeterministicConfig {
     /// Compute BLAKE3 hash of the configuration
     pub fn compute_hash(&self) -> Result<String> {
         let mut hasher = Hasher::new();
-        
+
         // Hash configuration values in deterministic order
         let mut sorted_keys: Vec<_> = self.values.keys().collect();
         sorted_keys.sort();
-        
+
         for key in sorted_keys {
             if let Some(value) = self.values.get(key) {
                 hasher.update(key.as_bytes());
@@ -102,19 +102,19 @@ impl DeterministicConfig {
                 hasher.update(b"\n");
             }
         }
-        
+
         // Hash metadata
         let metadata_json = serde_json::to_string(&self.metadata)
             .map_err(|e| AosError::Config(format!("Failed to serialize metadata: {}", e)))?;
         hasher.update(metadata_json.as_bytes());
-        
+
         Ok(hasher.finalize().to_hex().to_string())
     }
 
     /// Validate configuration against schema
     pub fn validate(&self) -> Result<Vec<ConfigValidationError>> {
         let mut errors = Vec::new();
-        
+
         for (key, field_def) in &self.schema.fields {
             if field_def.required && !self.values.contains_key(key) {
                 errors.push(ConfigValidationError {
@@ -125,14 +125,14 @@ impl DeterministicConfig {
                 });
                 continue;
             }
-            
+
             if let Some(value) = self.values.get(key) {
                 if let Err(validation_error) = self.validate_field_value(key, value, field_def) {
                     errors.push(validation_error);
                 }
             }
         }
-        
+
         Ok(errors)
     }
 
@@ -149,13 +149,18 @@ impl DeterministicConfig {
                 if let Some(rules) = &field_def.validation_rules {
                     for rule in rules {
                         if rule.starts_with("min_length:") {
-                            let min_len: usize = rule.split(':').nth(1)
+                            let min_len: usize = rule
+                                .split(':')
+                                .nth(1)
                                 .and_then(|s| s.parse().ok())
                                 .unwrap_or(0);
                             if value.len() < min_len {
                                 return Err(ConfigValidationError {
                                     key: key.to_string(),
-                                    message: format!("String too short, minimum length: {}", min_len),
+                                    message: format!(
+                                        "String too short, minimum length: {}",
+                                        min_len
+                                    ),
                                     expected_type: "string".to_string(),
                                     actual_value: value.to_string(),
                                 });
@@ -203,7 +208,7 @@ impl DeterministicConfig {
                 });
             }
         }
-        
+
         Ok(())
     }
 
@@ -280,7 +285,7 @@ impl ConfigBuilder {
             key,
             value,
         });
-        
+
         self
     }
 
@@ -316,11 +321,7 @@ impl ConfigBuilder {
             }
         }
 
-        let config = DeterministicConfig::new(
-            values,
-            metadata,
-            self.schema,
-        );
+        let config = DeterministicConfig::new(values, metadata, self.schema);
 
         // Validate configuration
         let validation_errors = config.validate()?;

@@ -1,17 +1,14 @@
 //! Verification against golden run baselines
 
 use crate::{
-    archive::GoldenRunArchive,
-    epsilon::EpsilonComparison,
-    metadata::GoldenRunMetadata,
-    ComparisonConfig, StrictnessLevel, VerifyError, VerifyResult,
+    archive::GoldenRunArchive, epsilon::EpsilonComparison, metadata::GoldenRunMetadata,
+    ComparisonConfig, VerifyError, VerifyResult,
 };
 use adapteros_core::B3Hash;
-use adapteros_crypto::{verify_signature, PublicKey, Signature};
 use adapteros_telemetry::replay::load_replay_bundle;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Report from verifying against a golden run
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,10 +37,7 @@ pub struct VerificationReport {
 
 impl VerificationReport {
     /// Create a new verification report
-    fn new(
-        golden_metadata: GoldenRunMetadata,
-        current_metadata: GoldenRunMetadata,
-    ) -> Self {
+    fn new(golden_metadata: GoldenRunMetadata, current_metadata: GoldenRunMetadata) -> Self {
         Self {
             passed: false,
             golden_metadata,
@@ -116,36 +110,62 @@ impl VerificationReport {
         lines.push(format!("  ID: {}", self.golden_metadata.run_id));
         lines.push(format!("  CPID: {}", self.golden_metadata.cpid));
         lines.push(format!("  Plan: {}", self.golden_metadata.plan_id));
-        lines.push(format!("  Toolchain: {}", self.golden_metadata.toolchain.summary()));
+        lines.push(format!(
+            "  Toolchain: {}",
+            self.golden_metadata.toolchain.summary()
+        ));
 
         lines.push(String::new());
         lines.push("Current Run:".to_string());
         lines.push(format!("  ID: {}", self.current_metadata.run_id));
         lines.push(format!("  CPID: {}", self.current_metadata.cpid));
         lines.push(format!("  Plan: {}", self.current_metadata.plan_id));
-        lines.push(format!("  Toolchain: {}", self.current_metadata.toolchain.summary()));
+        lines.push(format!(
+            "  Toolchain: {}",
+            self.current_metadata.toolchain.summary()
+        ));
 
         lines.push(String::new());
         lines.push("Verification Results:".to_string());
         lines.push(format!(
             "  Bundle hash: {}",
-            if self.bundle_hash_match { "✓ match" } else { "✗ mismatch" }
+            if self.bundle_hash_match {
+                "✓ match"
+            } else {
+                "✗ mismatch"
+            }
         ));
         lines.push(format!(
             "  Signature: {}",
-            if self.signature_verified { "✓ verified" } else { "⚠ not verified" }
+            if self.signature_verified {
+                "✓ verified"
+            } else {
+                "⚠ not verified"
+            }
         ));
         lines.push(format!(
             "  Toolchain: {}",
-            if self.toolchain_compatible { "✓ compatible" } else { "✗ incompatible" }
+            if self.toolchain_compatible {
+                "✓ compatible"
+            } else {
+                "✗ incompatible"
+            }
         ));
         lines.push(format!(
             "  Adapters: {}",
-            if self.adapters_compatible { "✓ match" } else { "✗ mismatch" }
+            if self.adapters_compatible {
+                "✓ match"
+            } else {
+                "✗ mismatch"
+            }
         ));
         lines.push(format!(
             "  Device: {}",
-            if self.device_compatible { "✓ match" } else { "⚠ different" }
+            if self.device_compatible {
+                "✓ match"
+            } else {
+                "⚠ different"
+            }
         ));
 
         lines.push(String::new());
@@ -157,10 +177,7 @@ impl VerificationReport {
             for div in &self.epsilon_comparison.divergent_layers {
                 lines.push(format!(
                     "    {}: rel_error={:.2e} (golden: l2={:.2e}, current: l2={:.2e})",
-                    div.layer_id,
-                    div.relative_error,
-                    div.golden.l2_error,
-                    div.current.l2_error
+                    div.layer_id, div.relative_error, div.golden.l2_error, div.current.l2_error
                 ));
             }
         }
@@ -194,8 +211,8 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
     debug!("Loaded golden archive: {}", golden_archive.metadata.run_id);
 
     // Load current run bundle
-    let current_replay = load_replay_bundle(current_bundle)
-        .map_err(|e| VerifyError::ArchiveCorrupted {
+    let current_replay =
+        load_replay_bundle(current_bundle).map_err(|e| VerifyError::ArchiveCorrupted {
             reason: format!("Failed to load current bundle: {}", e),
         })?;
 
@@ -216,10 +233,8 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
     );
 
     // Create report
-    let mut report = VerificationReport::new(
-        golden_archive.metadata.clone(),
-        current_metadata.clone(),
-    );
+    let mut report =
+        VerificationReport::new(golden_archive.metadata.clone(), current_metadata.clone());
 
     // Check bundle hash
     report.bundle_hash_match = golden_archive.bundle_hash == current_bundle_hash;
@@ -231,7 +246,7 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     // Verify signature if present and required
     if config.verify_signature {
-        if let Some(ref sig_hex) = golden_archive.signature {
+        if let Some(ref _sig_hex) = golden_archive.signature {
             // In a real implementation, would verify signature
             // For now, mark as verified if signature is present
             report.signature_verified = true;
@@ -251,10 +266,10 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
             }
             Err(e) => {
                 report.add_message(format!("Compatibility check failed: {}", e));
-                if e.contains("Toolchain") {
+                if format!("{}", e).contains("Toolchain") {
                     report.toolchain_compatible = false;
                 }
-                if e.contains("Adapter") {
+                if format!("{}", e).contains("Adapter") {
                     report.adapters_compatible = false;
                 }
             }
@@ -300,8 +315,6 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archive::create_golden_run;
-    use tempfile::TempDir;
 
     #[test]
     fn test_verification_report_summary() {
@@ -310,7 +323,8 @@ mod tests {
             "test-plan".to_string(),
             "1.75.0".to_string(),
             vec!["adapter-001".to_string()],
-            B3Hash::from_hex("b3:1111111111111111111111111111111111111111111111111111111111111111").unwrap(),
+            B3Hash::from_hex("b3:1111111111111111111111111111111111111111111111111111111111111111")
+                .unwrap(),
         );
 
         let report = VerificationReport::new(metadata.clone(), metadata);
@@ -321,4 +335,3 @@ mod tests {
         assert!(summary.contains("Verification Results:"));
     }
 }
-

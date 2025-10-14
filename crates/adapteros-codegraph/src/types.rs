@@ -6,6 +6,70 @@
 use adapteros_core::B3Hash;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::path::{Path, PathBuf};
+
+/// Programming language enumeration
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Language {
+    Rust,
+    Python,
+    TypeScript,
+    JavaScript,
+    Go,
+}
+
+impl Language {
+    /// Get language from file extension
+    pub fn from_extension(ext: &str) -> Option<Self> {
+        match ext {
+            "rs" => Some(Language::Rust),
+            "py" => Some(Language::Python),
+            "ts" | "tsx" => Some(Language::TypeScript),
+            "js" | "jsx" => Some(Language::JavaScript),
+            "go" => Some(Language::Go),
+            _ => None,
+        }
+    }
+
+    /// Get language from file path
+    pub fn from_path(path: &Path) -> Option<Self> {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .and_then(Self::from_extension)
+    }
+
+    /// Get supported file extensions for this language
+    pub fn extensions(&self) -> &[&str] {
+        match self {
+            Language::Rust => &["rs"],
+            Language::Python => &["py"],
+            Language::TypeScript => &["ts", "tsx"],
+            Language::JavaScript => &["js", "jsx"],
+            Language::Go => &["go"],
+        }
+    }
+}
+
+impl fmt::Display for Language {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Language::Rust => write!(f, "rust"),
+            Language::Python => write!(f, "python"),
+            Language::TypeScript => write!(f, "typescript"),
+            Language::JavaScript => write!(f, "javascript"),
+            Language::Go => write!(f, "go"),
+        }
+    }
+}
+
+/// Result of parsing a single file
+#[derive(Debug, Clone)]
+pub struct ParseResult {
+    /// Path to the parsed file
+    pub file_path: PathBuf,
+    /// Symbols extracted from the file
+    pub symbols: Vec<SymbolNode>,
+}
 
 /// Unique identifier for a symbol
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -131,27 +195,27 @@ impl TypeAnnotation {
     /// Convert to string representation
     pub fn to_string(&self) -> String {
         let mut parts = Vec::new();
-        
+
         if let Some(ref declared) = self.declared_type {
             parts.push(format!("declared: {}", declared));
         }
-        
+
         if let Some(ref inferred) = self.inferred_type {
             parts.push(format!("inferred: {}", inferred));
         }
-        
+
         if !self.generic_params.is_empty() {
             parts.push(format!("generics: [{}]", self.generic_params.join(", ")));
         }
-        
+
         if let Some(ref return_type) = self.return_type {
             parts.push(format!("returns: {}", return_type));
         }
-        
+
         if !self.parameter_types.is_empty() {
             parts.push(format!("params: [{}]", self.parameter_types.join(", ")));
         }
-        
+
         parts.join("; ")
     }
 }
@@ -239,6 +303,8 @@ pub struct SymbolNode {
     pub name: String,
     /// Kind of symbol
     pub kind: SymbolKind,
+    /// Programming language
+    pub language: Language,
     /// Type annotation
     pub type_annotation: Option<TypeAnnotation>,
     /// Function signature (for functions/methods)
@@ -267,6 +333,7 @@ impl SymbolNode {
         id: SymbolId,
         name: String,
         kind: SymbolKind,
+        language: Language,
         span: Span,
         file_path: String,
     ) -> Self {
@@ -274,6 +341,7 @@ impl SymbolNode {
             id,
             name,
             kind,
+            language,
             type_annotation: None,
             signature: None,
             docstring: None,
@@ -359,7 +427,7 @@ mod tests {
         let id1 = SymbolId::new("file.rs", "1:1:1:10", "test_function");
         let id2 = SymbolId::new("file.rs", "1:1:1:10", "test_function");
         let id3 = SymbolId::new("file.rs", "2:1:2:10", "test_function");
-        
+
         assert_eq!(id1, id2);
         assert_ne!(id1, id3);
     }
@@ -370,7 +438,7 @@ mod tests {
         type_annotation.declared_type = Some("i32".to_string());
         type_annotation.return_type = Some("String".to_string());
         type_annotation.add_parameter_type("&str".to_string());
-        
+
         assert_eq!(type_annotation.primary_type(), Some(&"i32".to_string()));
         assert!(type_annotation.to_string().contains("declared: i32"));
         assert!(type_annotation.to_string().contains("returns: String"));
@@ -380,19 +448,21 @@ mod tests {
     fn test_symbol_node() {
         let id = SymbolId::new("test.rs", "1:1:1:20", "test_fn");
         let span = Span::new(1, 1, 1, 20, 0, 20);
-        
+
         let symbol = SymbolNode::new(
             id,
             "test_fn".to_string(),
             SymbolKind::Function,
+            Language::Rust,
             span,
             "test.rs".to_string(),
         )
         .with_visibility(Visibility::Public)
         .mark_async();
-        
+
         assert_eq!(symbol.name, "test_fn");
         assert_eq!(symbol.kind, SymbolKind::Function);
+        assert_eq!(symbol.language, Language::Rust);
         assert_eq!(symbol.visibility, Visibility::Public);
         assert!(symbol.is_async);
         assert!(!symbol.is_unsafe);

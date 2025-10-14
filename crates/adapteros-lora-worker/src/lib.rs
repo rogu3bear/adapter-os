@@ -29,28 +29,26 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-use adapteros_manifest::ManifestV3;
-use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::Router;
+use adapteros_manifest::ManifestV3;
+use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tracing::info;
 
-// Import determinism guards
-// use adapteros_lint::{runtime_guards, strict_mode};  // Temporarily disabled due to dependency issues
-
 pub mod adapter_hotswap;
 pub mod backend_factory;
+pub mod base_model_state;
 pub mod contact_discovery;
 pub mod deadlock;
 pub mod deterministic_rng;
-pub mod doc_index;
 pub mod embeddings;
 pub mod evidence;
 pub mod generation;
 pub mod health;
+pub mod inference_pipeline;
 pub mod kvcache;
 pub mod launcher;
 pub mod limiter;
@@ -62,18 +60,18 @@ pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
 pub mod signal;
-pub mod symbol_index;
 pub mod test_executor;
-pub mod test_index;
 pub mod timeout;
 pub mod tokenizer;
 pub mod training;
 
 pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult, HotSwapManager};
+pub use adapteros_lora_rag::DocIndexImpl;
+pub use adapteros_lora_rag::SymbolIndexImpl;
+pub use adapteros_lora_rag::TestIndexImpl;
 pub use backend_factory::{create_backend, BackendChoice};
 pub use deadlock::{DeadlockConfig, DeadlockDetector};
 pub use deterministic_rng::{DeterministicRng, RngFactory};
-pub use doc_index::DocIndexImpl;
 pub use generation::Generator;
 pub use health::{HealthConfig, HealthMonitor, HealthStatus};
 pub use kvcache::KvCache;
@@ -83,9 +81,7 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::MemoryMonitor;
-pub use symbol_index::SymbolIndexImpl;
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
-pub use test_index::TestIndexImpl;
 pub use timeout::{CircuitBreaker, CircuitState, TimeoutConfig, TimeoutWrapper};
 pub use training::{
     AdapterManifest, AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights,
@@ -203,6 +199,7 @@ use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms
 pub struct Worker<K: FusedKernels> {
@@ -233,7 +230,7 @@ pub struct Worker<K: FusedKernels> {
 
 impl<K: FusedKernels> Worker<K> {
     /// Create a new worker with comprehensive safety mechanisms
-    pub fn new(
+    pub async fn new(
         manifest: ManifestV3,
         kernels: K,
         rag: Option<RagSystem>,
@@ -243,7 +240,7 @@ impl<K: FusedKernels> Worker<K> {
     ) -> Result<Self> {
         // Initialize determinism guards first
         init_determinism_guards()?;
-        
+
         let policy = PolicyEngine::new(manifest.policies.clone());
 
         // Create router from manifest
@@ -282,34 +279,33 @@ impl<K: FusedKernels> Worker<K> {
         )?);
 
         // Initialize evidence retriever with real implementation if RAG is available
-        let evidence_retriever = if let Some(ref rag_system) = rag {
+        let evidence_retriever = if let Some(ref _rag_system) = rag {
             use crate::evidence::*;
+            use adapteros_lora_rag::EvidenceIndexManager;
+            use std::path::PathBuf;
 
-            // Create mock indices for now (these will be replaced with real implementations)
-            let symbol_index: Box<dyn SymbolIndex> = Box::new(MockSymbolIndex);
-            let test_index: Box<dyn TestIndex> = Box::new(MockTestIndex);
-            let doc_index: Box<dyn DocIndex> = Box::new(MockDocIndex);
-            let code_index: Box<dyn CodeIndex> = Box::new(MockCodeIndex);
-            let framework_index: Box<dyn FrameworkIndex> = Box::new(MockFrameworkIndex);
+            // Create evidence index manager for the tenant
+            let indices_root = PathBuf::from("var/indices");
+            let evidence_manager = Arc::new(Mutex::new(
+                EvidenceIndexManager::new(
+                    indices_root,
+                    "default".to_string(),
+                    Some(embedding_model.clone()),
+                )
+                .await?,
+            ));
 
-            Some(EvidenceRetriever::new(
-                rag_system.clone(), // Clone RagSystem for EvidenceRetriever
-                symbol_index,
-                test_index,
-                doc_index,
-                code_index,
-                framework_index,
-                embedding_model.clone(),
-                tokenizer.clone(),
-            ))
+            Some(EvidenceRetriever::new(evidence_manager))
         } else {
             None
         };
 
         // Initialize profiler
         let adapter_names: Vec<String> = manifest.adapters.iter().map(|a| a.id.clone()).collect();
-        let profiler =
-            adapteros_profiler::AdapterProfiler::new(adapter_names.clone(), Some(telemetry.clone()));
+        let profiler = adapteros_profiler::AdapterProfiler::new(
+            adapter_names.clone(),
+            Some(telemetry.clone()),
+        );
 
         // Initialize lifecycle manager
         let adapters_path = std::path::PathBuf::from("./adapters");
@@ -855,7 +851,7 @@ pub struct InferenceEvent {
 pub fn init_determinism_guards() -> Result<()> {
     // Initialize strict mode from environment variables
     // strict_mode::init_strict_mode();  // Temporarily disabled due to dependency issues
-    
+
     // Initialize runtime guards
     // let guard_config = runtime_guards::GuardConfig {
     //     enabled: true,
@@ -863,11 +859,11 @@ pub fn init_determinism_guards() -> Result<()> {
     //     max_violations: if strict_mode::is_strict_mode() { 1 } else { 10 },
     //     log_violations: true,
     // };
-    
+
     // runtime_guards::init_guards(guard_config);
-    
+
     info!("Determinism guards initialization temporarily disabled due to dependency issues");
-    
+
     Ok(())
 }
 

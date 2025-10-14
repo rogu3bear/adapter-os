@@ -5,11 +5,23 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+pub mod chunking;
+pub mod evidence_manager;
+pub mod fts_index;
 pub mod index;
+pub mod pgvector;
 pub mod retrieval;
 
+pub use chunking::{ChunkConfig, ChunkContext, CodeChunk, CodeChunker};
+pub use evidence_manager::{
+    ChangeType, EmbeddingModel, EvidenceIndexManager, FileChange, IndexStats,
+};
+pub use fts_index::{
+    DocIndexImpl, IndexedDoc, IndexedSymbol, IndexedTest, SymbolIndexImpl, TestIndexImpl,
+};
 pub use index::TenantIndex;
-pub use retrieval::EvidenceSpan;
+pub use pgvector::{PgVectorDocument, PgVectorIndex, RetrievedDocument};
+pub use retrieval::{EvidenceSpan, EvidenceType};
 
 /// Document metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +58,7 @@ impl RagSystem {
     pub fn get_tenant_index(&mut self, tenant_id: &str) -> Result<&mut TenantIndex> {
         if !self.indices.contains_key(tenant_id) {
             let index_path = self.root.join(tenant_id);
-            let index = TenantIndex::new(index_path, self.embedding_model_hash.clone())?;
+            let index = TenantIndex::new(index_path, self.embedding_model_hash)?;
             self.indices.insert(tenant_id.to_string(), index);
         }
 

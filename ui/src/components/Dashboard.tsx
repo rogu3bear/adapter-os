@@ -27,8 +27,15 @@ import {
   Target,
   RefreshCw,
   Download,
-  XCircle
+  XCircle,
+  Bell,
+  BarChart3
 } from 'lucide-react';
+import { BaseModelStatusComponent } from './BaseModelStatus';
+import { Nodes } from './Nodes';
+import { AlertsPage } from './AlertsPage';
+import { useInformationDensity } from '../hooks/useInformationDensity';
+import { DensityControls } from './ui/density-controls';
 import apiClient from '../api/client';
 import { SystemMetrics, User, Adapter } from '../api/types';
 import { toast } from 'sonner';
@@ -46,6 +53,14 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   const [tenantCount, setTenantCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  
+  // Information density management
+  const { density, setDensity, spacing, textSizes } = useInformationDensity({
+    key: 'dashboard',
+    defaultDensity: 'comfortable',
+    persist: true
+  });
   
   // SSE connection for real-time metrics
   const { data: sseMetrics, error: sseError, connected } = useSSE<SystemMetrics>('/v1/stream/metrics');
@@ -290,9 +305,55 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   const tokensPerSecond = systemMetrics?.tokens_per_second || 0;
   const latencyP95 = systemMetrics?.latency_p95_ms || 0;
 
+  // Citation: docs/architecture/MasterPlan.md L30-L33
+  const dashboardTabs = [
+    { id: 'overview', label: 'Overview', icon: BarChart3, description: 'System overview and metrics' },
+    { id: 'nodes', label: 'Nodes', icon: Server, description: 'Compute infrastructure monitoring' },
+    { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring' }
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Error Alert */}
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className={`${textSizes.title} font-bold tracking-tight`}>Dashboard</h1>
+          <p className="text-muted-foreground">
+            System overview, health monitoring, and alerts
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <DensityControls 
+            density={density} 
+            onDensityChange={setDensity}
+            showLabel={false}
+          />
+          <Badge variant="outline" className="text-sm">
+            Tenant: {selectedTenant}
+          </Badge>
+          <Badge variant="secondary" className="text-sm">
+            {user.role}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Dashboard Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3">
+          {dashboardTabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2">
+                <Icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{tab.label}</span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className={spacing.sectionGap}>
+          {/* Error Alert */}
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
@@ -394,7 +455,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       </div>
 
       {/* Content Grid */}
-      <div className="grid-standard grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* System Resources */}
         <Card className="card-standard">
           <CardHeader>
@@ -488,6 +549,9 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
             </div>
           </CardContent>
         </Card>
+
+        {/* Base Model Status */}
+        <BaseModelStatusComponent selectedTenant={selectedTenant} />
       </div>
 
       {/* Quick Actions */}
@@ -660,6 +724,17 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+        {/* Nodes Tab */}
+        <TabsContent value="nodes" className="space-y-4">
+          <Nodes user={user} selectedTenant={selectedTenant} />
+        </TabsContent>
+
+        {/* Alerts Tab */}
+        <TabsContent value="alerts" className="space-y-4">
+          <AlertsPage selectedTenant={selectedTenant} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

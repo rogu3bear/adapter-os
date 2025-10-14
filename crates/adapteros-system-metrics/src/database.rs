@@ -1,11 +1,13 @@
 //! Database integration for system metrics
 //!
+#![allow(unused_variables)]
+
 //! Provides database operations for storing and retrieving system metrics,
 //! health checks, and threshold violations.
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Database operations for system metrics
@@ -14,6 +16,7 @@ pub struct SystemMetricsDb {
 }
 
 // Migrations are available via embedded macro
+#[allow(dead_code)] // TODO: Implement database migrations in future iteration
 const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 impl SystemMetricsDb {

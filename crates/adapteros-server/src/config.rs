@@ -13,6 +13,8 @@ pub struct Config {
     pub alerting: AlertingConfig,
     #[serde(default)]
     pub git: Option<adapteros_git::GitConfig>,
+    #[serde(default)]
+    pub policies: PoliciesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +83,12 @@ pub struct AlertingConfig {
     pub alert_dir: String,
     pub max_alerts_per_file: usize,
     pub rotate_size_mb: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PoliciesConfig {
+    #[serde(default)]
+    pub drift: adapteros_core::DriftPolicy,
 }
 
 impl Config {

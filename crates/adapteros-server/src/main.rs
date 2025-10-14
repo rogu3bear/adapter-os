@@ -1,13 +1,16 @@
 mod assets;
 
-use anyhow::Result;
-use clap::Parser;
 use adapteros_core::AosError;
 use adapteros_db::Db;
+use adapteros_deterministic_exec::{
+    init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
+};
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
+use anyhow::Result;
+use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -15,7 +18,6 @@ use std::time::Duration;
 use tokio::signal;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig, spawn_deterministic};
 
 mod alerting;
 mod openapi;
@@ -168,6 +170,87 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Environment fingerprint drift detection
+    info!("Verifying environment fingerprint");
+    {
+        use adapteros_verify::{
+            get_or_create_fingerprint_keypair, DeviceFingerprint, DriftEvaluator,
+        };
+
+        let current_fp = DeviceFingerprint::capture_current()
+            .map_err(|e| AosError::Validation(format!("Failed to capture fingerprint: {}", e)))?;
+
+        let baseline_path = std::path::PathBuf::from("var/baseline_fingerprint.json");
+
+        if baseline_path.exists() {
+            // Load baseline and compare
+            let keypair = get_or_create_fingerprint_keypair().map_err(|e| {
+                AosError::Crypto(format!("Failed to get fingerprint keypair: {}", e))
+            })?;
+            let baseline = DeviceFingerprint::load_verified(&baseline_path, &keypair.public_key())
+                .map_err(|e| {
+                    AosError::Validation(format!("Failed to load baseline fingerprint: {}", e))
+                })?;
+
+            let cfg = config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+
+            let evaluator = DriftEvaluator::from_policy(&cfg.policies.drift);
+            let drift_report = evaluator.compare(&baseline, &current_fp).map_err(|e| {
+                AosError::Validation(format!("Failed to compare fingerprints: {}", e))
+            })?;
+
+            if drift_report.should_block() {
+                error!("Critical environment drift detected!");
+                error!("{}", drift_report.summary());
+                for field_drift in &drift_report.field_drifts {
+                    error!(
+                        "  {}: {} -> {}",
+                        field_drift.field_name,
+                        field_drift.baseline_value,
+                        field_drift.current_value
+                    );
+                }
+                return Err(AosError::PolicyViolation(
+                    "Refusing to start due to critical environment drift. Run `aosctl drift-check` for details.".to_string()
+                ).into());
+            }
+
+            if drift_report.drift_detected {
+                warn!("Environment drift detected: {}", drift_report.summary());
+                for field_drift in &drift_report.field_drifts {
+                    warn!(
+                        "  {}: {} -> {}",
+                        field_drift.field_name,
+                        field_drift.baseline_value,
+                        field_drift.current_value
+                    );
+                }
+            } else {
+                info!("✓ No environment drift detected");
+            }
+        } else {
+            // First run: auto-create baseline
+            warn!("No baseline fingerprint found, creating initial baseline");
+            let keypair = get_or_create_fingerprint_keypair().map_err(|e| {
+                AosError::Crypto(format!("Failed to get fingerprint keypair: {}", e))
+            })?;
+
+            // Ensure directory exists
+            if let Some(parent) = baseline_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    AosError::Io(format!("Failed to create baseline directory: {}", e))
+                })?;
+            }
+
+            current_fp
+                .save_signed(&baseline_path, &keypair)
+                .map_err(|e| AosError::Io(format!("Failed to save baseline fingerprint: {}", e)))?;
+            info!("✓ Baseline fingerprint created at {:?}", baseline_path);
+        }
+    }
+
     // Connect to database
     let db_path = config
         .read()
@@ -211,7 +294,7 @@ async fn main() -> Result<()> {
         let config_clone = Arc::clone(&config);
         let api_config_clone = Arc::clone(&api_config);
         let config_path = cli.config.clone();
-        spawn_deterministic("SIGHUP handler", async move {
+        spawn_deterministic("SIGHUP handler".to_string(), async move {
             use tokio::signal::unix::{signal, SignalKind};
             let mut sig = signal(SignalKind::hangup()).expect("Failed to setup SIGHUP handler");
             loop {
@@ -261,7 +344,7 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.alerting.enabled {
             info!("Starting alert watcher");
-            alerting::spawn_alert_watcher(db.clone(), cfg.alerting.clone());
+            alerting::spawn_alert_watcher(db.clone(), cfg.alerting.clone())?;
         }
     }
 
@@ -332,7 +415,7 @@ async fn main() -> Result<()> {
     // Spawn status writer background task
     {
         let state_clone = state.clone();
-        spawn_deterministic("Status writer", async move {
+        spawn_deterministic("Status writer".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
@@ -389,10 +472,9 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
+    // Use deterministic select instead of tokio::select!
+    // Left (ctrl_c) has priority over Right (terminate)
+    let _ = select_2(ctrl_c, terminate).await;
 
     info!("Shutdown signal received");
 }

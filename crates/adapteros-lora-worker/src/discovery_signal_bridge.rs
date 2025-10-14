@@ -7,7 +7,7 @@
 
 use crate::signal::{Signal, SignalBuilder, SignalPriority, SignalType};
 use serde_json::json;
-use tokio::sync::mpsc;
+use adapteros_deterministic_exec::channel::{DeterministicChannel, Sender};
 
 /// Bridge for converting CodeGraph events to signals
 ///
@@ -17,21 +17,21 @@ use tokio::sync::mpsc;
 /// # Example
 /// ```no_run
 /// use adapteros_lora_worker::discovery_signal_bridge::DiscoverySignalBridge;
-/// use tokio::sync::mpsc;
+/// use adapteros_deterministic_exec::channel::DeterministicChannel;
 ///
-/// let (signal_tx, signal_rx) = mpsc::channel(100);
+/// let (signal_tx, signal_rx) = DeterministicChannel::new(100);
 /// let bridge = DiscoverySignalBridge::new(signal_tx);
 ///
 /// // Emit scan started signal
-/// bridge.on_scan_started("acme/payments").await;
+/// bridge.on_scan_started("acme/payments", 0).await;
 /// ```
 pub struct DiscoverySignalBridge {
-    signal_tx: mpsc::Sender<Signal>,
+    signal_tx: Sender<Signal>,
 }
 
 impl DiscoverySignalBridge {
     /// Create a new discovery signal bridge
-    pub fn new(signal_tx: mpsc::Sender<Signal>) -> Self {
+    pub fn new(signal_tx: Sender<Signal>) -> Self {
         Self { signal_tx }
     }
 
@@ -152,11 +152,11 @@ impl DiscoverySignalBridge {
 /// # Example Usage
 /// ```no_run
 /// use adapteros_lora_worker::discovery_signal_bridge::scan_repository_with_signals;
-/// use tokio::sync::mpsc;
+/// use adapteros_deterministic_exec::channel::DeterministicChannel;
 /// use std::path::Path;
 ///
 /// # async fn example() {
-/// let (signal_tx, signal_rx) = mpsc::channel(100);
+/// let (signal_tx, signal_rx) = DeterministicChannel::new(100);
 /// let result = scan_repository_with_signals(
 ///     "acme/payments",
 ///     Path::new("/repos/acme/payments"),
@@ -167,7 +167,7 @@ impl DiscoverySignalBridge {
 pub async fn scan_repository_with_signals(
     repo_id: &str,
     repo_path: &std::path::Path,
-    signal_tx: mpsc::Sender<Signal>,
+    signal_tx: Sender<Signal>,
 ) -> adapteros_core::Result<()> {
     let bridge = DiscoverySignalBridge::new(signal_tx);
 
@@ -200,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scan_started_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = DiscoverySignalBridge::new(tx);
 
         bridge.on_scan_started("acme/payments", 150).await;
@@ -212,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_framework_detected_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = DiscoverySignalBridge::new(tx);
 
         bridge.on_framework_detected("acme/api", "fastapi 0.109").await;
@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scan_completed_signal() {
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, rx) = DeterministicChannel::new(10);
         let bridge = DiscoverySignalBridge::new(tx);
 
         bridge

@@ -53,9 +53,34 @@
       target: 'esnext',
       outDir: '../crates/mplora-server/static',
       emptyOutDir: true,
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true,
+        },
+      },
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+            charts: ['recharts'],
+            icons: ['lucide-react'],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 1000,
     },
     server: {
-      port: 3000,
+      port: 3200,
       open: true,
+      headers: {
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:;",
+        'X-Frame-Options': 'DENY',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      },
     },
   });

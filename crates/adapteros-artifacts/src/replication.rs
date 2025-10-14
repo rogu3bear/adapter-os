@@ -65,7 +65,7 @@ pub fn create_manifest(
         // In production, would load actual artifact and compute chunks
         let artifact = ArtifactDescriptor {
             adapter_id: adapter_id.clone(),
-            hash: hash.clone(),
+            hash,
             size_bytes: 1024 * 1024, // Mock 1MB
             chunks: vec![ChunkDescriptor {
                 offset: 0,

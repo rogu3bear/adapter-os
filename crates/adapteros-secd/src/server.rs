@@ -3,12 +3,12 @@
 use crate::audit::AuditLogger;
 use crate::enclave::EnclaveManager;
 use crate::protocol::{Request, Response};
+use adapteros_deterministic_exec::spawn_deterministic;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
-use adapteros_deterministic_exec::spawn_deterministic;
 
 /// Serve enclave operations over Unix Domain Socket
 pub async fn serve_uds(
@@ -39,10 +39,9 @@ pub async fn serve_uds(
         std::fs::set_permissions(socket_path, perms)?;
     }
 
-    let enclave =
-        Arc::new(Mutex::new(EnclaveManager::new().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?));
+    let enclave = Arc::new(Mutex::new(
+        EnclaveManager::new().map_err(|e| std::io::Error::other(e.to_string()))?,
+    ));
 
     tracing::info!("Enclave daemon ready");
 
@@ -128,7 +127,7 @@ async fn process_request(
             };
 
             let hash_hex = hex::encode(&data_bytes[..32.min(data_bytes.len())]);
-            let label = key_label.as_deref().unwrap_or("aos_bundle_signing");
+            let _label = key_label.as_deref().unwrap_or("aos_bundle_signing"); // TODO: Implement key labeling in future iteration
             let mut enclave = enclave.lock().await;
 
             // For signing, we need to use the correct key

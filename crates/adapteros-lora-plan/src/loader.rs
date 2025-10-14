@@ -131,7 +131,10 @@ impl ModelLoader {
     }
 
     /// Calculate LoRA memory requirements for adapters
-    pub fn calculate_lora_memory(&self, adapters: &[adapteros_manifest::Adapter]) -> Result<Vec<u64>> {
+    pub fn calculate_lora_memory(
+        &self,
+        adapters: &[adapteros_manifest::Adapter],
+    ) -> Result<Vec<u64>> {
         let mut memory_requirements = Vec::new();
 
         for adapter in adapters {
@@ -203,7 +206,6 @@ pub struct RopeConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_gqa_config() {

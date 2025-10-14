@@ -28,14 +28,22 @@
 pub mod error;
 pub mod hash;
 pub mod id;
+pub mod policy;
 pub mod seed;
 
 pub use error::{AosError, Result};
 pub use hash::B3Hash;
 pub use id::CPID;
-pub use seed::{derive_seed, derive_seed_indexed};
+pub use policy::DriftPolicy;
+pub use seed::{
+    clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
+    derive_seed_typed, hash_adapter_dir, SeedLabel,
+};
+
+/// RNG module version for determinism tracking
+pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 
 /// Re-export commonly used types
 pub mod prelude {
-    pub use crate::{AosError, B3Hash, Result, CPID};
+    pub use crate::{AosError, B3Hash, DriftPolicy, Result, CPID};
 }

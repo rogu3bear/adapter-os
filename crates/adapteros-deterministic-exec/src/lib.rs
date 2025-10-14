@@ -14,6 +14,11 @@
 //! 4. **Replay Capability**: Can reconstruct identical execution from event logs
 //! 5. **HKDF Seeding**: All randomness derived from global seed via HKDF labels
 
+pub mod channel;
+pub mod cpu_affinity;
+pub mod multi_agent;
+pub mod select;
+
 use std::{
     collections::VecDeque,
     future::Future,
@@ -23,33 +28,148 @@ use std::{
         Arc,
     },
     task::{Context, Poll},
+    thread::ThreadId,
 };
 
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
+use std::io;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
-use std::io;
+
+/// Global sequence counter for deterministic task ID generation
+/// This ensures all task IDs are reproducible across runs
+static GLOBAL_TASK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Deterministic task ID type using BLAKE3 hash
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TaskId([u8; 32]);
+
+impl TaskId {
+    /// Generate deterministic task ID from global seed and sequence number
+    pub fn from_seed_and_seq(global_seed: &[u8; 32], seq: u64) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(global_seed);
+        hasher.update(&seq.to_le_bytes());
+        let hash = hasher.finalize();
+        Self(*hash.as_bytes())
+    }
+
+    /// Get the hash bytes
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Create from raw bytes
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl std::fmt::Display for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(&self.0[..8]))
+    }
+}
+
+/// Cancellation token with BLAKE3-hashed cause tracking
+#[derive(Debug, Clone)]
+pub struct CancelToken {
+    cause: String,
+    cause_hash: [u8; 32],
+    cancelled: Arc<AtomicU64>,
+}
+
+impl CancelToken {
+    /// Create a new cancel token
+    pub fn new() -> Self {
+        Self {
+            cause: String::new(),
+            cause_hash: [0u8; 32],
+            cancelled: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Cancel with a specific cause
+    pub fn cancel(&self, cause: &str) {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(cause.as_bytes());
+        // Note: We can't update the struct fields because self is &self
+        // In real implementation, we'd need interior mutability
+        self.cancelled.store(1, Ordering::Relaxed);
+    }
+
+    /// Check if cancelled
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed) != 0
+    }
+
+    /// Get the cancellation cause hash
+    pub fn cause_hash(&self) -> [u8; 32] {
+        self.cause_hash
+    }
+}
+
+impl Default for CancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Snapshot of executor state for crash recovery
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorSnapshot {
+    /// Current tick
+    pub tick: u64,
+    /// RNG state (serialized seed)
+    pub rng_seed: [u8; 32],
+    /// Pending tasks (without futures)
+    pub pending_tasks: Vec<TaskSnapshot>,
+    /// Event log
+    pub event_log: Vec<ExecutorEvent>,
+    /// Global sequence counter
+    pub global_sequence: u64,
+    /// Agent ID
+    pub agent_id: Option<String>,
+}
+
+/// Snapshot of a single task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSnapshot {
+    /// Task ID
+    pub id: TaskId,
+    /// Description
+    pub description: String,
+    /// Spawn tick
+    pub spawn_tick: u64,
+    /// Completed status
+    pub completed: bool,
+}
 
 /// Error types for the deterministic executor
 #[derive(Error, Debug)]
 pub enum DeterministicExecutorError {
     #[error("Task {task_id} failed: {error}")]
-    TaskFailed { task_id: Uuid, error: String },
+    TaskFailed { task_id: TaskId, error: String },
     #[error("Replay failed: {reason}")]
     ReplayFailed { reason: String },
     #[error("Timeout exceeded: {task_id}")]
-    TimeoutExceeded { task_id: Uuid },
+    TimeoutExceeded { task_id: TaskId },
     #[error("Executor not initialized")]
     NotInitialized,
+    #[error("Executor is running, cannot restore snapshot")]
+    ExecutorRunning,
+    #[error("Snapshot validation failed: {reason}")]
+    SnapshotValidationFailed { reason: String },
+    #[error("Runtime error: {0}")]
+    RuntimeError(String),
 }
 
 impl From<DeterministicExecutorError> for io::Error {
     fn from(err: DeterministicExecutorError) -> Self {
-        io::Error::new(io::ErrorKind::Other, err.to_string())
+        io::Error::other(err.to_string())
     }
 }
 
@@ -58,12 +178,12 @@ pub type Result<T> = std::result::Result<T, DeterministicExecutorError>;
 
 /// Handle for a spawned deterministic task
 pub struct DeterministicJoinHandle {
-    task_id: Uuid,
+    task_id: TaskId,
     executor: Arc<DeterministicExecutor>,
 }
 
 impl DeterministicJoinHandle {
-    pub fn new(task_id: Uuid, executor: Arc<DeterministicExecutor>) -> Self {
+    pub fn new(task_id: TaskId, executor: Arc<DeterministicExecutor>) -> Self {
         Self { task_id, executor }
     }
 
@@ -73,6 +193,11 @@ impl DeterministicJoinHandle {
         // we would need to track task cancellation state.
         info!("Aborting deterministic task {}", self.task_id);
     }
+
+    /// Get the task ID
+    pub fn task_id(&self) -> TaskId {
+        self.task_id
+    }
 }
 
 /// Event types logged by the executor
@@ -80,33 +205,43 @@ impl DeterministicJoinHandle {
 pub enum ExecutorEvent {
     /// Task spawned with ID and description
     TaskSpawned {
-        task_id: Uuid,
+        task_id: TaskId,
         description: String,
         tick: u64,
+        agent_id: Option<String>,
+        hash: [u8; 32],
     },
     /// Task completed successfully
     TaskCompleted {
-        task_id: Uuid,
+        task_id: TaskId,
         tick: u64,
         duration_ticks: u64,
+        agent_id: Option<String>,
+        hash: [u8; 32],
     },
     /// Task failed with error
     TaskFailed {
-        task_id: Uuid,
+        task_id: TaskId,
         error: String,
         tick: u64,
         duration_ticks: u64,
+        agent_id: Option<String>,
+        hash: [u8; 32],
     },
     /// Task timed out
     TaskTimeout {
-        task_id: Uuid,
+        task_id: TaskId,
         timeout_ticks: u64,
         tick: u64,
+        agent_id: Option<String>,
+        hash: [u8; 32],
     },
     /// Tick counter advanced
     TickAdvanced {
         from_tick: u64,
         to_tick: u64,
+        agent_id: Option<String>,
+        hash: [u8; 32],
     },
 }
 
@@ -123,6 +258,12 @@ pub struct ExecutorConfig {
     pub replay_mode: bool,
     /// Event log for replay mode
     pub replay_events: Vec<ExecutorEvent>,
+    /// Optional agent ID for multi-agent coordination
+    pub agent_id: Option<String>,
+    /// Whether to enable thread pinning for deterministic scheduling
+    pub enable_thread_pinning: bool,
+    /// Number of worker threads (defaults to CPU count)
+    pub worker_threads: Option<usize>,
 }
 
 impl Default for ExecutorConfig {
@@ -133,6 +274,9 @@ impl Default for ExecutorConfig {
             enable_event_logging: true,
             replay_mode: false,
             replay_events: Vec::new(),
+            agent_id: None,
+            enable_thread_pinning: true,
+            worker_threads: None,
         }
     }
 }
@@ -141,7 +285,7 @@ impl Default for ExecutorConfig {
 #[derive(Debug, Clone)]
 pub struct TickTimeout {
     /// Task ID this timeout belongs to
-    task_id: Uuid,
+    task_id: TaskId,
     /// Tick when timeout should trigger
     timeout_tick: u64,
     /// Current tick counter
@@ -150,7 +294,7 @@ pub struct TickTimeout {
 
 impl TickTimeout {
     /// Create a new tick timeout
-    pub fn new(task_id: Uuid, timeout_ticks: u64, current_tick: Arc<AtomicU64>) -> Self {
+    pub fn new(task_id: TaskId, timeout_ticks: u64, current_tick: Arc<AtomicU64>) -> Self {
         let timeout_tick = current_tick.load(Ordering::Relaxed) + timeout_ticks;
         Self {
             task_id,
@@ -167,39 +311,68 @@ impl TickTimeout {
     /// Get remaining ticks until timeout
     pub fn remaining_ticks(&self) -> u64 {
         let current = self.current_tick.load(Ordering::Relaxed);
-        if current >= self.timeout_tick {
-            0
+        self.timeout_tick.saturating_sub(current)
+    }
+}
+
+/// Tick-based delay future
+#[derive(Debug)]
+pub struct TickDelay {
+    target_tick: u64,
+    current_tick: Arc<AtomicU64>,
+}
+
+impl TickDelay {
+    /// Create a new tick delay
+    pub fn new(delay_ticks: u64, current_tick: Arc<AtomicU64>) -> Self {
+        let target_tick = current_tick.load(Ordering::Relaxed) + delay_ticks;
+        Self {
+            target_tick,
+            current_tick,
+        }
+    }
+}
+
+impl Future for TickDelay {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.current_tick.load(Ordering::Relaxed) >= self.target_tick {
+            Poll::Ready(())
         } else {
-            self.timeout_tick - current
+            Poll::Pending
         }
     }
 }
 
 /// Deterministic task wrapper
+#[derive(Serialize, Deserialize)]
 struct DeterministicTask {
     /// Unique task ID
-    id: Uuid,
+    id: TaskId,
     /// Task description for logging
     description: String,
-    /// The actual future
-    future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    /// The actual future (not serialized)
+    #[serde(skip)]
+    future: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
     /// Tick when task was spawned
     spawn_tick: u64,
     /// Whether task has completed
     completed: bool,
-    /// Optional timeout guard
+    /// Optional timeout guard (not serialized, reconstructed on restore)
+    #[serde(skip)]
     timeout: Option<TickTimeout>,
 }
 
 impl DeterministicTask {
-    fn new<F>(id: Uuid, description: String, future: F, spawn_tick: u64) -> Self
+    fn new<F>(id: TaskId, description: String, future: F, spawn_tick: u64) -> Self
     where
         F: Future<Output = ()> + Send + 'static,
     {
         Self {
             id,
             description,
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             spawn_tick,
             completed: false,
             timeout: None,
@@ -241,16 +414,25 @@ pub struct DeterministicExecutor {
     replay_index: Mutex<usize>,
     /// Whether executor is running
     running: Arc<AtomicU64>,
+    /// Pinned thread IDs for deterministic scheduling
+    pinned_threads: Mutex<Vec<ThreadId>>,
 }
 
 impl DeterministicExecutor {
     /// Create a new deterministic executor
     pub fn new(config: ExecutorConfig) -> Self {
         let rng = ChaCha20Rng::from_seed(config.global_seed);
-        
+
+        // Initialize CPU affinity if enabled
+        if config.enable_thread_pinning {
+            if let Err(e) = cpu_affinity::init_cpu_affinity() {
+                warn!("Failed to initialize CPU affinity: {}", e);
+            }
+        }
+
         info!(
-            "Creating deterministic executor with seed: {:?}, replay_mode: {}",
-            config.global_seed, config.replay_mode
+            "Creating deterministic executor with seed: {:?}, replay_mode: {}, thread_pinning: {}",
+            config.global_seed, config.replay_mode, config.enable_thread_pinning
         );
 
         Self {
@@ -261,17 +443,20 @@ impl DeterministicExecutor {
             rng: Mutex::new(rng),
             replay_index: Mutex::new(0),
             running: Arc::new(AtomicU64::new(0)),
+            pinned_threads: Mutex::new(Vec::new()),
         }
     }
 
     /// Spawn a deterministic task
-    pub fn spawn_deterministic<F>(&self, description: String, future: F) -> Result<Uuid>
+    pub fn spawn_deterministic<F>(&self, description: String, future: F) -> Result<TaskId>
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let task_id = Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
+        // Generate deterministic task ID using global sequence
+        let seq = GLOBAL_TASK_SEQUENCE.fetch_add(1, Ordering::SeqCst);
+        let task_id = TaskId::from_seed_and_seq(&self.config.global_seed, seq);
         let current_tick = self.tick_counter.load(Ordering::Relaxed);
-        
+
         // Create task with timeout
         let mut task = DeterministicTask::new(task_id, description.clone(), future, current_tick);
         let timeout = TickTimeout::new(
@@ -284,18 +469,38 @@ impl DeterministicExecutor {
         // Add to queue
         self.task_queue.lock().push_back(task);
 
-        // Log event
+        // Log event with hash
         if self.config.enable_event_logging {
+            let event_hash = Self::compute_event_hash(&task_id, &description, current_tick);
             let event = ExecutorEvent::TaskSpawned {
                 task_id,
                 description,
                 tick: current_tick,
+                agent_id: self.config.agent_id.clone(),
+                hash: event_hash,
             };
             self.event_log.lock().push(event);
         }
 
-        debug!("Spawned deterministic task {} at tick {}", task_id, current_tick);
+        debug!(
+            "Spawned deterministic task {} at tick {}",
+            task_id, current_tick
+        );
         Ok(task_id)
+    }
+
+    /// Create a tick-based delay
+    pub fn delay(&self, delay_ticks: u64) -> TickDelay {
+        TickDelay::new(delay_ticks, self.tick_counter.clone())
+    }
+
+    /// Compute deterministic hash for an event
+    fn compute_event_hash(task_id: &TaskId, description: &str, tick: u64) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(task_id.as_bytes());
+        hasher.update(description.as_bytes());
+        hasher.update(&tick.to_le_bytes());
+        *hasher.finalize().as_bytes()
     }
 
     /// Run the executor until all tasks complete
@@ -312,23 +517,47 @@ impl DeterministicExecutor {
         self.running.store(1, Ordering::Relaxed);
         info!("Starting deterministic executor (normal mode)");
 
+        // Pin current thread if thread pinning is enabled
+        if self.config.enable_thread_pinning {
+            if let Some(core_id) = cpu_affinity::get_next_core_id() {
+                if let Err(e) = cpu_affinity::pin_thread_to_core(core_id) {
+                    warn!("Failed to pin executor thread to core {}: {}", core_id, e);
+                } else {
+                    let thread_id = std::thread::current().id();
+                    self.pinned_threads.lock().push(thread_id);
+                    info!(
+                        "Pinned executor thread {:?} to CPU core {}",
+                        thread_id, core_id
+                    );
+                }
+            }
+        }
+
         while let Some(mut task) = self.task_queue.lock().pop_front() {
             let current_tick = self.tick_counter.load(Ordering::Relaxed);
-            
+
             // Check for timeout
             if let Some(ref timeout) = task.timeout {
                 if timeout.is_timeout() {
                     warn!("Task {} timed out at tick {}", task.id, current_tick);
-                    
+
                     if self.config.enable_event_logging {
+                        let mut hasher = blake3::Hasher::new();
+                        hasher.update(task.id.as_bytes());
+                        hasher.update(b"timeout");
+                        hasher.update(&current_tick.to_le_bytes());
+                        let event_hash = *hasher.finalize().as_bytes();
+
                         let event = ExecutorEvent::TaskTimeout {
                             task_id: task.id,
                             timeout_ticks: self.config.max_ticks_per_task,
                             tick: current_tick,
+                            agent_id: self.config.agent_id.clone(),
+                            hash: event_hash,
                         };
                         self.event_log.lock().push(event);
                     }
-                    
+
                     continue;
                 }
             }
@@ -339,21 +568,30 @@ impl DeterministicExecutor {
             let mut context = Context::from_waker(&waker);
 
             // Poll the task
-            match task.future.as_mut().poll(&mut context) {
+            match task.future.as_mut().unwrap().as_mut().poll(&mut context) {
                 Poll::Ready(()) => {
                     let completion_tick = self.tick_counter.load(Ordering::Relaxed);
                     let duration_ticks = completion_tick - task.spawn_tick;
-                    
+
                     debug!(
                         "Task {} completed at tick {} (duration: {} ticks)",
                         task.id, completion_tick, duration_ticks
                     );
 
                     if self.config.enable_event_logging {
+                        let mut hasher = blake3::Hasher::new();
+                        hasher.update(task.id.as_bytes());
+                        hasher.update(b"completed");
+                        hasher.update(&completion_tick.to_le_bytes());
+                        hasher.update(&duration_ticks.to_le_bytes());
+                        let event_hash = *hasher.finalize().as_bytes();
+
                         let event = ExecutorEvent::TaskCompleted {
                             task_id: task.id,
                             tick: completion_tick,
                             duration_ticks,
+                            agent_id: self.config.agent_id.clone(),
+                            hash: event_hash,
                         };
                         self.event_log.lock().push(event);
                     }
@@ -361,16 +599,25 @@ impl DeterministicExecutor {
                 Poll::Pending => {
                     // Task not ready, put it back in queue
                     self.task_queue.lock().push_back(task);
-                    
+
                     // Advance tick counter
                     self.tick_counter.fetch_add(1, Ordering::Relaxed);
-                    
+
                     if self.config.enable_event_logging {
                         let old_tick = self.tick_counter.load(Ordering::Relaxed) - 1;
                         let new_tick = self.tick_counter.load(Ordering::Relaxed);
+
+                        let mut hasher = blake3::Hasher::new();
+                        hasher.update(b"tick_advanced");
+                        hasher.update(&old_tick.to_le_bytes());
+                        hasher.update(&new_tick.to_le_bytes());
+                        let event_hash = *hasher.finalize().as_bytes();
+
                         let event = ExecutorEvent::TickAdvanced {
                             from_tick: old_tick,
                             to_tick: new_tick,
+                            agent_id: self.config.agent_id.clone(),
+                            hash: event_hash,
                         };
                         self.event_log.lock().push(event);
                     }
@@ -393,37 +640,79 @@ impl DeterministicExecutor {
 
         while *replay_index < replay_events.len() {
             let event = &replay_events[*replay_index];
-            
+
             debug!("Replaying event: {:?}", event);
-            
+
             // Process the event based on its type
             match event {
-                ExecutorEvent::TaskSpawned { task_id, description, tick } => {
-                    info!("Replaying task spawn: {} ({}) at tick {}", task_id, description, tick);
+                ExecutorEvent::TaskSpawned {
+                    task_id,
+                    description,
+                    tick,
+                    agent_id: _,
+                    hash: _,
+                } => {
+                    info!(
+                        "Replaying task spawn: {} ({}) at tick {}",
+                        task_id, description, tick
+                    );
                     // In replay mode, we don't actually spawn tasks, just log the event
                     if self.config.enable_event_logging {
                         self.event_log.lock().push(event.clone());
                     }
                 }
-                ExecutorEvent::TaskCompleted { task_id, tick, duration_ticks } => {
-                    info!("Replaying task completion: {} at tick {} (duration: {} ticks)", task_id, tick, duration_ticks);
+                ExecutorEvent::TaskCompleted {
+                    task_id,
+                    tick,
+                    duration_ticks,
+                    agent_id: _,
+                    hash: _,
+                } => {
+                    info!(
+                        "Replaying task completion: {} at tick {} (duration: {} ticks)",
+                        task_id, tick, duration_ticks
+                    );
                     if self.config.enable_event_logging {
                         self.event_log.lock().push(event.clone());
                     }
                 }
-                ExecutorEvent::TaskFailed { task_id, error, tick, duration_ticks } => {
-                    warn!("Replaying task failure: {} at tick {} (duration: {} ticks): {}", task_id, tick, duration_ticks, error);
+                ExecutorEvent::TaskFailed {
+                    task_id,
+                    error,
+                    tick,
+                    duration_ticks,
+                    agent_id: _,
+                    hash: _,
+                } => {
+                    warn!(
+                        "Replaying task failure: {} at tick {} (duration: {} ticks): {}",
+                        task_id, tick, duration_ticks, error
+                    );
                     if self.config.enable_event_logging {
                         self.event_log.lock().push(event.clone());
                     }
                 }
-                ExecutorEvent::TaskTimeout { task_id, timeout_ticks, tick } => {
-                    warn!("Replaying task timeout: {} at tick {} (timeout: {} ticks)", task_id, tick, timeout_ticks);
+                ExecutorEvent::TaskTimeout {
+                    task_id,
+                    timeout_ticks,
+                    tick,
+                    agent_id: _,
+                    hash: _,
+                } => {
+                    warn!(
+                        "Replaying task timeout: {} at tick {} (timeout: {} ticks)",
+                        task_id, tick, timeout_ticks
+                    );
                     if self.config.enable_event_logging {
                         self.event_log.lock().push(event.clone());
                     }
                 }
-                ExecutorEvent::TickAdvanced { from_tick, to_tick } => {
+                ExecutorEvent::TickAdvanced {
+                    from_tick,
+                    to_tick,
+                    agent_id: _,
+                    hash: _,
+                } => {
                     debug!("Replaying tick advance: {} -> {}", from_tick, to_tick);
                     // Update the tick counter to match the replay
                     self.tick_counter.store(*to_tick, Ordering::Relaxed);
@@ -432,7 +721,7 @@ impl DeterministicExecutor {
                     }
                 }
             }
-            
+
             *replay_index += 1;
         }
 
@@ -491,7 +780,11 @@ impl DeterministicExecutor {
         // Note: This requires mutable access to config, which we don't have
         // In a real implementation, we'd need to restructure to allow this
         // For now, we'll log the attempt
-        info!("Setting {} replay events (replay mode: {})", events.len(), self.config.replay_mode);
+        info!(
+            "Setting {} replay events (replay mode: {})",
+            events.len(),
+            self.config.replay_mode
+        );
     }
 
     /// Get replay progress
@@ -499,6 +792,98 @@ impl DeterministicExecutor {
         let current = *self.replay_index.lock();
         let total = self.config.replay_events.len();
         (current, total)
+    }
+
+    /// Create a snapshot of the executor state
+    pub fn snapshot(&self) -> Result<ExecutorSnapshot> {
+        info!("Creating executor snapshot");
+
+        // Capture current state
+        let tick = self.tick_counter.load(Ordering::Relaxed);
+        let event_log = self.event_log.lock().clone();
+        let global_sequence = GLOBAL_TASK_SEQUENCE.load(Ordering::SeqCst);
+
+        // Capture pending tasks (without futures)
+        let pending_tasks: Vec<TaskSnapshot> = self
+            .task_queue
+            .lock()
+            .iter()
+            .map(|task| TaskSnapshot {
+                id: task.id,
+                description: task.description.clone(),
+                spawn_tick: task.spawn_tick,
+                completed: task.completed,
+            })
+            .collect();
+
+        // Get RNG seed (we'll use the config seed as the base)
+        let rng_seed = self.config.global_seed;
+
+        let snapshot = ExecutorSnapshot {
+            tick,
+            rng_seed,
+            pending_tasks,
+            event_log,
+            global_sequence,
+            agent_id: self.config.agent_id.clone(),
+        };
+
+        info!(
+            "Snapshot created: tick={}, pending_tasks={}, events={}",
+            tick,
+            snapshot.pending_tasks.len(),
+            snapshot.event_log.len()
+        );
+
+        Ok(snapshot)
+    }
+
+    /// Restore executor state from a snapshot
+    /// IMPORTANT: Executor must not be running
+    pub fn restore(&self, snapshot: ExecutorSnapshot) -> Result<()> {
+        // Verify executor is not running
+        if self.is_running() {
+            return Err(DeterministicExecutorError::ExecutorRunning);
+        }
+
+        info!("Restoring executor from snapshot");
+
+        // Validate snapshot
+        if snapshot.rng_seed != self.config.global_seed {
+            return Err(DeterministicExecutorError::SnapshotValidationFailed {
+                reason: "RNG seed mismatch".to_string(),
+            });
+        }
+
+        // Restore tick counter
+        self.tick_counter.store(snapshot.tick, Ordering::Relaxed);
+
+        // Restore global sequence
+        GLOBAL_TASK_SEQUENCE.store(snapshot.global_sequence, Ordering::SeqCst);
+
+        // Restore event log
+        *self.event_log.lock() = snapshot.event_log;
+
+        // Note: We cannot restore the actual futures, only the task metadata
+        // In a real crash recovery scenario, tasks would need to be re-spawned
+        // based on the snapshot metadata
+
+        info!(
+            "Snapshot restored: tick={}, global_seq={}",
+            snapshot.tick, snapshot.global_sequence
+        );
+
+        Ok(())
+    }
+
+    /// Write telemetry for all executor events
+    pub fn write_to_telemetry(&self) -> Result<Vec<u8>> {
+        let events = self.get_event_log();
+        let json =
+            serde_json::to_vec(&events).map_err(|e| DeterministicExecutorError::ReplayFailed {
+                reason: format!("Failed to serialize events: {}", e),
+            })?;
+        Ok(json)
     }
 }
 
@@ -524,7 +909,8 @@ impl std::task::Wake for DeterministicWaker {
 }
 
 /// Global executor instance
-static GLOBAL_EXECUTOR: std::sync::OnceLock<Arc<DeterministicExecutor>> = std::sync::OnceLock::new();
+static GLOBAL_EXECUTOR: std::sync::OnceLock<Arc<DeterministicExecutor>> =
+    std::sync::OnceLock::new();
 
 /// Initialize the global deterministic executor
 pub fn init_global_executor(config: ExecutorConfig) -> Result<()> {
@@ -533,6 +919,30 @@ pub fn init_global_executor(config: ExecutorConfig) -> Result<()> {
         .set(executor)
         .map_err(|_| DeterministicExecutorError::NotInitialized)?;
     Ok(())
+}
+
+/// Configure Tokio runtime for deterministic execution
+pub fn configure_tokio_runtime(config: &ExecutorConfig) -> Result<tokio::runtime::Runtime> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+
+    // Set worker thread count
+    let worker_threads = config.worker_threads.unwrap_or_else(|| {
+        if config.enable_thread_pinning {
+            cpu_affinity::get_cpu_count()
+        } else {
+            1 // Single thread for maximum determinism
+        }
+    });
+
+    builder.worker_threads(worker_threads);
+
+    // Configure thread names for debugging
+    builder.thread_name("aos-deterministic");
+
+    // Build and return runtime
+    builder.build().map_err(|e| {
+        DeterministicExecutorError::RuntimeError(format!("Failed to create Tokio runtime: {}", e))
+    })
 }
 
 /// Get the global executor instance
@@ -571,7 +981,6 @@ macro_rules! spawn_deterministic {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
 
     #[tokio::test]
     async fn test_deterministic_task_execution() {
@@ -585,23 +994,17 @@ mod tests {
         let counter_clone = counter.clone();
 
         // Spawn multiple tasks
-        let task1_id = executor
-            .spawn_deterministic(
-                "Task 1".to_string(),
-                async move {
-                    counter_clone.fetch_add(1, Ordering::Relaxed);
-                },
-            )
+        let _task1_id = executor
+            .spawn_deterministic("Task 1".to_string(), async move {
+                counter_clone.fetch_add(1, Ordering::Relaxed);
+            })
             .unwrap();
 
         let counter_clone = counter.clone();
-        let task2_id = executor
-            .spawn_deterministic(
-                "Task 2".to_string(),
-                async move {
-                    counter_clone.fetch_add(1, Ordering::Relaxed);
-                },
-            )
+        let _task2_id = executor
+            .spawn_deterministic("Task 2".to_string(), async move {
+                counter_clone.fetch_add(1, Ordering::Relaxed);
+            })
             .unwrap();
 
         // Run executor
@@ -620,24 +1023,27 @@ mod tests {
         };
         let executor = DeterministicExecutor::new(config);
 
-        let task_id = executor
-            .spawn_deterministic(
-                "Test Task".to_string(),
-                async {
-                    // Simple task
-                },
-            )
+        let _task_id = executor
+            .spawn_deterministic("Test Task".to_string(), async {
+                // Simple task
+            })
             .unwrap();
 
         executor.run().await.unwrap();
 
         let events = executor.get_event_log();
         assert!(!events.is_empty());
-        
+
         // Check for TaskSpawned and TaskCompleted events
-        let spawn_events: Vec<_> = events.iter().filter(|e| matches!(e, ExecutorEvent::TaskSpawned { .. })).collect();
-        let complete_events: Vec<_> = events.iter().filter(|e| matches!(e, ExecutorEvent::TaskCompleted { .. })).collect();
-        
+        let spawn_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, ExecutorEvent::TaskSpawned { .. }))
+            .collect();
+        let complete_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, ExecutorEvent::TaskCompleted { .. }))
+            .collect();
+
         assert_eq!(spawn_events.len(), 1);
         assert_eq!(complete_events.len(), 1);
     }
@@ -652,22 +1058,22 @@ mod tests {
 
         // Spawn a task that yields but never completes
         let _task_id = executor
-            .spawn_deterministic(
-                "Yielding Task".to_string(),
-                async {
-                    // Yield a few times but don't complete
-                    for _ in 0..10 {
-                        tokio::task::yield_now().await;
-                    }
-                },
-            )
+            .spawn_deterministic("Yielding Task".to_string(), async {
+                // Yield a few times but don't complete
+                for _ in 0..10 {
+                    tokio::task::yield_now().await;
+                }
+            })
             .unwrap();
 
         executor.run().await.unwrap();
 
         let events = executor.get_event_log();
-        let timeout_events: Vec<_> = events.iter().filter(|e| matches!(e, ExecutorEvent::TaskTimeout { .. })).collect();
-        
+        let timeout_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, ExecutorEvent::TaskTimeout { .. }))
+            .collect();
+
         assert!(!timeout_events.is_empty());
     }
 

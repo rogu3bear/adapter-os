@@ -89,16 +89,14 @@ fn check_footer_metadata() -> Check {
 
     // Search for version/build handling
     let mut found_meta = false;
-    for entry in walkdir::WalkDir::new(ui_src) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() && entry.path().extension().map_or(false, |e| e == "rs") {
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    if (content.contains("version") || content.contains("build_hash"))
-                        && (content.contains("/v1/meta") || content.contains("meta"))
-                    {
-                        found_meta = true;
-                        break;
-                    }
+    for entry in walkdir::WalkDir::new(ui_src).into_iter().flatten() {
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "rs") {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                if (content.contains("version") || content.contains("build_hash"))
+                    && (content.contains("/v1/meta") || content.contains("meta"))
+                {
+                    found_meta = true;
+                    break;
                 }
             }
         }
@@ -158,15 +156,13 @@ fn check_routing_inspector() -> Check {
     }
 
     let mut found_routing = false;
-    for entry in walkdir::WalkDir::new(ui_src) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() {
-                let path = entry.path();
-                if let Some(name) = path.file_name() {
-                    if name.to_string_lossy().contains("routing") {
-                        found_routing = true;
-                        break;
-                    }
+    for entry in walkdir::WalkDir::new(ui_src).into_iter().flatten() {
+        if entry.file_type().is_file() {
+            let path = entry.path();
+            if let Some(name) = path.file_name() {
+                if name.to_string_lossy().contains("routing") {
+                    found_routing = true;
+                    break;
                 }
             }
         }
@@ -190,16 +186,14 @@ fn check_audits_page() -> Check {
     }
 
     let mut found_audits = false;
-    for entry in walkdir::WalkDir::new(ui_src) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() {
-                let path = entry.path();
-                if let Some(name) = path.file_name() {
-                    let name_str = name.to_string_lossy();
-                    if name_str.contains("audit") || name_str.contains("promotion") {
-                        found_audits = true;
-                        break;
-                    }
+    for entry in walkdir::WalkDir::new(ui_src).into_iter().flatten() {
+        if entry.file_type().is_file() {
+            let path = entry.path();
+            if let Some(name) = path.file_name() {
+                let name_str = name.to_string_lossy();
+                if name_str.contains("audit") || name_str.contains("promotion") {
+                    found_audits = true;
+                    break;
                 }
             }
         }
@@ -223,16 +217,14 @@ fn check_export() -> Check {
     }
 
     let mut found_export = false;
-    for entry in walkdir::WalkDir::new(ui_src) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() && entry.path().extension().map_or(false, |e| e == "rs") {
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    if (content.contains("export") || content.contains("download"))
-                        && (content.contains("csv") || content.contains("json"))
-                    {
-                        found_export = true;
-                        break;
-                    }
+    for entry in walkdir::WalkDir::new(ui_src).into_iter().flatten() {
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "rs") {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                if (content.contains("export") || content.contains("download"))
+                    && (content.contains("csv") || content.contains("json"))
+                {
+                    found_export = true;
+                    break;
                 }
             }
         }
@@ -261,14 +253,12 @@ fn check_accessibility() -> Check {
 
     // Check for ARIA in Rust code
     if Path::new(ui_src).exists() {
-        for entry in walkdir::WalkDir::new(ui_src) {
-            if let Ok(entry) = entry {
-                if entry.file_type().is_file() && entry.path().extension().map_or(false, |e| e == "rs") {
-                    if let Ok(content) = fs::read_to_string(entry.path()) {
-                        if content.contains("aria-") || content.contains("role=") {
-                            has_aria = true;
-                            break;
-                        }
+        for entry in walkdir::WalkDir::new(ui_src).into_iter().flatten() {
+            if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "rs") {
+                if let Ok(content) = fs::read_to_string(entry.path()) {
+                    if content.contains("aria-") || content.contains("role=") {
+                        has_aria = true;
+                        break;
                     }
                 }
             }
@@ -308,14 +298,12 @@ fn check_toasts() -> Check {
     }
 
     let mut found_toasts = false;
-    for entry in walkdir::WalkDir::new(ui_src) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() && entry.path().extension().map_or(false, |e| e == "rs") {
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    if content.contains("toast") || content.contains("notification") {
-                        found_toasts = true;
-                        break;
-                    }
+    for entry in walkdir::WalkDir::new(ui_src).into_iter().flatten() {
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "rs") {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                if content.contains("toast") || content.contains("notification") {
+                    found_toasts = true;
+                    break;
                 }
             }
         }

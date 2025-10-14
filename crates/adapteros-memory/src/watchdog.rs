@@ -5,8 +5,8 @@
 //! and integrates with the replay system.
 
 use crate::{
-    MemoryWatchdogConfig, MemoryWatchdogError, MemoryLayoutHash, MemoryMigrationEvent,
-    MemoryPressureLevel, Result,
+    MemoryLayoutHash, MemoryMigrationEvent, MemoryPressureLevel, MemoryWatchdogConfig,
+    MemoryWatchdogError, Result,
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -18,10 +18,8 @@ use uuid::Uuid;
 use metal::Device;
 
 use super::{
-    heap_observer::MetalHeapObserver,
-    pointer_canonicalizer::PointerCanonicalizer,
-    buffer_relocation::BufferRelocationDetector,
-    memory_map::MemoryMapHasher,
+    buffer_relocation::BufferRelocationDetector, heap_observer::MetalHeapObserver,
+    memory_map::MemoryMapHasher, pointer_canonicalizer::PointerCanonicalizer,
     replay_integration::ReplayMemoryLogger,
 };
 
@@ -65,7 +63,7 @@ pub struct MemoryWatchdog {
     status: Arc<RwLock<WatchdogStatus>>,
     /// Start timestamp
     start_timestamp: u128,
-    
+
     /// Metal heap observer
     heap_observer: Option<MetalHeapObserver>,
     /// Pointer canonicalizer
@@ -76,7 +74,7 @@ pub struct MemoryWatchdog {
     memory_map_hasher: MemoryMapHasher,
     /// Replay memory logger
     replay_logger: ReplayMemoryLogger,
-    
+
     /// Watchdog ID
     watchdog_id: Uuid,
 }
@@ -85,36 +83,40 @@ impl MemoryWatchdog {
     /// Create a new memory watchdog
     #[cfg(target_os = "macos")]
     pub fn new(config: MemoryWatchdogConfig) -> Result<Self> {
-        let device = Device::system_default()
-            .ok_or_else(|| MemoryWatchdogError::HeapObservationFailed("No Metal device available".to_string()))?;
-        
+        let device = Device::system_default().ok_or_else(|| {
+            MemoryWatchdogError::HeapObservationFailed("No Metal device available".to_string())
+        })?;
+
         let device_arc = Arc::new(device);
-        
+
         let heap_observer = if config.enable_heap_observation {
-            Some(MetalHeapObserver::new(device_arc.clone(), config.sampling_rate))
+            Some(MetalHeapObserver::new(
+                device_arc.clone(),
+                config.sampling_rate,
+            ))
         } else {
             None
         };
-        
+
         let pointer_canonicalizer = PointerCanonicalizer::new(10000); // 10k history
-        
+
         let buffer_relocation_detector = if config.enable_buffer_relocation_detection {
             BufferRelocationDetector::new(device_arc.clone(), true)
         } else {
             BufferRelocationDetector::new(device_arc.clone(), false)
         };
-        
+
         let memory_map_hasher = if config.enable_memory_map_hashing {
             MemoryMapHasher::new(device_arc, true)
         } else {
             MemoryMapHasher::new(device_arc, false)
         };
-        
+
         let replay_logger = ReplayMemoryLogger::new(true, config.sampling_rate);
-        
+
         let watchdog_id = Uuid::new_v4();
         let start_timestamp = current_timestamp();
-        
+
         info!(
             "Memory watchdog initialized: id={}, heap_obs={}, pointer_canon={}, buffer_reloc={}, memory_map={}",
             watchdog_id,
@@ -123,7 +125,7 @@ impl MemoryWatchdog {
             config.enable_buffer_relocation_detection,
             config.enable_memory_map_hashing
         );
-        
+
         Ok(Self {
             config,
             status: Arc::new(RwLock::new(WatchdogStatus::Running)),
@@ -145,26 +147,26 @@ impl MemoryWatchdog {
         } else {
             None
         };
-        
+
         let pointer_canonicalizer = PointerCanonicalizer::new(10000);
-        
+
         let buffer_relocation_detector = if config.enable_buffer_relocation_detection {
             BufferRelocationDetector::new(None, true)
         } else {
             BufferRelocationDetector::new(None, false)
         };
-        
+
         let memory_map_hasher = if config.enable_memory_map_hashing {
             MemoryMapHasher::new(None, true)
         } else {
             MemoryMapHasher::new(None, false)
         };
-        
+
         let replay_logger = ReplayMemoryLogger::new(true, config.sampling_rate);
-        
+
         let watchdog_id = Uuid::new_v4();
         let start_timestamp = current_timestamp();
-        
+
         info!(
             "Memory watchdog initialized (non-macOS): id={}, heap_obs={}, pointer_canon={}, buffer_reloc={}, memory_map={}",
             watchdog_id,
@@ -173,7 +175,7 @@ impl MemoryWatchdog {
             config.enable_buffer_relocation_detection,
             config.enable_memory_map_hashing
         );
-        
+
         Ok(Self {
             config,
             status: Arc::new(RwLock::new(WatchdogStatus::Running)),
@@ -200,7 +202,11 @@ impl MemoryWatchdog {
 
         // Record allocation in pointer canonicalizer
         if self.config.enable_pointer_canonicalization {
-            self.pointer_canonicalizer.record_allocation(pointer_addr, size_bytes, context.clone())?;
+            self.pointer_canonicalizer.record_allocation(
+                pointer_addr,
+                size_bytes,
+                context.clone(),
+            )?;
         }
 
         // Generate current memory layout hash
@@ -211,7 +217,8 @@ impl MemoryWatchdog {
         };
 
         // Log allocation event
-        self.replay_logger.log_allocation(pointer_addr, size_bytes, context, layout_hash)?;
+        self.replay_logger
+            .log_allocation(pointer_addr, size_bytes, context, layout_hash)?;
 
         debug!(
             "Monitored memory allocation: addr=0x{:x}, size={}",
@@ -234,7 +241,8 @@ impl MemoryWatchdog {
 
         // Record deallocation in pointer canonicalizer
         if self.config.enable_pointer_canonicalization {
-            self.pointer_canonicalizer.record_deallocation(pointer_addr)?;
+            self.pointer_canonicalizer
+                .record_deallocation(pointer_addr)?;
         }
 
         // Generate current memory layout hash
@@ -245,7 +253,8 @@ impl MemoryWatchdog {
         };
 
         // Log deallocation event
-        self.replay_logger.log_deallocation(pointer_addr, size_bytes, context, layout_hash)?;
+        self.replay_logger
+            .log_deallocation(pointer_addr, size_bytes, context, layout_hash)?;
 
         debug!(
             "Monitored memory deallocation: addr=0x{:x}, size={}",
@@ -385,7 +394,8 @@ impl MemoryWatchdog {
         }
 
         if self.config.enable_memory_map_hashing {
-            self.memory_map_hasher.verify_layout_consistency(expected_hash)?;
+            self.memory_map_hasher
+                .verify_layout_consistency(expected_hash)?;
         }
 
         Ok(())
@@ -398,17 +408,35 @@ impl MemoryWatchdog {
 
         let memory_events = self.replay_logger.get_memory_events();
         let total_events = memory_events.len();
-        
-        let page_migrations = memory_events.iter()
-            .filter(|e| matches!(e.event_type, crate::replay_integration::MemoryEventType::PageMigration))
+
+        let page_migrations = memory_events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    crate::replay_integration::MemoryEventType::PageMigration
+                )
+            })
             .count();
-        
-        let buffer_relocations = memory_events.iter()
-            .filter(|e| matches!(e.event_type, crate::replay_integration::MemoryEventType::BufferRelocation))
+
+        let buffer_relocations = memory_events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    crate::replay_integration::MemoryEventType::BufferRelocation
+                )
+            })
             .count();
-        
-        let layout_changes = memory_events.iter()
-            .filter(|e| matches!(e.event_type, crate::replay_integration::MemoryEventType::LayoutChange))
+
+        let layout_changes = memory_events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    crate::replay_integration::MemoryEventType::LayoutChange
+                )
+            })
             .count();
 
         let memory_pressure = self.get_memory_pressure_level();
@@ -430,7 +458,7 @@ impl MemoryWatchdog {
         // In a real implementation, this would query system memory stats
         // For now, we simulate based on configuration thresholds
         let pressure = 0.75; // Simulate 75% memory usage
-        
+
         if pressure >= self.config.pressure_critical_threshold {
             MemoryPressureLevel::Critical
         } else if pressure >= self.config.pressure_warning_threshold {
@@ -490,12 +518,12 @@ impl MemoryWatchdog {
         if let Some(ref observer) = self.heap_observer {
             observer.clear();
         }
-        
+
         self.pointer_canonicalizer.clear();
         self.buffer_relocation_detector.clear();
         self.memory_map_hasher.clear();
         self.replay_logger.clear();
-        
+
         info!("Memory watchdog data cleared");
     }
 }
@@ -516,7 +544,7 @@ mod tests {
     fn test_memory_watchdog_creation() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         assert!(watchdog.is_running());
         assert!(!watchdog.get_watchdog_id().is_nil());
     }
@@ -525,13 +553,11 @@ mod tests {
     fn test_memory_allocation_monitoring() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
-        watchdog.monitor_allocation(
-            0x1000,
-            1024,
-            "test allocation".to_string(),
-        ).unwrap();
-        
+
+        watchdog
+            .monitor_allocation(0x1000, 1024, "test allocation".to_string())
+            .unwrap();
+
         let stats = watchdog.get_stats();
         assert!(stats.total_events > 0);
     }
@@ -540,13 +566,11 @@ mod tests {
     fn test_memory_deallocation_monitoring() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
-        watchdog.monitor_deallocation(
-            0x1000,
-            1024,
-            "test deallocation".to_string(),
-        ).unwrap();
-        
+
+        watchdog
+            .monitor_deallocation(0x1000, 1024, "test deallocation".to_string())
+            .unwrap();
+
         let stats = watchdog.get_stats();
         assert!(stats.total_events > 0);
     }
@@ -555,21 +579,24 @@ mod tests {
     fn test_memory_layout_hash_generation() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         let layout_hash = watchdog.generate_memory_layout_hash().unwrap();
-        assert_ne!(layout_hash.layout_hash, adapteros_core::B3Hash::new([0u8; 32]));
+        assert_ne!(
+            layout_hash.layout_hash,
+            adapteros_core::B3Hash::new([0u8; 32])
+        );
     }
 
     #[test]
     fn test_watchdog_pause_resume() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         assert!(watchdog.is_running());
-        
+
         watchdog.pause();
         assert!(!watchdog.is_running());
-        
+
         watchdog.resume();
         assert!(watchdog.is_running());
     }
@@ -578,7 +605,7 @@ mod tests {
     fn test_watchdog_shutdown() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         watchdog.shutdown();
         assert!(!watchdog.is_running());
     }
@@ -587,7 +614,7 @@ mod tests {
     fn test_memory_events_checking() {
         let config = MemoryWatchdogConfig::default();
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         let events = watchdog.check_memory_events().unwrap();
         // Events may be empty depending on system state - just verify we can check
         assert!(events.len() >= 0);
@@ -597,12 +624,12 @@ mod tests {
     fn test_configuration_update() {
         let config = MemoryWatchdogConfig::default();
         let mut watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         let new_config = MemoryWatchdogConfig {
             sampling_rate: 0.5,
             ..Default::default()
         };
-        
+
         watchdog.update_config(new_config);
         assert_eq!(watchdog.get_config().sampling_rate, 0.5);
     }

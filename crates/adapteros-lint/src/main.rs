@@ -8,7 +8,7 @@ use std::process;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         eprintln!("Usage: {} <command> [args...]", args[0]);
         eprintln!("Commands:");
@@ -19,7 +19,7 @@ fn main() {
     }
 
     let command = &args[1];
-    
+
     match command.as_str() {
         "check" => {
             if args.len() < 3 {
@@ -50,23 +50,23 @@ fn main() {
 
 fn check_file(file_path: &str) {
     println!("Checking file: {}", file_path);
-    
+
     // In a real implementation, this would:
     // 1. Parse the Rust file
     // 2. Run the determinism lint rules
     // 3. Report violations
-    
+
     println!("✓ File check completed (placeholder implementation)");
 }
 
 fn check_directory(dir_path: &str) {
     println!("Checking directory: {}", dir_path);
-    
+
     // In a real implementation, this would:
     // 1. Find all Rust files in the directory
     // 2. Run the determinism lint rules on each file
     // 3. Aggregate and report violations
-    
+
     println!("✓ Directory check completed (placeholder implementation)");
 }
 

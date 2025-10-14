@@ -14,7 +14,7 @@ async function capturePage(pageId, pageLabel) {
 
   try {
     // Navigate to the app
-    await page.goto('http://localhost:3000');
+    await page.goto('http://localhost:3200');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 

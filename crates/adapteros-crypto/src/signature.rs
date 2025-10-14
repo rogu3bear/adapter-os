@@ -1,14 +1,17 @@
 //! Ed25519 signature operations
 
+use adapteros_core::{AosError, Result};
 use base64::Engine;
 use ed25519_dalek::{Signer, Verifier};
-use adapteros_core::{AosError, Result};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 
 pub use ed25519_dalek::{
     Signature as Ed25519Signature, SigningKey, VerifyingKey as Ed25519PublicKey,
 };
+
+/// Current signature schema version
+pub const SIG_SCHEMA_VERSION: u8 = 1;
 
 /// Keypair for signing
 pub struct Keypair {
@@ -68,8 +71,7 @@ impl PublicKey {
         let pem_content = pem
             .replace("-----BEGIN PUBLIC KEY-----", "")
             .replace("-----END PUBLIC KEY-----", "")
-            .replace('\n', "")
-            .replace('\r', "");
+            .replace(['\n', '\r'], "");
 
         let key_bytes = base64::engine::general_purpose::STANDARD
             .decode(&pem_content)
@@ -87,8 +89,9 @@ impl PublicKey {
         Self::from_bytes(&key_array)
     }
 
-    /// Verify a signature
+    /// Verify a signature with constant-time comparison
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<()> {
+        // Use constant-time verification to prevent timing attacks
         self.inner
             .verify(message, &signature.inner)
             .map_err(|e| AosError::Crypto(format!("Signature verification failed: {}", e)))
@@ -188,6 +191,17 @@ pub fn generate_keypair() -> (SigningKey, Ed25519PublicKey) {
     let signing_key = SigningKey::generate(&mut OsRng);
     let verifying_key = signing_key.verifying_key();
     (signing_key, verifying_key)
+}
+
+/// Verify signature schema version
+pub fn verify_signature_schema_version(schema_version: u8) -> Result<()> {
+    if schema_version != SIG_SCHEMA_VERSION {
+        return Err(AosError::Crypto(format!(
+            "Signature schema version mismatch: expected {}, got {}",
+            SIG_SCHEMA_VERSION, schema_version
+        )));
+    }
+    Ok(())
 }
 
 /// Sign data with a hex-encoded signing key

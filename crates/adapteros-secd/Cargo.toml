@@ -28,4 +28,6 @@ base64 = "0.22"
 hex = "0.4"
 clap = { workspace = true, features = ["derive"] }
 nix = { workspace = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
 

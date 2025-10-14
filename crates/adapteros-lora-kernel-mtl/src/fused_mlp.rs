@@ -8,8 +8,8 @@
 //! - LoRA: https://arxiv.org/abs/2106.09685
 //! - Metal Performance Shaders: https://developer.apple.com/documentation/metalperformanceshaders
 
-use metal::*;
 use adapteros_core::{AosError, Result};
+use metal::*;
 use std::sync::Arc;
 
 use super::ring_buffer::RingBuffer;
@@ -102,8 +102,7 @@ impl FusedMlpKernel {
         encoder.set_buffer(5, self.ring_buffer.get_buffer().map(|v| &**v), 0);
 
         // Set LoRA configuration
-        let lora_config_bytes =
-            serde_json::to_vec(lora_config).map_err(|e| AosError::Serialization(e))?;
+        let lora_config_bytes = serde_json::to_vec(lora_config).map_err(AosError::Serialization)?;
         let lora_config_buffer = self.device.new_buffer_with_data(
             lora_config_bytes.as_ptr() as *const std::ffi::c_void,
             lora_config_bytes.len() as u64,
@@ -114,8 +113,8 @@ impl FusedMlpKernel {
         // Calculate threadgroup size
         let threadgroup_size = MTLSize::new(16, 16, 1);
         let grid_size = MTLSize::new(
-            (input.length() / 4) as u64, // FP16 = 2 bytes, 4 elements per thread
-            (gate_weight.length() / 4) as u64,
+            input.length() / 4, // FP16 = 2 bytes, 4 elements per thread
+            gate_weight.length() / 4,
             1,
         );
 

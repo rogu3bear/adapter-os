@@ -1,8 +1,8 @@
 //! Orchestrator CLI
 
+use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use std::path::PathBuf;
 
 #[derive(Parser)]

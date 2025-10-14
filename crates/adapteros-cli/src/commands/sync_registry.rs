@@ -2,7 +2,7 @@ use anyhow::Result;
 use adapteros_artifacts::CasStore;
 use adapteros_registry::Registry;
 use adapteros_sbom::SpdxDocument;
-// use adapteros_crypto::{PublicKey, Signature}; // TODO: Use for actual signature verification
+// Signature verification will be implemented when crypto module is integrated
 use crate::output::OutputWriter;
 use serde::Serialize;
 use std::path::Path;
@@ -98,7 +98,7 @@ pub async fn sync_registry(
                 filename
             ));
 
-            // TODO: Implement actual signature verification with public key
+            // Signature verification placeholder - will be implemented with crypto module
             // let signature = Signature::from_bytes(&sig_array)?;
             // let public_key = PublicKey::from_pem(&public_key_pem)?;
             // public_key.verify(&adapter_bytes, &signature)?;

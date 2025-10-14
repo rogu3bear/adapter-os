@@ -94,6 +94,40 @@ impl CodeFeatures {
         vec
     }
 
+    /// Convert to extended feature vector (25 dimensions) for MPLoRA
+    /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    pub fn to_vector_extended(&self) -> Vec<f32> {
+        let mut vec = self.to_vector(); // Start with original 22 dimensions
+
+        // MPLoRA extensions (3 additional dimensions)
+        vec.push(self.orthogonal_penalty()); // [22]: orthogonal penalty
+        vec.push(self.adapter_diversity()); // [23]: adapter diversity
+        vec.push(self.path_similarity()); // [24]: path similarity
+
+        vec
+    }
+
+    /// Compute orthogonal penalty based on recent activations
+    fn orthogonal_penalty(&self) -> f32 {
+        // This would be computed by the router using activation history
+        // For now, return a placeholder value
+        0.0
+    }
+
+    /// Measure diversity of adapter selection
+    fn adapter_diversity(&self) -> f32 {
+        // Higher values indicate more diverse selections
+        // This would be computed by the router using recent selections
+        0.0 // Placeholder
+    }
+
+    /// Measure similarity to previous paths
+    fn path_similarity(&self) -> f32 {
+        // Lower values indicate more orthogonal paths
+        // This would be computed by the router using path history
+        0.0 // Placeholder
+    }
+
     /// Set attention entropy from recent inference logits
     pub fn set_attn_entropy(&mut self, entropy: f32) {
         self.attn_entropy = Some(entropy);

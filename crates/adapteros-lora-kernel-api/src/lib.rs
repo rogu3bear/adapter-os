@@ -1,6 +1,7 @@
 //! Safe API for fused kernels
 
 use adapteros_core::Result;
+use serde::{Deserialize, Serialize};
 
 /// Ring buffer for router decisions (Q15 gates)
 #[derive(Debug, Clone)]
@@ -137,4 +138,67 @@ impl FusedKernels for Box<dyn FusedKernels> {
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
         (**self).unload_adapter(id)
     }
+}
+
+/// MPLoRA configuration for kernels
+/// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MploraConfig {
+    pub shared_downsample: bool,
+    pub compression_ratio: f32,
+    pub orthogonal_constraints: bool,
+    pub similarity_threshold: f32,
+    pub penalty_weight: f32,
+    pub history_window: usize,
+}
+
+impl Default for MploraConfig {
+    fn default() -> Self {
+        Self {
+            shared_downsample: false,
+            compression_ratio: 0.8,
+            orthogonal_constraints: false,
+            similarity_threshold: 0.7,
+            penalty_weight: 0.1,
+            history_window: 10,
+        }
+    }
+}
+
+/// Extended kernel trait with MPLoRA support
+pub trait MploraKernels: FusedKernels {
+    /// Execute MPLoRA with shared downsample
+    fn execute_mplora(
+        &mut self,
+        ring: &RouterRing,
+        io: &mut IoBuffers,
+        mplora_config: &MploraConfig,
+    ) -> Result<()>;
+
+    /// Apply orthogonal constraints
+    fn apply_orthogonal_constraints(
+        &mut self,
+        adapter_indices: &[u16],
+        gates: &[i16],
+        config: &MploraConfig,
+    ) -> Result<()>;
+
+    /// Execute shared downsample kernel
+    fn execute_shared_downsample(
+        &mut self,
+        input: &[f32],
+        shared_a: &[f32],
+        adapter_bs: &[f32],
+        gates: &[i16],
+        output: &mut [f32],
+        config: &MploraConfig,
+    ) -> Result<()>;
+
+    /// Execute compression kernel
+    fn execute_compression(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        config: &MploraConfig,
+    ) -> Result<()>;
 }

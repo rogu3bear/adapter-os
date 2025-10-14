@@ -133,6 +133,32 @@ The policy registry (`adapteros-policy`) contains exactly 20 policy packs, each 
 **Status**: Implemented  
 **Description**: File reads/writes via hashed wrappers, no wall-clock, stubbed network under strict mode. Ensures deterministic I/O operations.
 
+### 21. Drift
+**ID**: `Drift`  
+**Severity**: Critical  
+**Status**: Implemented  
+**Description**: Environment fingerprint tracking and drift detection with cryptographic verification. Captures comprehensive system state (device model, SoC ID, GPU PCI ID, OS version/build, Metal driver version, PATH hash, environment hash, CPU features) and enforces policy-based drift tolerances. Critical drift blocks inference startup. Baseline fingerprints are Ed25519 signed and stored in `var/baseline_fingerprint.json`. Drift reports saved to `var/drift_history/` with timestamps.
+
+**Enforcement Points**:
+- Server startup: Automatic baseline creation or drift verification
+- CLI: `aosctl drift-check` command for manual verification
+- Telemetry: Drift events logged to telemetry system
+
+**Policy Configuration**:
+```toml
+[drift]
+os_build_tolerance = 0          # 0 = exact match required
+gpu_driver_tolerance = 0
+env_hash_tolerance = 0
+allow_warnings = true           # Allow warning-level drift
+block_on_critical = true        # Block on critical drift
+```
+
+**Exit Codes** (drift-check):
+- 10: No drift or info-level drift
+- 11: Warning-level drift
+- 12: Critical drift (blocks inference)
+
 ## Policy Enforcement
 
 Policies are enforced through the `adapteros-policy` crate, which provides:

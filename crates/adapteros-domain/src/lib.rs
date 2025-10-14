@@ -34,29 +34,28 @@
 //! text_adapter.prepare(&mut executor);
 //!
 //! // Domain adapter automatically uses deterministic operations
-//! let input_tensor = /* ... */;
 //! # let input_tensor = adapteros_numerics::noise::Tensor::new(vec![1.0], vec![1]);
-//! let output = text_adapter.forward(&input_tensor);
+//! let input_data = adapteros_domain::TensorData::new(input_tensor, "f32".to_string());
+//! let output = text_adapter.forward(&input_data);
 //! # Ok(())
 //! # }
 //! ```
 
 pub mod adapter;
+pub mod error;
+pub mod manifest;
+pub mod telemetry;
 pub mod text;
 pub mod vision;
-pub mod telemetry;
-pub mod manifest;
-pub mod error;
 
-pub use adapter::{DomainAdapter, AdapterMetadata, TensorData};
+pub use adapter::{AdapterMetadata, DomainAdapter, TensorData};
+pub use error::{DomainAdapterError, Result};
+pub use manifest::{load_manifest, AdapterManifest};
+pub use telemetry::TelemetryAdapter;
 pub use text::TextAdapter;
 pub use vision::VisionAdapter;
-pub use telemetry::TelemetryAdapter;
-pub use manifest::{AdapterManifest, load_manifest};
-pub use error::{DomainAdapterError, Result};
 
+pub use adapteros_core::B3Hash;
 /// Re-export common types for convenience
 pub use adapteros_numerics::noise::Tensor;
 pub use adapteros_trace::{Event, TraceBundle};
-pub use adapteros_core::B3Hash;
-

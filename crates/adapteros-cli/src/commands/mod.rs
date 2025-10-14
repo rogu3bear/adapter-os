@@ -10,6 +10,7 @@ pub mod cdp_list;
 pub mod completions;
 pub mod diag;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
+pub mod drift_check;
 pub mod explain;
 // pub mod export_callgraph;  // Temporarily disabled due to mplora-codegraph dependency
 pub mod import;
@@ -35,6 +36,7 @@ pub mod serve;
 pub mod sync_registry;
 pub mod telemetry_show;
 pub mod trace;
+pub mod train;
 pub mod tutorial;
 pub mod verify;
 pub mod verify_telemetry;

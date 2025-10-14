@@ -14,7 +14,7 @@ async function captureScreenshots() {
 
   try {
     // Navigate to the app
-    await page.goto('http://localhost:3000');
+    await page.goto('http://localhost:3200');
     await page.waitForLoadState('networkidle');
 
     // Wait a bit for the app to load

@@ -6,7 +6,7 @@
 //! - Recording relocation events for replay verification
 //! - Ensuring buffer content integrity after relocation
 
-use crate::{Result};
+use crate::Result;
 use adapteros_core::B3Hash;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
-use metal::{Buffer, Device, foreign_types::ForeignType};
+use metal::{foreign_types::ForeignType, Buffer, Device};
 
 /// Buffer relocation record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,7 +126,9 @@ impl BufferRelocationDetector {
             return Ok(0); // Skip monitoring
         }
 
-        let buffer_id = self.next_buffer_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let buffer_id = self
+            .next_buffer_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let timestamp = current_timestamp();
         let current_addr = buffer.as_ptr() as u64;
         let size_bytes = buffer.length();
@@ -163,7 +165,9 @@ impl BufferRelocationDetector {
             return Ok(0); // Skip monitoring
         }
 
-        let buffer_id = self.next_buffer_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let buffer_id = self
+            .next_buffer_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let timestamp = current_timestamp();
 
         let buffer_state = BufferState {
@@ -205,7 +209,7 @@ impl BufferRelocationDetector {
                 if self.should_simulate_relocation(buffer_state) {
                     let original_addr = buffer_state.current_addr;
                     let new_addr = self.simulate_new_address(original_addr);
-                    
+
                     if new_addr != original_addr {
                         let relocation = BufferRelocationRecord {
                             relocation_id: Uuid::new_v4(),
@@ -285,7 +289,10 @@ impl BufferRelocationDetector {
             active.remove(&buffer_id);
         }
 
-        debug!("Unregistered buffer from relocation monitoring: id={}", buffer_id);
+        debug!(
+            "Unregistered buffer from relocation monitoring: id={}",
+            buffer_id
+        );
         Ok(())
     }
 
@@ -332,14 +339,18 @@ impl BufferRelocationDetector {
             let mut history = self.relocation_history.write();
             history.clear();
         }
-        
-        self.next_buffer_id.store(1, std::sync::atomic::Ordering::SeqCst);
+
+        self.next_buffer_id
+            .store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Enable or disable relocation detection
     pub fn set_detection_enabled(&mut self, enabled: bool) {
         self.detection_enabled = enabled;
-        info!("Buffer relocation detection {}", if enabled { "enabled" } else { "disabled" });
+        info!(
+            "Buffer relocation detection {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
     }
 
     /// Check if detection is enabled
@@ -356,9 +367,9 @@ impl BufferRelocationDetector {
 
         // Calculate current buffer content hash
         let current_hash = self.calculate_buffer_hash(buffer)?;
-        
+
         let integrity_ok = current_hash == expected_hash;
-        
+
         if !integrity_ok {
             warn!(
                 "Buffer content integrity check failed: expected={:?}, actual={:?}",
@@ -371,7 +382,11 @@ impl BufferRelocationDetector {
 
     /// Verify buffer content integrity (non-macOS)
     #[cfg(not(target_os = "macos"))]
-    pub fn verify_content_integrity(&self, _buffer: Option<()>, _expected_hash: B3Hash) -> Result<bool> {
+    pub fn verify_content_integrity(
+        &self,
+        _buffer: Option<()>,
+        _expected_hash: B3Hash,
+    ) -> Result<bool> {
         if !self.detection_enabled {
             return Ok(true); // Skip verification
         }
@@ -385,14 +400,14 @@ impl BufferRelocationDetector {
     fn calculate_buffer_hash(&self, buffer: &Buffer) -> Result<B3Hash> {
         let contents = buffer.contents();
         let size = buffer.length() as usize;
-        
+
         // Hash buffer contents
         let mut hasher = blake3::Hasher::new();
         unsafe {
             let slice = std::slice::from_raw_parts(contents as *const u8, size);
             hasher.update(slice);
         }
-        
+
         Ok(B3Hash::new(*hasher.finalize().as_bytes()))
     }
 
@@ -432,13 +447,13 @@ mod tests {
             if let Some(device) = Device::system_default() {
                 let detector = BufferRelocationDetector::new(Arc::new(device.clone()), true);
                 assert!(detector.is_detection_enabled());
-                
+
                 let stats = detector.get_relocation_stats();
                 assert_eq!(stats.total_buffers, 0);
                 assert_eq!(stats.total_relocations, 0);
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             let detector = BufferRelocationDetector::new(None, true);
@@ -452,17 +467,17 @@ mod tests {
         {
             if let Some(device) = Device::system_default() {
                 let detector = BufferRelocationDetector::new(Arc::new(device.clone()), true);
-                
+
                 let buffer = device.new_buffer(1024, metal::MTLResourceOptions::empty());
                 let buffer_id = detector.register_buffer(&buffer).unwrap();
-                
+
                 assert!(buffer_id > 0);
-                
+
                 let stats = detector.get_relocation_stats();
                 assert_eq!(stats.total_buffers, 1);
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             let detector = BufferRelocationDetector::new(None, true);
@@ -477,17 +492,17 @@ mod tests {
         {
             if let Some(device) = Device::system_default() {
                 let detector = BufferRelocationDetector::new(Arc::new(device.clone()), true);
-                
+
                 let buffer = device.new_buffer(2 * 1024 * 1024, metal::MTLResourceOptions::empty()); // 2MB
                 let _buffer_id = detector.register_buffer(&buffer).unwrap();
-                
+
                 let relocations = detector.check_relocations().unwrap();
-                
+
                 // Should detect relocation for large buffer
                 assert!(!relocations.is_empty());
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             let detector = BufferRelocationDetector::new(None, true);
@@ -507,10 +522,10 @@ mod tests {
         }));
         let mut detector = BufferRelocationDetector::new(device, true);
         assert!(detector.is_detection_enabled());
-        
+
         detector.set_detection_enabled(false);
         assert!(!detector.is_detection_enabled());
-        
+
         detector.set_detection_enabled(true);
         assert!(detector.is_detection_enabled());
     }
@@ -521,17 +536,17 @@ mod tests {
         {
             if let Some(device) = Device::system_default() {
                 let detector = BufferRelocationDetector::new(Arc::new(device.clone()), true);
-                
+
                 let buffer = device.new_buffer(1024, metal::MTLResourceOptions::empty());
                 let buffer_id = detector.register_buffer(&buffer).unwrap();
-                
+
                 detector.unregister_buffer(buffer_id).unwrap();
-                
+
                 let stats = detector.get_relocation_stats();
                 assert_eq!(stats.total_buffers, 0);
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             let detector = BufferRelocationDetector::new(None, true);
@@ -546,20 +561,24 @@ mod tests {
         {
             if let Some(device) = Device::system_default() {
                 let detector = BufferRelocationDetector::new(Arc::new(device.clone()), true);
-                
+
                 let buffer = device.new_buffer(1024, metal::MTLResourceOptions::empty());
                 let expected_hash = detector.calculate_buffer_hash(&buffer).unwrap();
-                
-                let integrity_ok = detector.verify_content_integrity(&buffer, expected_hash).unwrap();
+
+                let integrity_ok = detector
+                    .verify_content_integrity(&buffer, expected_hash)
+                    .unwrap();
                 assert!(integrity_ok);
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             let detector = BufferRelocationDetector::new(None, true);
             let expected_hash = adapteros_crypto::B3Hash::hash(b"test");
-            let integrity_ok = detector.verify_content_integrity(None, expected_hash).unwrap();
+            let integrity_ok = detector
+                .verify_content_integrity(None, expected_hash)
+                .unwrap();
             assert!(integrity_ok);
         }
     }

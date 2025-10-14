@@ -42,7 +42,13 @@ pub struct EpsilonStats {
 }
 
 impl EpsilonStats {
-    pub fn new(layer_id: String, l2_error: f64, max_error: f64, mean_error: f64, element_count: usize) -> Self {
+    pub fn new(
+        layer_id: String,
+        l2_error: f64,
+        max_error: f64,
+        mean_error: f64,
+        element_count: usize,
+    ) -> Self {
         Self {
             layer_id,
             l2_error,
@@ -90,6 +96,12 @@ pub struct GlobalStabilityReport {
     pub threshold_violations: Vec<String>,
 }
 
+impl Default for GlobalStabilityReport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobalStabilityReport {
     pub fn new() -> Self {
         Self {
@@ -111,19 +123,20 @@ impl GlobalStabilityReport {
     pub fn add_layer_stats(&mut self, stats: EpsilonStats) {
         self.layer_count += 1;
         self.total_elements += stats.element_count;
-        
+
         // Update running totals
         self.total_l2_error += stats.l2_error;
         self.max_layer_error = self.max_layer_error.max(stats.max_error);
-        
+
         // Update mean
         self.mean_layer_error = self.total_l2_error / self.layer_count as f64;
-        
+
         // Check for threshold violations
-        if stats.exceeds_threshold(1e-6) { // Default threshold: 1e-6
+        if stats.exceeds_threshold(1e-6) {
+            // Default threshold: 1e-6
             self.threshold_violations.push(stats.layer_id.clone());
         }
-        
+
         self.layer_stats.insert(stats.layer_id.clone(), stats);
     }
 
@@ -132,11 +145,11 @@ impl GlobalStabilityReport {
         if self.layer_count == 0 {
             return 0.0;
         }
-        
+
         // Weighted score based on L2 error and max error
         let l2_component = self.total_l2_error / self.layer_count as f64;
         let max_component = self.max_layer_error;
-        
+
         l2_component + (max_component * 0.1) // Max error gets 10% weight
     }
 
@@ -151,40 +164,43 @@ impl GlobalStabilityReport {
 pub enum NumericsError {
     #[error("Tensor dimension mismatch: expected {expected}, got {actual}")]
     DimensionMismatch { expected: usize, actual: usize },
-    
+
     #[error("Tensor shape mismatch: expected {expected:?}, got {actual:?}")]
-    ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
-    
+    ShapeMismatch {
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
+
     #[error("Empty tensor provided")]
     EmptyTensor,
-    
+
     #[error("Numerical overflow in computation")]
     NumericalOverflow,
-    
+
     #[error("Invalid layer ID: {layer_id}")]
     InvalidLayerId { layer_id: String },
 }
 
 /// Measure numerical error between reference and quantized tensor outputs
-/// 
+///
 /// This function computes the L2 norm of the difference vector and other
 /// error metrics between reference (high-precision) and quantized outputs.
-/// 
+///
 /// # Arguments
 /// * `ref_out` - Reference tensor output (high precision)
 /// * `quant_out` - Quantized tensor output
 /// * `layer_id` - Identifier for the kernel layer
-/// 
+///
 /// # Returns
 /// * `Result<EpsilonStats, NumericsError>` - Error statistics or error
-/// 
+///
 /// # Example
 /// ```rust
 /// use adapteros_numerics::noise::{Tensor, measure_error};
-/// 
+///
 /// let ref_tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
 /// let quant_tensor = Tensor::new(vec![1.01, 1.99, 3.01], vec![3]);
-/// 
+///
 /// let stats = measure_error(&ref_tensor, &quant_tensor, "attention_layer".to_string()).unwrap();
 /// println!("L2 error: {}", stats.l2_error);
 /// ```
@@ -197,47 +213,47 @@ pub fn measure_error(
     if ref_out.data.is_empty() || quant_out.data.is_empty() {
         return Err(NumericsError::EmptyTensor);
     }
-    
+
     if ref_out.len() != quant_out.len() {
         return Err(NumericsError::DimensionMismatch {
             expected: ref_out.len(),
             actual: quant_out.len(),
         });
     }
-    
+
     if ref_out.shape != quant_out.shape {
         return Err(NumericsError::ShapeMismatch {
             expected: ref_out.shape.clone(),
             actual: quant_out.shape.clone(),
         });
     }
-    
+
     if layer_id.is_empty() {
         return Err(NumericsError::InvalidLayerId { layer_id });
     }
-    
+
     let element_count = ref_out.len();
     let mut l2_error_squared = 0.0f64;
     let mut max_error = 0.0f64;
     let mut total_error = 0.0f64;
-    
+
     // Compute error metrics
     for (ref_val, quant_val) in ref_out.iter().zip(quant_out.iter()) {
         let error = (ref_val - quant_val).abs() as f64;
-        
+
         // Check for numerical overflow
         if error.is_infinite() || error.is_nan() {
             return Err(NumericsError::NumericalOverflow);
         }
-        
+
         l2_error_squared += error * error;
         max_error = max_error.max(error);
         total_error += error;
     }
-    
+
     let l2_error = l2_error_squared.sqrt();
     let mean_error = total_error / element_count as f64;
-    
+
     Ok(EpsilonStats::new(
         layer_id,
         l2_error,
@@ -248,56 +264,56 @@ pub fn measure_error(
 }
 
 /// Aggregate multiple epsilon statistics into a global stability report
-/// 
+///
 /// This function combines error statistics from multiple kernel layers
 /// into a comprehensive stability report for the entire system.
-/// 
+///
 /// # Arguments
 /// * `stats` - Vector of epsilon statistics from different layers
-/// 
+///
 /// # Returns
 /// * `GlobalStabilityReport` - Aggregated stability report
-/// 
+///
 /// # Example
 /// ```rust
 /// use adapteros_numerics::noise::{EpsilonStats, aggregate_stats};
-/// 
+///
 /// let stats = vec![
 ///     EpsilonStats::new("layer1".to_string(), 0.001, 0.01, 0.005, 1000),
 ///     EpsilonStats::new("layer2".to_string(), 0.002, 0.02, 0.008, 2000),
 /// ];
-/// 
+///
 /// let report = aggregate_stats(&stats);
 /// println!("Total L2 error: {}", report.total_l2_error);
 /// ```
 pub fn aggregate_stats(stats: &[EpsilonStats]) -> GlobalStabilityReport {
     let mut report = GlobalStabilityReport::new();
-    
+
     for stat in stats {
         report.add_layer_stats(stat.clone());
     }
-    
+
     report
 }
 
 /// Compute the reference range for error rate calculation
-/// 
+///
 /// This function calculates the range (max - min) of the reference tensor
 /// to provide context for error measurements.
-/// 
+///
 /// # Arguments
 /// * `tensor` - Reference tensor
-/// 
+///
 /// # Returns
 /// * `f64` - Range of the tensor values
 pub fn compute_reference_range(tensor: &Tensor) -> f64 {
     if tensor.data.is_empty() {
         return 0.0;
     }
-    
+
     let min_val = tensor.data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
     let max_val = tensor.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-    
+
     if min_val.is_infinite() || max_val.is_infinite() {
         0.0
     } else {
@@ -313,9 +329,9 @@ mod tests {
     fn test_measure_error_basic() {
         let ref_tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
         let quant_tensor = Tensor::new(vec![1.01, 1.99, 3.01], vec![3]);
-        
+
         let stats = measure_error(&ref_tensor, &quant_tensor, "test_layer".to_string()).unwrap();
-        
+
         assert_eq!(stats.layer_id, "test_layer");
         assert_eq!(stats.element_count, 3);
         assert!(stats.l2_error > 0.0);
@@ -327,9 +343,9 @@ mod tests {
     fn test_measure_error_identical() {
         let ref_tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
         let quant_tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
-        
+
         let stats = measure_error(&ref_tensor, &quant_tensor, "test_layer".to_string()).unwrap();
-        
+
         assert_eq!(stats.l2_error, 0.0);
         assert_eq!(stats.max_error, 0.0);
         assert_eq!(stats.mean_error, 0.0);
@@ -339,9 +355,12 @@ mod tests {
     fn test_measure_error_dimension_mismatch() {
         let ref_tensor = Tensor::new(vec![1.0, 2.0], vec![2]);
         let quant_tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]);
-        
+
         let result = measure_error(&ref_tensor, &quant_tensor, "test_layer".to_string());
-        assert!(matches!(result, Err(NumericsError::DimensionMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(NumericsError::DimensionMismatch { .. })
+        ));
     }
 
     #[test]
@@ -350,9 +369,9 @@ mod tests {
             EpsilonStats::new("layer1".to_string(), 0.001, 0.01, 0.005, 1000),
             EpsilonStats::new("layer2".to_string(), 0.002, 0.02, 0.008, 2000),
         ];
-        
+
         let report = aggregate_stats(&stats);
-        
+
         assert_eq!(report.layer_count, 2);
         assert_eq!(report.total_elements, 3000);
         assert_eq!(report.total_l2_error, 0.003);
@@ -377,9 +396,9 @@ mod tests {
     fn test_global_stability_report() {
         let mut report = GlobalStabilityReport::new();
         let stats = EpsilonStats::new("layer1".to_string(), 0.001, 0.01, 0.005, 1000);
-        
+
         report.add_layer_stats(stats);
-        
+
         assert_eq!(report.layer_count, 1);
         assert_eq!(report.total_elements, 1000);
         assert_eq!(report.total_l2_error, 0.001);

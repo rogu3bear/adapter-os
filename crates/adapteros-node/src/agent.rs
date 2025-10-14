@@ -1,6 +1,6 @@
 // Node agent implementation
-use anyhow::{Context, Result};
 use adapteros_policy::egress;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

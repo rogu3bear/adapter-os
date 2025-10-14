@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-adapteros-core = { path = "../adapteros-core" }
+adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }
@@ -41,3 +42,5 @@ utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.0", features = ["v7"] }
 futures-util = "0.3"
 glob = "0.3"
+walkdir = "2.4"
+blake3 = { workspace = true }

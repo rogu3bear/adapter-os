@@ -1,7 +1,8 @@
 //! Policy enforcement for AdapterOS
 
-pub mod validation;
+pub mod policy_pack;
 pub mod registry;
+pub mod validation;
 
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
@@ -9,25 +10,31 @@ use adapteros_manifest::*;
 pub mod abstention;
 pub mod code_metrics;
 pub mod egress;
+pub mod mplora;
 pub mod numeric;
 pub mod patch_policy;
 pub mod refusal;
 
+// Policy packs implemented in Phase 3
+pub mod packs;
+
 // Re-export registry types
 pub use registry::{
-    Audit, Policy, PolicyContext, PolicyId, PolicySpec, Severity, Violation,
-    explain_policy, get_policy, list_policies, POLICY_INDEX,
+    explain_policy, get_policy, list_policies, Audit, Policy, PolicyContext, PolicyId, PolicySpec,
+    Severity, Violation, POLICY_INDEX,
 };
 
 pub use abstention::should_abstain;
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
 };
+pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
 pub use patch_policy::{
     CodePolicy, ComprehensiveValidation, FilePatch, LintValidation, PatchPolicyEngine,
     SecurityValidation, SecurityViolation, TestValidation,
 };
+pub use policy_pack::{PolicyPackRegistry, SignedPolicyPack};
 pub use refusal::{RefusalReason, RefusalResponse};
 
 /// Policy engine for enforcing all 20 policy packs

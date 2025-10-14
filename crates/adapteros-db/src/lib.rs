@@ -1,9 +1,15 @@
-use anyhow::Result;
 use adapteros_core::AosError;
+use anyhow::Result;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
-/// Database connection pool and query methods
+// PostgreSQL backend for production
+pub mod postgres;
+pub use postgres::PostgresDb;
+
+/// Database connection pool and query methods (SQLite)
+///
+/// For production deployments, use `PostgresDb` instead.
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
@@ -143,9 +149,13 @@ pub mod enclave_operations;
 pub use enclave_operations::{EnclaveOperation, OperationStats};
 pub mod ephemeral_adapters;
 pub mod git;
+pub mod git_repositories;
+pub use git_repositories::GitRepository;
 pub mod incidents;
 pub mod jobs;
 pub use jobs::Job;
+pub mod training_jobs;
+pub use training_jobs::{TrainingJobRecord, TrainingProgress};
 pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
@@ -156,6 +166,8 @@ pub use patch_proposals::PatchProposal;
 pub mod pinned_adapters;
 pub mod plans;
 pub mod policies;
+pub mod process_monitoring;
+pub mod replay_sessions;
 pub mod repositories;
 pub mod telemetry_bundles;
 pub mod tenants;

@@ -71,12 +71,9 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
   const fetchContacts = async () => {
     setLoading(true);
     try {
-      const url = `/api/v1/contacts?tenant=${selectedTenant}${
-        filter !== 'all' ? `&category=${filter}` : ''
-      }`;
-      const response = await fetch(url);
-      const data = await response.json();
-      setContacts(data.contacts || []);
+      // Citation: ui/src/api/client.ts L57-L105
+      const data = await apiClient.listContacts(selectedTenant);
+      setContacts(data);
     } catch (error) {
       console.error('Failed to fetch contacts:', error);
     } finally {

@@ -11,20 +11,19 @@
 //! - SQLite persistence for efficient querying
 //! - Deterministic hashing for reproducible builds
 
-use adapteros_core::{AosError, B3Hash, Result};
-use serde::{Deserialize, Serialize};
+use adapteros_core::{B3Hash, Result};
 use std::collections::BTreeMap;
 use std::path::Path;
 
 pub mod callgraph;
-pub mod parser;
+pub mod parsers;
 pub mod sqlite;
 pub mod types;
 
-pub use callgraph::{CallEdge, CallGraph, CallGraphBuilder};
-pub use parser::{CodeParser, ParseResult};
+pub use callgraph::{CallEdge, CallGraph, CallGraphBuilder, ImportEdge};
+pub use parsers::{detect_language, parse_directory, parse_file, LanguageParser, ParserFactory};
 pub use sqlite::{CodeGraphDb, DbConfig};
-pub use types::{SymbolId, SymbolKind, SymbolNode, TypeAnnotation, Visibility};
+pub use types::{Language, SymbolId, SymbolKind, SymbolNode, TypeAnnotation, Visibility};
 
 /// Main CodeGraph structure
 #[derive(Debug, Clone)]
@@ -50,25 +49,23 @@ impl CodeGraph {
     /// Build CodeGraph from source directory
     pub async fn from_directory<P: AsRef<Path>>(
         source_dir: P,
-        db_config: Option<DbConfig>,
+        _db_config: Option<DbConfig>,
     ) -> Result<Self> {
-        let parser = CodeParser::new();
         let mut builder = CallGraphBuilder::new();
-        
-        // Parse all Rust files in directory
-        let parse_results = parser.parse_directory(source_dir).await?;
-        
+
+        // Parse all supported files in directory using multi-language parser
+        let parse_results = parse_directory(source_dir.as_ref()).await?;
+
         // Build symbol table and call graph
         for result in parse_results {
             builder.add_parse_result(result)?;
         }
-        
-        let symbols = builder.build_symbols();
-        let call_graph = builder.build_call_graph();
-        
+
+        let (call_graph, symbols) = builder.build_call_graph();
+
         // Compute deterministic content hash
         let content_hash = Self::compute_content_hash(&symbols, &call_graph);
-        
+
         Ok(Self {
             symbols,
             call_graph,
@@ -82,23 +79,33 @@ impl CodeGraph {
         call_graph: &CallGraph,
     ) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         // Hash symbols in deterministic order
         for (id, symbol) in symbols {
             hasher.update(id.as_bytes());
             hasher.update(symbol.name.as_bytes());
             hasher.update(symbol.kind.to_string().as_bytes());
+            hasher.update(symbol.language.to_string().as_bytes());
             if let Some(ref type_annotation) = symbol.type_annotation {
                 hasher.update(type_annotation.to_string().as_bytes());
             }
         }
-        
+
         // Hash call graph edges
         for edge in &call_graph.edges {
             hasher.update(edge.caller.as_bytes());
             hasher.update(edge.callee.as_bytes());
         }
-        
+
+        // Hash import edges (cross-language dependencies)
+        for edge in &call_graph.import_edges {
+            hasher.update(edge.importer.as_bytes());
+            hasher.update(edge.imported.as_bytes());
+            hasher.update(edge.import_statement.as_bytes());
+            hasher.update(edge.source_language.to_string().as_bytes());
+            hasher.update(edge.target_language.to_string().as_bytes());
+        }
+
         B3Hash::from_bytes(hasher.finalize().into())
     }
 
@@ -133,7 +140,7 @@ impl CodeGraph {
         dot.push_str("digraph CodeGraph {\n");
         dot.push_str("  rankdir=TB;\n");
         dot.push_str("  node [shape=box, style=filled];\n\n");
-        
+
         // Add nodes
         for (id, symbol) in &self.symbols {
             let label = format!("{}\\n{}", symbol.name, symbol.kind);
@@ -144,7 +151,7 @@ impl CodeGraph {
                 SymbolKind::Impl => "lightcoral",
                 _ => "lightgray",
             };
-            
+
             dot.push_str(&format!(
                 "  \"{}\" [label=\"{}\", fillcolor=\"{}\"];\n",
                 id.to_hex(),
@@ -152,9 +159,9 @@ impl CodeGraph {
                 color
             ));
         }
-        
-        dot.push_str("\n");
-        
+
+        dot.push('\n');
+
         // Add edges
         for edge in &self.call_graph.edges {
             dot.push_str(&format!(
@@ -163,7 +170,7 @@ impl CodeGraph {
                 edge.callee.to_hex()
             ));
         }
-        
+
         dot.push_str("}\n");
         dot
     }
@@ -191,7 +198,7 @@ impl Default for CodeGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    // use tempfile::TempDir; // unused
 
     #[tokio::test]
     async fn test_codegraph_creation() {
@@ -212,7 +219,7 @@ mod tests {
     async fn test_content_hash_determinism() {
         let graph1 = CodeGraph::new();
         let graph2 = CodeGraph::new();
-        
+
         // Empty graphs should have same hash
         assert_eq!(graph1.content_hash, graph2.content_hash);
     }

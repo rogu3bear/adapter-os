@@ -166,9 +166,7 @@ async fn execute_command(
 
 /// Create HTTP client configured for Unix Domain Socket
 fn create_uds_client(socket_path: &PathBuf) -> Result<reqwest::Client> {
-    use hyper_util::client::legacy::connect::HttpConnector;
-    use hyper_util::rt::TokioExecutor;
-    use tower::ServiceBuilder;
+// HTTP client configuration will be enhanced when UDS transport is optimized
 
     // Check if socket exists
     if !socket_path.exists() {

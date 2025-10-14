@@ -4,9 +4,7 @@
 //! outputs for identical inputs across multiple runs.
 
 use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
-use adapteros_domain::{
-    DomainAdapter, TextAdapter, TelemetryAdapter, TensorData, VisionAdapter,
-};
+use adapteros_domain::{DomainAdapter, TelemetryAdapter, TensorData, TextAdapter, VisionAdapter};
 use adapteros_numerics::noise::Tensor;
 use std::collections::HashMap;
 use tempfile::NamedTempFile;
@@ -333,11 +331,15 @@ async fn test_cross_adapter_isolation() {
     // Create inputs
     let text_input = TensorData::new(Tensor::new(vec![1.0; 16], vec![1, 16]), "f32".to_string());
 
-    let vision_input =
-        TensorData::new(Tensor::new(vec![0.5; 3072], vec![1, 3, 32, 32]), "f32".to_string());
+    let vision_input = TensorData::new(
+        Tensor::new(vec![0.5; 3072], vec![1, 3, 32, 32]),
+        "f32".to_string(),
+    );
 
-    let telemetry_input =
-        TensorData::new(Tensor::new(vec![0.3; 32], vec![1, 2, 16]), "f32".to_string());
+    let telemetry_input = TensorData::new(
+        Tensor::new(vec![0.3; 32], vec![1, 2, 16]),
+        "f32".to_string(),
+    );
 
     // Run forward passes
     let text_output1 = text_adapter.forward(&text_input).unwrap();
@@ -415,4 +417,3 @@ async fn test_epsilon_bounds() {
 
     println!("✅ Epsilon bounds verified");
 }
-

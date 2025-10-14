@@ -3,8 +3,9 @@
 //! Provides CPU-based embedding computation using averaged token embeddings.
 //! Future: Can be optimized with Metal-accelerated embedding model.
 
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_lora_rag::EmbeddingModel as RagEmbeddingModel;
 use memmap2::Mmap;
-use adapteros_core::{AosError, Result};
 use safetensors::SafeTensors;
 use std::fs::File;
 use std::path::Path;
@@ -19,7 +20,6 @@ enum EmbeddingType {
     /// Simple averaged token embeddings from base model
     TokenAverage { embedding_matrix: Vec<f32> },
     /// Future: dedicated embedding model
-    #[allow(dead_code)]
     Dedicated,
 }
 
@@ -140,6 +140,23 @@ impl EmbeddingModel {
     /// Get embedding dimension
     pub fn dimension(&self) -> usize {
         self.dimension
+    }
+}
+
+impl RagEmbeddingModel for EmbeddingModel {
+    fn encode_text(&self, text: &str) -> Result<Vec<f32>> {
+        // For now, use a simple approach: tokenize and encode
+        // In a real implementation, this would use a proper tokenizer
+        let tokens = text.chars().map(|c| c as u32).collect::<Vec<u32>>();
+
+        self.encode_tokens(&tokens)
+    }
+
+    fn model_hash(&self) -> B3Hash {
+        // Return a fixed hash for this embedding model type
+        // In a real implementation, this would be computed from the model
+        B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
     }
 }
 

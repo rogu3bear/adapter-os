@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 //! Continuous system monitoring pipeline
 //!
 //! Provides continuous monitoring of system metrics with telemetry integration,
@@ -7,8 +9,8 @@ use crate::policy::SystemMetricsPolicy;
 use crate::{MetricsConfig, SystemMetricsCollector};
 use adapteros_core::Result;
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::time::{interval, sleep};
+use std::time::{Duration, SystemTime};
+use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 /// System metrics monitor

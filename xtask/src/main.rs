@@ -5,6 +5,7 @@ use std::env;
 
 mod sbom;
 mod verify_agents;
+mod determinism_report;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -12,6 +13,7 @@ async fn main() -> Result<()> {
 
     match task.as_deref() {
         Some("sbom") => sbom::generate_sbom()?,
+        Some("determinism-report") => determinism_report::generate_determinism_report()?,
         Some("build") => build()?,
         Some("test") => test()?,
         Some("verify-agents") => {
@@ -66,10 +68,11 @@ fn print_help() {
     println!("  cargo xtask <TASK>");
     println!();
     println!("TASKS:");
-    println!("  sbom           Generate SBOM from dependencies");
-    println!("  build          Custom build workflow");
-    println!("  test           Run full test suite");
-    println!("  verify-agents  Verify all agent deliverables");
+    println!("  sbom                Generate SBOM from dependencies");
+    println!("  determinism-report  Generate build reproducibility report");
+    println!("  build               Custom build workflow");
+    println!("  test                Run full test suite");
+    println!("  verify-agents       Verify all agent deliverables");
     println!();
     println!("For verify-agents options, run:");
     println!("  cargo xtask verify-agents --help");

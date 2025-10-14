@@ -130,7 +130,7 @@ fn check_fuzzing() -> Check {
 
     let targets: Vec<_> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
 
@@ -278,8 +278,8 @@ fn check_backup_gc() -> Check {
         Check::pass("Backup & GC scripts", evidence)
     } else {
         let missing: Vec<_> = [
-            (!has_backup).then(|| "backup.sh"),
-            (!has_gc).then(|| "gc_bundles.sh"),
+            (!has_backup).then_some("backup.sh"),
+            (!has_gc).then_some("gc_bundles.sh"),
         ]
         .into_iter()
         .flatten()

@@ -102,7 +102,7 @@ impl ModelConfig {
     /// Validate GQA configuration
     pub fn validate_gqa(&self) -> Result<()> {
         // Check that hidden_size is divisible by num_attention_heads
-        if self.hidden_size % self.num_attention_heads != 0 {
+        if !self.hidden_size.is_multiple_of(self.num_attention_heads) {
             return Err(AosError::Plan(format!(
                 "hidden_size ({}) must be divisible by num_attention_heads ({})",
                 self.hidden_size, self.num_attention_heads
@@ -110,7 +110,10 @@ impl ModelConfig {
         }
 
         // Check that num_key_value_heads divides num_attention_heads
-        if self.num_attention_heads % self.num_key_value_heads != 0 {
+        if !self
+            .num_attention_heads
+            .is_multiple_of(self.num_key_value_heads)
+        {
             return Err(AosError::Plan(format!(
                 "num_attention_heads ({}) must be divisible by num_key_value_heads ({})",
                 self.num_attention_heads, self.num_key_value_heads
@@ -123,7 +126,7 @@ impl ModelConfig {
     /// Validate model configuration
     pub fn validate(&self) -> Result<()> {
         // Check that hidden_size is divisible by num_attention_heads
-        if self.hidden_size % self.num_attention_heads != 0 {
+        if !self.hidden_size.is_multiple_of(self.num_attention_heads) {
             return Err(AosError::Plan(format!(
                 "hidden_size ({}) must be divisible by num_attention_heads ({})",
                 self.hidden_size, self.num_attention_heads
@@ -131,7 +134,10 @@ impl ModelConfig {
         }
 
         // Check that num_key_value_heads divides num_attention_heads
-        if self.num_attention_heads % self.num_key_value_heads != 0 {
+        if !self
+            .num_attention_heads
+            .is_multiple_of(self.num_key_value_heads)
+        {
             return Err(AosError::Plan(format!(
                 "num_attention_heads ({}) must be divisible by num_key_value_heads ({})",
                 self.num_attention_heads, self.num_key_value_heads
@@ -335,7 +341,7 @@ mod tests {
 
         // Expected: ~77 MB for rank 16 across all targets
         assert!(
-            size_mb >= 70 && size_mb <= 85,
+            (70..=85).contains(&size_mb),
             "LoRA size should be ~77 MB, got {} MB",
             size_mb
         );
@@ -343,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_config_validation() {
-        let mut config_json = r#"{
+        let config_json = r#"{
             "architecture": "Qwen2.5ForCausalLM",
             "hidden_size": 3584,
             "intermediate_size": 18944,

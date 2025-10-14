@@ -1,0 +1,34 @@
+[package]
+name = "adapteros-lora-mlx-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Workspace dependencies
+adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+safetensors.workspace = true
+
+# FFI bindings
+libc = "0.2"
+core-foundation = "0.9"
+
+# Utilities
+tracing.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+zeroize = { version = "1.7", features = ["derive"] }
+
+[build-dependencies]
+bindgen = "0.69"
+cc = "1.0"
+
+[dev-dependencies]
+tempfile.workspace = true

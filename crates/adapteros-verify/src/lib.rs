@@ -34,24 +34,27 @@
 //! # }
 //! ```
 
-use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_crypto::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
-use adapteros_telemetry::replay::ReplayBundle;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 pub mod archive;
+pub mod drift;
 pub mod epsilon;
+pub mod keys;
 pub mod metadata;
+pub mod rng_diff_viewer;
+pub mod sysinfo;
 pub mod verification;
 
-pub use archive::{GoldenRunArchive, create_golden_run};
-pub use epsilon::{EpsilonStats, EpsilonStatistics};
-pub use metadata::{DeviceFingerprint, ToolchainMetadata, GoldenRunMetadata};
+pub use archive::{create_golden_run, GoldenRunArchive};
+pub use drift::{DriftEvaluator, DriftReport, DriftSeverity, FieldDrift};
+pub use epsilon::{EpsilonStatistics, EpsilonStats};
+pub use keys::{get_fingerprint_public_key, get_or_create_fingerprint_keypair};
+pub use metadata::{DeviceFingerprint, GoldenRunMetadata, ToolchainMetadata};
+pub use rng_diff_viewer::{compare_rng_states, format_diff, RngState, RngStateDiff};
 pub use verification::{verify_against_golden, VerificationReport};
 
 /// Error types for golden-run verification
@@ -59,38 +62,40 @@ pub use verification::{verify_against_golden, VerificationReport};
 pub enum VerifyError {
     #[error("Golden run not found: {path}")]
     GoldenRunNotFound { path: String },
-    
+
     #[error("Signature verification failed: {reason}")]
     SignatureVerificationFailed { reason: String },
-    
-    #[error("Epsilon divergence detected: layer {layer}, ε={epsilon:.6e} (threshold: {threshold:.6e})")]
+
+    #[error(
+        "Epsilon divergence detected: layer {layer}, ε={epsilon:.6e} (threshold: {threshold:.6e})"
+    )]
     EpsilonDivergence {
         layer: String,
         epsilon: f64,
         threshold: f64,
     },
-    
+
     #[error("Toolchain mismatch: golden={golden}, current={current}")]
     ToolchainMismatch { golden: String, current: String },
-    
+
     #[error("Adapter set mismatch: {reason}")]
     AdapterSetMismatch { reason: String },
-    
+
     #[error("Device fingerprint mismatch: {reason}")]
     DeviceMismatch { reason: String },
-    
+
     #[error("Hash mismatch: expected {expected}, got {actual}")]
     HashMismatch { expected: String, actual: String },
-    
+
     #[error("Archive corrupted: {reason}")]
     ArchiveCorrupted { reason: String },
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Crypto error: {0}")]
     Crypto(String),
 }
@@ -158,42 +163,48 @@ impl Default for ComparisonConfig {
 /// Initialize golden_runs/ directory structure
 pub fn init_golden_runs_dir<P: AsRef<Path>>(base_path: P) -> VerifyResult<PathBuf> {
     let golden_runs_dir = base_path.as_ref().join("golden_runs");
-    
+
     // Create directory structure
     fs::create_dir_all(&golden_runs_dir)?;
     fs::create_dir_all(golden_runs_dir.join("baselines"))?;
     fs::create_dir_all(golden_runs_dir.join("archive"))?;
-    
+
     // Create README
     let readme_path = golden_runs_dir.join("README.md");
     if !readme_path.exists() {
         fs::write(&readme_path, include_str!("../templates/README.md"))?;
     }
-    
+
     // Create .gitignore
     let gitignore_path = golden_runs_dir.join(".gitignore");
     if !gitignore_path.exists() {
-        fs::write(&gitignore_path, "# Ignore large event bundles\n*.ndjson\n*.bin\n")?;
+        fs::write(
+            &gitignore_path,
+            "# Ignore large event bundles\n*.ndjson\n*.bin\n",
+        )?;
     }
-    
-    info!("Initialized golden_runs directory at: {}", golden_runs_dir.display());
+
+    info!(
+        "Initialized golden_runs directory at: {}",
+        golden_runs_dir.display()
+    );
     Ok(golden_runs_dir)
 }
 
 /// List all golden runs in a directory
 pub fn list_golden_runs<P: AsRef<Path>>(base_path: P) -> VerifyResult<Vec<String>> {
     let baselines_dir = base_path.as_ref().join("baselines");
-    
+
     if !baselines_dir.exists() {
         return Ok(Vec::new());
     }
-    
+
     let mut runs = Vec::new();
-    
+
     for entry in fs::read_dir(baselines_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_dir() {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 // Check if manifest exists
@@ -204,7 +215,7 @@ pub fn list_golden_runs<P: AsRef<Path>>(base_path: P) -> VerifyResult<Vec<String
             }
         }
     }
-    
+
     runs.sort();
     Ok(runs)
 }
@@ -218,7 +229,7 @@ mod tests {
     fn test_init_golden_runs_dir() {
         let temp_dir = TempDir::new().unwrap();
         let golden_runs_dir = init_golden_runs_dir(temp_dir.path()).unwrap();
-        
+
         assert!(golden_runs_dir.exists());
         assert!(golden_runs_dir.join("baselines").exists());
         assert!(golden_runs_dir.join("archive").exists());
@@ -230,10 +241,10 @@ mod tests {
     fn test_list_golden_runs_empty() {
         let temp_dir = TempDir::new().unwrap();
         init_golden_runs_dir(temp_dir.path()).unwrap();
-        
+
         let golden_runs_dir = temp_dir.path().join("golden_runs");
         let runs = list_golden_runs(&golden_runs_dir).unwrap();
-        
+
         assert_eq!(runs.len(), 0);
     }
 
@@ -244,4 +255,3 @@ mod tests {
         assert_eq!(StrictnessLevel::Statistical.epsilon_threshold(), 1e-4);
     }
 }
-

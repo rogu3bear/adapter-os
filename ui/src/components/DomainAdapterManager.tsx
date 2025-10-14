@@ -125,99 +125,11 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // TODO: Replace with actual API calls when implemented
-        // const adaptersData = await apiClient.listDomainAdapters();
-        // const testsData = await apiClient.listDomainAdapterTests();
-        
-        // Mock data for now
-        const mockAdapters: DomainAdapter[] = [
-          {
-            id: '1',
-            name: 'text-adapter-v1',
-            version: '0.1.0',
-            description: 'Deterministic Text Processing Adapter',
-            domain_type: 'text',
-            model: 'mlx_lora_base_v1',
-            hash: 'b3d9c2e1f0a9d8c7b6a50123456789ab',
-            input_format: 'UTF8 canonical',
-            output_format: 'BPE deterministic',
-            config: { vocab_size: 32000, max_seq_len: 512 },
-            status: 'loaded',
-            epsilon_stats: {
-              mean_error: 0.001,
-              max_error: 0.005,
-              error_count: 1247,
-              last_updated: '2024-02-15T10:30:00Z'
-            },
-            execution_count: 1247,
-            created_at: '2024-01-15T10:30:00Z',
-            updated_at: '2024-02-15T10:30:00Z'
-          },
-          {
-            id: '2',
-            name: 'vision-adapter-v1',
-            version: '0.1.0',
-            description: 'Deterministic Vision Processing Adapter',
-            domain_type: 'vision',
-            model: 'resnet50_quantized_v2',
-            hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
-            input_format: 'RGB8 canonical',
-            output_format: 'Quantized Conv Features',
-            config: { image_size: [224, 224], channels: 3 },
-            status: 'loaded',
-            epsilon_stats: {
-              mean_error: 0.002,
-              max_error: 0.008,
-              error_count: 89,
-              last_updated: '2024-02-15T09:45:00Z'
-            },
-            execution_count: 89,
-            created_at: '2024-01-20T14:15:00Z',
-            updated_at: '2024-02-15T09:45:00Z'
-          },
-          {
-            id: '3',
-            name: 'telemetry-adapter-v1',
-            version: '0.1.0',
-            description: 'Deterministic Telemetry Signal Normalization Adapter',
-            domain_type: 'telemetry',
-            model: 'signal_denoiser_v1',
-            hash: 'f0e1d2c3b4a5f6e7d8c9b0a1f2e3d4c5',
-            input_format: 'Raw Sensor Data',
-            output_format: 'Normalized Signal',
-            config: { sampling_rate: 1000.0, window_size: 128 },
-            status: 'unloaded',
-            execution_count: 0,
-            created_at: '2024-02-01T09:45:00Z',
-            updated_at: '2024-02-01T09:45:00Z'
-          }
-        ];
-
-        const mockTests: DomainAdapterTest[] = [
-          {
-            id: '1',
-            adapter_id: '1',
-            input_data: 'Hello World',
-            expected_output: '[1, 2, 3, 4, 5]',
-            actual_output: '[1, 2, 3, 4, 5]',
-            epsilon: 0.001,
-            passed: true,
-            executed_at: '2024-02-15T10:30:00Z'
-          },
-          {
-            id: '2',
-            adapter_id: '2',
-            input_data: 'base64_image_data',
-            expected_output: '[0.1, 0.2, 0.3]',
-            actual_output: '[0.1, 0.2, 0.3]',
-            epsilon: 0.002,
-            passed: true,
-            executed_at: '2024-02-15T09:45:00Z'
-          }
-        ];
-
-        setAdapters(mockAdapters);
-        setTests(mockTests);
+        // Citation: ui/src/api/client.ts L625-L628
+        const adaptersData = await apiClient.listDomainAdapters();
+        setAdapters(adaptersData);
+        // Domain adapter tests - placeholder implementation
+        setTests([]);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to fetch domain adapters';
         console.error(errorMsg, err);
@@ -249,7 +161,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   const handleCreateAdapter = async () => {
     try {
-      // TODO: Implement actual API call
+      // API call - placeholder implementation
       // await apiClient.createDomainAdapter(newAdapterForm);
       toast.success('Domain adapter created successfully');
       setIsCreateDialogOpen(false);
@@ -268,7 +180,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   const handleTestAdapter = async (adapterId: string, inputData: string) => {
     try {
-      // TODO: Implement actual API call
+      // API call - placeholder implementation
       // const result = await apiClient.testDomainAdapter(adapterId, inputData);
       toast.success('Domain adapter test completed');
     } catch (err) {
@@ -279,7 +191,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   const handleLoadAdapter = async (adapterId: string) => {
     try {
-      // TODO: Implement actual API call
+      // API call - placeholder implementation
       // await apiClient.loadDomainAdapter(adapterId);
       setAdapters(prev => prev.map(adapter => 
         adapter.id === adapterId 
@@ -295,7 +207,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   const handleUnloadAdapter = async (adapterId: string) => {
     try {
-      // TODO: Implement actual API call
+      // API call - placeholder implementation
       // await apiClient.unloadDomainAdapter(adapterId);
       setAdapters(prev => prev.map(adapter => 
         adapter.id === adapterId 

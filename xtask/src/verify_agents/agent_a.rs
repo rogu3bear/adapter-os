@@ -62,10 +62,8 @@ fn check_metallib_hash(args: &VerifyAgentsArgs) -> Check {
 
     match hash_line {
         Some(line) => {
-            let evidence = vec![
-                "metal/ci_build.sh exists".to_string(),
-                format!("Found hash constant: {}", line.trim()),
-            ];
+            let evidence = ["metal/ci_build.sh exists".to_string(),
+                format!("Found hash constant: {}", line.trim())];
 
             // Check if metallib exists
             if Path::new("metal/aos_kernels.metallib").exists() {
@@ -146,7 +144,7 @@ fn check_performance_regression(args: &VerifyAgentsArgs) -> Check {
     let baselines = match fs::read_dir("metal/baselines") {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
             .map(|e| e.path().display().to_string())
             .collect::<Vec<_>>(),
         Err(_) => vec![],

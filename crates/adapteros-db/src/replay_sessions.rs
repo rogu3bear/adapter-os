@@ -1,0 +1,121 @@
+//! Replay session storage and retrieval
+//!
+//! Manages deterministic replay sessions with full system state snapshots.
+
+use crate::Db;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ReplaySession {
+    pub id: String,
+    pub tenant_id: String,
+    pub cpid: String,
+    pub plan_id: String,
+    pub snapshot_at: String,
+    pub seed_global_b3: String,
+    pub manifest_hash_b3: String,
+    pub policy_hash_b3: String,
+    pub kernel_hash_b3: Option<String>,
+    pub telemetry_bundle_ids_json: String,
+    pub adapter_state_json: String,
+    pub routing_decisions_json: String,
+    pub inference_traces_json: Option<String>,
+    pub rng_state_json: String,
+    pub signature: String,
+    pub created_at: String,
+}
+
+impl ReplaySession {
+    /// Restore RNG state from JSON
+    pub fn restore_rng_state(&self) -> Result<serde_json::Value> {
+        serde_json::from_str(&self.rng_state_json)
+            .map_err(|e| anyhow::anyhow!("Failed to parse RNG state: {}", e))
+    }
+
+    /// Get global nonce from RNG state
+    pub fn get_global_nonce(&self) -> Result<u64> {
+        let state: serde_json::Value = self.restore_rng_state()?;
+        state
+            .get("global_nonce")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow::anyhow!("Missing global_nonce in RNG state"))
+    }
+}
+
+impl Db {
+    /// List replay sessions, optionally filtered by tenant
+    pub async fn list_replay_sessions(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<ReplaySession>> {
+        let query = if tenant_id.is_some() {
+            "SELECT * FROM replay_sessions WHERE tenant_id = ? ORDER BY snapshot_at DESC"
+        } else {
+            "SELECT * FROM replay_sessions ORDER BY snapshot_at DESC"
+        };
+
+        let sessions = if let Some(tid) = tenant_id {
+            sqlx::query_as::<_, ReplaySession>(query)
+                .bind(tid)
+                .fetch_all(self.pool())
+                .await?
+        } else {
+            sqlx::query_as::<_, ReplaySession>(query)
+                .fetch_all(self.pool())
+                .await?
+        };
+
+        Ok(sessions)
+    }
+
+    /// Get a single replay session by ID
+    pub async fn get_replay_session(&self, session_id: &str) -> Result<Option<ReplaySession>> {
+        let session =
+            sqlx::query_as::<_, ReplaySession>("SELECT * FROM replay_sessions WHERE id = ?")
+                .bind(session_id)
+                .fetch_optional(self.pool())
+                .await?;
+
+        Ok(session)
+    }
+
+    /// Create a new replay session
+    pub async fn create_replay_session(&self, session: &ReplaySession) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO replay_sessions (
+                id, tenant_id, cpid, plan_id, snapshot_at, seed_global_b3,
+                manifest_hash_b3, policy_hash_b3, kernel_hash_b3,
+                telemetry_bundle_ids_json, adapter_state_json,
+                routing_decisions_json, inference_traces_json, signature
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&session.id)
+        .bind(&session.tenant_id)
+        .bind(&session.cpid)
+        .bind(&session.plan_id)
+        .bind(&session.snapshot_at)
+        .bind(&session.seed_global_b3)
+        .bind(&session.manifest_hash_b3)
+        .bind(&session.policy_hash_b3)
+        .bind(&session.kernel_hash_b3)
+        .bind(&session.telemetry_bundle_ids_json)
+        .bind(&session.adapter_state_json)
+        .bind(&session.routing_decisions_json)
+        .bind(&session.inference_traces_json)
+        .bind(&session.signature)
+        .execute(self.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Delete a replay session
+    pub async fn delete_replay_session(&self, session_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM replay_sessions WHERE id = ?")
+            .bind(session_id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+}

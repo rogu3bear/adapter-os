@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { TrainingWizard } from './TrainingWizard';
 import { 
   Plus, 
   Code, 
@@ -66,6 +67,11 @@ import { ResourceMonitor } from './ResourceMonitor';
 import { AdapterStateVisualization } from './AdapterStateVisualization';
 import { AdapterLifecycleManager } from './AdapterLifecycleManager';
 import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
+import { ContentSection, ContentGrid, ContentList } from './ui/content-section';
+import { getVisualHierarchyClasses } from '../utils/visual-hierarchy';
+import { CodeIntelligence } from './CodeIntelligence';
+import { RouterConfigPage } from './RouterConfigPage';
+import { TrainingStreamPage } from './TrainingStreamPage';
 import { DomainAdapterManager } from './DomainAdapterManager';
 
 interface AdaptersProps {
@@ -156,7 +162,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
-  const [activeTab, setActiveTab] = useState('adapters');
+  const [activeTab, setActiveTab] = useState('registry');
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -390,42 +396,52 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     return <div className="text-center p-8">Loading adapters...</div>;
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex-between section-header">
-        <div>
-          <h1 className="section-title">Adapter Management</h1>
-          <p className="section-description">
-            Train, manage, and monitor LoRA adapters for your models
-          </p>
-        </div>
-        <div className="flex-standard">
-          <Button onClick={() => setIsTrainingDialogOpen(true)}>
-            <Brain className="icon-standard mr-2" />
-            Train Adapter
-          </Button>
-          <Button onClick={() => setIsCreateDialogOpen(true)}>
-            <Plus className="icon-standard mr-2" />
-            Register Adapter
-          </Button>
-        </div>
-      </div>
+  const hierarchyClasses = getVisualHierarchyClasses({ level: 'primary', emphasis: 'high' });
 
+  return (
+    <div className={hierarchyClasses.container}>
+      <ContentSection
+        title="Adapter Management"
+        subtitle="Train, manage, and monitor LoRA adapters for your models"
+        level="primary"
+        variant="default"
+        actions={
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setIsTrainingDialogOpen(true)}>
+              <Brain className="h-4 w-4 mr-2" />
+              Train Adapter
+            </Button>
+            <Button onClick={() => setIsCreateDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Register Adapter
+            </Button>
+          </div>
+        }
+      >
+
+      {/* Citation: docs/architecture/MasterPlan.md L16-L17, L46-L71 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="adapters">Adapters</TabsTrigger>
-          <TabsTrigger value="domain-adapters">Domain Adapters</TabsTrigger>
-          <TabsTrigger value="lifecycle">Lifecycle</TabsTrigger>
-          <TabsTrigger value="memory">Memory</TabsTrigger>
-          <TabsTrigger value="state-viz">State Visualization</TabsTrigger>
-          <TabsTrigger value="training">Training Jobs</TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="code-intelligence">Code Intelligence</TabsTrigger>
-          <TabsTrigger value="resources">Resources</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="registry" className="flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            <span className="hidden sm:inline">Registry</span>
+          </TabsTrigger>
+          <TabsTrigger value="training" className="flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            <span className="hidden sm:inline">Training</span>
+          </TabsTrigger>
+          <TabsTrigger value="router" className="flex items-center gap-2">
+            <Target className="h-4 w-4" />
+            <span className="hidden sm:inline">Router Config</span>
+          </TabsTrigger>
+          <TabsTrigger value="code-intel" className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4" />
+            <span className="hidden sm:inline">Code Intelligence</span>
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="adapters" className="form-field">
+        {/* Registry Tab */}
+        <TabsContent value="registry" className="form-field">
           <Card className="card-standard">
             <CardHeader>
               <CardTitle className="flex-center">
@@ -552,74 +568,21 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="domain-adapters" className="space-y-4">
-          <DomainAdapterManager user={user} selectedTenant={selectedTenant} />
+        {/* Training Tab */}
+        <TabsContent value="training" className="space-y-4">
+          <TrainingStreamPage selectedTenant={selectedTenant} />
         </TabsContent>
 
-        <TabsContent value="lifecycle" className="space-y-4">
-          <AdapterLifecycleManager 
-            adapters={adapters}
-            onAdapterUpdate={(adapterId, updates) => {
-              setAdapters(prev => prev.map(adapter => 
-                adapter.adapter_id === adapterId 
-                  ? { ...adapter, ...updates }
-                  : adapter
-              ));
-            }}
-            onAdapterEvict={(adapterId) => {
-              setAdapters(prev => prev.filter(adapter => adapter.adapter_id !== adapterId));
-            }}
-            onAdapterPin={(adapterId, pinned) => {
-              setAdapters(prev => prev.map(adapter => 
-                adapter.adapter_id === adapterId 
-                  ? { ...adapter, pinned }
-                  : adapter
-              ));
-            }}
-            onPolicyUpdate={(category, policy) => {
-              // TODO: Update policy in backend
-              console.log('Policy updated:', category, policy);
-            }}
-          />
+        {/* Router Config Tab */}
+        <TabsContent value="router" className="space-y-4">
+          <RouterConfigPage selectedTenant={selectedTenant} />
         </TabsContent>
 
-        <TabsContent value="memory" className="space-y-4">
-          <AdapterMemoryMonitor 
-            adapters={adapters}
-            totalMemory={8 * 1024 * 1024 * 1024} // 8GB total memory
-            onEvictAdapter={(adapterId) => {
-              setAdapters(prev => prev.filter(adapter => adapter.adapter_id !== adapterId));
-            }}
-            onPinAdapter={(adapterId, pinned) => {
-              setAdapters(prev => prev.map(adapter => 
-                adapter.adapter_id === adapterId 
-                  ? { ...adapter, pinned }
-                  : adapter
-              ));
-            }}
-            onUpdateMemoryLimit={(category, limit) => {
-              // TODO: Update memory limit in backend
-              console.log('Memory limit updated:', category, limit);
-            }}
-          />
+        {/* Code Intelligence Tab */}
+        <TabsContent value="code-intel" className="space-y-4">
+          <CodeIntelligence user={user} selectedTenant={selectedTenant} />
         </TabsContent>
 
-        <TabsContent value="state-viz" className="space-y-4">
-          <AdapterStateVisualization 
-            adapters={adapters.map(adapter => ({
-              adapter_id: adapter.adapter_id,
-              adapter_idx: parseInt(adapter.id),
-              state: adapter.current_state,
-              pinned: adapter.pinned,
-              memory_bytes: adapter.memory_bytes,
-              category: adapter.category,
-              scope: adapter.scope,
-              last_activated: adapter.last_activated,
-              activation_count: adapter.activation_count
-            }))}
-            totalMemory={8 * 1024 * 1024 * 1024} // 8GB total memory
-          />
-        </TabsContent>
 
         <TabsContent value="training" className="space-y-4">
           {selectedTrainingJob ? (
@@ -721,115 +684,19 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </TabsContent>
 
-        <TabsContent value="templates" className="space-y-4">
-          <TrainingTemplates 
-            onTemplateSelect={(template) => {
-              setTrainingConfig({
-                rank: template.rank,
-                alpha: template.alpha,
-                epochs: template.epochs,
-                learning_rate: template.learning_rate,
-                batch_size: template.batch_size,
-                targets: template.targets,
-                category: template.category
-              });
-              setIsTrainingDialogOpen(true);
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="code-intelligence" className="space-y-4">
-          <CodeIntelligenceTraining 
-            onConfigSelect={setTrainingConfig}
-            initialConfig={trainingConfig}
-          />
-        </TabsContent>
-
-        <TabsContent value="resources" className="space-y-4">
-          <ResourceMonitor />
-        </TabsContent>
-
-        <TabsContent value="analytics" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Adapters</CardTitle>
-                <Code className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{adapters.length}</div>
-                <p className="text-xs text-muted-foreground">
-                  +2 from last month
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Active Training</CardTitle>
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {trainingJobs.filter(job => job.status === 'running').length}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Jobs in progress
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Activations</CardTitle>
-                <Target className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {adapters.reduce((sum, adapter) => sum + adapter.activation_count, 0)}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Across all adapters
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Memory Usage</CardTitle>
-                <MemoryStick className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {Math.round(adapters.reduce((sum, adapter) => sum + adapter.memory_bytes, 0) / 1024 / 1024)} MB
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Total allocated
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Training Performance</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                Training performance charts would go here
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {/* Training Dialog */}
       <Dialog open={isTrainingDialogOpen} onOpenChange={setIsTrainingDialogOpen}>
-        <DialogContent className="modal-large">
-          <DialogHeader>
-            <DialogTitle>Train New Adapter</DialogTitle>
-          </DialogHeader>
-          <TrainingWizard onClose={() => setIsTrainingDialogOpen(false)} />
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <TrainingWizard
+            onComplete={(jobId) => {
+              toast.success(`Training job ${jobId} started`);
+              setIsTrainingDialogOpen(false);
+              // Optionally refresh adapters or navigate to training monitor
+            }}
+            onCancel={() => setIsTrainingDialogOpen(false)}
+          />
         </DialogContent>
       </Dialog>
 
@@ -897,6 +764,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </DialogContent>
       </Dialog>
+      </ContentSection>
     </div>
   );
 }
@@ -1117,7 +985,7 @@ function TrainingWizardOriginal({ onClose }: { onClose: () => void }) {
             </Button>
           ) : (
             <Button onClick={() => {
-              // TODO: Start training
+              // Training start - placeholder implementation
               onClose();
             }}>
               Start Training
@@ -1223,7 +1091,7 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
           Cancel
         </Button>
         <Button onClick={() => {
-          // TODO: Register adapter - wire to apiClient.registerAdapter()
+          // Register adapter - placeholder implementation
           toast.info('Adapter registration coming soon');
           onClose();
         }}>

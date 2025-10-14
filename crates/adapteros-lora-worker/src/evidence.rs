@@ -1,11 +1,14 @@
-//! Evidence retrieval module (stub implementation)
+//! Evidence retrieval module with real FTS5 and vector indices
 //!
-//! TODO: Implement full evidence retrieval system with real indices
+//! Provides evidence-grounded retrieval across symbols, tests, docs, and code chunks.
 
+// use adapteros_core::B3Hash; // unused
+use adapteros_lora_rag::{EvidenceIndexManager, EvidenceType as RagEvidenceType};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Evidence request
 #[derive(Debug, Clone)]
@@ -43,7 +46,7 @@ pub struct EvidenceSpan {
 }
 
 /// Evidence type
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum EvidenceType {
     Symbol,
     Test,
@@ -67,155 +70,143 @@ pub struct EvidenceCitation {
     pub rationale: String,
 }
 
-/// Symbol index trait
-pub trait SymbolIndex: Send + Sync {
-    fn search(&self, query: &str) -> Result<Vec<EvidenceSpan>>;
-}
-
-/// Test index trait
-pub trait TestIndex: Send + Sync {
-    fn search(&self, query: &str) -> Result<Vec<EvidenceSpan>>;
-}
-
-/// Doc index trait
-pub trait DocIndex: Send + Sync {
-    fn search(&self, query: &str) -> Result<Vec<EvidenceSpan>>;
-}
-
-/// Code index trait
-pub trait CodeIndex: Send + Sync {
-    fn search(&self, query: &str) -> Result<Vec<EvidenceSpan>>;
-}
-
-/// Framework index trait
-pub trait FrameworkIndex: Send + Sync {
-    fn search(&self, query: &str) -> Result<Vec<EvidenceSpan>>;
-}
-
-/// Mock symbol index
-pub struct MockSymbolIndex;
-
-impl SymbolIndex for MockSymbolIndex {
-    fn search(&self, _query: &str) -> Result<Vec<EvidenceSpan>> {
-        Ok(vec![])
-    }
-}
-
-/// Mock test index
-pub struct MockTestIndex;
-
-impl TestIndex for MockTestIndex {
-    fn search(&self, _query: &str) -> Result<Vec<EvidenceSpan>> {
-        Ok(vec![])
-    }
-}
-
-/// Mock doc index
-pub struct MockDocIndex;
-
-impl DocIndex for MockDocIndex {
-    fn search(&self, _query: &str) -> Result<Vec<EvidenceSpan>> {
-        Ok(vec![])
-    }
-}
-
-/// Mock code index
-pub struct MockCodeIndex;
-
-impl CodeIndex for MockCodeIndex {
-    fn search(&self, _query: &str) -> Result<Vec<EvidenceSpan>> {
-        Ok(vec![])
-    }
-}
-
-/// Mock framework index
-pub struct MockFrameworkIndex;
-
-impl FrameworkIndex for MockFrameworkIndex {
-    fn search(&self, _query: &str) -> Result<Vec<EvidenceSpan>> {
-        Ok(vec![])
-    }
-}
-
-/// Evidence retriever
+/// Evidence retriever with real indices
 pub struct EvidenceRetriever {
-    _rag: adapteros_lora_rag::RagSystem,
-    _symbol_index: Box<dyn SymbolIndex>,
-    _test_index: Box<dyn TestIndex>,
-    _doc_index: Box<dyn DocIndex>,
-    _code_index: Box<dyn CodeIndex>,
-    _framework_index: Box<dyn FrameworkIndex>,
-    _embedding_model: Arc<crate::embeddings::EmbeddingModel>,
-    _tokenizer: Arc<crate::tokenizer::QwenTokenizer>,
+    evidence_manager: Arc<Mutex<EvidenceIndexManager>>,
 }
 
 impl EvidenceRetriever {
-    /// Create new evidence retriever
-    pub fn new(
-        rag: adapteros_lora_rag::RagSystem,
-        symbol_index: Box<dyn SymbolIndex>,
-        test_index: Box<dyn TestIndex>,
-        doc_index: Box<dyn DocIndex>,
-        code_index: Box<dyn CodeIndex>,
-        framework_index: Box<dyn FrameworkIndex>,
-        embedding_model: Arc<crate::embeddings::EmbeddingModel>,
-        tokenizer: Arc<crate::tokenizer::QwenTokenizer>,
-    ) -> Self {
-        Self {
-            _rag: rag,
-            _symbol_index: symbol_index,
-            _test_index: test_index,
-            _doc_index: doc_index,
-            _code_index: code_index,
-            _framework_index: framework_index,
-            _embedding_model: embedding_model,
-            _tokenizer: tokenizer,
+    /// Create new evidence retriever with real indices
+    pub fn new(evidence_manager: Arc<Mutex<EvidenceIndexManager>>) -> Self {
+        Self { evidence_manager }
+    }
+
+    /// Classify query to determine which evidence types to search
+    fn classify_query(&self, query: &str) -> Vec<RagEvidenceType> {
+        let query_lower = query.to_lowercase();
+        let mut types = Vec::new();
+
+        // Check for symbol-related queries
+        if query_lower.contains("function")
+            || query_lower.contains("struct")
+            || query_lower.contains("class")
+            || query_lower.contains("method")
+            || query_lower.contains("trait")
+        {
+            types.push(RagEvidenceType::Symbol);
+        }
+
+        // Check for test-related queries
+        if query_lower.contains("test") || query_lower.contains("spec") {
+            types.push(RagEvidenceType::Test);
+        }
+
+        // Check for documentation queries
+        if query_lower.contains("document")
+            || query_lower.contains("readme")
+            || query_lower.contains("doc")
+        {
+            types.push(RagEvidenceType::Doc);
+        }
+
+        // Always include code search
+        types.push(RagEvidenceType::Code);
+
+        // If no specific type detected, search all types
+        if types.len() == 1 {
+            types = vec![
+                RagEvidenceType::Symbol,
+                RagEvidenceType::Test,
+                RagEvidenceType::Doc,
+                RagEvidenceType::Code,
+            ];
+        }
+
+        types
+    }
+
+    /// Convert RAG EvidenceSpan to Worker EvidenceSpan
+    fn convert_evidence_span(&self, rag_span: adapteros_lora_rag::EvidenceSpan) -> EvidenceSpan {
+        let evidence_type = match rag_span.evidence_type {
+            Some(RagEvidenceType::Symbol) => EvidenceType::Symbol,
+            Some(RagEvidenceType::Test) => EvidenceType::Test,
+            Some(RagEvidenceType::Doc) => EvidenceType::Doc,
+            Some(RagEvidenceType::Code) => EvidenceType::Code,
+            Some(RagEvidenceType::Framework) => EvidenceType::Framework,
+            None => EvidenceType::Code, // Default
+        };
+
+        EvidenceSpan {
+            doc_id: rag_span.doc_id,
+            rev: rag_span.rev,
+            span_hash: rag_span.span_hash.to_hex(),
+            score: rag_span.score,
+            evidence_type,
+            file_path: rag_span.file_path.unwrap_or_default(),
+            start_line: rag_span.start_line.unwrap_or(0),
+            end_line: rag_span.end_line.unwrap_or(0),
+            content: rag_span.text,
+            metadata: rag_span.metadata,
         }
     }
 
-    /// Retrieve patch evidence (stub implementation)
+    /// Retrieve patch evidence using real indices
     pub async fn retrieve_patch_evidence(
-        &mut self,
+        &self,
         request: &EvidenceRequest,
         _tenant_id: &str,
     ) -> Result<EvidenceResult> {
-        // TODO: Implement real evidence retrieval
-        let mock_spans = vec![
-            EvidenceSpan {
-                doc_id: "mock_doc_1".to_string(),
-                rev: "v1".to_string(),
-                span_hash: "hash1".to_string(),
-                score: 0.9,
-                evidence_type: EvidenceType::Symbol,
-                file_path: request
-                    .target_files
-                    .first()
-                    .unwrap_or(&"src/test.rs".to_string())
-                    .clone(),
-                start_line: 10,
-                end_line: 15,
-                content: format!("Mock evidence for: {}", request.query),
-                metadata: HashMap::new(),
-            },
-            EvidenceSpan {
-                doc_id: "mock_doc_2".to_string(),
-                rev: "v1".to_string(),
-                span_hash: "hash2".to_string(),
-                score: 0.8,
-                evidence_type: EvidenceType::Test,
-                file_path: "tests/test.rs".to_string(),
-                start_line: 20,
-                end_line: 25,
-                content: "Mock test evidence".to_string(),
-                metadata: HashMap::new(),
-            },
-        ];
+        let start = std::time::Instant::now();
+
+        // Classify query to determine evidence types to search
+        let evidence_types = self.classify_query(&request.query);
+
+        // Search across all relevant indices
+        let manager = self.evidence_manager.lock().await;
+        let rag_spans = manager
+            .search_evidence(
+                &request.query,
+                &evidence_types,
+                Some(&request.repo_id),
+                request.max_results,
+            )
+            .await?;
+
+        // Convert RAG spans to worker spans
+        let mut spans: Vec<EvidenceSpan> = rag_spans
+            .into_iter()
+            .map(|s| self.convert_evidence_span(s))
+            .collect();
+
+        // Filter by score threshold
+        spans.retain(|span| span.score >= request.min_score);
+
+        // Apply deterministic ordering: (score desc, doc_id asc)
+        // Already done by evidence_manager, but ensure it
+        spans.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.doc_id.cmp(&b.doc_id))
+        });
+
+        let retrieval_time = start.elapsed();
+        let total_found = spans.len();
+
+        // Determine which sources were actually used
+        let mut sources_used: Vec<EvidenceType> = spans
+            .iter()
+            .map(|s| s.evidence_type)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        sources_used.sort_by_key(|t| format!("{:?}", t));
 
         Ok(EvidenceResult {
-            spans: mock_spans,
-            total_found: 2,
-            retrieval_time_ms: 50,
-            sources_used: vec![EvidenceType::Symbol, EvidenceType::Test],
+            spans,
+            total_found,
+            retrieval_time_ms: retrieval_time.as_millis() as u64,
+            sources_used,
         })
     }
 }

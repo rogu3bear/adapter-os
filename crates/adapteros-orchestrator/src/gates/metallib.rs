@@ -1,9 +1,9 @@
 //! Metallib gate: verifies embedded metallib hash matches manifest
 
 use crate::{Gate, OrchestratorConfig};
-use anyhow::{Context, Result};
 use adapteros_core::B3Hash;
 use adapteros_manifest::ManifestV3;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 

@@ -5,18 +5,29 @@
 //! - MUST ensure identical inputs produce identical outputs
 //! - MUST record toolchain version strings and kernel hashes in Plan metadata
 
+use adapteros_core::{AosError, B3Hash, Result};
 use hkdf::Hkdf;
-use adapteros_core::{AosError, Result};
-use rand::rngs::StdRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaCha20Rng;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use zeroize::Zeroize;
+
+/// Global nonce counter for ensuring unique RNG instances
+static NEXT_NONCE: AtomicU64 = AtomicU64::new(0);
 
 /// Deterministic RNG derived from global seed using HKDF
 pub struct DeterministicRng {
-    /// The underlying StdRng seeded deterministically
-    rng: StdRng,
+    /// The underlying ChaCha20Rng seeded deterministically
+    rng: ChaCha20Rng,
     /// Label used for HKDF derivation
     label: String,
+    /// Original seed for re-initialization
+    seed: [u8; 32],
+    /// Step counter for state tracking
+    step_count: u64,
 }
 
 impl DeterministicRng {
@@ -39,20 +50,39 @@ impl DeterministicRng {
         let mut derived_seed = [0u8; 32];
 
         hk.expand(label.as_bytes(), &mut derived_seed)
-            .map_err(|e| AosError::Other(format!("HKDF expansion failed: {}", e)))?;
+            .map_err(|e| AosError::RngError {
+                seed_hash: hex::encode(&seed_global[..8]),
+                label: label.to_string(),
+                counter: 0,
+                message: format!("HKDF expansion failed: {}", e),
+            })?;
 
-        // Seed StdRng with the derived seed
-        let rng = StdRng::from_seed(derived_seed);
+        // Validate HKDF output is exactly 32 bytes
+        assert_eq!(
+            derived_seed.len(),
+            32,
+            "HKDF output must be exactly 32 bytes"
+        );
+
+        // Compute checksum for audit
+        let checksum = B3Hash::hash(&derived_seed);
+
+        // Seed ChaCha20Rng with the derived seed
+        let rng = ChaCha20Rng::from_seed(derived_seed);
 
         tracing::debug!(
             label = label,
-            seed_hash = hex::encode(&derived_seed[..8]),
-            "Initialized deterministic RNG"
+            global_seed = %hex::encode(&seed_global[..8]),
+            derived_seed = %hex::encode(&derived_seed[..8]),
+            checksum = %checksum.to_hex()[..16],
+            "Initialized deterministic RNG with validation"
         );
 
         Ok(Self {
             rng,
             label: label.to_string(),
+            seed: derived_seed,
+            step_count: 0,
         })
     }
 
@@ -62,28 +92,34 @@ impl DeterministicRng {
     }
 
     /// Generate a random u64
+    #[inline(never)]
     pub fn next_u64(&mut self) -> u64 {
+        self.step_count += 1;
         self.rng.next_u64()
     }
 
     /// Generate a random u32
+    #[inline(never)]
     pub fn next_u32(&mut self) -> u32 {
         self.rng.next_u32()
     }
 
     /// Generate a random f32 in [0.0, 1.0)
+    #[inline(never)]
     pub fn next_f32(&mut self) -> f32 {
-        self.rng.next_u32() as f32 / (u32::MAX as f32 + 1.0)
+        std::hint::black_box(self.rng.next_u32()) as f32 / (u32::MAX as f32 + 1.0)
     }
 
     /// Generate a random f64 in [0.0, 1.0)
+    #[inline(never)]
     pub fn next_f64(&mut self) -> f64 {
-        self.rng.next_u64() as f64 / (u64::MAX as f64 + 1.0)
+        std::hint::black_box(self.rng.next_u64()) as f64 / (u64::MAX as f64 + 1.0)
     }
 
     /// Fill a buffer with random bytes
+    #[inline(never)]
     pub fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.rng.fill_bytes(dest);
+        self.rng.fill_bytes(std::hint::black_box(dest));
     }
 
     /// Generate a random value in range [0, n)
@@ -120,35 +156,213 @@ impl RngCore for DeterministicRng {
     }
 }
 
-/// RNG factory for creating domain-specific RNGs
+/// RNG state for serialization/replay
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RngState {
+    /// The seed used to initialize this RNG
+    pub seed: [u8; 32],
+    /// The label for this RNG
+    pub label: String,
+    /// Number of steps taken
+    pub step_count: u64,
+    /// Current nonce value
+    pub nonce: u64,
+}
+
+impl DeterministicRng {
+    /// Serialize RNG state for replay
+    pub fn serialize_state(&self) -> RngState {
+        RngState {
+            seed: [0u8; 32], // Will be reconstructed from context
+            label: self.label.clone(),
+            step_count: self.step_count,
+            nonce: get_global_nonce(),
+        }
+    }
+
+    /// Restore RNG from serialized state
+    pub fn restore_state(state: &RngState, seed: &[u8; 32]) -> Result<Self> {
+        let mut rng = Self::new(seed, &state.label)?;
+
+        // Fast-forward to the correct state by consuming steps
+        for _ in 0..state.step_count {
+            rng.rng.next_u64();
+        }
+        rng.step_count = state.step_count;
+
+        Ok(rng)
+    }
+
+    /// Get the current step count
+    pub fn step_count(&self) -> u64 {
+        self.step_count
+    }
+
+    /// Create a checkpoint at a specific phase
+    pub fn checkpoint(&self, phase: &str, tick: u64) -> RngCheckpoint {
+        RngCheckpoint {
+            timestamp_ticks: tick,
+            phase: phase.to_string(),
+            state: self.serialize_state(),
+        }
+    }
+}
+
+/// RNG checkpoint for mid-inference state capture
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RngCheckpoint {
+    pub timestamp_ticks: u64,
+    pub phase: String,
+    pub state: RngState,
+}
+
+/// Implement Drop to securely zero RNG state
+impl Drop for DeterministicRng {
+    fn drop(&mut self) {
+        // Zero out the seed
+        self.seed.zeroize();
+        tracing::trace!(label = %self.label, "Zeroed RNG state on drop");
+    }
+}
+
+/// Get the global nonce counter value
+pub fn get_global_nonce() -> u64 {
+    NEXT_NONCE.load(Ordering::SeqCst)
+}
+
+/// Set the global nonce counter value (for replay)
+pub fn set_global_nonce(n: u64) {
+    NEXT_NONCE.store(n, Ordering::SeqCst);
+}
+
+/// RNG factory for creating domain-specific RNGs with full entropy isolation
 pub struct RngFactory {
     seed_global: [u8; 32],
+    manifest_hash: B3Hash,
+    adapter_dir: PathBuf,
+    worker_id: u32,
 }
 
 impl RngFactory {
-    /// Create a new RNG factory from global seed
-    pub fn new(seed_global: [u8; 32]) -> Self {
-        Self { seed_global }
+    /// Create a new RNG factory with full context
+    ///
+    /// Per Determinism Ruleset #2: All RNG must incorporate
+    /// manifest_hash + adapter_dir + worker_id + nonce
+    pub fn new(
+        seed_global: [u8; 32],
+        manifest_hash: B3Hash,
+        adapter_dir: PathBuf,
+        worker_id: u32,
+    ) -> Self {
+        Self {
+            seed_global,
+            manifest_hash,
+            adapter_dir,
+            worker_id,
+        }
     }
 
-    /// Create an RNG for router operations
+    /// Create from global seed only (for compatibility)
+    pub fn from_global_seed(seed_global: [u8; 32], worker_id: u32) -> Self {
+        Self {
+            seed_global,
+            manifest_hash: B3Hash::hash(b"default_manifest"),
+            adapter_dir: PathBuf::from("/adapters/default"),
+            worker_id,
+        }
+    }
+
+    /// Create an RNG for router operations with full entropy
     pub fn router_rng(&self) -> Result<DeterministicRng> {
-        DeterministicRng::new(&self.seed_global, "router")
+        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+        let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
+        let seed = adapteros_core::derive_seed_full(
+            &B3Hash::new(self.seed_global),
+            &self.manifest_hash,
+            &adapter_dir_hash,
+            self.worker_id,
+            "router",
+            n,
+        );
+        DeterministicRng::new(
+            &seed,
+            &format!(
+                "router:{}:{}:{}",
+                self.manifest_hash.to_hex()[..8].to_string(),
+                self.worker_id,
+                n
+            ),
+        )
     }
 
-    /// Create an RNG for dropout operations
+    /// Create an RNG for dropout operations with full entropy
     pub fn dropout_rng(&self) -> Result<DeterministicRng> {
-        DeterministicRng::new(&self.seed_global, "dropout")
+        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+        let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
+        let seed = adapteros_core::derive_seed_full(
+            &B3Hash::new(self.seed_global),
+            &self.manifest_hash,
+            &adapter_dir_hash,
+            self.worker_id,
+            "dropout",
+            n,
+        );
+        DeterministicRng::new(
+            &seed,
+            &format!(
+                "dropout:{}:{}:{}",
+                self.manifest_hash.to_hex()[..8].to_string(),
+                self.worker_id,
+                n
+            ),
+        )
     }
 
-    /// Create an RNG for sampling operations
+    /// Create an RNG for sampling operations with full entropy
     pub fn sampling_rng(&self) -> Result<DeterministicRng> {
-        DeterministicRng::new(&self.seed_global, "sampling")
+        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+        let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
+        let seed = adapteros_core::derive_seed_full(
+            &B3Hash::new(self.seed_global),
+            &self.manifest_hash,
+            &adapter_dir_hash,
+            self.worker_id,
+            "sampling",
+            n,
+        );
+        DeterministicRng::new(
+            &seed,
+            &format!(
+                "sampling:{}:{}:{}",
+                self.manifest_hash.to_hex()[..8].to_string(),
+                self.worker_id,
+                n
+            ),
+        )
     }
 
-    /// Create an RNG with custom label
+    /// Create an RNG with custom label and full entropy
     pub fn custom_rng(&self, label: &str) -> Result<DeterministicRng> {
-        DeterministicRng::new(&self.seed_global, label)
+        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+        let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
+        let seed = adapteros_core::derive_seed_full(
+            &B3Hash::new(self.seed_global),
+            &self.manifest_hash,
+            &adapter_dir_hash,
+            self.worker_id,
+            label,
+            n,
+        );
+        DeterministicRng::new(
+            &seed,
+            &format!(
+                "{}:{}:{}:{}",
+                label,
+                self.manifest_hash.to_hex()[..8].to_string(),
+                self.worker_id,
+                n
+            ),
+        )
     }
 }
 
@@ -208,7 +422,7 @@ mod tests {
     #[test]
     fn test_rng_factory() {
         let seed = [42u8; 32];
-        let factory = RngFactory::new(seed);
+        let factory = RngFactory::from_global_seed(seed, 1);
 
         // Create different RNGs from factory
         let mut router_rng1 = factory
@@ -221,8 +435,8 @@ mod tests {
             .dropout_rng()
             .expect("Test RNG creation should succeed");
 
-        // Same type should produce same sequence
-        assert_eq!(router_rng1.next_u64(), router_rng2.next_u64());
+        // Different instances should produce different sequences due to nonce
+        assert_ne!(router_rng1.next_u64(), router_rng2.next_u64());
 
         // Different types should produce different sequences
         let router_val = router_rng1.next_u64();
@@ -272,5 +486,50 @@ mod tests {
         rng2.fill_bytes(&mut buf2);
 
         assert_eq!(buf1, buf2);
+    }
+
+    #[test]
+    fn test_rng_state_serialization() {
+        let seed = [42u8; 32];
+        let mut rng = DeterministicRng::new(&seed, "test").expect("RNG creation should succeed");
+
+        // Generate some random values
+        for _ in 0..10 {
+            rng.next_u64();
+        }
+
+        // Serialize state
+        let state = rng.serialize_state();
+        assert_eq!(state.step_count, 10);
+        assert_eq!(state.label, "test");
+    }
+
+    #[test]
+    fn test_rng_state_restoration() {
+        let seed = [42u8; 32];
+        let mut rng1 = DeterministicRng::new(&seed, "test").expect("RNG creation should succeed");
+
+        // Generate values and serialize
+        let mut values1 = Vec::new();
+        for _ in 0..10 {
+            values1.push(rng1.next_u64());
+        }
+        let state = rng1.serialize_state();
+
+        // Restore and continue
+        let mut rng2 =
+            DeterministicRng::restore_state(&state, &seed).expect("Restoration should succeed");
+        let next1 = rng1.next_u64();
+        let next2 = rng2.next_u64();
+
+        assert_eq!(next1, next2, "Restored RNG should continue from same state");
+    }
+
+    #[test]
+    fn test_global_nonce_persistence() {
+        let initial = get_global_nonce();
+        set_global_nonce(12345);
+        assert_eq!(get_global_nonce(), 12345);
+        set_global_nonce(initial); // Restore for other tests
     }
 }
