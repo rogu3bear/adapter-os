@@ -51,6 +51,7 @@ members = [
     "crates/adapteros-memory",
     "crates/adapteros-lint",
     "crates/adapteros-verify",
+    "crates/adapteros-federation",
     "crates/adapteros-domain",
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
@@ -68,11 +69,16 @@ authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/mplora"
 
+[features]
+default = ["deterministic-only"]
+deterministic-only = []
+experimental-backends = ["dep:pyo3"]
+
 [dependencies]
 # Re-export key crates for integration tests
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
-pyo3 = { workspace = true, features = ["extension-module"] }
+pyo3 = { workspace = true, features = ["extension-module"], optional = true }
 anyhow = "1.0"
 thiserror.workspace = true
 serde.workspace = true
