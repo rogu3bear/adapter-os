@@ -20,9 +20,9 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
       
-      - name: Mirror to mlnavigatorinc/adapteros
+      - name: Mirror to MLnavigatoInc/adapterOS
         run: |
-          git remote add upstream https://github.com/mlnavigatorinc/adapteros.git
+          git remote add upstream https://github.com/MLnavigatoInc/adapterOS.git
           
           # Push current branch
           git push upstream HEAD:main
