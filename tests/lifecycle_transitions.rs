@@ -1,7 +1,7 @@
 //! Tests for adapter lifecycle state transitions
 
-use mplora_lifecycle::{AdapterState, AdapterStateRecord, LifecycleManager};
-use mplora_manifest::Policies;
+use adapteros_lora_lifecycle::{AdapterState, AdapterStateRecord, LifecycleManager};
+use adapteros_manifest::Policies;
 use std::path::PathBuf;
 
 #[test]

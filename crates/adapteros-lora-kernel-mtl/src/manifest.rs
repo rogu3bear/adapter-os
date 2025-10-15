@@ -5,7 +5,7 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::signature::{PublicKey, Signature};
-use adapteros_telemetry::{TelemetryEvent, TelemetryWriter};
+use adapteros_telemetry::{unified_events::TelemetryEventBuilder, TelemetryWriter};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -149,22 +149,21 @@ impl ManifestVerifier {
         success: bool,
     ) -> Result<()> {
         if let Some(telemetry) = &self.telemetry {
-            let event = TelemetryEvent {
-                event_type: "kernel_manifest_verify".to_string(),
-                payload: serde_json::json!({
-                    "kernel_hash": kernel_hash.to_hex(),
-                    "manifest_hash": B3Hash::hash(manifest.kernel_hash.as_bytes()).to_hex(),
-                    "verification_result": if success { "success" } else { "failure" },
-                    "build_timestamp": manifest.build_timestamp,
-                    "toolchain": manifest.toolchain_metadata
-                }),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
-            };
+            let event = TelemetryEventBuilder::new(
+                adapteros_telemetry::EventType::Custom("kernel_manifest_verify".to_string()),
+                adapteros_telemetry::LogLevel::Info,
+                format!("Kernel manifest verification: {}", if success { "success" } else { "failure" })
+            )
+            .metadata(serde_json::json!({
+                "kernel_hash": kernel_hash.to_hex(),
+                "manifest_hash": B3Hash::hash(manifest.kernel_hash.as_bytes()).to_hex(),
+                "verification_result": if success { "success" } else { "failure" },
+                "build_timestamp": manifest.build_timestamp,
+                "toolchain": manifest.toolchain_metadata
+            }))
+            .build();
 
-            telemetry.log("kernel_verification", event)?;
+            telemetry.log_event(event)?;
         }
 
         Ok(())

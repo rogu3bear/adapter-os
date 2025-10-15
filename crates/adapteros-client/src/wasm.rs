@@ -185,7 +185,7 @@ impl CpClient for WasmClient {
         resp.json().await.context("Failed to parse repos")
     }
 
-    async fn list_adapters(&self, tenant_id: String) -> Result<ListAdaptersResponse> {
+    async fn list_adapters_by_tenant(&self, tenant_id: String) -> Result<ListAdaptersResponse> {
         let url = format!("{}/v1/code/adapters?tenant_id={}", self.base_url, tenant_id);
         let resp = Request::get(&url).send().await?;
         resp.json().await.context("Failed to parse adapters")

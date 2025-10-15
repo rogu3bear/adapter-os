@@ -3,123 +3,123 @@
 //! Comprehensive tests for timeout, circuit breaker, resource limiting, and deadlock detection.
 //! Aligns with existing test patterns and policy enforcement requirements.
 
-use mplora_worker::{Worker, InferenceRequest, TimeoutConfig, CircuitBreaker, ResourceLimiter, ResourceLimits};
-use mplora_telemetry::TelemetryWriter;
-use mplora_manifest::ManifestV3;
+use adapteros_lora_worker::{Worker, InferenceRequest, TimeoutConfig, CircuitBreaker, ResourceLimiter, ResourceLimits};
+use adapteros_telemetry::TelemetryWriter;
+use adapteros_manifest::ManifestV3;
 use std::time::Duration;
 use tokio::time::timeout;
 use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig, spawn_deterministic};
 
 /// Create a test worker for testing
-async fn create_test_worker() -> Worker<mplora_kernel_api::MockKernels> {
+async fn create_test_worker() -> Worker<adapteros_lora_kernel_api::MockKernels> {
     // Create a minimal manifest for testing
     let manifest = ManifestV3 {
         schema_version: "v3".to_string(),
         cpid: "test".to_string(),
         plan_id: "test-plan".to_string(),
         adapters: vec![],
-        router: mplora_manifest::RouterConfig {
+        router: adapteros_manifest::RouterConfig {
             k_sparse: 3,
             tau: 1.0,
             entropy_floor: 0.02,
         },
-        policies: mplora_manifest::Policies {
-            egress: mplora_manifest::EgressPolicy {
+        policies: adapteros_manifest::Policies {
+            egress: adapteros_manifest::EgressPolicy {
                 mode: "deny_all".to_string(),
                 serve_requires_pf: true,
                 allow_tcp: false,
                 allow_udp: false,
                 uds_paths: vec!["/var/run/aos/test/*.sock".to_string()],
-                media_import: mplora_manifest::MediaImportPolicy {
+                media_import: adapteros_manifest::MediaImportPolicy {
                     require_signature: true,
                     require_sbom: true,
                 },
             },
-            determinism: mplora_manifest::DeterminismPolicy {
+            determinism: adapteros_manifest::DeterminismPolicy {
                 require_metallib_embed: true,
                 require_kernel_hash_match: true,
                 rng: "hkdf_seeded".to_string(),
                 retrieval_tie_break: vec!["score_desc".to_string(), "doc_id_asc".to_string()],
             },
-            router: mplora_manifest::RouterPolicy {
+            router: adapteros_manifest::RouterPolicy {
                 k_sparse: 3,
                 gate_quant: "q15".to_string(),
                 entropy_floor: 0.02,
                 sample_tokens_full: 128,
             },
-            evidence: mplora_manifest::EvidencePolicy {
+            evidence: adapteros_manifest::EvidencePolicy {
                 require_open_book: true,
                 min_spans: 1,
                 prefer_latest_revision: true,
                 warn_on_superseded: true,
             },
-            refusal: mplora_manifest::RefusalPolicy {
+            refusal: adapteros_manifest::RefusalPolicy {
                 abstain_threshold: 0.55,
                 missing_fields_templates: std::collections::HashMap::new(),
             },
-            numeric: mplora_manifest::NumericPolicy {
+            numeric: adapteros_manifest::NumericPolicy {
                 canonical_units: std::collections::HashMap::new(),
                 max_rounding_error: 0.5,
                 require_units_in_trace: true,
             },
-            rag: mplora_manifest::RagPolicy {
+            rag: adapteros_manifest::RagPolicy {
                 index_scope: "per_tenant".to_string(),
                 doc_tags_required: vec!["doc_id".to_string(), "rev".to_string()],
                 embedding_model_hash: "b3:test".to_string(),
                 topk: 5,
                 order: vec!["score_desc".to_string(), "doc_id_asc".to_string()],
             },
-            isolation: mplora_manifest::IsolationPolicy {
+            isolation: adapteros_manifest::IsolationPolicy {
                 process_model: "per_tenant".to_string(),
                 uds_root: "/var/run/aos/test".to_string(),
                 forbid_shm: true,
-                keys: mplora_manifest::KeysPolicy {
+                keys: adapteros_manifest::KeysPolicy {
                     backend: "secure_enclave".to_string(),
                     require_hardware: true,
                 },
             },
-            telemetry: mplora_manifest::TelemetryPolicy {
+            telemetry: adapteros_manifest::TelemetryPolicy {
                 schema_hash: "b3:test".to_string(),
-                sampling: mplora_manifest::SamplingPolicy {
+                sampling: adapteros_manifest::SamplingPolicy {
                     token: 0.05,
                     router: 1.0,
                     inference: 1.0,
                 },
                 router_full_tokens: 128,
-                bundle: mplora_manifest::BundlePolicy {
+                bundle: adapteros_manifest::BundlePolicy {
                     max_events: 500000,
                     max_bytes: 268435456,
                 },
             },
-            retention: mplora_manifest::RetentionPolicy {
+            retention: adapteros_manifest::RetentionPolicy {
                 keep_bundles_per_cpid: 12,
                 keep_incident_bundles: true,
                 keep_promotion_bundles: true,
                 evict_strategy: "oldest_first_safe".to_string(),
             },
-            performance: mplora_manifest::PerformancePolicy {
+            performance: adapteros_manifest::PerformancePolicy {
                 latency_p95_ms: 24,
                 router_overhead_pct_max: 8,
                 throughput_tokens_per_s_min: 40,
             },
-            memory: mplora_manifest::MemoryPolicy {
+            memory: adapteros_manifest::MemoryPolicy {
                 min_headroom_pct: 15,
                 evict_order: vec!["ephemeral_ttl".to_string(), "cold_lru".to_string()],
                 k_reduce_before_evict: true,
             },
-            artifacts: mplora_manifest::ArtifactsPolicy {
+            artifacts: adapteros_manifest::ArtifactsPolicy {
                 require_signature: true,
                 require_sbom: true,
                 cas_only: true,
             },
-            secrets: mplora_manifest::SecretsPolicy {
+            secrets: adapteros_manifest::SecretsPolicy {
                 env_allowed: vec![],
                 keystore: "secure_enclave".to_string(),
                 rotate_on_promotion: true,
             },
-            build_release: mplora_manifest::BuildReleasePolicy {
+            build_release: adapteros_manifest::BuildReleasePolicy {
                 require_replay_zero_diff: true,
-                hallucination_thresholds: mplora_manifest::HallucinationThresholds {
+                hallucination_thresholds: adapteros_manifest::HallucinationThresholds {
                     arr_min: 0.95,
                     ecs5_min: 0.75,
                     hlr_max: 0.03,
@@ -128,35 +128,35 @@ async fn create_test_worker() -> Worker<mplora_kernel_api::MockKernels> {
                 require_signed_plan: true,
                 require_rollback_plan: true,
             },
-            compliance: mplora_manifest::CompliancePolicy {
+            compliance: adapteros_manifest::CompliancePolicy {
                 control_matrix_hash: "b3:test".to_string(),
                 require_evidence_links: true,
                 require_itar_suite_green: true,
             },
-            incident: mplora_manifest::IncidentPolicy {
+            incident: adapteros_manifest::IncidentPolicy {
                 memory: vec!["drop_ephemeral".to_string(), "reduce_k".to_string()],
                 router_skew: vec!["entropy_floor_on".to_string()],
                 determinism: vec!["freeze_plan".to_string()],
                 violation: vec!["isolate".to_string()],
             },
-            output: mplora_manifest::OutputPolicy {
+            output: adapteros_manifest::OutputPolicy {
                 format: "json".to_string(),
                 require_trace: true,
                 forbidden_topics: vec!["tenant_crossing".to_string()],
             },
-            adapters: mplora_manifest::AdaptersPolicy {
+            adapters: adapteros_manifest::AdaptersPolicy {
                 min_activation_pct: 2.0,
                 min_quality_delta: 0.5,
                 require_registry_admit: true,
             },
         },
-        seeds: mplora_manifest::Seeds {
+        seeds: adapteros_manifest::Seeds {
             global: "test-seed".to_string(),
         },
     };
 
     // Create mock kernels
-    let kernels = mplora_kernel_api::MockKernels::new();
+    let kernels = adapteros_lora_kernel_api::MockKernels::new();
 
     // Create telemetry writer
     let telemetry = TelemetryWriter::new("/tmp/test-telemetry", 1000, 1024 * 1024).unwrap();
@@ -188,7 +188,7 @@ async fn test_circuit_breaker() {
     // Simulate failures
     for _ in 0..3 {
         let result = circuit_breaker.call(async {
-            Err(mplora_core::AosError::Worker("Simulated failure".to_string()))
+            Err(adapteros_core::AosError::Worker("Simulated failure".to_string()))
         }).await;
         assert!(result.is_err());
     }
@@ -288,7 +288,7 @@ async fn test_worker_safety_mechanisms() {
 
 #[tokio::test]
 async fn test_health_monitor() {
-    let health_monitor = mplora_worker::HealthMonitor::new(mplora_worker::HealthConfig::default()).unwrap();
+    let health_monitor = adapteros_lora_worker::HealthMonitor::new(adapteros_lora_worker::HealthConfig::default()).unwrap();
     
     assert!(!health_monitor.is_shutdown_requested());
     assert!(health_monitor.get_uptime().as_secs() < 1);
@@ -299,7 +299,7 @@ async fn test_health_monitor() {
 
 #[tokio::test]
 async fn test_deadlock_detector() {
-    let detector = mplora_worker::DeadlockDetector::new(mplora_worker::DeadlockConfig::default());
+    let detector = adapteros_lora_worker::DeadlockDetector::new(adapteros_lora_worker::DeadlockConfig::default());
     
     assert_eq!(detector.get_deadlock_count(), 0);
     assert!(!detector.is_recovery_in_progress());

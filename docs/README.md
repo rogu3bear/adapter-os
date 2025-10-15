@@ -4,6 +4,14 @@ Welcome to the MPLoRA documentation. This directory contains comprehensive techn
 
 ## Quick Navigation
 
+### 🎓 New to AdapterOS?
+
+- **[Getting Started with Diagrams](GETTING_STARTED_WITH_DIAGRAMS.md)** ⭐ **START HERE**
+  - Plain-language explanation of how everything works
+  - Visual tour with real-world examples
+  - No technical background required
+  - Learn through diagrams and stories
+
 ### 🚀 Getting Started
 - **[Quick Start Guide](QUICKSTART.md)** - Get up and running in 10 minutes
   - Backend setup and configuration
@@ -11,6 +19,25 @@ Welcome to the MPLoRA documentation. This directory contains comprehensive techn
   - Common tasks and troubleshooting
 
 ### 🏗️ Core Architecture
+
+#### **Visual Guides** ⭐
+
+- **[Precision Diagrams](architecture/precision-diagrams.md)** - Code-verified architecture diagrams
+  - Complete system architecture with exact crate names and file paths
+  - Inference pipeline flow with step-by-step code references
+  - Router scoring algorithm with feature weights and Q15 quantization
+  - Memory management system with watchdog and lifecycle
+  - API stack with all routes, handlers, and middleware
+  - Worker architecture with UDS server and safety mechanisms
+
+- **[Diagram Reference Guide](DIAGRAM_REFERENCE.md)** - Quick lookup and navigation
+  - Diagram locations and quick links
+  - Search by topic or role
+  - Diagram maintenance guidelines
+  - FAQ and troubleshooting
+
+#### **System Documentation**
+
 - **[System Architecture](architecture.md)** - High-level system design and component overview
   - Worker architecture and inference pipeline
   - Router and adapter management

@@ -18,7 +18,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  RefreshCw,
   Save,
   Trash2,
   Plus,
@@ -158,10 +157,6 @@ export function Settings({ user, selectedTenant }: SettingsProps) {
                 <Button onClick={() => toast.info('System configuration saved')}>
                   <Save className="h-4 w-4 mr-2" />
                   Save Configuration
-                </Button>
-                <Button variant="outline" onClick={() => toast.info('Configuration refreshed')}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
                 </Button>
               </div>
             </CardContent>

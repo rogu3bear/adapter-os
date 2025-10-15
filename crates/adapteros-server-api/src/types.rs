@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
+// Re-export shared API types
+pub use adapteros_api_types::*;
+
 /// API error response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
@@ -58,82 +61,7 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
-/// Login request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
-}
-
-/// Login response with JWT token
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LoginResponse {
-    pub token: String,
-    pub user_id: String,
-    pub role: String,
-}
-
-/// Create tenant request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateTenantRequest {
-    pub name: String,
-    pub itar_flag: bool,
-}
-
-/// Tenant response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TenantResponse {
-    pub id: String,
-    pub name: String,
-    pub itar_flag: bool,
-    pub created_at: String,
-}
-
-/// Register node request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RegisterNodeRequest {
-    pub hostname: String,
-    pub agent_endpoint: String,
-}
-
-/// Node response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct NodeResponse {
-    pub id: String,
-    pub hostname: String,
-    pub agent_endpoint: String,
-    pub status: String,
-    pub last_seen_at: Option<String>,
-}
-
-/// Node ping response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct NodePingResponse {
-    pub node_id: String,
-    pub status: String,
-    pub latency_ms: f64,
-}
-
-/// Worker info for node details
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct WorkerInfo {
-    pub id: String,
-    pub tenant_id: String,
-    pub plan_id: String,
-    pub status: String,
-}
-
-/// Node details response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct NodeDetailsResponse {
-    pub id: String,
-    pub hostname: String,
-    pub agent_endpoint: String,
-    pub status: String,
-    pub last_seen_at: Option<String>,
-    pub workers: Vec<WorkerInfo>,
-    pub recent_logs: Vec<String>,
-}
+// Auth, Tenant, and Node types are now imported from adapteros-api-types
 
 /// Import model request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -161,12 +89,7 @@ pub struct BaseModelStatusResponse {
     pub updated_at: String,
 }
 
-/// Build plan request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BuildPlanRequest {
-    pub tenant_id: String,
-    pub manifest_hash_b3: String,
-}
+// BuildPlanRequest is now imported from adapteros-api-types
 
 /// Promote CP request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -224,69 +147,8 @@ pub struct JobResponse {
     pub created_at: String,
 }
 
-/// Health check response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct HealthResponse {
-    pub status: String,
-    pub version: String,
-}
-
-/// Inference request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InferRequest {
-    pub prompt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_k: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub require_evidence: Option<bool>,
-}
-
-/// Inference response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InferResponse {
-    pub text: String,
-    pub tokens: Vec<u32>,
-    pub finish_reason: String,
-    pub trace: InferenceTrace,
-}
-
-/// Inference trace for observability
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InferenceTrace {
-    pub adapters_used: Vec<String>,
-    pub router_decisions: Vec<RouterDecision>,
-    pub latency_ms: u64,
-}
-
-/// Router decision at a specific position
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RouterDecision {
-    pub position: usize,
-    pub adapter_ids: Vec<u16>,
-    pub gates: Vec<u16>,
-}
-
-/// Worker response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct WorkerResponse {
-    pub id: String,
-    pub tenant_id: String,
-    pub node_id: String,
-    pub plan_id: String,
-    pub uds_path: String,
-    pub pid: Option<i32>,
-    pub status: String,
-    pub started_at: String,
-    pub last_seen_at: Option<String>,
-}
+// HealthResponse, InferRequest, InferResponse, InferenceTrace, RouterDecision, and WorkerResponse
+// are now imported from adapteros-api-types
 
 /// Rollback CP request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -304,25 +166,7 @@ pub struct RollbackResponse {
     pub rolled_back_at: String,
 }
 
-/// User info response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UserInfoResponse {
-    pub user_id: String,
-    pub email: String,
-    pub role: String,
-}
-
-/// Plan response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PlanResponse {
-    pub id: String,
-    pub tenant_id: String,
-    pub manifest_hash_b3: String,
-    pub kernel_hash_b3: Option<String>,
-    pub layout_hash_b3: Option<String>,
-    pub status: String,
-    pub created_at: String,
-}
+// UserInfoResponse and PlanResponse are now imported from adapteros-api-types
 
 /// Promotion gates response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -731,228 +575,8 @@ pub struct RollbackConfigRequest {
     pub reason: String,
 }
 
-// ===== Adapter Types =====
-
-/// Adapter response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterResponse {
-    pub id: String,
-    pub adapter_id: String,
-    pub name: String,
-    pub hash_b3: String,
-    pub rank: i32,
-    pub tier: i32,
-    pub languages: Vec<String>,
-    pub framework: Option<String>,
-    pub created_at: String,
-    pub stats: Option<AdapterStats>,
-}
-
-/// Adapter statistics
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterStats {
-    pub total_activations: i64,
-    pub selected_count: i64,
-    pub avg_gate_value: f64,
-    pub selection_rate: f64,
-}
-
-/// Register adapter request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RegisterAdapterRequest {
-    pub adapter_id: String,
-    pub name: String,
-    pub hash_b3: String,
-    pub rank: i32,
-    pub tier: i32,
-    pub languages: Vec<String>,
-    pub framework: Option<String>,
-}
-
-/// Adapter activation response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterActivationResponse {
-    pub id: String,
-    pub adapter_id: String,
-    pub request_id: Option<String>,
-    pub gate_value: f64,
-    pub selected: bool,
-    pub created_at: String,
-}
-
-/// Adapter state transition response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterStateResponse {
-    pub adapter_id: String,
-    pub old_state: String,
-    pub new_state: String,
-    pub timestamp: String,
-}
-
-/// Adapter manifest for download
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterManifest {
-    pub adapter_id: String,
-    pub name: String,
-    pub hash_b3: String,
-    pub rank: i32,
-    pub tier: i32,
-    pub framework: Option<String>,
-    pub languages_json: Option<String>,
-    pub category: Option<String>,
-    pub scope: Option<String>,
-    pub framework_id: Option<String>,
-    pub framework_version: Option<String>,
-    pub repo_id: Option<String>,
-    pub commit_sha: Option<String>,
-    pub intent: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Adapter health status
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterHealthResponse {
-    pub adapter_id: String,
-    pub total_activations: i32,
-    pub selected_count: i32,
-    pub avg_gate_value: f64,
-    pub memory_usage_mb: f64,
-    pub policy_violations: Vec<String>,
-    pub recent_activations: Vec<AdapterActivationResponse>,
-}
-
-// ===== Plan Management Types =====
-
-/// Plan details response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PlanDetailsResponse {
-    pub id: String,
-    pub tenant_id: String,
-    pub manifest_hash_b3: String,
-    pub kernel_hash_b3: Option<String>,
-    pub routing_config: serde_json::Value,
-    pub created_at: String,
-}
-
-/// Plan rebuild response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PlanRebuildResponse {
-    pub old_plan_id: String,
-    pub new_plan_id: String,
-    pub diff_summary: String,
-    pub timestamp: String,
-}
-
-/// Compare plans request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ComparePlansRequest {
-    pub plan_id_1: String,
-    pub plan_id_2: String,
-}
-
-/// Plan comparison response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PlanComparisonResponse {
-    pub plan_id_1: String,
-    pub plan_id_2: String,
-    pub differences: Vec<String>,
-    pub identical: bool,
-}
-
-// ===== Repository Types =====
-
-/// Repository response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RepositoryResponse {
-    pub id: String,
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-    pub status: String,
-    pub frameworks: Vec<String>,
-    pub file_count: Option<i64>,
-    pub symbol_count: Option<i64>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Register repository request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RegisterRepositoryRequest {
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-}
-
-/// Trigger scan request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TriggerScanRequest {
-    pub repo_id: String,
-}
-
-/// Scan status response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanStatusResponse {
-    pub repo_id: String,
-    pub status: String,
-    pub progress: Option<f32>,
-    pub message: Option<String>,
-}
-
-// ===== Metrics Types =====
-
-/// Quality metrics response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct QualityMetricsResponse {
-    pub arr: f32,  // Answer Relevance Rate
-    pub ecs5: f32, // Evidence Citation Score @ 5
-    pub hlr: f32,  // Hallucination Rate
-    pub cr: f32,   // Contradiction Rate
-    pub timestamp: String,
-}
-
-/// Adapter metrics response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterMetricsResponse {
-    pub adapters: Vec<AdapterPerformance>,
-}
-
-/// Adapter performance metrics
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AdapterPerformance {
-    pub adapter_id: String,
-    pub name: String,
-    pub activation_rate: f64,
-    pub avg_gate_value: f64,
-    pub total_requests: i64,
-}
-
-/// System metrics response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct SystemMetricsResponse {
-    pub cpu_usage: f32,
-    pub memory_usage: f32,
-    pub active_workers: i32,
-    pub requests_per_second: f32,
-    pub avg_latency_ms: f32,
-    pub disk_usage: f32,
-    pub network_bandwidth: f32,
-    pub gpu_utilization: f32,
-    pub uptime_seconds: u64,
-    pub process_count: usize,
-    pub load_average: LoadAverageResponse,
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LoadAverageResponse {
-    pub load_1min: f64,
-    pub load_5min: f64,
-    pub load_15min: f64,
-}
+// Adapter types, Plan management types, Repository types, and Metrics types
+// are now imported from adapteros-api-types
 
 // ===== Commit Types =====
 
@@ -1401,20 +1025,7 @@ pub struct AssignAdaptersResponse {
     pub assigned_at: String,
 }
 
-/// Tenant usage response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TenantUsageResponse {
-    pub tenant_id: String,
-    pub cpu_usage_pct: f64,
-    pub gpu_usage_pct: f64,
-    pub memory_used_gb: f64,
-    pub memory_total_gb: f64,
-    pub inference_count_24h: i64,
-    pub active_adapters_count: i32,
-    // Optional legacy fields
-    pub avg_latency_ms: Option<f64>,
-    pub estimated_cost_usd: Option<f64>,
-}
+// TenantUsageResponse is now imported from adapteros-api-types
 
 /// Export telemetry bundle response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1623,239 +1234,64 @@ pub struct DiscoveryStreamQuery {
 }
 
 // ============================================================================
-// Training API Types
+// Training API Types - Type definitions are imported from adapteros-api-types
+// Helper functions for orchestrator integration (can't use From trait due to orphan rules)
 // ============================================================================
 
-/// Training configuration request
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct TrainingConfigRequest {
-    pub rank: u32,
-    pub alpha: u32,
-    pub targets: Vec<String>,
-    pub epochs: u32,
-    pub learning_rate: f32,
-    pub batch_size: u32,
-    pub warmup_steps: Option<u32>,
-    pub max_seq_length: Option<u32>,
-    pub gradient_accumulation_steps: Option<u32>,
-}
-
-impl From<TrainingConfigRequest> for adapteros_orchestrator::TrainingConfig {
-    fn from(req: TrainingConfigRequest) -> Self {
-        Self {
-            rank: req.rank,
-            alpha: req.alpha,
-            targets: req.targets,
-            epochs: req.epochs,
-            learning_rate: req.learning_rate,
-            batch_size: req.batch_size,
-            warmup_steps: req.warmup_steps,
-            max_seq_length: req.max_seq_length,
-            gradient_accumulation_steps: req.gradient_accumulation_steps,
-        }
+/// Convert TrainingConfigRequest to orchestrator TrainingConfig
+pub fn training_config_from_request(req: TrainingConfigRequest) -> adapteros_orchestrator::TrainingConfig {
+    adapteros_orchestrator::TrainingConfig {
+        rank: req.rank,
+        alpha: req.alpha,
+        targets: req.targets,
+        epochs: req.epochs,
+        learning_rate: req.learning_rate,
+        batch_size: req.batch_size,
+        warmup_steps: req.warmup_steps,
+        max_seq_length: req.max_seq_length,
+        gradient_accumulation_steps: req.gradient_accumulation_steps,
     }
 }
 
-/// Start training request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct StartTrainingRequest {
-    pub adapter_name: String,
-    pub config: TrainingConfigRequest,
-    pub template_id: Option<String>,
-    pub repo_id: Option<String>,
-}
-
-/// Training job response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TrainingJobResponse {
-    pub id: String,
-    pub adapter_name: String,
-    pub template_id: Option<String>,
-    pub repo_id: Option<String>,
-    pub status: String,
-    pub progress_pct: f32,
-    pub current_epoch: u32,
-    pub total_epochs: u32,
-    pub current_loss: f32,
-    pub learning_rate: f32,
-    pub tokens_per_second: f32,
-    pub created_at: String,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub error_message: Option<String>,
-}
-
-impl From<adapteros_orchestrator::TrainingJob> for TrainingJobResponse {
-    fn from(job: adapteros_orchestrator::TrainingJob) -> Self {
-        Self {
-            id: job.id,
-            adapter_name: job.adapter_name,
-            template_id: job.template_id,
-            repo_id: job.repo_id,
-            status: format!("{:?}", job.status).to_lowercase(),
-            progress_pct: job.progress_pct,
-            current_epoch: job.current_epoch,
-            total_epochs: job.total_epochs,
-            current_loss: job.current_loss,
-            learning_rate: job.learning_rate,
-            tokens_per_second: job.tokens_per_second,
-            created_at: job.created_at,
-            started_at: job.started_at,
-            completed_at: job.completed_at,
-            error_message: job.error_message,
-        }
+/// Convert orchestrator TrainingJob to TrainingJobResponse
+pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> TrainingJobResponse {
+    TrainingJobResponse {
+        id: job.id,
+        adapter_name: job.adapter_name,
+        template_id: job.template_id,
+        repo_id: job.repo_id,
+        status: format!("{:?}", job.status).to_lowercase(),
+        progress_pct: job.progress_pct,
+        current_epoch: job.current_epoch,
+        total_epochs: job.total_epochs,
+        current_loss: job.current_loss,
+        learning_rate: job.learning_rate,
+        tokens_per_second: job.tokens_per_second,
+        created_at: job.created_at,
+        started_at: job.started_at,
+        completed_at: job.completed_at,
+        error_message: job.error_message,
+        estimated_completion: None, // TODO: Calculate from training progress
     }
 }
 
-/// Training metrics response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TrainingMetricsResponse {
-    pub loss: f32,
-    pub tokens_per_second: f32,
-    pub learning_rate: f32,
-    pub current_epoch: u32,
-    pub total_epochs: u32,
-    pub progress_pct: f32,
-}
-
-/// Training template response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TrainingTemplateResponse {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub category: String,
-    pub rank: u32,
-    pub alpha: u32,
-    pub targets: Vec<String>,
-    pub epochs: u32,
-    pub learning_rate: f32,
-    pub batch_size: u32,
-}
-
-impl From<adapteros_orchestrator::TrainingTemplate> for TrainingTemplateResponse {
-    fn from(template: adapteros_orchestrator::TrainingTemplate) -> Self {
-        Self {
-            id: template.id,
-            name: template.name,
-            description: template.description,
-            category: template.category,
-            rank: template.config.rank,
-            alpha: template.config.alpha,
-            targets: template.config.targets,
-            epochs: template.config.epochs,
-            learning_rate: template.config.learning_rate,
-            batch_size: template.config.batch_size,
-        }
+/// Convert orchestrator TrainingTemplate to TrainingTemplateResponse
+pub fn training_template_to_response(template: adapteros_orchestrator::TrainingTemplate) -> TrainingTemplateResponse {
+    TrainingTemplateResponse {
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        category: template.category,
+        rank: template.config.rank,
+        alpha: template.config.alpha,
+        targets: template.config.targets,
+        epochs: template.config.epochs,
+        learning_rate: template.config.learning_rate,
+        batch_size: template.config.batch_size,
     }
 }
 
-// Domain Adapter Types
-
-/// Domain adapter response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct DomainAdapterResponse {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub domain_type: String,
-    pub model: String,
-    pub hash: String,
-    pub input_format: String,
-    pub output_format: String,
-    pub config: HashMap<String, serde_json::Value>,
-    pub status: String,
-    pub epsilon_stats: Option<EpsilonStatsResponse>,
-    pub last_execution: Option<String>,
-    pub execution_count: u64,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Epsilon statistics response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EpsilonStatsResponse {
-    pub mean_error: f64,
-    pub max_error: f64,
-    pub error_count: u64,
-    pub last_updated: String,
-}
-
-/// Create domain adapter request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateDomainAdapterRequest {
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub domain_type: String,
-    pub model: String,
-    pub hash: String,
-    pub input_format: String,
-    pub output_format: String,
-    pub config: HashMap<String, serde_json::Value>,
-}
-
-/// Test domain adapter request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TestDomainAdapterRequest {
-    pub adapter_id: String,
-    pub input_data: String,
-    pub expected_output: Option<String>,
-    pub iterations: Option<u32>,
-}
-
-/// Test domain adapter response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TestDomainAdapterResponse {
-    pub test_id: String,
-    pub adapter_id: String,
-    pub input_data: String,
-    pub actual_output: String,
-    pub expected_output: Option<String>,
-    pub epsilon: Option<f64>,
-    pub passed: bool,
-    pub iterations: u32,
-    pub execution_time_ms: u64,
-    pub executed_at: String,
-}
-
-/// Domain adapter manifest response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct DomainAdapterManifestResponse {
-    pub adapter_id: String,
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub domain_type: String,
-    pub model: String,
-    pub hash: String,
-    pub input_format: String,
-    pub output_format: String,
-    pub config: HashMap<String, serde_json::Value>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Load domain adapter request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LoadDomainAdapterRequest {
-    pub adapter_id: String,
-    pub executor_config: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Domain adapter execution response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct DomainAdapterExecutionResponse {
-    pub execution_id: String,
-    pub adapter_id: String,
-    pub input_hash: String,
-    pub output_hash: String,
-    pub epsilon: f64,
-    pub execution_time_ms: u64,
-    pub trace_events: Vec<String>,
-    pub executed_at: String,
-}
+// Domain Adapter types are now imported from adapteros-api-types
 
 // ===== Advanced Process Monitoring and Alerting Types =====
 

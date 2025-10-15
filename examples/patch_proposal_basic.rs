@@ -3,10 +3,10 @@
 //! This example demonstrates the basic usage of the patch proposal system
 //! for generating code patches with evidence citations and policy validation.
 
-use mplora_kernel_mtl::MetalKernels;
-use mplora_manifest::Policies;
-use mplora_policy::PolicyEngine;
-use mplora_worker::{
+use adapteros_lora_kernel_mtl::MetalKernels;
+use adapteros_manifest::Policies;
+use adapteros_policy::PolicyEngine;
+use adapteros_lora_worker::{
     evidence::{EvidenceRequest, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchTelemetry},
@@ -21,16 +21,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("🚀 AdapterOS Patch Proposal System - Basic Example");
+    println!("[ROCKET] AdapterOS Patch Proposal System - Basic Example");
     println!("==================================================");
 
     // 1. Create evidence spans for the patch proposal
     let evidence_spans = create_evidence_spans();
-    println!("✅ Created {} evidence spans", evidence_spans.len());
+    println!("[CHECK] Created {} evidence spans", evidence_spans.len());
 
     // 2. Generate patch proposal
     let proposal = generate_patch_proposal(evidence_spans).await?;
-    println!("✅ Generated patch proposal: {}", proposal.proposal_id);
+    println!("[CHECK] Generated patch proposal: {}", proposal.proposal_id);
     println!("   Confidence: {:.3}", proposal.confidence);
     println!("   Files: {}", proposal.patches.len());
     println!("   Citations: {}", proposal.citations.len());
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Validate patch against policy
     let validation_result = validate_patch(&proposal.patches).await?;
     println!(
-        "✅ Patch validation: {}",
+        "[CHECK] Patch validation: {}",
         if validation_result.is_valid {
             "PASSED"
         } else {
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 5. Display patch details
     display_patch_details(&proposal);
 
-    println!("\n🎉 Patch proposal example completed successfully!");
+    println!("\n[SUCCESS] Patch proposal example completed successfully!");
     Ok(())
 }
 
@@ -115,7 +115,7 @@ fn create_evidence_spans() -> Vec<EvidenceSpan> {
 
 async fn generate_patch_proposal(
     evidence_spans: Vec<EvidenceSpan>,
-) -> Result<mplora_worker::patch_generator::PatchProposal, Box<dyn std::error::Error>> {
+) -> Result<adapteros_lora_worker::patch_generator::PatchProposal, Box<dyn std::error::Error>> {
     let request = PatchGenerationRequest {
         repo_id: "auth_service".to_string(),
         commit_sha: Some("def456".to_string()),
@@ -128,8 +128,8 @@ async fn generate_patch_proposal(
 
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     let proposal = generator.generate_patch(request).await?;
@@ -137,8 +137,8 @@ async fn generate_patch_proposal(
 }
 
 async fn validate_patch(
-    patches: &[mplora_worker::patch_generator::FilePatch],
-) -> Result<mplora_worker::patch_validator::ValidationResult, Box<dyn std::error::Error>> {
+    patches: &[adapteros_lora_worker::patch_generator::FilePatch],
+) -> Result<adapteros_lora_worker::patch_validator::ValidationResult, Box<dyn std::error::Error>> {
     let policy = CodePolicy::default();
     let policies = create_mock_policies();
     let policy_engine = PolicyEngine::new(policies);
@@ -149,8 +149,8 @@ async fn validate_patch(
 }
 
 fn create_mock_policies() -> Policies {
-    use mplora_core::B3Hash;
-    use mplora_manifest::{
+    use adapteros_core::B3Hash;
+    use adapteros_manifest::{
         ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
         MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
     };
@@ -216,7 +216,7 @@ fn create_mock_policies() -> Policies {
 
 async fn log_telemetry(
     telemetry: &mut PatchTelemetry,
-    proposal: &mplora_worker::patch_generator::PatchProposal,
+    proposal: &adapteros_lora_worker::patch_generator::PatchProposal,
 ) {
     let evidence_metrics = EvidenceMetrics {
         query: "JWT authentication middleware".to_string(),
@@ -237,7 +237,7 @@ async fn log_telemetry(
         Some(&proposal.proposal_id),
     );
 
-    let generation_metrics = mplora_worker::patch_telemetry::PatchGenerationMetrics {
+    let generation_metrics = adapteros_lora_worker::patch_telemetry::PatchGenerationMetrics {
         proposal_id: proposal.proposal_id.clone(),
         description: proposal.rationale.clone(),
         target_files: vec!["src/middleware/mod.rs".to_string()],
@@ -251,14 +251,14 @@ async fn log_telemetry(
     telemetry.log_patch_generation("example_tenant", generation_metrics);
 }
 
-fn display_patch_details(proposal: &mplora_worker::patch_generator::PatchProposal) {
-    println!("\n📋 Patch Proposal Details");
+fn display_patch_details(proposal: &adapteros_lora_worker::patch_generator::PatchProposal) {
+    println!("\n[CLIPBOARD] Patch Proposal Details");
     println!("=========================");
     println!("Proposal ID: {}", proposal.proposal_id);
     println!("Rationale: {}", proposal.rationale);
     println!("Confidence: {:.3}", proposal.confidence);
 
-    println!("\n📁 Files Modified:");
+    println!("\n[FILE] Files Modified:");
     for (i, patch) in proposal.patches.iter().enumerate() {
         println!(
             "  {}. {} ({} lines)",
@@ -279,7 +279,7 @@ fn display_patch_details(proposal: &mplora_worker::patch_generator::PatchProposa
         }
     }
 
-    println!("\n📚 Citations:");
+    println!("\n[BOOK] Citations:");
     for (i, citation) in proposal.citations.iter().enumerate() {
         println!(
             "  {}. {} (score: {:.3})",

@@ -6,7 +6,7 @@
 //! - Air-gap export/import cycle
 //! - Hash verification
 
-use mplora_artifacts::{CasStore, ReplicationManifest, create_manifest, verify_replication};
+use adapteros_artifacts::{CasStore, ReplicationManifest, create_manifest, verify_replication};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -72,11 +72,11 @@ fn test_air_gap_export_import_cycle() {
     let export_path = temp_dir.path().join("export_bundle.json");
     
     // Export
-    let exported_path = mplora_artifacts::export_air_gap(&cas_store, &adapter_ids, &export_path).unwrap();
+    let exported_path = adapteros_artifacts::export_air_gap(&cas_store, &adapter_ids, &export_path).unwrap();
     assert!(exported_path.exists());
     
     // Import
-    let result = mplora_artifacts::import_air_gap(&cas_store, &exported_path).unwrap();
+    let result = adapteros_artifacts::import_air_gap(&cas_store, &exported_path).unwrap();
     
     assert_eq!(result.artifacts_transferred, 2);
     assert!(result.verified);
@@ -139,9 +139,9 @@ fn test_cas_equality_after_replication() {
     let manifest = create_manifest(&cas_store1, &adapter_ids, "cas_test".to_string()).unwrap();
     
     // Simulate replication to target
-    let result = mplora_artifacts::import_air_gap(&cas_store2, &temp_dir1.path().join("export.json")).unwrap_or_else(|_| {
+    let result = adapteros_artifacts::import_air_gap(&cas_store2, &temp_dir1.path().join("export.json")).unwrap_or_else(|_| {
         // Mock result if import fails
-        mplora_artifacts::ReplicationResult {
+        adapteros_artifacts::ReplicationResult {
             session_id: "mock".to_string(),
             artifacts_transferred: adapter_ids.len(),
             bytes_transferred: manifest.total_bytes,

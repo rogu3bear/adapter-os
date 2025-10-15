@@ -8,9 +8,9 @@
 //!
 //! Run with: cargo test --test policy_gates -- --ignored
 
-use mplora_core::{AosError, Result};
-use mplora_policy::{PolicyEngine, RefusalResponse};
-use mplora_rag::EvidenceSpan;
+use adapteros_core::{AosError, Result};
+use adapteros_policy::{PolicyEngine, RefusalResponse};
+use adapteros_lora_rag::EvidenceSpan;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

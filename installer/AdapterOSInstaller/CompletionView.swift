@@ -97,17 +97,23 @@ struct CompletionView: View {
                         NextStepCard(
                             number: 1,
                             title: "Start the Control Plane",
-                            command: "./target/release/aos-cp --config configs/cp.toml"
+                            command: "./target/release/adapteros-server --config configs/cp.toml"
                         )
                         
                         NextStepCard(
                             number: 2,
                             title: "Run Your First Inference",
-                            command: "cargo run --bin aosctl serve --tenant default --plan qwen7b --socket /var/run/aos/default/aos.sock"
+                            command: "./target/release/aosctl serve --tenant default --plan qwen7b"
                         )
                         
                         NextStepCard(
                             number: 3,
+                            title: "Test Inference API",
+                            command: "curl -X POST http://localhost:8080/api/v1/infer -H 'Content-Type: application/json' -d '{\"prompt\": \"Hello, world!\", \"max_tokens\": 50}'"
+                        )
+                        
+                        NextStepCard(
+                            number: 4,
                             title: "Learn More",
                             command: "See docs/architecture.md for detailed documentation"
                         )
@@ -171,10 +177,15 @@ struct CompletionView: View {
     private func copyNextSteps() {
         let commands = """
         # Start the Control Plane
-        ./target/release/aos-cp --config configs/cp.toml
+        ./target/release/adapteros-server --config configs/cp.toml
         
         # Run Your First Inference
-        cargo run --bin aosctl serve --tenant default --plan qwen7b --socket /var/run/aos/default/aos.sock
+        ./target/release/aosctl serve --tenant default --plan qwen7b
+        
+        # Test Inference API
+        curl -X POST http://localhost:8080/api/v1/infer \\
+          -H 'Content-Type: application/json' \\
+          -d '{"prompt": "Hello, world!", "max_tokens": 50}'
         """
         
         NSPasteboard.general.clearContents()

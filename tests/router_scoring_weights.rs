@@ -1,6 +1,6 @@
 //! Test router weighted scoring
 
-use mplora_router::{CodeFeatures, Router, RouterWeights};
+use adapteros_lora_router::{CodeFeatures, Router, RouterWeights};
 
 #[test]
 fn test_weighted_scoring_influences_selection() {

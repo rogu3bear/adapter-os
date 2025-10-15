@@ -5,7 +5,7 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { Shield, Plus, CheckCircle, MoreHorizontal, FileSignature, GitCompare, Download, Edit } from 'lucide-react';
+import { Shield, Plus, CheckCircle, MoreHorizontal, FileSignature, GitCompare, Download, Edit, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '../api/types';
@@ -14,7 +14,7 @@ import { PolicyEditor } from './PolicyEditor';
 import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
-import { CheckCircle, FileText } from 'lucide-react';
+import { logger } from '../utils/logger';
 
 interface PoliciesProps {
   user: User;
@@ -42,7 +42,13 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
       const data = await apiClient.listPolicies();
       setPolicies(data);
     } catch (err) {
-      console.error('Failed to fetch policies:', err);
+      // Replace: console.error('Failed to fetch policies:', err);
+      logger.error('Failed to fetch policies', {
+        component: 'Policies',
+        operation: 'fetchPolicies',
+        tenantId: selectedTenant,
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
     } finally {
       setLoading(false);
     }
@@ -57,7 +63,14 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
       toast.success(`Policy ${policy.cpid} signed successfully`);
     } catch (err) {
       toast.error('Failed to sign policy');
-      console.error(err);
+      // Replace: console.error(err);
+      logger.error('Failed to sign policy', {
+        component: 'Policies',
+        operation: 'signPolicy',
+        policyId: policy.cpid,
+        tenantId: selectedTenant,
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
     }
   };
 
@@ -72,7 +85,15 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
       toast.success('Policy comparison complete');
     } catch (err) {
       toast.error('Failed to compare policies');
-      console.error(err);
+      // Replace: console.error(err);
+      logger.error('Failed to compare policies', {
+        component: 'Policies',
+        operation: 'comparePolicies',
+        policyId1: selectedPolicy.cpid,
+        policyId2: compareCpid2,
+        tenantId: selectedTenant,
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
     }
   };
 
@@ -92,7 +113,14 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
       toast.success(`Policy ${policy.cpid} exported`);
     } catch (err) {
       toast.error('Failed to export policy');
-      console.error(err);
+      // Replace: console.error(err);
+      logger.error('Failed to export policy', {
+        component: 'Policies',
+        operation: 'exportPolicy',
+        policyId: policy.cpid,
+        tenantId: selectedTenant,
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
     }
   };
 
@@ -100,9 +128,9 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
     return <div className="text-center p-8">Loading policies...</div>;
   }
 
-  // Citation: crates/adapteros-policy/src/packs/mod.rs L1-L56
+  // Citation: CLAUDE.md L151-L172 - 20 policy packs enforced by mplora-policy
   const policyTabs = [
-    { id: 'packs', label: 'Policy Packs', icon: Shield, description: '22 policy packs enforcement' },
+    { id: 'packs', label: 'Policy Packs', icon: Shield, description: '20 policy packs enforcement' },
     { id: 'compliance', label: 'Compliance', icon: CheckCircle, description: 'Compliance dashboard' },
     { id: 'audit', label: 'Audit Trail', icon: FileText, description: 'Audit trail visualization' }
   ];
@@ -309,6 +337,7 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
 
         {/* Compliance Tab */}
         <TabsContent value="compliance" className="space-y-4">
@@ -327,7 +356,7 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-muted-foreground">Policy Packs</p>
-                          <p className="text-2xl font-bold text-green-600">22</p>
+                          <p className="text-2xl font-bold text-green-600">20</p>
                         </div>
                         <CheckCircle className="h-8 w-8 text-green-500" />
                       </div>
@@ -359,7 +388,7 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
                 <Alert>
                   <CheckCircle className="h-4 w-4" />
                   <AlertDescription>
-                    All 22 policy packs are active and compliant. System meets security requirements.
+                    All 20 policy packs are active and compliant. System meets security requirements.
                   </AlertDescription>
                 </Alert>
               </div>

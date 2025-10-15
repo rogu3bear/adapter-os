@@ -1,6 +1,6 @@
 //! Test telemetry bundle rotation and signing
 
-use mplora_telemetry::BundleWriter;
+use adapteros_telemetry::BundleWriter;
 use tempfile::TempDir;
 
 #[test]

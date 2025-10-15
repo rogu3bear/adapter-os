@@ -6,7 +6,7 @@ AdapterOS (alpha-v0.01-1) is a Rust-based ML inference engine optimized for Appl
 
 ---
 
-## 🎯 What is AdapterOS?
+## [TARGET] What is AdapterOS?
 
 AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 

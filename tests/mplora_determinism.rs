@@ -113,7 +113,7 @@ fn test_mplora_config_validation() -> Result<()> {
 
 /// Test MPLoRA policy compliance
 #[test]
-fn test_mplora_policy_compliance() -> Result<()> {
+fn test_adapteros_policy_compliance() -> Result<()> {
     let policy = MploraPolicy {
         orthogonal_constraints_required: true,
         similarity_threshold_max: 0.8,
@@ -328,15 +328,15 @@ fn test_mplora_feature_vector_extension() -> Result<()> {
 
 /// Test MPLoRA policy pack integration
 #[test]
-fn test_mplora_policy_pack_integration() -> Result<()> {
+fn test_adapteros_policy_pack_integration() -> Result<()> {
     use adapteros_policy::PolicyId;
     
     // Test MPLoRA policy ID
-    let mplora_policy_id = PolicyId::Mplora;
-    assert_eq!(mplora_policy_id.name(), "MPLoRA");
-    assert_eq!(mplora_policy_id.description(), "Orthogonal multi-path LoRA constraints enforcement with shared downsample validation");
-    assert_eq!(mplora_policy_id.enforcement_point(), "adapteros-router, adapteros-kernel-mtl");
-    assert!(mplora_policy_id.is_implemented());
+    let adapteros_policy_id = PolicyId::Mplora;
+    assert_eq!(adapteros_policy_id.name(), "MPLoRA");
+    assert_eq!(adapteros_policy_id.description(), "Orthogonal multi-path LoRA constraints enforcement with shared downsample validation");
+    assert_eq!(adapteros_policy_id.enforcement_point(), "adapteros-router, adapteros-kernel-mtl");
+    assert!(adapteros_policy_id.is_implemented());
     
     // Test policy pack count
     let all_policies = PolicyId::all();

@@ -343,6 +343,39 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              4. Adjust quality threshold if appropriate",
             docs = ["docs/architecture.md"]
         ),
+        error_code!(
+            "E6005",
+            "Adapters/MPLoRA",
+            "Adapter Socket Connection Failed",
+            "Cannot connect to worker socket for adapter operations.",
+            "1. Check if worker is running: aosctl serve status\n\
+             2. Start worker if needed: aosctl serve start\n\
+             3. Verify socket path: ./var/run/aos/<tenant>/worker.sock\n\
+             4. Check tenant isolation and permissions",
+            docs = ["crates/adapteros-client/"]
+        ),
+        error_code!(
+            "E6006",
+            "Adapters/MPLoRA",
+            "Invalid Adapter ID Format",
+            "Adapter ID contains invalid characters or exceeds length limit.",
+            "1. Use only alphanumeric characters, hyphens, and underscores\n\
+             2. Keep adapter ID under 64 characters\n\
+             3. Avoid special characters and spaces\n\
+             4. Examples: 'python-general', 'adapter_2', 'rust-helper'",
+            docs = ["crates/adapteros-cli/src/commands/adapter.rs"]
+        ),
+        error_code!(
+            "E6007",
+            "Adapters/MPLoRA",
+            "Adapter Command Failed",
+            "Adapter lifecycle command (promote/demote/pin/unpin) failed.",
+            "1. Check adapter exists: aosctl adapter list\n\
+             2. Verify adapter is in correct state for operation\n\
+             3. Check worker logs for detailed error\n\
+             4. Ensure adapter is not locked or in use",
+            docs = ["crates/adapteros-lora-worker/src/adapter_hotswap.rs"]
+        ),
         // E7xxx: Node/Cluster Problems
         error_code!(
             "E7001",

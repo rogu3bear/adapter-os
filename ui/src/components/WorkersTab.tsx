@@ -55,8 +55,8 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
 
   useEffect(() => {
     fetchWorkers();
-    // Poll every 5 seconds
-    const interval = setInterval(fetchWorkers, 5000);
+    // Poll every 1 second for instant updates
+    const interval = setInterval(fetchWorkers, 1000);
     return () => clearInterval(interval);
   }, [selectedTenant]);
 

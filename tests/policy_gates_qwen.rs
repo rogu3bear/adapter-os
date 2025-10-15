@@ -1,9 +1,9 @@
 //! Policy gates acceptance tests for Qwen integration
 
-use mplora_core::{B3Hash, CPID};
-use mplora_chat::{ChatMessage, ChatTemplateProcessor, ChatTemplate, SpecialTokens};
-use mplora_plan::{ModelLoader, GqaConfig, RopeConfig};
-use mplora_manifest::{ManifestV3, Base, Adapter, AdapterTier, RouterCfg, TelemetryCfg, SamplingCfg, BundleCfg, Policies, AccessCfg, Seeds};
+use adapteros_core::{B3Hash, CPID};
+use adapteros_chat::{ChatMessage, ChatTemplateProcessor, ChatTemplate, SpecialTokens};
+use adapteros_lora_plan::{ModelLoader, GqaConfig, RopeConfig};
+use adapteros_manifest::{ManifestV3, Base, Adapter, AdapterTier, RouterCfg, TelemetryCfg, SamplingCfg, BundleCfg, Policies, AccessCfg, Seeds};
 use tempfile::tempdir;
 use std::path::PathBuf;
 

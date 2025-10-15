@@ -1,10 +1,16 @@
 import { useEffect, useState, useRef } from 'react';
 import apiClient from '../api/client';
 
-export interface UseSSEOptions {
+//! Strongly typed SSE hook options
+//! 
+//! # Citations
+//! - TypeScript best practices: Avoid `any` types for type safety
+//! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions"
+
+export interface UseSSEOptions<T = unknown> {
   enabled?: boolean;
   onError?: (error: Event) => void;
-  onMessage?: (data: any) => void;
+  onMessage?: (data: T) => void;
 }
 
 /**
@@ -13,9 +19,9 @@ export interface UseSSEOptions {
  * @param options - Configuration options
  * @returns The latest data received from the SSE stream
  */
-export function useSSE<T = any>(
+export function useSSE<T = unknown>(
   endpoint: string,
-  options: UseSSEOptions = {}
+  options: UseSSEOptions<T> = {}
 ): { data: T | null; error: string | null; connected: boolean } {
   const { enabled = true, onError, onMessage } = options;
   const [data, setData] = useState<T | null>(null);
@@ -29,11 +35,15 @@ export function useSSE<T = any>(
     }
 
     // Construct the full URL
-    const baseUrl = (import.meta as any).env?.VITE_API_URL || '/api';
-    const url = `${baseUrl}${endpoint}`;
-    
-    // Note: EventSource doesn't support custom headers
-    // SSE endpoints are protected by cookie-based session auth from the initial page load
+    const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
+    const token = apiClient.getToken();
+
+    // EventSource doesn't support custom headers, so we append the token as a query parameter
+    // The server must validate this token in SSE endpoints
+    const url = token ? `${baseUrl}${endpoint}?token=${encodeURIComponent(token)}` : `${baseUrl}${endpoint}`;
+
+    // Note: SSE authentication requires token in query string since EventSource doesn't support Authorization headers
+    // Server-side handlers must extract and validate the token from query parameters
 
     try {
       const eventSource = new EventSource(url);
@@ -78,7 +88,7 @@ export function useSSE<T = any>(
 
       eventSource.addEventListener('error', (event) => {
         try {
-          const errorData = JSON.parse((event as any).data);
+          const errorData = JSON.parse((event as MessageEvent).data);
           setError(errorData.error || 'SSE error');
         } catch {
           setError('Connection error');

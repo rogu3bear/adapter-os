@@ -2,8 +2,7 @@
 //!
 //! Verify that identical inputs produce identical outputs
 
-use mplora_core::{derive_seed, B3Hash, CPID};
-use mplora_manifest::ManifestV3;
+use adapteros_core::{derive_seed, B3Hash, CPID};
 
 #[test]
 fn test_hash_deterministic() {

@@ -2,7 +2,7 @@
 //!
 //! Tests dataset generation, training loop, quantization, and packaging.
 
-use mplora_worker::{
+use adapteros_lora_worker::{
     DatasetGenerator, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
 use std::collections::HashMap;
@@ -96,7 +96,7 @@ async fn test_training_loop_small_dataset() {
 
 #[test]
 fn test_quantization_round_trip() {
-    use mplora_worker::LoRAWeights;
+    use adapteros_lora_worker::LoRAWeights;
     
     let original = LoRAWeights {
         lora_a: vec![
@@ -133,7 +133,7 @@ fn test_quantization_round_trip() {
 
 #[test]
 fn test_quantization_value_conversion() {
-    use mplora_worker::LoRAWeights;
+    use adapteros_lora_worker::LoRAWeights;
     
     let original = LoRAWeights {
         lora_a: vec![vec![0.0, 0.5, -0.5, 1.0, -1.0]],

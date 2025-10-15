@@ -9,7 +9,7 @@
 //!
 //! Aligns with security requirements from Code Policy.
 
-use mplora_worker::{
+use adapteros_lora_worker::{
     patch_generator::{FilePatch, PatchHunk, HunkType},
     patch_validator::{PatchValidator, CodePolicy, ViolationType, ViolationSeverity},
 };

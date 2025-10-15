@@ -4,12 +4,12 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
-import { 
-  MemoryStick, 
-  TrendingUp, 
-  TrendingDown, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  MemoryStick,
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  CheckCircle,
   XCircle,
   Activity,
   Target,
@@ -17,19 +17,21 @@ import {
   Clock,
   BarChart3,
   PieChart,
-  RefreshCw,
   Settings,
   Trash2,
   Pin,
   PinOff
 } from 'lucide-react';
-import { 
-  Adapter, 
-  AdapterCategory, 
-  AdapterState, 
+import {
+  Adapter,
+  AdapterCategory,
+  AdapterState,
   EvictionPriority,
-  MemoryUsageByCategory 
+  MemoryUsageByCategory
 } from '../api/types';
+import apiClient from '../api/client';
+import { logger } from '../utils/logger';
+import { toast } from 'sonner';
 
 interface AdapterMemoryMonitorProps {
   adapters: Adapter[];
@@ -46,7 +48,6 @@ export function AdapterMemoryMonitor({
   onPinAdapter,
   onUpdateMemoryLimit 
 }: AdapterMemoryMonitorProps) {
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [memoryPressureThreshold, setMemoryPressureThreshold] = useState(80);
   const [selectedCategory, setSelectedCategory] = useState<AdapterCategory | 'all'>('all');
 
@@ -124,33 +125,66 @@ export function AdapterMemoryMonitor({
     }
   };
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      // TODO: Call API to refresh memory data
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-    } catch (error) {
-      console.error('Failed to refresh memory data:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
 
   const handleEvictAdapter = async (adapterId: string) => {
     try {
+      logger.info('Evicting adapter', {
+        component: 'AdapterMemoryMonitor',
+        operation: 'evictAdapter',
+        adapterId
+      });
+
+      const result = await apiClient.evictAdapter(adapterId);
       onEvictAdapter(adapterId);
-      // TODO: Call API to evict adapter
+
+      toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
+      logger.info('Adapter evicted successfully', {
+        component: 'AdapterMemoryMonitor',
+        operation: 'evictAdapter',
+        adapterId,
+        result
+      });
     } catch (error) {
-      console.error('Failed to evict adapter:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
+      logger.error('Failed to evict adapter', {
+        component: 'AdapterMemoryMonitor',
+        operation: 'evictAdapter',
+        adapterId,
+        error: errorMessage
+      }, error instanceof Error ? error : new Error(String(error)));
+      toast.error(`Failed to evict adapter: ${errorMessage}`);
     }
   };
 
   const handlePinToggle = async (adapterId: string, pinned: boolean) => {
     try {
+      logger.info('Toggling adapter pin status', {
+        component: 'AdapterMemoryMonitor',
+        operation: 'pinToggle',
+        adapterId,
+        pinned
+      });
+
+      await apiClient.pinAdapter(adapterId, pinned);
       onPinAdapter(adapterId, pinned);
-      // TODO: Call API to pin/unpin adapter
+
+      toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
+      logger.info('Adapter pin status updated successfully', {
+        component: 'AdapterMemoryMonitor',
+        operation: 'pinToggle',
+        adapterId,
+        pinned
+      });
     } catch (error) {
-      console.error('Failed to pin/unpin adapter:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
+      logger.error('Failed to pin/unpin adapter', {
+        component: 'AdapterMemoryMonitor',
+        operation: 'pinToggle',
+        adapterId,
+        pinned,
+        error: errorMessage
+      }, error instanceof Error ? error : new Error(String(error)));
+      toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
     }
   };
 
@@ -167,10 +201,6 @@ export function AdapterMemoryMonitor({
               <MemoryStick className="mr-2 h-5 w-5" />
               Memory Usage Overview
             </div>
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent>

@@ -91,7 +91,7 @@ fn test_diag_exit_codes() {
 #[test]
 fn test_diag_profile_enum() {
     // Test that DiagProfile enum values work correctly
-    use mplora_cli::commands::diag::DiagProfile;
+    use adapteros_cli::commands::diag::DiagProfile;
 
     let system = DiagProfile::System;
     let tenant = DiagProfile::Tenant;

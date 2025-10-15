@@ -1,89 +1,82 @@
+// Re-export types from shared API types crate
+pub use adapteros_api_types::*;
+
+// Additional client-specific types not covered by shared types
 use serde::{Deserialize, Serialize};
 
-// Re-export common types from aos-cp-api
+/// Memory usage response for adapter management
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthResponse {
-    pub status: String,
-    pub version: String,
+pub struct MemoryUsageResponse {
+    pub adapters: Vec<AdapterMemoryInfo>,
+    pub total_memory_mb: u64,
+    pub available_memory_mb: u64,
+    pub memory_pressure_level: MemoryPressureLevel,
 }
 
+/// Adapter memory information
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginResponse {
-    pub token: String,
-    pub user_id: String,
-    pub role: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserInfoResponse {
-    pub user_id: String,
-    pub email: String,
-    pub role: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenantResponse {
+pub struct AdapterMemoryInfo {
     pub id: String,
     pub name: String,
-    pub itar_flag: bool,
-    pub created_at: String,
+    pub memory_usage_mb: u64,
+    pub state: String,
+    pub pinned: bool,
+    pub category: String,
 }
 
+/// Memory pressure levels
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateTenantRequest {
-    pub name: String,
-    pub itar_flag: bool,
+pub enum MemoryPressureLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
 }
 
+/// Training session request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NodeResponse {
-    pub id: String,
-    pub hostname: String,
-    pub agent_endpoint: String,
-    pub status: String,
-    pub last_seen_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegisterNodeRequest {
-    pub hostname: String,
-    pub agent_endpoint: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanResponse {
-    pub id: String,
+pub struct StartTrainingRequest {
+    pub repository_path: String,
+    pub adapter_name: String,
+    pub description: String,
+    pub training_config: serde_json::Value,
     pub tenant_id: String,
-    pub manifest_hash_b3: String,
-    pub kernel_hash_b3: Option<String>,
-    pub layout_hash_b3: Option<String>,
+}
+
+/// Training session response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingSessionResponse {
+    pub session_id: String,
     pub status: String,
     pub created_at: String,
+    pub progress: Option<f64>,
+    pub error: Option<String>,
 }
 
+/// Telemetry filters for event queries
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildPlanRequest {
-    pub tenant_id: String,
-    pub manifest_hash_b3: String,
+pub struct TelemetryFilters {
+    pub limit: Option<usize>,
+    pub tenant_id: Option<String>,
+    pub user_id: Option<String>,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub event_type: Option<String>,
+    pub level: Option<String>,
 }
 
+/// Telemetry event structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerResponse {
+pub struct TelemetryEvent {
     pub id: String,
-    pub tenant_id: String,
-    pub node_id: String,
-    pub plan_id: String,
-    pub uds_path: String,
-    pub pid: Option<i32>,
-    pub status: String,
-    pub started_at: String,
-    pub last_seen_at: Option<String>,
+    pub timestamp: String,
+    pub event_type: String,
+    pub level: String,
+    pub message: String,
+    pub component: Option<String>,
+    pub tenant_id: Option<String>,
+    pub user_id: Option<String>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,22 +182,6 @@ pub struct PolicyValidationResponse {
 pub struct ApplyPolicyRequest {
     pub cpid: String,
     pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryBundleResponse {
-    pub id: String,
-    pub cpid: String,
-    pub event_count: u64,
-    pub size_bytes: u64,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryEvent {
-    pub timestamp: String,
-    pub event_type: String,
-    pub data: serde_json::Value,
 }
 
 // ========== Code Intelligence Types ==========

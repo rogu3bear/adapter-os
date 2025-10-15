@@ -140,7 +140,7 @@ Reviewing the UI architecture and implementation.
 **Status Icons:**
 - `⚡︎` - Normal operation, deterministic mode
 - `⚡︎/` - Non-deterministic mode or offline
-- `🔥` - High CPU load (>70%)
+- `[FIRE]` - High CPU load (>70%)
 
 ### 3. **API Integration Layer**
 - Centralized API client (`ui/src/api/client.ts`)
@@ -318,7 +318,7 @@ SwiftUI native app reading local JSON status.
 Shows CPU/GPU metrics, adapter count, deterministic indicator, and logs.  
 
 Status icons:  
-`⚡︎` deterministic, `⚡︎/` non-deterministic/offline, `🔥` high load.
+`[LIGHTNING]` deterministic, `[LIGHTNING]/` non-deterministic/offline, `[FIRE]` high load.
 
 ---
 

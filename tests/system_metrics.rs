@@ -3,11 +3,11 @@
 //! Tests the complete system metrics collection pipeline including
 //! collector, policy enforcement, telemetry integration, and API endpoints.
 
-use mplora_system_metrics::{
+use adapteros_system_metrics::{
     SystemMetricsCollector, SystemMetricsPolicy, PerformanceThresholds, MetricsConfig,
     SystemMonitor, SystemMonitoringService
 };
-use mplora_telemetry::TelemetryWriter;
+use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
 use std::time::Duration;
 
@@ -65,9 +65,9 @@ async fn test_policy_enforcement() {
     let health_status = policy.get_health_status(&metrics);
     assert!(matches!(
         health_status,
-        mplora_system_metrics::policy::SystemHealthStatus::Healthy |
-        mplora_system_metrics::policy::SystemHealthStatus::Warning |
-        mplora_system_metrics::policy::SystemHealthStatus::Critical
+        adapteros_system_metrics::policy::SystemHealthStatus::Healthy |
+        adapteros_system_metrics::policy::SystemHealthStatus::Warning |
+        adapteros_system_metrics::policy::SystemHealthStatus::Critical
     ));
     
     // Test violations list
@@ -86,14 +86,14 @@ async fn test_telemetry_integration() {
     let metrics = collector.collect_metrics();
     
     // Test telemetry event creation
-    let event = mplora_system_metrics::telemetry::SystemMetricsEvent::from_metrics(&metrics);
+    let event = adapteros_system_metrics::telemetry::SystemMetricsEvent::from_metrics(&metrics);
     
     assert!(event.cpu_usage >= 0.0 && event.cpu_usage <= 100.0);
     assert!(event.memory_usage >= 0.0 && event.memory_usage <= 100.0);
     assert!(event.timestamp > 0);
     
     // Test threshold violation event
-    let violation = mplora_system_metrics::telemetry::ThresholdViolationEvent::new(
+    let violation = adapteros_system_metrics::telemetry::ThresholdViolationEvent::new(
         "cpu_usage".to_string(),
         95.0,
         90.0,
@@ -133,9 +133,9 @@ async fn test_monitoring_service() {
     let health_status = monitor.get_health_status();
     assert!(matches!(
         health_status,
-        mplora_system_metrics::policy::SystemHealthStatus::Healthy |
-        mplora_system_metrics::policy::SystemHealthStatus::Warning |
-        mplora_system_metrics::policy::SystemHealthStatus::Critical
+        adapteros_system_metrics::policy::SystemHealthStatus::Healthy |
+        adapteros_system_metrics::policy::SystemHealthStatus::Warning |
+        adapteros_system_metrics::policy::SystemHealthStatus::Critical
     ));
     
     // Test current metrics
@@ -154,7 +154,7 @@ async fn test_monitoring_service() {
 
 #[tokio::test]
 async fn test_gpu_metrics() {
-    let gpu_collector = mplora_system_metrics::gpu::GpuMetricsCollector::new();
+    let gpu_collector = adapteros_system_metrics::gpu::GpuMetricsCollector::new();
     let metrics = gpu_collector.collect_metrics();
     
     // GPU metrics may be None on unsupported platforms
@@ -230,7 +230,7 @@ async fn test_error_handling() {
     assert!(!violations.is_empty());
     
     let health_status = policy.get_health_status(&metrics);
-    assert_eq!(health_status, mplora_system_metrics::policy::SystemHealthStatus::Critical);
+    assert_eq!(health_status, adapteros_system_metrics::policy::SystemHealthStatus::Critical);
 }
 
 #[tokio::test]
@@ -265,7 +265,7 @@ async fn test_serialization() {
     
     // Test that metrics can be serialized
     let json = serde_json::to_string(&metrics).expect("Failed to serialize metrics");
-    let deserialized: mplora_system_metrics::SystemMetrics = 
+    let deserialized: adapteros_system_metrics::SystemMetrics = 
         serde_json::from_str(&json).expect("Failed to deserialize metrics");
     
     assert_eq!(metrics.cpu_usage, deserialized.cpu_usage);

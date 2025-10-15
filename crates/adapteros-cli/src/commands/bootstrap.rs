@@ -1,10 +1,11 @@
 //! Bootstrap command for initial setup
 
-use anyhow::{Context, Result};
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use tracing::{info, warn, error, debug};
 
 #[derive(Serialize, Deserialize)]
 struct ProgressUpdate {
@@ -21,18 +22,19 @@ pub async fn run(
     checkpoint_file: Option<PathBuf>,
 ) -> Result<()> {
     if !json_output {
-        println!("Starting AdapterOS bootstrap...");
-        println!("Mode: {}", mode);
-        println!("Air-gapped: {}", air_gapped);
+        info!("Starting AdapterOS bootstrap...");
+        info!("Mode: {}", mode);
+        info!("Air-gapped: {}", air_gapped);
     }
 
     // Determine workspace root (assuming CLI is in crates/mplora-cli)
-    let workspace_root = std::env::current_dir().context("Failed to get current directory")?;
+    let workspace_root = std::env::current_dir()
+        .map_err(|e| AosError::Io(format!("Failed to get current directory: {}", e)))?;
 
     let script_path = workspace_root.join("scripts/bootstrap_with_checkpoints.sh");
 
     if !script_path.exists() {
-        anyhow::bail!("Bootstrap script not found at: {}", script_path.display());
+        return Err(AosError::NotFound(format!("Bootstrap script not found at: {}", script_path.display())));
     }
 
     // Prepare checkpoint file argument
@@ -54,7 +56,7 @@ pub async fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to spawn bootstrap process")?;
+        .map_err(|e| AosError::System(format!("Failed to spawn bootstrap process: {}", e)))?;
 
     // Stream stdout
     if let Some(stdout) = child.stdout.take() {
@@ -66,18 +68,18 @@ pub async fn run(
                     if json_output && line.trim().starts_with('{') {
                         if let Ok(progress) = serde_json::from_str::<ProgressUpdate>(&line) {
                             // Re-emit the JSON
-                            println!("{}", serde_json::to_string(&progress)?);
+                            info!("Bootstrap progress: {}", serde_json::to_string(&progress)?);
                         } else {
-                            // Not valid progress JSON, just print
-                            println!("{}", line);
+                            // Not valid progress JSON, just log
+                            info!("Bootstrap output: {}", line);
                         }
                     } else {
                         // Regular output
-                        println!("{}", line);
+                        info!("Bootstrap output: {}", line);
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error reading output: {}", e);
+                    error!("Error reading output: {}", e);
                     break;
                 }
             }
@@ -87,10 +89,10 @@ pub async fn run(
     // Wait for completion
     let status = child
         .wait()
-        .context("Failed to wait for bootstrap process")?;
+        .map_err(|e| AosError::System(format!("Failed to wait for bootstrap process: {}", e)))?;
 
     if !status.success() {
-        anyhow::bail!("Bootstrap failed with exit code: {:?}", status.code());
+        return Err(AosError::System(format!("Bootstrap failed with exit code: {:?}", status.code())));
     }
 
     if json_output {
@@ -100,9 +102,9 @@ pub async fn run(
             message: "Bootstrap completed successfully".to_string(),
             status: "completed".to_string(),
         };
-        println!("{}", serde_json::to_string(&completion)?);
+        info!("Bootstrap completion: {}", serde_json::to_string(&completion)?);
     } else {
-        println!("\n✓ Bootstrap completed successfully!");
+        info!("✓ Bootstrap completed successfully!");
     }
 
     Ok(())

@@ -3,8 +3,7 @@
 //! Implements patch generation with evidence citations and structured output.
 //! Aligns with Code Policy requirements and evidence-first philosophy.
 
-use crate::evidence::{EvidenceCitation, EvidenceSpan};
-// use crate::evidence::EvidenceType; // TODO: Implement evidence type handling in future iteration
+use crate::evidence::{EvidenceCitation, EvidenceSpan, EvidenceType};
 use adapteros_core::{AosError, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

@@ -36,8 +36,8 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="flex-center bg-primary text-primary-foreground p-3 rounded-lg">
-              <Lock className="icon-standard" />
+            <div className="flex items-center justify-center bg-primary text-primary-foreground p-3 rounded-lg">
+              <Lock className="h-6 w-6" />
               <span className="font-medium">AdapterOS</span>
             </div>
           </div>
@@ -50,24 +50,18 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
         </div>
 
         {/* Security Indicators */}
-        <div className="space-y-3">
-          <div className="flex-center justify-center">
-            <div className="status-indicator status-success">
-              <Shield className="icon-small" />
-              Zero Egress
-            </div>
-            <div className="status-indicator status-info">
-              <Lock className="icon-small" />
-              CSP Enforced
-            </div>
+        <div className="flex items-center justify-center space-x-3">
+          <div className="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
+            <Shield className="h-4 w-4" />
+            Zero Egress
           </div>
-          
-          <div className="status-indicator status-warning flex-start">
-            <AlertTriangle className="icon-standard" />
-            <div className="text-sm">
-              <p className="font-medium">ITAR Compliance Active</p>
-              <p className="text-muted-foreground">This system enforces strict access controls and data isolation</p>
-            </div>
+          <div className="flex items-center space-x-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+            <Lock className="h-4 w-4" />
+            CSP Enforced
+          </div>
+          <div className="flex items-center space-x-2 px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">
+            <AlertTriangle className="h-4 w-4" />
+            ITAR Compliance Active
           </div>
         </div>
 

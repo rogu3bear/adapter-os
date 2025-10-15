@@ -9,6 +9,9 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { logger } from '../utils/logger';
+import { useActivityFeed } from '../hooks/useActivityFeed';
 import { 
   Activity, 
   Server, 
@@ -25,7 +28,6 @@ import {
   GitBranch,
   Eye,
   Target,
-  RefreshCw,
   Download,
   XCircle,
   Bell,
@@ -52,7 +54,6 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   const [nodeCount, setNodeCount] = useState<number>(0);
   const [tenantCount, setTenantCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   
   // Information density management
@@ -90,10 +91,16 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       setNodeCount(nodes.length);
       setTenantCount(tenants.length);
     } catch (err) {
-      console.error('Failed to fetch dashboard data:', err);
+      // Replace: console.error('Failed to fetch dashboard data:', err);
+      logger.error('Failed to fetch dashboard data', {
+        component: 'Dashboard',
+        operation: 'fetchData',
+        tenantId: selectedTenant,
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
+      
       const errorMsg = err instanceof Error ? err.message : 'Failed to load dashboard data';
       setError(errorMsg);
-      toast.error(errorMsg);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -114,15 +121,16 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   // Handle SSE connection status
   useEffect(() => {
     if (sseError) {
-      console.error('Real-time metrics connection error:', sseError);
+      // Replace: console.error('Real-time metrics connection error:', sseError);
+      logger.error('Real-time metrics connection error', {
+        component: 'Dashboard',
+        operation: 'sse_connection',
+        tenantId: selectedTenant,
+        userId: user.id
+      }, sseError);
     }
-  }, [sseError]);
+  }, [sseError, selectedTenant, user.id]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchData();
-    toast.success('Dashboard refreshed');
-  };
 
   const handleCreateTenant = async () => {
     if (!newTenantName.trim()) {
@@ -188,7 +196,13 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
         const adaptersList = await apiClient.listAdapters();
         setAdapters(adaptersList);
       } catch (err) {
-        console.error('Failed to load adapters:', err);
+        // Replace: console.error('Failed to load adapters:', err);
+        logger.error('Failed to load adapters', {
+          component: 'Dashboard',
+          operation: 'loadAdapters',
+          tenantId: selectedTenant,
+          userId: user.id
+        }, err instanceof Error ? err : new Error(String(err)));
       }
     };
     if (showDeployAdapterModal) {
@@ -196,19 +210,56 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
     }
   }, [showDeployAdapterModal]);
 
-  const recentActivity = [
-    { time: '2m ago', action: 'Node node-03 recovered from degraded state', type: 'recovery', icon: CheckCircle },
-    { time: '15m ago', action: 'Policy update applied to tenant "secure-ops"', type: 'policy', icon: Shield },
-    { time: '32m ago', action: 'Build plan compiled successfully for kernel v2.4.1', type: 'build', icon: Zap },
-    { time: '1h ago', action: 'New adapter registered: auth-middleware-v3', type: 'adapter', icon: Code },
-    { time: '2h ago', action: 'Telemetry bundle exported for compliance audit', type: 'telemetry', icon: Eye }
-  ];
+  // Real-time activity feed from telemetry and audit logs
+  const { events: activityEvents, loading: activityLoading, error: activityError } = useActivityFeed({
+    enabled: true,
+    maxEvents: 10,
+    tenantId: selectedTenant,
+    userId: user.id
+  });
+
+  // Helper functions for activity feed
+  const formatTimeAgo = (timestamp: string): string => {
+    const now = new Date();
+    const eventTime = new Date(timestamp);
+    const diffMs = now.getTime() - eventTime.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  };
+
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case 'recovery': return CheckCircle;
+      case 'policy': return Shield;
+      case 'build': return Zap;
+      case 'adapter': return Code;
+      case 'telemetry': return Eye;
+      case 'security': return Shield;
+      case 'error': return AlertTriangle;
+      default: return Activity;
+    }
+  };
+
+  // Transform activity events to display format
+  const recentActivity = activityEvents.map(event => ({
+    time: formatTimeAgo(event.timestamp),
+    action: event.message,
+    type: event.type,
+    icon: getActivityIcon(event.type),
+    severity: event.severity
+  }));
 
   const quickActions = [
     { 
       label: 'View System Health', 
       icon: Activity, 
-      color: 'text-green-600',
+      color: 'text-emerald-600',
       onClick: () => setShowHealthModal(true)
     },
     { 
@@ -221,13 +272,13 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
     { 
       label: 'Deploy Adapter', 
       icon: Code, 
-      color: 'text-purple-600',
+      color: 'text-violet-600',
       onClick: () => setShowDeployAdapterModal(true)
     },
     { 
       label: 'Review Policies', 
       icon: Shield, 
-      color: 'text-orange-600',
+      color: 'text-amber-600',
       onClick: () => onNavigate('policies')
     }
   ];
@@ -304,6 +355,9 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   const activeSessions = systemMetrics?.active_sessions || 0;
   const tokensPerSecond = systemMetrics?.tokens_per_second || 0;
   const latencyP95 = systemMetrics?.latency_p95_ms || 0;
+  const cpuUsage = systemMetrics?.cpu_usage_percent || 0;
+  const diskUsage = systemMetrics?.disk_usage_percent || 0;
+  const networkBandwidth = systemMetrics?.network_rx_bytes ? (systemMetrics.network_rx_bytes / 1024 / 1024).toFixed(1) : '0';
 
   // Citation: docs/architecture/MasterPlan.md L30-L33
   const dashboardTabs = [
@@ -388,10 +442,6 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
             <CheckCircle className="icon-small" />
             All Systems Operational
           </div>
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`icon-standard mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
           <Button variant="outline" size="sm" onClick={handleExportLogs}>
             <Download className="icon-standard mr-2" />
             Export Logs
@@ -478,10 +528,10 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
                   )}
                 </div>
                 <span className="text-sm font-semibold">
-                  {systemMetrics ? `${systemMetrics.cpu_usage.toFixed(1)}%` : '--'}
+                  {systemMetrics ? `${cpuUsage.toFixed(1)}%` : '--'}
                 </span>
               </div>
-              <Progress value={systemMetrics?.cpu_usage || 0} className="h-3 transition-all duration-500" />
+              <Progress value={cpuUsage} className="h-3 transition-all duration-500" />
             </div>
 
             <div className="space-y-2">
@@ -491,10 +541,10 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
                   <span className="text-sm font-medium">Memory Usage</span>
                 </div>
                 <span className="text-sm font-semibold">
-                  {systemMetrics ? `${systemMetrics.memory_usage.toFixed(1)}%` : '--'}
+                  {systemMetrics ? `${systemMetrics.memory_usage_percent ? systemMetrics.memory_usage_percent.toFixed(1) : memoryUsage.toFixed(1)}%` : '--'}
                 </span>
               </div>
-              <Progress value={systemMetrics?.memory_usage || 0} className="h-3 transition-all duration-500" />
+              <Progress value={systemMetrics?.memory_usage_percent || memoryUsage} className="h-3 transition-all duration-500" />
             </div>
 
             <div className="space-y-2">
@@ -504,10 +554,10 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
                   <span className="text-sm font-medium">Disk Usage</span>
                 </div>
                 <span className="text-sm font-semibold">
-                  {systemMetrics ? `${systemMetrics.disk_usage.toFixed(1)}%` : '--'}
+                  {systemMetrics ? `${diskUsage.toFixed(1)}%` : '--'}
                 </span>
               </div>
-              <Progress value={systemMetrics?.disk_usage || 0} className="h-3 transition-all duration-500" />
+              <Progress value={diskUsage} className="h-3 transition-all duration-500" />
             </div>
 
             <div className="space-y-2">
@@ -517,10 +567,10 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
                   <span className="text-sm font-medium">Network Bandwidth</span>
                 </div>
                 <span className="text-sm font-semibold">
-                  {systemMetrics ? `${systemMetrics.network_bandwidth.toFixed(1)} Mbps` : '--'}
+                  {systemMetrics ? `${networkBandwidth} MB/s` : '--'}
                 </span>
               </div>
-              <Progress value={Math.min(systemMetrics?.network_bandwidth || 0, 100)} className="h-3 transition-all duration-500" />
+              <Progress value={Math.min(parseFloat(networkBandwidth), 100)} className="h-3 transition-all duration-500" />
             </div>
           </CardContent>
         </Card>
@@ -724,6 +774,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
 
         {/* Nodes Tab */}
         <TabsContent value="nodes" className="space-y-4">

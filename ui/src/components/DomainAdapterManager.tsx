@@ -15,8 +15,6 @@ import { EmptyState } from './ui/empty-state';
 import { 
   Plus, 
   Settings, 
-  Play, 
-  Pause, 
   Square, 
   Download, 
   Upload,
@@ -189,37 +187,6 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
     }
   };
 
-  const handleLoadAdapter = async (adapterId: string) => {
-    try {
-      // API call - placeholder implementation
-      // await apiClient.loadDomainAdapter(adapterId);
-      setAdapters(prev => prev.map(adapter => 
-        adapter.id === adapterId 
-          ? { ...adapter, status: 'loaded' as const }
-          : adapter
-      ));
-      toast.success('Domain adapter loaded successfully');
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load domain adapter';
-      toast.error(errorMsg);
-    }
-  };
-
-  const handleUnloadAdapter = async (adapterId: string) => {
-    try {
-      // API call - placeholder implementation
-      // await apiClient.unloadDomainAdapter(adapterId);
-      setAdapters(prev => prev.map(adapter => 
-        adapter.id === adapterId 
-          ? { ...adapter, status: 'unloaded' as const }
-          : adapter
-      ));
-      toast.success('Domain adapter unloaded successfully');
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to unload domain adapter';
-      toast.error(errorMsg);
-    }
-  };
 
   if (loading) {
     return <div className="text-center p-8">Loading domain adapters...</div>;
@@ -341,17 +308,6 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {adapter.status === 'unloaded' ? (
-                                <DropdownMenuItem onClick={() => handleLoadAdapter(adapter.id)}>
-                                  <Play className="mr-2 h-4 w-4" />
-                                  Load
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem onClick={() => handleUnloadAdapter(adapter.id)}>
-                                  <Pause className="mr-2 h-4 w-4" />
-                                  Unload
-                                </DropdownMenuItem>
-                              )}
                               <DropdownMenuItem onClick={() => handleTestAdapter(adapter.id, 'test_input')}>
                                 <TestTube className="mr-2 h-4 w-4" />
                                 Test

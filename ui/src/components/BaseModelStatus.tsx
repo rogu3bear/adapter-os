@@ -15,10 +15,9 @@ import { toast } from 'react-hot-toast';
 
 interface BaseModelStatusProps {
   selectedTenant: string;
-  refreshInterval?: number;
 }
 
-export function BaseModelStatusComponent({ selectedTenant, refreshInterval = 5000 }: BaseModelStatusProps) {
+export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProps) {
   const [status, setStatus] = useState<BaseModelStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,11 +41,10 @@ export function BaseModelStatusComponent({ selectedTenant, refreshInterval = 500
   useEffect(() => {
     fetchStatus();
     
-    if (refreshInterval > 0) {
-      const interval = setInterval(fetchStatus, refreshInterval);
-      return () => clearInterval(interval);
-    }
-  }, [selectedTenant, refreshInterval]);
+    // Fixed 1-second interval for instant updates
+    const interval = setInterval(fetchStatus, 1000);
+    return () => clearInterval(interval);
+  }, [selectedTenant]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -131,12 +129,6 @@ export function BaseModelStatusComponent({ selectedTenant, refreshInterval = 500
           <div>
             <h3 className="text-lg font-medium text-red-900">Base Model Status</h3>
             <p className="text-sm text-red-600">{error}</p>
-            <button
-              onClick={fetchStatus}
-              className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
-            >
-              Retry
-            </button>
           </div>
         </div>
       </div>
@@ -169,13 +161,6 @@ export function BaseModelStatusComponent({ selectedTenant, refreshInterval = 500
             </p>
           </div>
         </div>
-        <button
-          onClick={fetchStatus}
-          className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-          title="Refresh status"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="space-y-4">

@@ -1,8 +1,16 @@
 // API Client for AdapterOS Control Plane
+//! 
+//! Provides centralized API communication with structured logging and error handling.
+//! 
+//! # Citations
+//! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
+//! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
+//! - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 
 import * as types from './types';
+import { logger } from '../utils/logger';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8080/api';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
 
 class ApiClient {
   private baseUrl: string;
@@ -11,6 +19,12 @@ class ApiClient {
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
+    // Replace: console.log('API Client initialized with base URL:', this.baseUrl);
+    logger.info('API Client initialized', { 
+      component: 'ApiClient',
+      operation: 'constructor',
+      baseUrl: this.baseUrl 
+    });
     // Load token from localStorage
     this.token = localStorage.getItem('aos_token');
   }
@@ -86,7 +100,13 @@ class ApiClient {
     // Validate returned request ID matches
     const returnedId = response.headers.get('X-Request-ID');
     if (returnedId && returnedId !== requestId) {
-      console.warn('Request ID mismatch:', { sent: requestId, received: returnedId });
+      // Replace: console.warn('Request ID mismatch:', { sent: requestId, received: returnedId });
+      logger.warn('Request ID mismatch', { 
+        component: 'ApiClient',
+        operation: 'request_validation',
+        sent: requestId, 
+        received: returnedId 
+      });
     }
 
     if (!response.ok) {
@@ -370,10 +390,23 @@ class ApiClient {
   }
 
   // Adapter lifecycle management
-  async pinAdapter(adapterId: string, ttlHours?: number, reason?: string): Promise<void> {
+  // Supports both boolean and advanced pinning modes
+  async pinAdapter(adapterId: string, pinnedOrTtlHours: boolean | number, reason?: string): Promise<void> {
+    // If boolean, use simple pin/unpin API
+    if (typeof pinnedOrTtlHours === 'boolean') {
+      if (pinnedOrTtlHours) {
+        return this.request<void>(`/v1/adapters/${adapterId}/pin`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+      } else {
+        return this.unpinAdapter(adapterId);
+      }
+    }
+    // Otherwise use advanced API with TTL
     return this.request<void>(`/v1/adapters/${adapterId}/pin`, {
       method: 'POST',
-      body: JSON.stringify({ ttl_hours: ttlHours, reason }),
+      body: JSON.stringify({ ttl_hours: pinnedOrTtlHours, reason }),
     });
   }
 
@@ -744,6 +777,96 @@ class ApiClient {
     });
   }
 
+  // Memory management methods
+  async getMemoryUsage(): Promise<{
+    adapters: Array<{
+      id: string;
+      name: string;
+      memory_usage_mb: number;
+      state: string;
+      pinned: boolean;
+      category: string;
+    }>;
+    total_memory_mb: number;
+    available_memory_mb: number;
+    memory_pressure_level: 'low' | 'medium' | 'high' | 'critical';
+  }> {
+    return this.request('/v1/memory/usage');
+  }
+
+  async evictAdapter(adapterId: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/v1/memory/adapters/${adapterId}/evict`, {
+      method: 'POST',
+    });
+  }
+
+  // Note: pinAdapter method is consolidated above in Adapter lifecycle management section
+
+  // Training methods
+  async startAdapterTraining(data: {
+    repository_path: string;
+    adapter_name: string;
+    description: string;
+    training_config: Record<string, string | number | boolean>;
+    tenant_id: string;
+  }): Promise<{ session_id: string; status: string; created_at: string }> {
+    return this.request<{ session_id: string; status: string; created_at: string }>('/v1/training/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getTrainingSession(sessionId: string): Promise<{
+    session_id: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    progress: number;
+    adapter_name: string;
+    repository_path: string;
+    created_at: string;
+    updated_at: string;
+    error_message?: string;
+  }> {
+    return this.request(`/v1/training/sessions/${sessionId}`);
+  }
+
+  async listTrainingSessions(tenantId?: string): Promise<Array<{
+    session_id: string;
+    status: string;
+    adapter_name: string;
+    repository_path: string;
+    created_at: string;
+    updated_at: string;
+  }>> {
+    const params = new URLSearchParams();
+    if (tenantId) params.append('tenant_id', tenantId);
+    
+    const queryString = params.toString();
+    return this.request(`/v1/training/sessions${queryString ? `?${queryString}` : ''}`);
+  }
+
+  // Telemetry methods
+  async getTelemetryEvents(filters?: {
+    limit?: number;
+    tenantId?: string;
+    userId?: string;
+    startTime?: string;
+    endTime?: string;
+    eventType?: string;
+    level?: string;
+  }): Promise<types.TelemetryEvent[]> {
+    const params = new URLSearchParams();
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.tenantId) params.append('tenant_id', filters.tenantId);
+    if (filters?.userId) params.append('user_id', filters.userId);
+    if (filters?.startTime) params.append('start_time', filters.startTime);
+    if (filters?.endTime) params.append('end_time', filters.endTime);
+    if (filters?.eventType) params.append('event_type', filters.eventType);
+    if (filters?.level) params.append('level', filters.level);
+
+    const queryString = params.toString();
+    return this.request<types.TelemetryEvent[]>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
+  }
+
   // Process debugging methods
   async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
     const params = new URLSearchParams();
@@ -770,38 +893,6 @@ class ApiClient {
     return this.request<types.TroubleshootingResult>(`/v1/workers/${workerId}/troubleshoot`, {
       method: 'POST',
       body: JSON.stringify(step),
-    });
-  }
-
-  // Monitoring methods
-  async listMonitoringRules(tenantId?: string): Promise<types.MonitoringRule[]> {
-    const params = new URLSearchParams();
-    if (tenantId) params.append('tenant_id', tenantId);
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.MonitoringRule[]>(`/v1/monitoring/rules${query}`);
-  }
-
-  async createMonitoringRule(data: types.CreateMonitoringRuleRequest): Promise<types.MonitoringRule> {
-    return this.request<types.MonitoringRule>('/v1/monitoring/rules', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async listAlerts(filters?: types.AlertFilters): Promise<types.Alert[]> {
-    const params = new URLSearchParams();
-    if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
-    if (filters?.severity) params.append('severity', filters.severity);
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.limit) params.append('limit', filters.limit.toString());
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.Alert[]>(`/v1/monitoring/alerts${query}`);
-  }
-
-  async acknowledgeAlert(alertId: string, data: types.AcknowledgeAlertRequest): Promise<types.Alert> {
-    return this.request<types.Alert>(`/v1/monitoring/alerts/${alertId}/acknowledge`, {
-      method: 'POST',
-      body: JSON.stringify(data),
     });
   }
 

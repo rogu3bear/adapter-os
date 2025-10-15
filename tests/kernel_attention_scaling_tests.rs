@@ -6,7 +6,7 @@
 //! - Scaling impact on attention scores
 //! - Numerical stability
 
-use mplora_kernel_mtl::GqaConfig;
+use adapteros_lora_kernel_mtl::GqaConfig;
 
 #[test]
 fn test_default_attention_scaling() {

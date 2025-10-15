@@ -200,7 +200,7 @@ impl PolicyPackFactory {
     }
 
     /// Create an MPLoRA policy with default configuration
-    pub fn create_mplora_policy() -> MploraPolicy {
+    pub fn create_adapteros_policy() -> MploraPolicy {
         MploraPolicy::new(MploraConfig::default())
     }
 }
@@ -233,7 +233,7 @@ mod tests {
         let telemetry_policy = PolicyPackFactory::create_telemetry_policy();
         let deterministic_io_policy = PolicyPackFactory::create_deterministic_io_policy();
         let drift_policy = PolicyPackFactory::create_drift_policy();
-        let mplora_policy = PolicyPackFactory::create_mplora_policy();
+        let adapteros_policy = PolicyPackFactory::create_adapteros_policy();
 
         // Verify all policies can be created
         assert_eq!(retention_policy.id(), PolicyId::Retention);
@@ -257,6 +257,6 @@ mod tests {
         assert_eq!(telemetry_policy.id(), PolicyId::Telemetry);
         assert_eq!(deterministic_io_policy.id(), PolicyId::DeterministicIo);
         assert_eq!(drift_policy.id(), PolicyId::Drift);
-        assert_eq!(mplora_policy.id(), PolicyId::Mplora);
+        assert_eq!(adapteros_policy.id(), PolicyId::Mplora);
     }
 }

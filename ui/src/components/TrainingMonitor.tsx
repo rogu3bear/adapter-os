@@ -5,15 +5,15 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { ScrollArea } from './ui/scroll-area';
-import { 
-  Activity, 
-  Pause, 
-  Square, 
-  Play, 
-  Zap, 
-  Target, 
-  Cpu, 
-  MemoryStick, 
+import {
+  Activity,
+  Pause,
+  Square,
+  Play,
+  Zap,
+  Target,
+  Cpu,
+  MemoryStick,
   Clock,
   CheckCircle,
   XCircle,
@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { TrainingJob, TrainingMetrics } from '../api/types';
+import { logger } from '../utils/logger';
+import { toast } from 'sonner';
 
 interface TrainingMonitorProps {
   jobId: string;
@@ -65,7 +67,7 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
     fetchJobData();
 
     if (isPolling && job?.status === 'running') {
-      intervalRef.current = window.setInterval(fetchJobData, 2000); // Poll every 2 seconds
+      intervalRef.current = window.setInterval(fetchJobData, 1000); // Poll every 1 second for instant updates
     }
 
     return () => {
@@ -77,19 +79,58 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
 
   const handlePause = async () => {
     try {
-      // TODO: Implement pause functionality
-      console.log('Pausing training job:', jobId);
+      // TODO: Backend implementation required - POST /v1/training/sessions/:id/pause
+      // This endpoint doesn't exist yet. For now, we can only stop (cancel) training.
+      logger.warn('Pause functionality not implemented', {
+        component: 'TrainingMonitor',
+        operation: 'handlePause',
+        jobId,
+        note: 'Backend endpoint POST /v1/training/sessions/:id/pause needed'
+      });
+      toast.info('Pause functionality coming soon. Use Stop to cancel training for now.');
+
+      // When backend is ready, use:
+      // await apiClient.pauseTrainingSession(jobId);
+      // setIsPolling(false);
+      // toast.success('Training paused successfully');
     } catch (err) {
-      console.error('Failed to pause training:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to pause training';
+      logger.error('Failed to pause training', {
+        component: 'TrainingMonitor',
+        operation: 'handlePause',
+        jobId,
+        error: errorMessage
+      });
+      toast.error(`Failed to pause training: ${errorMessage}`);
     }
   };
 
   const handleStop = async () => {
     try {
+      logger.info('Cancelling training job', {
+        component: 'TrainingMonitor',
+        operation: 'handleStop',
+        jobId
+      });
+
       await apiClient.cancelTraining(jobId);
       setIsPolling(false);
+      toast.success('Training job cancelled successfully');
+
+      logger.info('Training job cancelled', {
+        component: 'TrainingMonitor',
+        operation: 'handleStop',
+        jobId
+      });
     } catch (err) {
-      console.error('Failed to cancel training:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to cancel training';
+      logger.error('Failed to cancel training', {
+        component: 'TrainingMonitor',
+        operation: 'handleStop',
+        jobId,
+        error: errorMessage
+      });
+      toast.error(`Failed to cancel training: ${errorMessage}`);
     }
   };
 

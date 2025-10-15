@@ -6,8 +6,8 @@
 //! - Position encoding up to 32K context length
 //! - Compatibility with Qwen2.5-7B configuration
 
-use mplora_kernel_mtl::{GqaConfig, MetalKernels};
-use mplora_kernel_api::FusedKernels;
+use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
+use adapteros_lora_kernel_api::FusedKernels;
 
 #[test]
 fn test_rope_config_defaults() {

@@ -251,18 +251,21 @@ impl AutogradContext {
     ) -> Result<()> {
         let tensor_a = ctx.get_tensor(a).unwrap();
         let tensor_b = ctx.get_tensor(b).unwrap();
+        
+        let a_requires_grad = tensor_a.requires_grad;
+        let b_requires_grad = tensor_b.requires_grad;
+        let a_data = tensor_a.data.clone();
+        let b_data = tensor_b.data.clone();
 
         // dA = grad_output * B^T
-        if tensor_a.requires_grad {
-            let grad_a = grad_output.dot(&tensor_b.data.t());
-            drop(tensor_a);
-            drop(tensor_b);
+        if a_requires_grad {
+            let grad_a = grad_output.dot(&b_data.t());
             ctx.accumulate_gradient(a, grad_a)?;
-        } else if tensor_b.requires_grad {
-            // dB = A^T * grad_output
-            let grad_b = tensor_a.data.t().dot(&grad_output);
-            drop(tensor_a);
-            drop(tensor_b);
+        }
+        
+        // dB = A^T * grad_output
+        if b_requires_grad {
+            let grad_b = a_data.t().dot(&grad_output);
             ctx.accumulate_gradient(b, grad_b)?;
         }
 
@@ -279,12 +282,17 @@ impl AutogradContext {
     ) -> Result<()> {
         let tensor_a = ctx.get_tensor(a).unwrap();
         let tensor_b = ctx.get_tensor(b).unwrap();
+        
+        let a_requires_grad = tensor_a.requires_grad;
+        let b_requires_grad = tensor_b.requires_grad;
 
         // dA = grad_output
-        if tensor_a.requires_grad {
+        if a_requires_grad {
             ctx.accumulate_gradient(a, grad_output.clone())?;
-        } else if tensor_b.requires_grad {
-            // dB = grad_output
+        }
+        
+        // dB = grad_output
+        if b_requires_grad {
             ctx.accumulate_gradient(b, grad_output)?;
         }
 
@@ -301,18 +309,21 @@ impl AutogradContext {
     ) -> Result<()> {
         let tensor_a = ctx.get_tensor(a).unwrap();
         let tensor_b = ctx.get_tensor(b).unwrap();
+        
+        let a_requires_grad = tensor_a.requires_grad;
+        let b_requires_grad = tensor_b.requires_grad;
+        let a_data = tensor_a.data.clone();
+        let b_data = tensor_b.data.clone();
 
         // dA = grad_output * B
-        if tensor_a.requires_grad {
-            let grad_a = &grad_output * &tensor_b.data;
-            drop(tensor_a);
-            drop(tensor_b);
+        if a_requires_grad {
+            let grad_a = &grad_output * &b_data;
             ctx.accumulate_gradient(a, grad_a)?;
-        } else if tensor_b.requires_grad {
-            // dB = grad_output * A
-            let grad_b = &grad_output * &tensor_a.data;
-            drop(tensor_a);
-            drop(tensor_b);
+        }
+        
+        // dB = grad_output * A
+        if b_requires_grad {
+            let grad_b = &grad_output * &a_data;
             ctx.accumulate_gradient(b, grad_b)?;
         }
 

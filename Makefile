@@ -72,4 +72,10 @@ determinism-report: ## Generate determinism report
 verify-artifacts: ## Verify and sign artifacts
 	./scripts/verify_artifacts.sh
 
+openapi-docs: ## Generate OpenAPI documentation
+	./scripts/generate_openapi_simple.sh
+
+validate-openapi: ## Validate OpenAPI documentation
+	./scripts/validate_openapi_docs.sh
+
 .DEFAULT_GOAL := help

@@ -2,7 +2,7 @@
 //!
 //! Tests the test execution framework with real cargo test and nextest.
 
-use mplora_worker::{TestExecutor, TestFramework};
+use adapteros_lora_worker::{TestExecutor, TestFramework};
 use std::path::PathBuf;
 
 #[tokio::test]

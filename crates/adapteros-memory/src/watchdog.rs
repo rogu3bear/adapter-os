@@ -464,9 +464,9 @@ impl MemoryWatchdog {
         } else if pressure >= self.config.pressure_warning_threshold {
             MemoryPressureLevel::High
         } else if pressure >= 0.7 {
-            MemoryPressureLevel::Moderate
+            MemoryPressureLevel::Medium
         } else {
-            MemoryPressureLevel::Normal
+            MemoryPressureLevel::Low
         }
     }
 

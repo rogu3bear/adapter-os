@@ -23,6 +23,7 @@ import {
 import apiClient from '../api/client';
 import { Repository, Commit, CommitDiff } from '../api/types';
 import { toast } from 'sonner';
+import { logger } from '../utils/logger';
 
 interface GitIntegrationPageProps {
   selectedTenant: string;
@@ -60,7 +61,13 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         setSelectedRepo(repos[0]);
       }
     } catch (error) {
-      console.error('Failed to load repositories:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load repositories';
+      logger.error('Failed to load repositories', {
+        component: 'GitIntegrationPage',
+        operation: 'loadRepositories',
+        tenant: selectedTenant,
+        error: errorMessage
+      });
       toast.error('Failed to load repositories');
     } finally {
       setIsLoading(false);
@@ -73,7 +80,13 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       const commitsList = await apiClient.listCommits(repoId);
       setCommits(commitsList);
     } catch (error) {
-      console.error('Failed to load commits:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load commits';
+      logger.error('Failed to load commits', {
+        component: 'GitIntegrationPage',
+        operation: 'loadCommits',
+        repoId,
+        error: errorMessage
+      });
       toast.error('Failed to load commits');
     } finally {
       setIsLoading(false);
@@ -86,7 +99,13 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       const diff = await apiClient.getCommitDiff(sha);
       setCommitDiff(diff);
     } catch (error) {
-      console.error('Failed to load commit diff:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load commit diff';
+      logger.error('Failed to load commit diff', {
+        component: 'GitIntegrationPage',
+        operation: 'loadCommitDiff',
+        sha,
+        error: errorMessage
+      });
       toast.error('Failed to load commit diff');
     } finally {
       setIsLoading(false);
@@ -111,7 +130,14 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       setNewRepoBranch('main');
       loadRepositories();
     } catch (error) {
-      console.error('Failed to register repository:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to register repository';
+      logger.error('Failed to register repository', {
+        component: 'GitIntegrationPage',
+        operation: 'handleAddRepository',
+        url: newRepoUrl,
+        branch: newRepoBranch,
+        error: errorMessage
+      });
       toast.error('Failed to register repository');
     } finally {
       setIsLoading(false);
@@ -126,7 +152,13 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       // Wait a bit and reload commits
       setTimeout(() => loadCommits(repoId), 2000);
     } catch (error) {
-      console.error('Failed to scan repository:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to scan repository';
+      logger.error('Failed to scan repository', {
+        component: 'GitIntegrationPage',
+        operation: 'handleScanRepository',
+        repoId,
+        error: errorMessage
+      });
       toast.error('Failed to scan repository');
     } finally {
       setIsLoading(false);

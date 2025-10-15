@@ -2,7 +2,7 @@
 //!
 //! Tests the linter integration framework with clippy and rustfmt.
 
-use mplora_worker::{LinterConfig, LinterRunner, LinterType};
+use adapteros_lora_worker::{LinterConfig, LinterRunner, LinterType};
 use std::path::PathBuf;
 
 #[tokio::test]
@@ -30,7 +30,7 @@ async fn test_linter_with_custom_config() {
 
 #[tokio::test]
 async fn test_linter_result_methods() {
-    use mplora_worker::{LintIssue, LintSeverity, LinterResult};
+    use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult};
     
     let result = LinterResult {
         linter: LinterType::Clippy,
@@ -45,7 +45,7 @@ async fn test_linter_result_methods() {
 
 #[tokio::test]
 async fn test_linter_result_with_issues() {
-    use mplora_worker::{LintIssue, LintSeverity, LinterResult};
+    use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult};
     
     let result = LinterResult {
         linter: LinterType::Clippy,
@@ -67,7 +67,7 @@ async fn test_linter_result_with_issues() {
 
 #[tokio::test]
 async fn test_static_helper_methods() {
-    use mplora_worker::{LintIssue, LintSeverity, LinterResult, LinterRunner};
+    use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult, LinterRunner};
     
     let results = vec![
         LinterResult {

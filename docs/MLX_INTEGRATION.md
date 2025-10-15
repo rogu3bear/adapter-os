@@ -217,7 +217,7 @@ let output = apply_multi_lora(
 
 ```rust
 use mplora_mlx::{MLXModel, MLXBackend, LoRAAdapter};
-use mplora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 
 // Load model and create backend
 let model = MLXModel::load("models/qwen2.5-7b-mlx")?;

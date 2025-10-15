@@ -9,7 +9,7 @@
 //!
 //! Aligns with performance targets from code intelligence requirements.
 
-use mplora_worker::{
+use adapteros_lora_worker::{
     evidence::{EvidenceRequest, EvidenceRetriever, MockSymbolIndex, MockTestIndex, MockDocIndex, MockCodeIndex, MockFrameworkIndex},
     patch_generator::{PatchGenerator, PatchGenerationRequest, MockLlmBackend},
     patch_validator::{PatchValidator, CodePolicy},
@@ -74,8 +74,8 @@ async fn test_evidence_retrieval_performance() {
 async fn test_patch_generation_performance() {
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     let request = PatchGenerationRequest {
@@ -188,8 +188,8 @@ async fn test_memory_usage_limits() {
 
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     // Create more requests than the limit
@@ -232,8 +232,8 @@ async fn test_memory_usage_limits() {
 async fn test_patch_size_performance_impact() {
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     // Test small patch
@@ -278,12 +278,12 @@ async fn test_patch_size_performance_impact() {
 /// Test evidence quality impact on performance
 #[tokio::test]
 async fn test_evidence_quality_performance() {
-    use mplora_worker::evidence::{EvidenceSpan, EvidenceType};
+    use adapteros_lora_worker::evidence::{EvidenceSpan, EvidenceType};
 
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     // Test with no evidence
@@ -417,8 +417,8 @@ async fn test_performance_under_load() {
 
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     let validator = PatchValidator::new(CodePolicy::default());

@@ -5,12 +5,12 @@
 //! 2. KV cache with Metal buffers
 //! 3. Token embedding clarifications
 
-use mplora_core::{AosError, Result, B3Hash};
-use mplora_worker::{Worker, InferenceRequest, KvCache, SequenceId};
-use mplora_kernel_api::MockKernels;
-use mplora_rag::RagSystem;
-use mplora_telemetry::TelemetryWriter;
-use mplora_manifest::ManifestV3;
+use adapteros_core::{AosError, Result, B3Hash};
+use adapteros_lora_worker::{Worker, InferenceRequest, KvCache, SequenceId};
+use adapteros_lora_kernel_api::MockKernels;
+use adapteros_lora_rag::RagSystem;
+use adapteros_telemetry::TelemetryWriter;
+use adapteros_manifest::ManifestV3;
 use std::path::PathBuf;
 
 /// Test KV cache allocation and deallocation

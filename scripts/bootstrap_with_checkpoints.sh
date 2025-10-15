@@ -76,6 +76,9 @@ should_skip_step() {
             "create_tenant")
                 [[ "$step" =~ ^(create_dirs|build_binaries|init_db|build_metal|download_model|create_tenant)$ ]] && return 0
                 ;;
+            "smoke_test")
+                [[ "$step" =~ ^(create_dirs|build_binaries|init_db|build_metal|download_model|create_tenant|smoke_test)$ ]] && return 0
+                ;;
         esac
     fi
     return 1
@@ -131,7 +134,7 @@ build_all() {
         fi
     done
     
-    cargo build --release --bin aos-cp 2>&1 | while IFS= read -r line; do
+    cargo build --release --bin adapteros-server 2>&1 | while IFS= read -r line; do
         echo "$line"
     done
     
@@ -148,7 +151,7 @@ initialize_cp_database() {
     fi
     
     # Run migrations
-    ./target/release/aos-cp --config configs/cp.toml --migrate-only
+    ./target/release/adapteros-server --config configs/cp.toml --migrate-only
     echo "Database initialized"
 }
 
@@ -190,6 +193,18 @@ setup_default_tenant() {
     echo "Default tenant created"
 }
 
+run_smoke_tests() {
+    echo "Running post-install smoke tests..."
+    
+    # Check if smoke test script exists
+    if [[ -f "installer/smoke_test.sh" ]]; then
+        bash installer/smoke_test.sh
+        echo "Smoke tests completed"
+    else
+        echo "Warning: smoke_test.sh not found, skipping smoke tests"
+    fi
+}
+
 # Main installation flow
 main() {
     echo "================================================"
@@ -220,6 +235,9 @@ main() {
         run_step "create_tenant" setup_default_tenant 0.95 || exit 1
     fi
     
+    # Run smoke tests (both full and minimal modes)
+    run_step "smoke_test" run_smoke_tests 0.98 || exit 1
+    
     # Complete
     echo ""
     echo "================================================"
@@ -233,10 +251,10 @@ main() {
     echo ""
     echo "Next steps:"
     echo "  1. Start the control plane:"
-    echo "     ./target/release/aos-cp --config configs/cp.toml"
+    echo "     ./target/release/adapteros-server --config configs/cp.toml"
     echo ""
     echo "  2. Run your first inference:"
-    echo "     cargo run --bin aosctl serve --tenant default --plan qwen7b"
+    echo "     ./target/release/aosctl serve --tenant default --plan qwen7b"
     echo ""
 }
 

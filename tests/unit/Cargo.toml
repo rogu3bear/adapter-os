@@ -1,0 +1,51 @@
+[package]
+name = "adapteros-unit-testing"
+version = "0.1.0"
+edition = "2021"
+description = "Comprehensive unit testing framework for AdapterOS core components"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/adapteros/adapter-os"
+keywords = ["testing", "unit-testing", "deterministic", "async", "metal"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+# Core dependencies
+adapteros-core = { path = "../../crates/adapteros-core" }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Random number generation (for deterministic testing)
+rand = "0.8"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+# Testing framework itself
+adapteros-unit-testing = { path = "." }
+
+# Additional test dependencies
+proptest = "1.0"  # For property-based testing integration
+criterion = "0.5" # For benchmarking
+
+[[bench]]
+name = "framework_benchmarks"
+harness = false
+
+[features]
+default = []
+# Feature flags for optional components
+metal = []      # Metal kernel testing (macOS only)
+gpu = []        # GPU-specific testing
+full = ["metal", "gpu"]  # All features
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]</code>
+</edit_file>

@@ -6,8 +6,8 @@
 //! - Stack hash determinism
 //! - Memory leak detection
 
-use mplora_core::B3Hash;
-use mplora_worker::adapter_hotswap::{AdapterCommand, AdapterTable, HotSwapManager};
+use adapteros_core::B3Hash;
+use adapteros_lora_worker::adapter_hotswap::{AdapterCommand, AdapterTable, HotSwapManager};
 
 #[test]
 fn test_preload_and_swap_basic() {

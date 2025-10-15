@@ -7,7 +7,7 @@
 use metal::Device;
 
 #[cfg(target_os = "macos")]
-use mplora_kernel_prof::MetalProfiler;
+use adapteros_lora_kernel_prof::MetalProfiler;
 
 #[test]
 #[cfg(target_os = "macos")]

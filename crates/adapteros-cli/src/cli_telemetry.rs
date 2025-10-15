@@ -125,6 +125,14 @@ pub fn extract_error_code(error: &anyhow::Error) -> Option<String> {
         Some("E5001".to_string())
     } else if error_str.contains("Registry") {
         Some("E6001".to_string())
+    } else if error_str.contains("ConfigurationError") {
+        Some("E6005".to_string())
+    } else if error_str.contains("InvalidInput") {
+        Some("E6006".to_string())
+    } else if error_str.contains("NetworkError") {
+        Some("E6005".to_string())
+    } else if error_str.contains("SerializationError") {
+        Some("E6007".to_string())
     } else if error_str.contains("Database") || error_str.contains("Sqlite") {
         Some("E8003".to_string())
     } else if error_str.contains("permission") || error_str.contains("Permission") {

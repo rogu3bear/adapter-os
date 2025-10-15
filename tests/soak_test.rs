@@ -24,7 +24,7 @@ async fn soak_test_memory_stability() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(10);
 
-    println!("\n🔥 Starting soak test");
+    println!("\n[FIRE] Starting soak test");
     println!("   Duration: {} seconds ({} minutes)", duration, duration / 60);
     println!("   Target QPS: {}", qps);
     println!("");

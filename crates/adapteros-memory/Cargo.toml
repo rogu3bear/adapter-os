@@ -18,6 +18,8 @@ parking_lot = "0.12"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 blake3 = "1.5"
 hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.0", features = ["rt", "test-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.30"

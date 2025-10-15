@@ -1,7 +1,7 @@
 //! Router calibration algorithm validation tests
 
 use anyhow::Result;
-use mplora_router::{CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod};
+use adapteros_lora_router::{CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod};
 use std::path::PathBuf;
 
 #[test]
@@ -97,7 +97,7 @@ fn test_weights_save_load() -> Result<()> {
     );
     
     // Create test weights
-    let weights = mplora_router::RouterWeights::new(0.3, 0.25, 0.2, 0.15, 0.1);
+    let weights = adapteros_lora_router::RouterWeights::new(0.3, 0.25, 0.2, 0.15, 0.1);
     
     // Save to temp file
     let temp_dir = tempfile::tempdir()?;
@@ -105,7 +105,7 @@ fn test_weights_save_load() -> Result<()> {
     weights.save(&weights_path)?;
 
     // Load and verify
-    let loaded_weights = mplora_router::RouterWeights::load(&weights_path)?;
+    let loaded_weights = adapteros_lora_router::RouterWeights::load(&weights_path)?;
     assert!((loaded_weights.language_weight - weights.language_weight).abs() < 0.001);
     assert!((loaded_weights.framework_weight - weights.framework_weight).abs() < 0.001);
 
@@ -132,7 +132,7 @@ fn test_validation_metrics() -> Result<()> {
     let calibrator = Calibrator::new(dataset, OptimizationMethod::GridSearch, 2);
     
     // Use default weights for validation
-    let weights = mplora_router::RouterWeights::default();
+    let weights = adapteros_lora_router::RouterWeights::default();
     let metrics = calibrator.validate(&weights);
 
     // Check that all metrics are in valid ranges

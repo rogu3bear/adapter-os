@@ -74,14 +74,14 @@ aosctl router show --weights my_weights.json
 ### Creating Your Own Dataset
 
 1. Collect prompts with known optimal adapter selections
-2. Extract features using `mplora_router::CodeFeatures`
+2. Extract features using `adapteros_lora_router::CodeFeatures`
 3. Record ground truth adapter IDs
 4. Save in JSON format following the example structure
 
 Example code:
 
 ```rust
-use mplora_router::{CodeFeatures, CalibrationSample, CalibrationDataset};
+use adapteros_lora_router::{CodeFeatures, CalibrationSample, CalibrationDataset};
 
 let mut samples = Vec::new();
 

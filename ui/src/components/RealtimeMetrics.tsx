@@ -12,8 +12,6 @@ import {
   TrendingUp,
   Database,
   GitBranch,
-  Play,
-  Pause,
   RefreshCw
 } from 'lucide-react';
 import { SystemMetrics, User } from '../api/types';
@@ -36,10 +34,9 @@ interface MetricsHistory {
 export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [history, setHistory] = useState<MetricsHistory[]>([]);
-  const [isPaused, setIsPaused] = useState(false);
-  const [updateInterval, setUpdateInterval] = useState(100); // ms
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const MAX_HISTORY = 60; // Keep last 60 data points (6 seconds at 100ms)
+  const UPDATE_INTERVAL = 50; // ms - instant updates
+  const MAX_HISTORY = 120; // Keep last 120 data points (6 seconds at 50ms)
   
   // Training metrics
   const [trainingJobs, setTrainingJobs] = useState({
@@ -124,30 +121,14 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     fetchMetrics();
     
     // Set up interval for real-time updates
-    if (!isPaused) {
-      intervalRef.current = setInterval(fetchMetrics, updateInterval);
-    }
+    intervalRef.current = setInterval(fetchMetrics, UPDATE_INTERVAL);
     
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPaused, updateInterval, selectedTenant]);
-  
-  const togglePause = () => {
-    setIsPaused(!isPaused);
-  };
-  
-  const changeUpdateInterval = (newInterval: number) => {
-    setUpdateInterval(newInterval);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    if (!isPaused) {
-      intervalRef.current = setInterval(fetchMetrics, newInterval);
-    }
-  };
+  }, [selectedTenant]);
   
   // Format chart data
   const chartData = history.map((h, idx) => ({
@@ -173,38 +154,8 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
             Real-time Metrics
           </h1>
           <p className="section-description">
-            System performance updated every {updateInterval}ms
+            System performance updated every {UPDATE_INTERVAL}ms - instant real-time
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant={updateInterval === 100 ? "default" : "outline"}
-            size="sm"
-            onClick={() => changeUpdateInterval(100)}
-          >
-            100ms
-          </Button>
-          <Button
-            variant={updateInterval === 500 ? "default" : "outline"}
-            size="sm"
-            onClick={() => changeUpdateInterval(500)}
-          >
-            500ms
-          </Button>
-          <Button
-            variant={updateInterval === 1000 ? "default" : "outline"}
-            size="sm"
-            onClick={() => changeUpdateInterval(1000)}
-          >
-            1s
-          </Button>
-          <Button variant="outline" size="sm" onClick={togglePause}>
-            {isPaused ? (
-              <><Play className="icon-small mr-2" /> Resume</>
-            ) : (
-              <><Pause className="icon-small mr-2" /> Pause</>
-            )}
-          </Button>
         </div>
       </div>
       

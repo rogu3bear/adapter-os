@@ -2,7 +2,7 @@
 //!
 //! Validates entropy computation accuracy and integration with router features.
 
-use mplora_router::{extract_attn_entropy, CodeFeatures};
+use adapteros_lora_router::{extract_attn_entropy, CodeFeatures};
 
 #[test]
 fn test_entropy_extraction_peaked_distribution() {

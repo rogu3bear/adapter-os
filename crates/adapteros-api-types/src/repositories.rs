@@ -1,0 +1,44 @@
+//! Repository management types
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+/// Register repository request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RegisterRepositoryRequest {
+    pub repo_id: String,
+    pub path: String,
+    pub languages: Vec<String>,
+    pub default_branch: String,
+}
+
+/// Repository response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RepositoryResponse {
+    pub id: String,
+    pub repo_id: String,
+    pub path: String,
+    pub languages: Vec<String>,
+    pub default_branch: String,
+    pub status: String,
+    pub frameworks: Vec<String>,
+    pub file_count: Option<i64>,
+    pub symbol_count: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Trigger scan request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TriggerScanRequest {
+    pub repo_id: String,
+}
+
+/// Scan status response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScanStatusResponse {
+    pub repo_id: String,
+    pub status: String,
+    pub progress: Option<f32>,
+    pub message: Option<String>,
+}

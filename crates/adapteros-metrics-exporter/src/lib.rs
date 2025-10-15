@@ -85,12 +85,12 @@ impl MetricsExporter {
 
         // Worker metrics
         let workers_active =
-            Gauge::new("mplora_workers_active", "Number of active worker processes")?;
+            Gauge::new("adapteros_lora_workers_active", "Number of active worker processes")?;
         registry.register(Box::new(workers_active.clone()))?;
 
         let workers_memory_headroom_pct = GaugeVec::new(
             Opts::new(
-                "mplora_workers_memory_headroom_percent",
+                "adapteros_lora_workers_memory_headroom_percent",
                 "Worker memory headroom percentage",
             ),
             &["worker_id", "tenant_id"],
@@ -99,7 +99,7 @@ impl MetricsExporter {
 
         let workers_adapters_loaded = GaugeVec::new(
             Opts::new(
-                "mplora_workers_adapters_loaded",
+                "adapteros_lora_workers_adapters_loaded",
                 "Number of adapters loaded per worker",
             ),
             &["worker_id", "tenant_id"],
@@ -114,7 +114,7 @@ impl MetricsExporter {
         registry.register(Box::new(promotions_total.clone()))?;
 
         let policy_violations_total = Counter::new(
-            "mplora_policy_violations_total",
+            "adapteros_policy_violations_total",
             "Total number of policy violations",
         )?;
         registry.register(Box::new(policy_violations_total.clone()))?;

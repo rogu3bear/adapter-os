@@ -1,9 +1,9 @@
 //! End-to-end integration test for Qwen2.5-7B-Instruct
 
-use mplora_core::B3Hash;
-use mplora_chat::{Message, ChatTemplateProcessor, ChatTemplate, SpecialTokens};
-use mplora_plan::ModelLoader;
-use mplora_plan::config::ModelConfig;
+use adapteros_core::B3Hash;
+use adapteros_chat::{Message, ChatTemplateProcessor, ChatTemplate, SpecialTokens};
+use adapteros_lora_plan::ModelLoader;
+use adapteros_lora_plan::config::ModelConfig;
 use tempfile::tempdir;
 
 /// Test Qwen2.5-7B-Instruct integration pipeline
@@ -129,7 +129,7 @@ async fn test_gqa_configuration() {
 
 /// Test LoRA memory calculation
 async fn test_lora_memory_calculation() {
-    let config = mplora_plan::config::ModelConfig {
+    let config = adapteros_lora_plan::config::ModelConfig {
         name: "test".to_string(),
         architecture: "qwen2".to_string(),
         vocab_size: 32000,
@@ -156,13 +156,13 @@ async fn test_lora_memory_calculation() {
                 pad_token: None,
             },
         }),
-        quantizer: mplora_quant::BlockQuantizer::new("int4_block".to_string(), 128, 4),
+        quantizer: adapteros_lora_quant::BlockQuantizer::new("int4_block".to_string(), 128, 4),
     };
     
-    let adapter = mplora_manifest::Adapter {
+    let adapter = adapteros_manifest::Adapter {
         id: "test-adapter".to_string(),
         hash: B3Hash::hash(b"test"),
-        tier: mplora_manifest::AdapterTier::Persistent,
+        tier: adapteros_manifest::AdapterTier::Persistent,
         rank: 16,
         alpha: 32.0,
         target_modules: vec!["q_proj".to_string(), "k_proj".to_string()],
@@ -242,7 +242,7 @@ async fn test_model_loader_integration() {
 #[tokio::test]
 #[ignore = "Requires ModelLoader API update"]
 async fn test_manifest_validation() {
-    let config = mplora_plan::config::ModelConfig {
+    let config = adapteros_lora_plan::config::ModelConfig {
         name: "Qwen2.5-7B-Instruct".to_string(),
         architecture: "qwen2".to_string(),
         vocab_size: 32000,
@@ -269,12 +269,12 @@ async fn test_manifest_validation() {
                 pad_token: None,
             },
         }),
-        quantizer: mplora_quant::BlockQuantizer::new("int4_block".to_string(), 128, 4),
+        quantizer: adapteros_lora_quant::BlockQuantizer::new("int4_block".to_string(), 128, 4),
     };
     
-    let manifest = mplora_manifest::ManifestV3 {
+    let manifest = adapteros_manifest::ManifestV3 {
         schema: "adapteros.manifest.v3".to_string(),
-        base: mplora_manifest::Base {
+        base: adapteros_manifest::Base {
             model_id: "Qwen2.5-7B-Instruct".to_string(),
             model_hash: B3Hash::hash(b"test"),
             arch: "qwen2".to_string(),
@@ -289,34 +289,34 @@ async fn test_manifest_validation() {
             rope_scaling_override: None,
         },
         adapters: vec![],
-        router: mplora_manifest::RouterCfg {
+        router: adapteros_manifest::RouterCfg {
             k_sparse: 3,
             gate_quant: "q15".to_string(),
             entropy_floor: 0.02,
             tau: 1.0,
             sample_tokens_full: 128,
         },
-        telemetry: mplora_manifest::TelemetryCfg {
+        telemetry: adapteros_manifest::TelemetryCfg {
             schema_hash: B3Hash::hash(b"telemetry"),
-            sampling: mplora_manifest::SamplingCfg {
+            sampling: adapteros_manifest::SamplingCfg {
                 token: 0.05,
                 router: 1.0,
                 inference: 1.0,
             },
             router_full_tokens: 128,
-            bundle: mplora_manifest::BundleCfg {
+            bundle: adapteros_manifest::BundleCfg {
                 max_events: 500000,
                 max_bytes: 268435456,
             },
         },
-        policies: mplora_manifest::Policies {
+        policies: adapteros_manifest::Policies {
             egress: "none".to_string(),
-            access: mplora_manifest::AccessCfg {
+            access: adapteros_manifest::AccessCfg {
                 adapters: "RBAC".to_string(),
                 datasets: "ABAC".to_string(),
             },
         },
-        seeds: mplora_manifest::Seeds {
+        seeds: adapteros_manifest::Seeds {
             global: B3Hash::hash(b"global"),
         },
     };

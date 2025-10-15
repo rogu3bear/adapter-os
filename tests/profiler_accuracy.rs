@@ -1,6 +1,6 @@
 //! Tests for profiler metric collection accuracy
 
-use mplora_profiler::{AdapterProfiler, AdapterMetrics};
+use adapteros_profiler::{AdapterProfiler, AdapterMetrics};
 use std::time::Duration;
 
 #[test]

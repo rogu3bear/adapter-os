@@ -159,6 +159,9 @@ class ProcessRunner: ObservableObject {
         } else if text.contains("tenant") || text.contains("create_tenant") {
             currentStep = .createTenant
             progress = max(progress, 0.95)
+        } else if text.contains("smoke") || text.contains("test") || text.contains("smoke_test") {
+            currentStep = .smokeTest
+            progress = max(progress, 0.98)
         }
     }
 }

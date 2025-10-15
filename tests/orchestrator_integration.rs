@@ -4,7 +4,7 @@
 //! verifying all gates execute correctly and produce proper reports.
 
 use anyhow::Result;
-use mplora_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
+use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -17,7 +17,7 @@ async fn test_orchestrator_gate_run() -> Result<()> {
     
     // Create test database
     let db_path = temp_path.join("test.db");
-    let db = mplora_db::Db::connect(&db_path.to_string_lossy()).await?;
+    let db = adapteros_db::Db::connect(&db_path.to_string_lossy()).await?;
     db.migrate().await?;
     
     // Create test CPID
@@ -190,7 +190,7 @@ async fn test_orchestrator_gate_failure() -> Result<()> {
     
     // Create test database
     let db_path = temp_path.join("test.db");
-    let db = mplora_db::Db::connect(&db_path.to_string_lossy()).await?;
+    let db = adapteros_db::Db::connect(&db_path.to_string_lossy()).await?;
     db.migrate().await?;
     
     let test_cpid = "cp_test_failure_456";
