@@ -1,8 +1,8 @@
 //! Tests for memory pressure handling and eviction
 
-use mplora_lifecycle::LifecycleManager;
-use mplora_manifest::Policies;
-use mplora_profiler::AdapterProfiler;
+use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_manifest::Policies;
+use adapteros_profiler::AdapterProfiler;
 
 #[test]
 fn test_memory_pressure_eviction() {
@@ -90,7 +90,7 @@ fn test_pinned_adapter_never_evicted() {
     assert!(result.is_ok());
 
     // Adapter 0 should still be resident (pinned)
-    use mplora_lifecycle::AdapterState;
+    use adapteros_lora_lifecycle::AdapterState;
     assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
 
     // Cleanup

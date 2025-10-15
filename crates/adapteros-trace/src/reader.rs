@@ -10,7 +10,6 @@ use adapteros_core::{AosError, Result};
 use serde_json;
 
 use crate::schema::{Event, TraceBundle};
-// use crate::writer::write_trace_bundle; // TODO: Implement trace bundle writing in future iteration
 
 /// Reader for trace bundles
 pub struct TraceReader {
@@ -117,6 +116,7 @@ pub fn read_trace_bundle<P: AsRef<Path>>(path: P) -> Result<TraceBundle> {
 mod tests {
     use super::*;
     use crate::schema::TraceBundle;
+    use crate::write_trace_bundle;
     use tempfile::TempDir;
 
     #[test]

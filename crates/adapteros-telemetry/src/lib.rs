@@ -15,8 +15,10 @@ pub mod bundle_store;
 pub mod event;
 pub mod events;
 pub mod merkle;
+pub mod metrics;
 pub mod replay;
 pub mod report;
+pub mod unified_events;
 
 pub use audit_log::{
     SignatureAuditEntry, SignatureAuditLogger, SignatureOperation, SignatureResult,
@@ -29,14 +31,21 @@ pub use bundle_store::{
 pub use event::Event;
 pub use events::{InferenceEvent, RngSnapshot, RouterDecisionEvent};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
+pub use metrics::{
+    MetricsCollector, MetricsServer, MetricsSnapshot, LatencyMetrics, QueueDepthMetrics,
+    ThroughputMetrics, SystemMetrics, PolicyMetrics, AdapterMetrics,
+};
 pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
 pub use report::generate_html_report;
+pub use unified_events::{
+    TelemetryEvent as UnifiedTelemetryEvent, LogLevel, EventType, TelemetryFilters, TelemetryEventBuilder,
+};
 
 /// Telemetry writer with background thread
 pub struct TelemetryWriter {
-    sender: Sender<TelemetryEvent>,
+    sender: Sender<UnifiedTelemetryEvent>,
     _handle: thread::JoinHandle<()>,
 }
 
@@ -73,22 +82,23 @@ impl TelemetryWriter {
         })
     }
 
-    /// Log an event
-    pub fn log<T: Serialize>(&self, event_type: &str, payload: T) -> Result<()> {
-        let event = TelemetryEvent {
-            event_type: event_type.to_string(),
-            payload: serde_json::to_value(payload)?,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_nanos(),
-        };
-
-        self.sender
-            .send(event)
-            .map_err(|e| AosError::Telemetry(format!("Failed to send event: {}", e)))?;
-
+    /// Log an event using the unified event schema
+    pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
+        self.sender.send(event).map_err(|_| AosError::Io("Failed to send telemetry event".to_string()))?;
         Ok(())
+    }
+
+    /// Log an event with legacy format (for backward compatibility)
+    pub fn log<T: Serialize>(&self, event_type: &str, payload: T) -> Result<()> {
+        let event = TelemetryEventBuilder::new(
+            EventType::Custom(event_type.to_string()),
+            LogLevel::Info,
+            format!("Legacy event: {}", event_type),
+        )
+        .metadata(serde_json::to_value(payload)?)
+        .build();
+        
+        self.log_event(event)
     }
 
     /// Log a security event (always logged at 100% sampling per Telemetry Ruleset #9)
@@ -208,24 +218,10 @@ impl TelemetryWriter {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryEvent {
-    pub event_type: String,
-    pub payload: serde_json::Value,
-    pub timestamp: u128,
-}
-
-impl TelemetryEvent {
-    /// Compute canonical hash
-    fn compute_hash(&self) -> Result<B3Hash> {
-        let canonical_bytes = serde_jcs::to_vec(self)
-            .map_err(|e| AosError::Telemetry(format!("Failed to canonicalize: {}", e)))?;
-        Ok(B3Hash::hash(&canonical_bytes))
-    }
-}
+// Legacy TelemetryEvent struct removed - use UnifiedTelemetryEvent instead
 
 fn run_writer(
-    receiver: Receiver<TelemetryEvent>,
+    receiver: Receiver<UnifiedTelemetryEvent>,
     output_dir: PathBuf,
     max_events: usize,
     max_bytes: usize,
@@ -241,8 +237,12 @@ fn run_writer(
     let mut writer = BufWriter::new(File::create(&bundle_path)?);
 
     for event in receiver {
-        // Compute event hash
-        let event_hash = event.compute_hash()?;
+        // Use event hash if available, otherwise compute it
+        let event_hash = event.event_hash.unwrap_or_else(|| {
+            let event_json = serde_json::to_string(&event).unwrap_or_default();
+            let hash_bytes = blake3::hash(event_json.as_bytes());
+            B3Hash::from_bytes(hash_bytes.into())
+        });
         event_hashes.push(event_hash);
 
         // Write as NDJSON

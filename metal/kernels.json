@@ -9,7 +9,7 @@
       "version": "1.0.0",
       "description": "Fused MLP with SwiGLU activation, LoRA support, and bias",
       "parameters": "MlpParams",
-      "blake3_hash": "3d354f04988d4b88be559bbfa905313391929d6f09bba290f8e4b2e4f093ee34",
+      "blake3_hash": "152e1b8640179fc2aed5cad2ea9d7bc217c681f5238b3508c8916ed79a640dd2",
       "features": [
         "SwiGLU activation",
         "LoRA support",
@@ -26,7 +26,7 @@
       "version": "1.0.0",
       "description": "Fused QKV with Grouped Query Attention (GQA) support",
       "parameters": "AttentionParams",
-      "blake3_hash": "3d354f04988d4b88be559bbfa905313391929d6f09bba290f8e4b2e4f093ee34",
+      "blake3_hash": "152e1b8640179fc2aed5cad2ea9d7bc217c681f5238b3508c8916ed79a640dd2",
       "features": [
         "Grouped Query Attention",
         "LoRA support",
@@ -43,7 +43,7 @@
       "version": "1.0.0",
       "description": "Memory-efficient attention computation with GQA support",
       "parameters": "FlashAttentionParams",
-      "blake3_hash": "3d354f04988d4b88be559bbfa905313391929d6f09bba290f8e4b2e4f093ee34",
+      "blake3_hash": "152e1b8640179fc2aed5cad2ea9d7bc217c681f5238b3508c8916ed79a640dd2",
       "features": [
         "Flash Attention",
         "Grouped Query Attention",

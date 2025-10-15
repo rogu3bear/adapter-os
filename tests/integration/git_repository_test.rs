@@ -3,8 +3,8 @@
 //! Tests git repository registration, analysis, and training pipeline integration.
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
-use mplora_core::{AosError, Result};
-use mplora_db::Db;
+use adapteros_core::{AosError, Result};
+use adapteros_db::Db;
 use serde_json::json;
 use std::collections::HashMap;
 use tempfile::TempDir;

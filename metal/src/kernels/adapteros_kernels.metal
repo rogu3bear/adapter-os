@@ -7,6 +7,7 @@
 // - Flash Attention for memory efficiency
 // - Deterministic math operations
 // - Optimized memory access patterns
+// - Vocabulary projection with adapter fusion
 //
 // References:
 // - SwiGLU: https://arxiv.org/abs/2002.05202
@@ -28,3 +29,25 @@ using namespace metal;
 #include "attention.metal"
 #include "flash_attention.metal"
 #include "mplora.metal"
+
+// Vocabulary projection kernel with adapter fusion support
+kernel void vocabulary_projection(
+    device const float* hidden_states [[buffer(0)]],    // [hidden_size]
+    device const float* lm_head_weights [[buffer(1)]],  // [hidden_size, vocab_size]
+    device float* output_logits [[buffer(2)]],          // [vocab_size]
+    constant uint& hidden_size [[buffer(3)]],
+    constant uint& vocab_size [[buffer(4)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    if (tid >= vocab_size) {
+        return;
+    }
+
+    // Compute dot product: logit = sum(hidden_states[i] * lm_head_weights[i][tid])
+    float logit = 0.0f;
+    for (uint i = 0; i < hidden_size; i++) {
+        logit += hidden_states[i] * lm_head_weights[i * vocab_size + tid];
+    }
+
+    output_logits[tid] = logit;
+}

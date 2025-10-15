@@ -6,8 +6,8 @@
 //! - Telemetry event chain
 //! - Signer allowlist enforcement
 
-use mplora_core::B3Hash;
-use mplora_crypto::{sign_bytes, Keypair};
+use adapteros_core::B3Hash;
+use adapteros_crypto::{sign_bytes, Keypair};
 
 #[test]
 fn test_signer_key_format() {
@@ -144,7 +144,7 @@ fn test_provenance_database_schema() {
 fn test_telemetry_event_for_adapter_registration() {
     // Verify telemetry captures adapter registration with provenance
 
-    use mplora_telemetry::TelemetryWriter;
+    use adapteros_telemetry::TelemetryWriter;
     use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();

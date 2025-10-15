@@ -21,7 +21,7 @@ tracing = { workspace = true }
 rand = { workspace = true, optional = true }
 rusqlite = { workspace = true }
 sqlx = { workspace = true, optional = true }
-adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+zip = "1.1"
 
 [dev-dependencies]
 proptest = { workspace = true }

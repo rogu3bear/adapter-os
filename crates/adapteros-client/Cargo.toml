@@ -11,6 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+adapteros-api-types = { path = "../adapteros-api-types" }
 
 # Feature-gated dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

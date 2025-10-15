@@ -31,8 +31,6 @@ import {
   Network,
   MoreHorizontal,
   Edit,
-  Pause,
-  Play,
   Archive,
   Layers,
   BarChart3
@@ -40,6 +38,7 @@ import {
 import apiClient from '../api/client';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
 import { toast } from 'sonner';
+import { logger } from '../utils/logger';
 
 interface TenantsProps {
   user: User;
@@ -68,7 +67,12 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       const data = await apiClient.listTenants();
       setTenants(data);
     } catch (err) {
-      console.error('Failed to fetch tenants:', err);
+      // Replace: console.error('Failed to fetch tenants:', err);
+      logger.error('Failed to fetch tenants', {
+        component: 'Tenants',
+        operation: 'fetchTenants',
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
       toast.error('Failed to load tenants');
     } finally {
       setLoading(false);
@@ -89,7 +93,12 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         setPolicies(policiesData);
         setAdapters(adaptersData);
       } catch (err) {
-        console.error('Failed to fetch policies/adapters:', err);
+        // Replace: console.error('Failed to fetch policies/adapters:', err);
+        logger.error('Failed to fetch policies/adapters', {
+          component: 'Tenants',
+          operation: 'fetchPoliciesAdapters',
+          userId: user.id
+        }, err instanceof Error ? err : new Error(String(err)));
       }
     };
     fetchData();
@@ -108,21 +117,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     }
   };
 
-  const handlePauseToggle = async (tenant: ApiTenant) => {
-    try {
-      if (tenant.status === 'active') {
-        await apiClient.pauseTenant(tenant.id);
-        toast.success('Tenant paused');
-      } else {
-        // Resume not implemented in backend yet
-        toast.info('Resume functionality coming soon');
-      }
-      fetchTenants();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to toggle tenant status';
-      toast.error(errorMsg);
-    }
-  };
 
   const handleArchive = async () => {
     if (!selectedTenantForAction) return;
@@ -196,7 +190,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       case 'maintenance':
         return <div className="status-indicator status-warning"><Settings className="icon-small" />Maintenance</div>;
       case 'paused':
-        return <div className="status-indicator status-neutral"><Lock className="icon-small" />Paused</div>;
+        return <div className="status-indicator status-neutral"><Lock className="icon-small" />Inactive</div>;
       case 'archived':
         return <div className="status-indicator status-neutral"><Database className="icon-small" />Archived</div>;
       default:
@@ -465,13 +459,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                         }}>
                           <Edit className="mr-2 h-4 w-4" />
                           Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handlePauseToggle(tenant)}>
-                          {(tenant.status || 'active') === 'active' ? (
-                            <><Pause className="mr-2 h-4 w-4" />Pause</>
-                          ) : (
-                            <><Play className="mr-2 h-4 w-4" />Resume</>
-                          )}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => {
                           setSelectedTenantForAction(tenant);

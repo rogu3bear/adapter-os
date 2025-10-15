@@ -83,7 +83,8 @@ The installer is a thin SwiftUI wrapper around the existing CLI infrastructure:
 
 1. **Pre-Check**: Validate hardware and configure options
 2. **Install**: Run bootstrap script with checkpoint recovery
-3. **Complete**: Show determinism explainer and next steps
+3. **Smoke Test**: Verify core functionality (init, serve, inference)
+4. **Complete**: Show determinism explainer and next steps
 
 ## Checkpoint Recovery
 
@@ -95,6 +96,7 @@ If installation is interrupted, the installer automatically detects the checkpoi
 - `build_metal` - Metal kernel compilation
 - `download_model` - Model download (skipped in air-gapped mode)
 - `create_tenant` - Default tenant setup (full mode only)
+- `smoke_test` - Post-install verification tests
 
 ## Code Signing
 
@@ -110,6 +112,22 @@ For notarization (required for distribution outside the App Store):
 xcrun notarytool submit "AdapterOS Installer.app" --apple-id your@email.com --team-id TEAMID --wait
 xcrun stapler staple "AdapterOS Installer.app"
 ```
+
+## Smoke Test
+
+The installer includes a comprehensive post-install smoke test (`installer/smoke_test.sh`) that verifies:
+
+- **Binary Availability**: `aosctl` binary exists and responds to help
+- **Tenant Management**: Tenant initialization (if database available)
+- **Serve Functionality**: Dry-run serve command validation
+- **Inference Examples**: Basic inference example compilation
+- **API Client**: Client library availability and compilation
+- **Metal Kernels**: Precompiled kernel verification
+- **Configuration**: Config files and manifests presence
+- **Database**: Migration files availability
+- **Policy System**: Policy management functionality
+
+The smoke test runs automatically after installation and provides detailed feedback on system readiness.
 
 ## Future Enhancements
 

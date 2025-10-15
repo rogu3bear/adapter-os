@@ -7,7 +7,7 @@
 use metal::{Device, MTLResourceOptions};
 
 #[cfg(target_os = "macos")]
-use mplora_kernel_mtl::LayoutValidator;
+use adapteros_lora_kernel_mtl::LayoutValidator;
 
 #[test]
 #[cfg(target_os = "macos")]
@@ -37,7 +37,7 @@ fn test_size_mismatch_detected() {
     assert!(result.is_err());
     
     match result {
-        Err(mplora_core::AosError::KernelLayoutMismatch { tensor, expected, got }) => {
+        Err(adapteros_core::AosError::KernelLayoutMismatch { tensor, expected, got }) => {
             assert_eq!(tensor, "test_tensor");
             assert!(expected.contains("2048"));
             assert!(got.contains("1024"));

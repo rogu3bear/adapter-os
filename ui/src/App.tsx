@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
+import { Icon } from './components/Icon';
 import { 
   Shield, 
   Server, 
@@ -10,7 +11,7 @@ import {
   FileText, 
   ArrowUp, 
   Activity, 
-  Settings,
+  Settings as SettingsIcon,
   Code,
   GitBranch,
   Eye,
@@ -32,36 +33,20 @@ import {
 } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Dashboard } from './components/Dashboard';
-import { Tenants } from './components/Tenants';
-import { Nodes } from './components/Nodes';
-import { Plans } from './components/Plans';
-import { Promotion } from './components/Promotion';
-import { Telemetry } from './components/Telemetry';
 import { Policies } from './components/Policies';
-import { CodeIntelligence } from './components/CodeIntelligence';
 import { Adapters } from './components/Adapters';
 import { LoginForm } from './components/LoginForm';
-// Contacts and Streams components - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8
-import { ContactsPage } from './components/ContactsPage';
-import { TrainingStreamPage } from './components/TrainingStreamPage';
-import { DiscoveryStreamPage } from './components/DiscoveryStreamPage';
-import { InferencePlayground } from './components/InferencePlayground';
-import { RouterConfigPage } from './components/RouterConfigPage';
-import { GitIntegrationPage } from './components/GitIntegrationPage';
-import { AuditDashboard } from './components/AuditDashboard';
-import { AlertsPage } from './components/AlertsPage';
 // Consolidated components for simplified navigation
 import { Operations } from './components/Operations';
 import { Settings } from './components/Settings';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Toaster } from './components/ui/sonner';
-import { ReplayPanel } from './components/ReplayPanel';
 import { BreadcrumbProvider } from './contexts/BreadcrumbContext';
 import { BreadcrumbNavigation } from './components/BreadcrumbNavigation';
 import { HelpTooltip } from './components/ui/help-tooltip';
 import { RoleGuidance } from './components/RoleGuidance';
 import apiClient from './api/client';
-import { User, UserRole, Tenant, ReplaySession } from './api/types';
+import { User, UserRole, Tenant } from './api/types';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -72,8 +57,6 @@ export default function App() {
   const [selectedTenant, setSelectedTenant] = useState<string>('default');
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [replayMode, setReplayMode] = useState(false);
-  const [replaySessionId, setReplaySessionId] = useState<string | null>(null);
 
   useEffect(() => {
     // Load selected tenant from localStorage
@@ -205,7 +188,7 @@ export default function App() {
     { 
       id: 'settings', 
       label: 'Settings', 
-      icon: Settings, 
+      icon: SettingsIcon, 
       roles: ['Admin'] 
     }
   ].filter(item => item.roles.includes(user.role));
@@ -254,17 +237,8 @@ export default function App() {
             )}
             <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
             <span className="text-muted-foreground hidden md:inline">{user.email}</span>
-            <Button 
-              variant={replayMode ? "default" : "outline"} 
-              size="sm"
-              onClick={() => setReplayMode(!replayMode)}
-              aria-label="Toggle replay mode"
-              title={replayMode ? "Switch to Live Mode" : "Switch to Replay Mode"}
-            >
-              {replayMode ? '▶️ Replay' : '⏯️ Live'}
-            </Button>
             <Button variant="outline" size="sm" onClick={toggleTheme}>
-              {isDarkMode ? '☀️' : '🌙'}
+              {isDarkMode ? <Icon name="sun" size={14} /> : <Icon name="moon" size={14} />}
             </Button>
             <Button variant="outline" size="sm" onClick={handleLogout} className="hidden sm:inline-flex">
               Logout
@@ -333,14 +307,6 @@ export default function App() {
         {/* Content Area */}
         <main className="flex-1 p-4 md:p-6">
           <BreadcrumbNavigation />
-          {replayMode && (
-            <div className="mb-4">
-              <ReplayPanel 
-                tenantId={selectedTenant} 
-                onSessionSelect={(session: ReplaySession | null) => setReplaySessionId(session?.id || null)} 
-              />
-            </div>
-          )}
           <ErrorBoundary>
             {/* Simplified navigation routing - 5 main categories */}
             {activeTab === 'dashboard' && <Dashboard user={user} selectedTenant={selectedTenant} onNavigate={setActiveTab} />}

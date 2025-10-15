@@ -6,7 +6,7 @@
 //! - Inverted dropout scaling
 //! - Consistency across runs
 
-use mplora_kernel_mtl::{GqaConfig, LoraConfig};
+use adapteros_lora_kernel_mtl::{GqaConfig, LoraConfig};
 
 #[test]
 fn test_lora_dropout_config() {

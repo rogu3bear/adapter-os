@@ -2,7 +2,7 @@
 
 use crate::canonical::{canonical_tensor_repr, CanonicalTensor, HASH_VERSION};
 use crate::tensor::Tensor;
-use adapteros_core::{B3Hash, Result};
+use adapteros_core::{Result, B3Hash};
 
 /// Hash graph node representing a tensor with canonical metadata
 #[derive(Debug, Clone)]

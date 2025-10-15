@@ -1,8 +1,8 @@
 //! Tests for K-reduction policy under memory pressure
 
-use mplora_lifecycle::LifecycleManager;
-use mplora_manifest::Policies;
-use mplora_profiler::AdapterProfiler;
+use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_manifest::Policies;
+use adapteros_profiler::AdapterProfiler;
 
 #[test]
 fn test_k_reduction_before_hot_eviction() {
@@ -45,7 +45,7 @@ fn test_k_reduction_before_hot_eviction() {
     }
 
     // All should be hot
-    use mplora_lifecycle::AdapterState;
+    use adapteros_lora_lifecycle::AdapterState;
     assert_eq!(manager.get_state(0), Some(AdapterState::Hot));
     assert_eq!(manager.get_state(1), Some(AdapterState::Hot));
     assert_eq!(manager.get_state(2), Some(AdapterState::Hot));
@@ -157,7 +157,7 @@ fn test_eviction_order_respects_policy() {
     assert!(result.is_ok());
 
     // Cold adapter should be evicted (back to unloaded)
-    use mplora_lifecycle::AdapterState;
+    use adapteros_lora_lifecycle::AdapterState;
     assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
     
     // Other adapters should remain

@@ -23,6 +23,7 @@ import {
 import apiClient from '../api/client';
 import { Policy, TelemetryBundle, PromotionGate } from '../api/types';
 import { toast } from 'sonner';
+import { logger } from '../utils/logger';
 
 interface AuditDashboardProps {
   selectedTenant: string;
@@ -74,7 +75,13 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       generateComplianceData(policiesList);
       generateViolationData();
     } catch (error) {
-      console.error('Failed to load audit data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load audit data';
+      logger.error('Failed to load audit data', {
+        component: 'AuditDashboard',
+        operation: 'loadAuditData',
+        tenant: selectedTenant,
+        error: errorMessage
+      });
       toast.error('Failed to load audit data');
     } finally {
       setIsLoading(false);
@@ -180,12 +187,31 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const handleRunAudit = async () => {
     setIsLoading(true);
     try {
+      logger.info('Running audit', {
+        component: 'AuditDashboard',
+        operation: 'handleRunAudit',
+        tenant: selectedTenant
+      });
+
       toast.success('Audit started');
       await new Promise(resolve => setTimeout(resolve, 2000));
       await loadAuditData();
+
+      logger.info('Audit completed', {
+        component: 'AuditDashboard',
+        operation: 'handleRunAudit',
+        tenant: selectedTenant
+      });
+
       toast.success('Audit completed');
     } catch (error) {
-      console.error('Failed to run audit:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to run audit';
+      logger.error('Failed to run audit', {
+        component: 'AuditDashboard',
+        operation: 'handleRunAudit',
+        tenant: selectedTenant,
+        error: errorMessage
+      });
       toast.error('Audit failed');
     } finally {
       setIsLoading(false);
@@ -193,24 +219,47 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   };
 
   const handleExportReport = () => {
-    const report = {
-      generated_at: new Date().toISOString(),
-      tenant: selectedTenant,
-      compliance_status: complianceStatus,
-      violations: violations,
-      policies: policies.length,
-      telemetry_bundles: telemetryBundles.length
-    };
+    try {
+      logger.info('Exporting audit report', {
+        component: 'AuditDashboard',
+        operation: 'handleExportReport',
+        tenant: selectedTenant
+      });
 
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit-report-${new Date().toISOString()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+      const report = {
+        generated_at: new Date().toISOString(),
+        tenant: selectedTenant,
+        compliance_status: complianceStatus,
+        violations: violations,
+        policies: policies.length,
+        telemetry_bundles: telemetryBundles.length
+      };
 
-    toast.success('Audit report exported');
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `audit-report-${new Date().toISOString()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      logger.info('Audit report exported successfully', {
+        component: 'AuditDashboard',
+        operation: 'handleExportReport',
+        tenant: selectedTenant
+      });
+
+      toast.success('Audit report exported');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to export report';
+      logger.error('Failed to export audit report', {
+        component: 'AuditDashboard',
+        operation: 'handleExportReport',
+        tenant: selectedTenant,
+        error: errorMessage
+      });
+      toast.error('Failed to export report');
+    }
   };
 
   const getStatusColor = (status: ComplianceStatus['status']) => {
@@ -595,7 +644,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
                           Merkle Root: {bundle.merkle_root}
                         </div>
                       </div>
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" onClick={() => handleVerifyBundle(bundle.id)}>
                         <Eye className="w-3 h-3 mr-1" />
                         Verify
                       </Button>
@@ -609,4 +658,45 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       </Tabs>
     </div>
   );
+
+  async function handleVerifyBundle(bundleId: string) {
+    try {
+      logger.info('Verifying telemetry bundle signature', {
+        component: 'AuditDashboard',
+        operation: 'handleVerifyBundle',
+        bundleId
+      });
+
+      const result = await apiClient.verifyBundleSignature(bundleId);
+
+      if (result.valid) {
+        toast.success(`Bundle signature verified successfully!\nSigner: ${result.signer || 'Unknown'}`);
+        logger.info('Bundle signature verified', {
+          component: 'AuditDashboard',
+          operation: 'handleVerifyBundle',
+          bundleId,
+          valid: true,
+          signer: result.signer
+        });
+      } else {
+        toast.error(`Bundle signature verification failed!\n${result.error || 'Unknown error'}`);
+        logger.warn('Bundle signature verification failed', {
+          component: 'AuditDashboard',
+          operation: 'handleVerifyBundle',
+          bundleId,
+          valid: false,
+          error: result.error
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to verify bundle';
+      logger.error('Failed to verify bundle signature', {
+        component: 'AuditDashboard',
+        operation: 'handleVerifyBundle',
+        bundleId,
+        error: errorMessage
+      });
+      toast.error(`Failed to verify bundle: ${errorMessage}`);
+    }
+  }
 }

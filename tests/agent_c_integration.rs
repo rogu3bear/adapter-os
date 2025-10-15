@@ -8,7 +8,7 @@ mod tests {
     #[tokio::test]
     async fn test_pinned_adapters_database() -> Result<()> {
         // Test pinned adapters database operations
-        let db = mplora_db::Db::connect(":memory:").await?;
+        let db = adapteros_db::Db::connect(":memory:").await?;
         db.migrate().await?;
 
         // Pin an adapter
@@ -46,7 +46,7 @@ mod tests {
     #[tokio::test]
     async fn test_pinned_adapter_ttl_expiration() -> Result<()> {
         // Test TTL expiration for pinned adapters
-        let db = mplora_db::Db::connect(":memory:").await?;
+        let db = adapteros_db::Db::connect(":memory:").await?;
         db.migrate().await?;
 
         // Pin adapter with expired TTL (past date)
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn test_manifest_warmup_field() {
         // Test that warmup field is properly parsed from manifest
-        use mplora_manifest::ManifestV3;
+        use adapteros_manifest::ManifestV3;
 
         let manifest_json = r#"{
             "schema": "adapteros.manifest.v3",
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn test_adapter_dependencies() {
         // Test adapter dependency validation
-        use mplora_manifest::AdapterDependencies;
+        use adapteros_manifest::AdapterDependencies;
 
         let deps = AdapterDependencies {
             base_model: Some("qwen2.5-7b".to_string()),

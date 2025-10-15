@@ -1,0 +1,48 @@
+//! Git integration types
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+/// Git status response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GitStatusResponse {
+    pub enabled: bool,
+    pub active_sessions: u32,
+    pub repositories_tracked: u32,
+    pub last_scan: Option<String>,
+}
+
+/// Start git session request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct StartGitSessionRequest {
+    pub repository_path: String,
+    pub branch: Option<String>,
+}
+
+/// Git session response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GitSessionResponse {
+    pub session_id: String,
+    pub repository_path: String,
+    pub branch: String,
+    pub started_at: String,
+}
+
+/// Git branch information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GitBranchInfo {
+    pub name: String,
+    pub is_current: bool,
+    pub last_commit: String,
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+/// File change event
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FileChangeEvent {
+    pub file_path: String,
+    pub change_type: String, // "added", "modified", "deleted"
+    pub timestamp: String,
+    pub session_id: String,
+}

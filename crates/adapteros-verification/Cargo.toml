@@ -1,0 +1,16 @@
+[package]
+name = "adapteros-verification"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }

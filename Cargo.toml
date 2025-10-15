@@ -53,6 +53,8 @@ members = [
     "crates/adapteros-verify",
     "crates/adapteros-domain",
     "crates/adapteros-base-llm",
+    "crates/adapteros-testing",
+    "crates/adapteros-verification",
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "xtask",
@@ -68,8 +70,8 @@ repository = "https://github.com/rogu3bear/mplora"
 
 [dependencies]
 # Re-export key crates for integration tests
-adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
+adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 anyhow = "1.0"
 thiserror.workspace = true
@@ -176,6 +178,7 @@ utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 sysinfo = "0.30"
+prometheus = "0.13"
 
 # Testing
 proptest = "1.4"

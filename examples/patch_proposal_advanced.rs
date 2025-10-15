@@ -3,10 +3,10 @@
 //! This example demonstrates advanced usage of the patch proposal system
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
-use mplora_manifest::Policies;
-use mplora_policy::PolicyEngine;
-use mplora_telemetry::TelemetryWriter;
-use mplora_worker::{
+use adapteros_manifest::Policies;
+use adapteros_policy::PolicyEngine;
+use adapteros_telemetry::TelemetryWriter;
+use adapteros_lora_worker::{
     evidence::{EvidencePolicy, EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics},
@@ -21,17 +21,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("🚀 AdapterOS Patch Proposal System - Advanced Example");
+    println!("[ROCKET] AdapterOS Patch Proposal System - Advanced Example");
     println!("====================================================");
 
     // 1. Set up telemetry with writer
-    println!("📊 Setting up telemetry...");
+    println!("[CHART] Setting up telemetry...");
     let telemetry_writer = TelemetryWriter::new("/tmp/telemetry", 1000, 1024 * 1024)?;
     let mut telemetry = PatchTelemetry::new_with_writer(telemetry_writer);
-    println!("✅ Telemetry configured");
+    println!("[CHECK] Telemetry configured");
 
     // 2. Configure custom evidence policy
-    println!("🔍 Configuring evidence policy...");
+    println!("[SEARCH] Configuring evidence policy...");
     let evidence_policy = EvidencePolicy {
         min_spans: 3,
         min_sources: 2,
@@ -39,20 +39,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_retrieval_time_ms: 200,
     };
     println!(
-        "✅ Evidence policy configured: min_spans={}, min_sources={}, min_avg_score={:.1}",
+        "[CHECK] Evidence policy configured: min_spans={}, min_sources={}, min_avg_score={:.1}",
         evidence_policy.min_spans, evidence_policy.min_sources, evidence_policy.min_avg_score
     );
 
     // 3. Create comprehensive evidence spans
-    println!("📚 Creating comprehensive evidence spans...");
+    println!("[BOOK] Creating comprehensive evidence spans...");
     let evidence_spans = create_comprehensive_evidence();
-    println!("✅ Created {} evidence spans", evidence_spans.len());
+    println!("[CHECK] Created {} evidence spans", evidence_spans.len());
 
     // 4. Validate evidence quality
-    println!("🔍 Validating evidence quality...");
+    println!("[SEARCH] Validating evidence quality...");
     let evidence_result = validate_evidence_quality(&evidence_spans, &evidence_policy)?;
     println!(
-        "✅ Evidence validation: {}",
+        "[CHECK] Evidence validation: {}",
         if evidence_result.is_valid {
             "PASSED"
         } else {
@@ -61,23 +61,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     if !evidence_result.is_valid {
         for error in evidence_result.errors {
-            println!("   ❌ {}", error);
+            println!("   [CROSS] {}", error);
         }
     }
 
     // 5. Generate patch proposal with performance monitoring
-    println!("⚡ Generating patch proposal with performance monitoring...");
+    println!("[LIGHTNING] Generating patch proposal with performance monitoring...");
     let start_time = Instant::now();
     let proposal = generate_patch_proposal_advanced(evidence_spans).await?;
     let generation_time = start_time.elapsed();
-    println!("✅ Patch proposal generated in {:?}", generation_time);
+    println!("[CHECK] Patch proposal generated in {:?}", generation_time);
     println!("   Proposal ID: {}", proposal.proposal_id);
     println!("   Confidence: {:.3}", proposal.confidence);
     println!("   Files: {}", proposal.patches.len());
     println!("   Citations: {}", proposal.citations.len());
 
     // 6. Log evidence retrieval telemetry
-    println!("📊 Logging evidence retrieval telemetry...");
+    println!("[CHART] Logging evidence retrieval telemetry...");
     let evidence_metrics = EvidenceMetrics {
         query: "Advanced authentication middleware".to_string(),
         sources_used: vec![
@@ -96,10 +96,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evidence_metrics,
         Some(&proposal.proposal_id),
     );
-    println!("✅ Evidence telemetry logged");
+    println!("[CHECK] Evidence telemetry logged");
 
     // 7. Log patch generation telemetry
-    println!("📊 Logging patch generation telemetry...");
+    println!("[CHART] Logging patch generation telemetry...");
     let generation_metrics = PatchGenerationMetrics {
         proposal_id: proposal.proposal_id.clone(),
         description: proposal.rationale.clone(),
@@ -111,13 +111,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         confidence_score: proposal.confidence,
     };
     telemetry.log_patch_generation("advanced_tenant", generation_metrics);
-    println!("✅ Generation telemetry logged");
+    println!("[CHECK] Generation telemetry logged");
 
     // 8. Advanced policy validation
-    println!("🛡️  Performing advanced policy validation...");
+    println!("[SHIELD]  Performing advanced policy validation...");
     let validation_result = validate_patch_advanced(&proposal.patches).await?;
     println!(
-        "✅ Advanced validation: {}",
+        "[CHECK] Advanced validation: {}",
         if validation_result.is_valid {
             "PASSED"
         } else {
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Violations: {}", validation_result.violations.len());
 
     // 9. Log validation telemetry
-    println!("📊 Logging validation telemetry...");
+    println!("[CHART] Logging validation telemetry...");
     let validation_metrics = ValidationMetrics {
         proposal_id: proposal.proposal_id.clone(),
         is_valid: validation_result.is_valid,
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         violations: validation_result
             .violations
             .into_iter()
-            .map(|v| mplora_worker::patch_telemetry::ViolationMetric {
+            .map(|v| adapteros_lora_worker::patch_telemetry::ViolationMetric {
                 violation_type: format!("{:?}", v.violation_type),
                 severity: format!("{:?}", v.severity),
                 file_path: v.file_path,
@@ -152,24 +152,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect(),
     };
     telemetry.log_patch_validation("advanced_tenant", validation_metrics);
-    println!("✅ Validation telemetry logged");
+    println!("[CHECK] Validation telemetry logged");
 
     // 10. Performance analysis
-    println!("📈 Performance analysis...");
+    println!("[TRENDING-UP] Performance analysis...");
     let performance_metrics = telemetry.get_performance_metrics();
     for (metric_name, value) in performance_metrics {
         println!("   {}: {:.2}", metric_name, value);
     }
 
     // 11. Security analysis
-    println!("🔒 Security analysis...");
+    println!("[LOCK] Security analysis...");
     let security_events = telemetry
         .get_events()
         .iter()
         .filter(|e| {
             matches!(
                 e.event_type,
-                mplora_worker::patch_telemetry::PatchEventType::SecurityViolation
+                adapteros_lora_worker::patch_telemetry::PatchEventType::SecurityViolation
             )
         })
         .count();
@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     display_advanced_patch_details(&proposal, &validation_result);
 
     // 13. Export telemetry data
-    println!("📤 Exporting telemetry data...");
+    println!("[EXPORT] Exporting telemetry data...");
     let events = telemetry.get_events();
     println!("   Total events logged: {}", events.len());
     println!(
@@ -187,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events.iter().map(|e| &e.event_type).collect::<Vec<_>>()
     );
 
-    println!("\n🎉 Advanced patch proposal example completed successfully!");
+    println!("\n[SUCCESS] Advanced patch proposal example completed successfully!");
     Ok(())
 }
 
@@ -295,7 +295,7 @@ fn validate_evidence_quality(
 
 async fn generate_patch_proposal_advanced(
     evidence_spans: Vec<EvidenceSpan>,
-) -> Result<mplora_worker::patch_generator::PatchProposal, Box<dyn std::error::Error>> {
+) -> Result<adapteros_lora_worker::patch_generator::PatchProposal, Box<dyn std::error::Error>> {
     let request = PatchGenerationRequest {
         repo_id: "advanced_auth_service".to_string(),
         commit_sha: Some("advanced123".to_string()),
@@ -307,8 +307,8 @@ async fn generate_patch_proposal_advanced(
 
     let generator = PatchGenerator::new(
         Box::new(MockLlmBackend),
-        mplora_worker::patch_generator::PatchParser::new(),
-        mplora_worker::patch_generator::CitationExtractor::new(),
+        adapteros_lora_worker::patch_generator::PatchParser::new(),
+        adapteros_lora_worker::patch_generator::CitationExtractor::new(),
     );
 
     let proposal = generator.generate_patch(request).await?;
@@ -316,8 +316,8 @@ async fn generate_patch_proposal_advanced(
 }
 
 async fn validate_patch_advanced(
-    patches: &[mplora_worker::patch_generator::FilePatch],
-) -> Result<mplora_worker::patch_validator::ValidationResult, Box<dyn std::error::Error>> {
+    patches: &[adapteros_lora_worker::patch_generator::FilePatch],
+) -> Result<adapteros_lora_worker::patch_validator::ValidationResult, Box<dyn std::error::Error>> {
     let mut policy = CodePolicy::default();
 
     // Customize policy for advanced validation
@@ -335,8 +335,8 @@ async fn validate_patch_advanced(
 }
 
 fn create_advanced_policies() -> Policies {
-    use mplora_core::B3Hash;
-    use mplora_manifest::{
+    use adapteros_core::B3Hash;
+    use adapteros_manifest::{
         ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
         MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
     };
@@ -401,10 +401,10 @@ fn create_advanced_policies() -> Policies {
 }
 
 fn display_advanced_patch_details(
-    proposal: &mplora_worker::patch_generator::PatchProposal,
+    proposal: &adapteros_lora_worker::patch_generator::PatchProposal,
     validation_result: &ValidationResult,
 ) {
-    println!("\n📋 Advanced Patch Proposal Details");
+    println!("\n[CLIPBOARD] Advanced Patch Proposal Details");
     println!("===================================");
     println!("Proposal ID: {}", proposal.proposal_id);
     println!("Rationale: {}", proposal.rationale);
@@ -419,7 +419,7 @@ fn display_advanced_patch_details(
     );
     println!("Validation Confidence: {:.3}", validation_result.confidence);
 
-    println!("\n📁 Files Modified:");
+    println!("\n[FILE] Files Modified:");
     for (i, patch) in proposal.patches.iter().enumerate() {
         println!(
             "  {}. {} ({} lines)",
@@ -440,7 +440,7 @@ fn display_advanced_patch_details(
         }
     }
 
-    println!("\n📚 Citations (sorted by relevance):");
+    println!("\n[BOOK] Citations (sorted by relevance):");
     for (i, citation) in proposal.citations.iter().enumerate() {
         println!(
             "  {}. {} (score: {:.3})",
@@ -456,21 +456,21 @@ fn display_advanced_patch_details(
     }
 
     if !validation_result.errors.is_empty() {
-        println!("\n❌ Validation Errors:");
+        println!("\n[CROSS] Validation Errors:");
         for error in &validation_result.errors {
             println!("   - {}", error);
         }
     }
 
     if !validation_result.warnings.is_empty() {
-        println!("\n⚠️  Validation Warnings:");
+        println!("\n[WARNING]  Validation Warnings:");
         for warning in &validation_result.warnings {
             println!("   - {}", warning);
         }
     }
 
     if !validation_result.violations.is_empty() {
-        println!("\n🚨 Policy Violations:");
+        println!("\n[ALERT] Policy Violations:");
         for violation in &validation_result.violations {
             println!(
                 "   - {}: {}",

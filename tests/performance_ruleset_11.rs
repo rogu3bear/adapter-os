@@ -6,7 +6,7 @@
 //! - Throughput ≥ 40 tokens/s
 
 use anyhow::Result;
-use mplora_router::{RouterMonitoringMetrics, RouterOverheadMetrics, ThroughputMetrics};
+use adapteros_lora_router::{RouterMonitoringMetrics, RouterOverheadMetrics, ThroughputMetrics};
 use std::time::{Duration, Instant};
 
 #[test]
@@ -79,7 +79,7 @@ fn test_throughput_budget_violation() {
 
 #[test]
 fn test_p95_latency_budget() {
-    use mplora_router::AdapterMetrics;
+    use adapteros_lora_router::AdapterMetrics;
 
     let mut metrics = AdapterMetrics::new(0);
 
@@ -103,7 +103,7 @@ fn test_p95_latency_budget() {
 
 #[test]
 fn test_p95_latency_budget_violation() {
-    use mplora_router::AdapterMetrics;
+    use adapteros_lora_router::AdapterMetrics;
 
     let mut metrics = AdapterMetrics::new(0);
 

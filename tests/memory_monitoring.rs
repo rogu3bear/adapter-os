@@ -1,6 +1,6 @@
 //! Test memory monitoring accuracy
 
-use mplora_worker::MemoryMonitor;
+use adapteros_lora_worker::MemoryMonitor;
 
 #[test]
 fn test_headroom_measurement() {

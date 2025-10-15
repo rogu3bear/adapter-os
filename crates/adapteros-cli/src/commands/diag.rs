@@ -1,10 +1,14 @@
 //! System diagnostics command
 
-use anyhow::{Context, Result};
+use adapteros_core::{AosError, Result};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
+use tracing::{info, warn, error, debug};
+use zip::write::FileOptions;
+use zip::ZipWriter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagProfile {
@@ -83,15 +87,15 @@ impl DiagnosticRunner {
         });
 
         if !self.is_json_mode() {
-            println!(
-                "{} {} - {}",
-                status.symbol(),
-                name,
-                self.results
-                    .last()
-                    .map(|r| r.message.as_str())
-                    .unwrap_or("No results")
-            );
+            let message = self.results
+                .last()
+                .map(|r| r.message.as_str())
+                .unwrap_or("No results");
+            match status {
+                CheckStatus::Pass => info!("{} {} - {}", status.symbol(), name, message),
+                CheckStatus::Warning => warn!("{} {} - {}", status.symbol(), name, message),
+                CheckStatus::Fail => error!("{} {} - {}", status.symbol(), name, message),
+            }
         }
     }
 
@@ -101,8 +105,8 @@ impl DiagnosticRunner {
 
     async fn run_system_checks(&mut self) -> Result<()> {
         if !self.is_json_mode() {
-            println!("\n🔧 System Checks");
-            println!("════════════════════════════════════════════════════════════════");
+            info!("🔧 System Checks");
+            info!("════════════════════════════════════════════════════════════════");
         }
 
         // Metal device check
@@ -344,7 +348,7 @@ impl DiagnosticRunner {
         // Try to connect
         let db_path_str = db_path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?;
+            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
         match adapteros_db::Db::connect(db_path_str).await {
             Ok(_db) => {
                 self.check(
@@ -407,8 +411,8 @@ impl DiagnosticRunner {
 
     async fn run_tenant_checks(&mut self) -> Result<()> {
         if !self.is_json_mode() {
-            println!("\n👤 Tenant Checks");
-            println!("════════════════════════════════════════════════════════════════");
+            info!("👤 Tenant Checks");
+            info!("════════════════════════════════════════════════════════════════");
         }
 
         let tenant_id = match &self.tenant_id {
@@ -448,7 +452,7 @@ impl DiagnosticRunner {
 
         let db_path_str = db_path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?;
+            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
         match adapteros_db::Db::connect(db_path_str).await {
             Ok(db) => {
                 // Check if tenant exists
@@ -547,8 +551,8 @@ impl DiagnosticRunner {
 
     async fn run_service_checks(&mut self) -> Result<()> {
         if !self.is_json_mode() {
-            println!("\n⚙️  Service Checks");
-            println!("════════════════════════════════════════════════════════════════");
+            info!("⚙️  Service Checks");
+            info!("════════════════════════════════════════════════════════════════");
         }
 
         // Check aos-secd
@@ -678,11 +682,11 @@ pub async fn run(
     let mut runner = DiagnosticRunner::new(profile, tenant_id.clone());
 
     if !json {
-        println!("AdapterOS Diagnostics");
-        println!("════════════════════════════════════════════════════════════════");
-        println!("Profile: {:?}", profile);
+        info!("AdapterOS Diagnostics");
+        info!("════════════════════════════════════════════════════════════════");
+        info!("Profile: {:?}", profile);
         if let Some(ref tenant) = tenant_id {
-            println!("Tenant: {}", tenant);
+            info!("Tenant: {}", tenant);
         }
     }
 
@@ -711,16 +715,16 @@ pub async fn run(
             "exit_code": runner.exit_code(),
             "checks": runner.results,
         });
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        info!("Diagnostic results: {}", serde_json::to_string_pretty(&output)?);
     } else {
-        println!("\n════════════════════════════════════════════════════════════════");
-        println!("Summary:");
-        println!("  Total checks: {}", runner.results.len());
-        println!(
+        info!("════════════════════════════════════════════════════════════════");
+        info!("Summary:");
+        info!("  Total checks: {}", runner.results.len());
+        info!(
             "  Passed: {}",
             runner.results.iter().filter(|r| r.status == "pass").count()
         );
-        println!(
+        info!(
             "  Warnings: {}",
             runner
                 .results
@@ -728,21 +732,21 @@ pub async fn run(
                 .filter(|r| r.status == "warning")
                 .count()
         );
-        println!(
+        info!(
             "  Failures: {}",
             runner.results.iter().filter(|r| r.status == "fail").count()
         );
-        println!("\nExit code: {}", runner.exit_code());
+        info!("Exit code: {}", runner.exit_code());
 
         if runner.has_failures || runner.has_warnings {
-            println!("\nFor help with specific errors, run: aosctl explain <CODE>");
+            warn!("For help with specific errors, run: aosctl explain <CODE>");
         }
     }
 
     // Create bundle if requested
     if let Some(bundle_path) = bundle_path {
         create_diag_bundle(&bundle_path, &runner.results).await?;
-        println!("\n📦 Diagnostic bundle created: {}", bundle_path.display());
+        info!("📦 Diagnostic bundle created: {}", bundle_path.display());
     }
 
     std::process::exit(runner.exit_code());
@@ -751,7 +755,7 @@ pub async fn run(
 async fn add_log_files(zip: &mut zip::ZipWriter<std::fs::File>, logs_dir: &str) -> Result<()> {
     use std::fs;
     use std::io::{Read, Write};
-    use zip::write::FileOptions;
+    use zip::write::{FileOptions, SimpleFileOptions};
 
     let logs_path = Path::new(logs_dir);
 
@@ -802,7 +806,7 @@ async fn add_log_files(zip: &mut zip::ZipWriter<std::fs::File>, logs_dir: &str) 
             .to_string_lossy()
             .replace('\\', "/"); // Normalize path separators
 
-        zip.start_file(format!("logs/{}", relative_path), FileOptions::default())?;
+        zip.start_file(format!("logs/{}", relative_path), SimpleFileOptions::default())?;
 
         let mut file = fs::File::open(log_file)?;
         let mut buffer = Vec::new();
@@ -867,7 +871,7 @@ fn add_truncated_log_file(
 ) -> Result<()> {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-    use zip::write::FileOptions;
+    use zip::write::{FileOptions, SimpleFileOptions};
 
     let file = File::open(log_file)?;
     let mut reader = BufReader::new(file);
@@ -885,7 +889,7 @@ fn add_truncated_log_file(
             .and_then(|n| n.to_str())
             .unwrap_or("unknown.log");
 
-        zip.start_file(format!("logs/{}", relative_path), FileOptions::default())?;
+        zip.start_file(format!("logs/{}", relative_path), SimpleFileOptions::default())?;
         zip.write_all(&content)?;
         return Ok(());
     }
@@ -914,7 +918,7 @@ fn add_truncated_log_file(
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.log");
 
-    zip.start_file(format!("logs/{}", relative_path), FileOptions::default())?;
+    zip.start_file(format!("logs/{}", relative_path), zip::write::SimpleFileOptions::default())?;
     zip.write_all(truncated_content.as_bytes())?;
 
     Ok(())
@@ -923,14 +927,14 @@ fn add_truncated_log_file(
 async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
-    use zip::write::FileOptions;
+    use zip::write::{FileOptions, SimpleFileOptions};
     use zip::ZipWriter;
 
     let file = File::create(bundle_path).context("Failed to create bundle file")?;
     let mut zip = ZipWriter::new(file);
 
     // Add diagnostic results
-    zip.start_file("diagnostics.json", FileOptions::default())?;
+    zip.start_file("diagnostics.json", SimpleFileOptions::default())?;
     zip.write_all(serde_json::to_string_pretty(results)?.as_bytes())?;
 
     // Add system info
@@ -947,13 +951,13 @@ async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Resul
         "cpu_count": sys.cpus().len(),
     });
 
-    zip.start_file("system_info.json", FileOptions::default())?;
+    zip.start_file("system_info.json", SimpleFileOptions::default())?;
     zip.write_all(serde_json::to_string_pretty(&sysinfo)?.as_bytes())?;
 
     // Add config files if they exist
     if Path::new("./configs/cp.toml").exists() {
         let config = std::fs::read_to_string("./configs/cp.toml")?;
-        zip.start_file("configs/cp.toml", FileOptions::default())?;
+        zip.start_file("configs/cp.toml", SimpleFileOptions::default())?;
         zip.write_all(config.as_bytes())?;
     }
 

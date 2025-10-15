@@ -6,8 +6,8 @@
 //!
 //! Run with: cargo test --test determinism_two_node -- --ignored --test-threads=1
 
-use mplora_core::B3Hash;
-use mplora_telemetry::{find_divergence, load_replay_bundle};
+use adapteros_core::B3Hash;
+use adapteros_telemetry::{find_divergence, load_replay_bundle};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -67,7 +67,7 @@ fn test_corpus_loads() {
 #[test]
 fn test_deterministic_seed_generation() {
     // Test that the same seed produces the same random sequence
-    use mplora_core::derive_seed;
+    use adapteros_core::derive_seed;
 
     let global_seed = B3Hash::hash(b"test-global-seed");
 
@@ -120,8 +120,8 @@ fn test_mock_inference_determinism() {
 fn simulate_inference_run(
     prompts: &[CorpusPrompt],
     seed: &B3Hash,
-) -> Vec<mplora_telemetry::replay::ReplayEvent> {
-    use mplora_telemetry::replay::ReplayEvent;
+) -> Vec<adapteros_telemetry::replay::ReplayEvent> {
+    use adapteros_telemetry::replay::ReplayEvent;
 
     let mut events = Vec::new();
 
@@ -242,7 +242,7 @@ fn test_metallib_hash_consistency() {
     // This would simulate loading metallib on two different nodes
     // For now, just verify the hash mechanism works
 
-    use mplora_kernel_mtl::MetalKernels;
+    use adapteros_lora_kernel_mtl::MetalKernels;
 
     // Create two kernel instances (simulating two nodes)
     let kernels1 = MetalKernels::new();
@@ -268,20 +268,20 @@ fn test_identical_seeds_produce_identical_outputs() {
     let seed = B3Hash::hash(b"test-seed");
 
     // Derive seeds multiple times with same inputs
-    let seed1_a = mplora_core::derive_seed_indexed(&seed, "component_a", 0);
-    let seed1_b = mplora_core::derive_seed_indexed(&seed, "component_a", 0);
+    let seed1_a = adapteros_core::derive_seed_indexed(&seed, "component_a", 0);
+    let seed1_b = adapteros_core::derive_seed_indexed(&seed, "component_a", 0);
 
     assert_eq!(seed1_a, seed1_b, "Same inputs must produce identical seeds");
 
     // Different components should produce different seeds
-    let seed2 = mplora_core::derive_seed_indexed(&seed, "component_b", 0);
+    let seed2 = adapteros_core::derive_seed_indexed(&seed, "component_b", 0);
     assert_ne!(
         seed1_a, seed2,
         "Different components must produce different seeds"
     );
 
     // Different indices should produce different seeds
-    let seed3 = mplora_core::derive_seed_indexed(&seed, "component_a", 1);
+    let seed3 = adapteros_core::derive_seed_indexed(&seed, "component_a", 1);
     assert_ne!(
         seed1_a, seed3,
         "Different indices must produce different seeds"

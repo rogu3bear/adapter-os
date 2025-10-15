@@ -465,7 +465,7 @@ aosctl metrics config --key enable_gpu_metrics --value false
 ### Custom Alerting
 
 ```rust
-use mplora_system_metrics::{SystemMonitor, MetricsConfig};
+use adapteros_system_metrics::{SystemMonitor, MetricsConfig};
 
 let config = MetricsConfig::default();
 let mut monitor = SystemMonitor::new(telemetry_writer, config);
@@ -480,7 +480,7 @@ if monitor.get_health_status() == SystemHealthStatus::Critical {
 ### Metrics Export
 
 ```rust
-use mplora_system_metrics::SystemMetricsDb;
+use adapteros_system_metrics::SystemMetricsDb;
 
 let db = SystemMetricsDb::new(pool);
 let metrics = db.get_metrics_history(24, Some(1000)).await?;
@@ -492,7 +492,7 @@ export_to_prometheus(metrics).await?;
 ### Policy Customization
 
 ```rust
-use mplora_system_metrics::{SystemMetricsPolicy, PerformanceThresholds};
+use adapteros_system_metrics::{SystemMetricsPolicy, PerformanceThresholds};
 
 let thresholds = PerformanceThresholds {
     max_cpu_usage: 85.0,  // Custom threshold

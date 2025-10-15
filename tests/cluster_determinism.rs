@@ -6,7 +6,7 @@
 //! - Cross-node consistency checks
 //! - Non-zero exit on mismatch
 
-use mplora_core::B3Hash;
+use adapteros_core::B3Hash;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

@@ -261,8 +261,8 @@ async fn main() -> Result<()> {
     info!("Connecting to database: {}", db_path);
     let db = Db::connect(&db_path).await?;
 
-    // Run migrations (temporarily disabled for testing)
-    info!("Skipping database migrations for testing");
+    // Run migrations (temporarily disabled for demo)
+    info!("Skipping database migrations for demo");
     // db.migrate().await?;
 
     // Seed development data
@@ -294,7 +294,7 @@ async fn main() -> Result<()> {
         let config_clone = Arc::clone(&config);
         let api_config_clone = Arc::clone(&api_config);
         let config_path = cli.config.clone();
-        spawn_deterministic("SIGHUP handler".to_string(), async move {
+        let _ = spawn_deterministic("SIGHUP handler".to_string(), async move {
             use tokio::signal::unix::{signal, SignalKind};
             let mut sig = signal(SignalKind::hangup()).expect("Failed to setup SIGHUP handler");
             loop {
@@ -415,7 +415,7 @@ async fn main() -> Result<()> {
     // Spawn status writer background task
     {
         let state_clone = state.clone();
-        spawn_deterministic("Status writer".to_string(), async move {
+        let _ = spawn_deterministic("Status writer".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;

@@ -15,7 +15,7 @@ fn test_pf_validation_required() {
     // This test verifies that PF validation is called
     // In production, this would check actual PF state
 
-    use mplora_policy::egress::validate_pf_rules;
+    use adapteros_policy::egress::validate_pf_rules;
 
     let result = validate_pf_rules();
 
@@ -81,7 +81,7 @@ fn test_dns_resolution_detection() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_egress_policy_validation() {
-    use mplora_policy::egress::validate_egress_policy;
+    use adapteros_policy::egress::validate_egress_policy;
 
     // Full egress validation: PF rules + socket detection
     let result = validate_egress_policy();
@@ -114,7 +114,7 @@ async fn test_serve_dry_run_validation() {
     // Simulate validation checks
     #[cfg(target_os = "macos")]
     {
-        use mplora_policy::egress::validate_pf_rules;
+        use adapteros_policy::egress::validate_pf_rules;
         let _ = validate_pf_rules();
     }
 
@@ -125,7 +125,7 @@ async fn test_serve_dry_run_validation() {
 fn test_security_violation_logging() {
     // Test that security violations produce structured logs
 
-    use mplora_core::AosError;
+    use adapteros_core::AosError;
 
     let violation =
         AosError::EgressViolation("Attempted TCP connection to 192.0.2.1:443".to_string());
@@ -156,7 +156,7 @@ mod integration {
     fn acceptance_serving_requires_pf() {
         #[cfg(target_os = "macos")]
         {
-            use mplora_policy::egress::validate_pf_rules;
+            use adapteros_policy::egress::validate_pf_rules;
 
             // This must fail in environments without PF configured
             let result = validate_pf_rules();

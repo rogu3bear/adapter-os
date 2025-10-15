@@ -424,7 +424,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn test_mplora_policy_creation() {
+    fn test_adapteros_policy_creation() {
         let config = MploraConfig::default();
         let policy = MploraPolicy::new(config);
         assert_eq!(policy.id(), PolicyId::Mplora);

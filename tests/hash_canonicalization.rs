@@ -9,7 +9,7 @@ use adapteros_graph::{
     hash::{hash_tensor_with_metadata, hash_tensors, HashGraph},
     tensor::{DataType, DeviceFamily, MemoryLayout, QuantizationParams, Tensor},
 };
-use mplora_core::B3Hash;
+use adapteros_core::B3Hash;
 use std::collections::HashMap;
 
 /// Create a test tensor with specified parameters

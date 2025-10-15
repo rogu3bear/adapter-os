@@ -10,10 +10,12 @@ mod cli;
 mod cli_telemetry;
 mod commands;
 mod error_codes;
+mod logging;
 mod output;
 
 use commands::*;
 use commands::golden::GoldenCmd;
+use logging::init_logging;
 use output::{OutputMode, OutputWriter};
 
 /// Backend type selection for inference
@@ -54,7 +56,6 @@ enum Commands {
     // Tenant Management
     // ============================================================
     /// Initialize a new tenant
-    #[command(alias = "init-tenant")]
     #[command(after_help = "\
 Examples:
   # Create a development tenant
@@ -84,7 +85,6 @@ Examples:
     // Adapter Management
     // ============================================================
     /// List adapters in the registry
-    #[command(alias = "list-adapters")]
     #[command(after_help = r#"Examples:
   aosctl list-adapters
   aosctl list-adapters --tier persistent
@@ -97,7 +97,6 @@ Examples:
     },
 
     /// Register a new adapter
-    #[command(alias = "register-adapter")]
     #[command(after_help = "\
 Examples:
   # Register a persistent adapter
@@ -126,7 +125,6 @@ Examples:
     },
 
     /// Pin adapter to prevent eviction
-    #[command(alias = "pin-adapter")]
     #[command(after_help = "\
 Examples:
   # Pin adapter permanently
@@ -157,7 +155,6 @@ Examples:
     },
 
     /// Unpin adapter to allow eviction
-    #[command(alias = "unpin-adapter")]
     #[command(after_help = "\
 Examples:
   # Unpin adapter
@@ -177,7 +174,6 @@ Examples:
     },
 
     /// List pinned adapters
-    #[command(alias = "list-pinned")]
     #[command(after_help = "\
 Examples:
   # List all pinned adapters for tenant
@@ -193,7 +189,6 @@ Examples:
     },
 
     /// Hot-swap adapters in running worker
-    #[command(alias = "adapter-swap")]
     #[command(after_help = "\
 Examples:
   # Dry-run adapter swap
@@ -232,7 +227,6 @@ Examples:
     },
 
     /// Show adapter information and provenance
-    #[command(alias = "adapter-info")]
     #[command(after_help = "\
 Examples:
   # Show adapter details
@@ -249,11 +243,14 @@ Examples:
         adapter_id: String,
     },
 
+    /// Adapter lifecycle management commands
+    #[command(subcommand)]
+    Adapter(adapter::AdapterCommand),
+
     // ============================================================
     // Node & Cluster Management
     // ============================================================
     /// List cluster nodes
-    #[command(alias = "node-list")]
     #[command(after_help = "\
 Examples:
   # List all nodes
@@ -272,7 +269,6 @@ Examples:
     },
 
     /// Verify cross-node determinism
-    #[command(alias = "node-verify")]
     #[command(after_help = "\
 Examples:
   # Verify all nodes
@@ -295,7 +291,6 @@ Examples:
     },
 
     /// Sync adapters across nodes
-    #[command(alias = "node-sync")]
     NodeSync {
         #[command(subcommand)]
         mode: NodeSyncMode,
@@ -305,7 +300,6 @@ Examples:
     // Registry Management
     // ============================================================
     /// Sync adapters from local directory to registry
-    #[command(alias = "sync-registry")]
     #[command(after_help = "\
 Examples:
   # Sync adapters from directory
@@ -335,7 +329,6 @@ Examples:
     // Plan Management
     // ============================================================
     /// Build a plan from manifest
-    #[command(alias = "build-plan")]
     #[command(after_help = "\
 Examples:
   # Build plan from YAML manifest
@@ -361,7 +354,6 @@ Examples:
     // Model Management
     // ============================================================
     /// Import a model
-    #[command(alias = "import-model")]
     #[command(after_help = "\
 Examples:
   # Import Qwen2.5-7B model
@@ -403,7 +395,6 @@ Examples:
     // Telemetry & Verification
     // ============================================================
     /// Verify telemetry bundle chain
-    #[command(alias = "verify-telemetry")]
     #[command(after_help = r#"Examples:
   aosctl telemetry-verify --bundle-dir ./var/telemetry
   aosctl telemetry-verify --bundle-dir ./var/telemetry --json > verify.json
@@ -415,7 +406,6 @@ Examples:
     },
 
     /// Check for environment drift
-    #[command(alias = "drift")]
     #[command(after_help = "\
 Examples:
   # Check drift against baseline
@@ -452,7 +442,6 @@ Examples:
     // CodeGraph & Call Graph
     // ============================================================
     /// Export call graph to various formats
-    #[command(alias = "export-callgraph")]
     #[command(after_help = r#"Examples:
   aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.dot
   aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.json --format json
@@ -472,7 +461,6 @@ Examples:
     },
 
     /// Generate CodeGraph statistics
-    #[command(alias = "codegraph-stats")]
     #[command(after_help = "\
 Examples:
   # Generate statistics
@@ -488,7 +476,6 @@ Examples:
     },
 
     /// Show aos-secd daemon status
-    #[command(alias = "secd-status")]
     #[command(after_help = r#"Examples:
   aosctl secd-status
   aosctl secd-status --database ./var/custom.db
@@ -513,7 +500,6 @@ Examples:
     },
 
     /// Show aos-secd operation audit trail
-    #[command(alias = "secd-audit")]
     SecdAudit {
         /// Database path
         #[arg(long, default_value = "./var/aos-cp.sqlite3")]
@@ -865,7 +851,6 @@ Examples:
     },
 
     /// List all error codes
-    #[command(alias = "error-codes")]
     #[command(after_help = "\
 Examples:
   # List all error codes
@@ -1014,11 +999,8 @@ enum NodeSyncMode {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
+    // Initialize unified logging
+    init_logging()?;
 
     let cli = Cli::parse();
 
@@ -1115,6 +1097,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
         Commands::AdapterInfo { adapter_id } => {
             adapter_info::run(&adapter_id).await?;
+        }
+        Commands::Adapter(cmd) => {
+            adapter::handle_adapter_command(cmd.clone(), &output).await?;
         }
 
         // Node & Cluster Management
@@ -1368,6 +1353,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::AdapterListPinned { .. } => "list-pinned",
         Commands::AdapterSwap { .. } => "adapter-swap",
         Commands::AdapterInfo { .. } => "adapter-info",
+        Commands::Adapter(_) => "adapter",
         Commands::NodeList { .. } => "node-list",
         Commands::NodeVerify { .. } => "node-verify",
         Commands::NodeSync { .. } => "node-sync",
@@ -1416,18 +1402,4 @@ fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     }
 }
 
-/// Initialize logging based on environment variable and flags
-#[allow(dead_code)] // TODO: Implement logging initialization in future iteration
-fn init_logging() -> Result<()> {
-    // Check for AOS_LOG_LEVEL environment variable
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
-        .expect("Failed to initialize tracing filter");
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer())
-        .init();
-
-    Ok(())
-}
+// Logging initialization moved to logging module

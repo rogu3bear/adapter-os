@@ -1,6 +1,7 @@
 //! Error types for AdapterOS
 
 use thiserror::Error;
+use zip::result::ZipError;
 
 pub type Result<T> = std::result::Result<T, AosError>;
 
@@ -206,6 +207,7 @@ pub enum AosError {
         duration: std::time::Duration,
     },
 
+
     #[error("Encryption failed: {reason}")]
     EncryptionFailed {
         reason: String,
@@ -256,17 +258,19 @@ impl From<std::io::Error> for AosError {
     }
 }
 
-// Conversion from DeterministicExecutorError
-impl From<adapteros_deterministic_exec::DeterministicExecutorError> for AosError {
-    fn from(err: adapteros_deterministic_exec::DeterministicExecutorError) -> Self {
-        AosError::DeterministicExecutor(err.to_string())
-    }
-}
+// Conversion from DeterministicExecutorError removed to avoid circular dependency
 
 // Conversion from sqlx::Error for database operations
 #[cfg(feature = "sqlx")]
 impl From<sqlx::Error> for AosError {
     fn from(err: sqlx::Error) -> Self {
         AosError::Sqlx(err.to_string())
+    }
+}
+
+// Conversion from ZipError for archive operations (zip v1.x)
+impl From<ZipError> for AosError {
+    fn from(err: ZipError) -> Self {
+        AosError::Io(format!("Zip operation failed: {}", err))
     }
 }

@@ -8,10 +8,10 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # AdapterOS core dependencies
+adapteros-core = { path = "../adapteros-core" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-trace = { path = "../adapteros-trace" }
 adapteros-numerics = { path = "../adapteros-numerics" }
-adapteros-core = { path = "../adapteros-core" }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }

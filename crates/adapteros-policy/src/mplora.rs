@@ -252,7 +252,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mplora_policy_default() {
+    fn test_adapteros_policy_default() {
         let policy = MploraPolicy::default();
         assert!(!policy.orthogonal_constraints_required);
         assert!(!policy.shared_downsample_required);

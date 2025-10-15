@@ -174,7 +174,7 @@ where
 ### Basic Signal Streaming
 
 ```rust
-use mplora_worker::{Worker, InferenceRequest};
+use adapteros_lora_worker::{Worker, InferenceRequest};
 use tokio::sync::mpsc;
 
 // Create signal channel

@@ -235,7 +235,7 @@ Determinism failures block promotion gates.
 SQLite schema managed via migrations in `migrations/`. Use `mplora-db` crate:
 
 ```rust
-use mplora_db::Database;
+use adapteros_db::Database;
 
 let db = Database::open("var/aos.db")?;
 let tenant = db.get_tenant("default")?;
@@ -392,7 +392,7 @@ cargo run --release --bin aosctl -- serve --plan-id <plan-id>
 
 ```bash
 # Enable router telemetry
-export RUST_LOG=mplora_router=debug
+export RUST_LOG=adapteros_lora_router=debug
 
 # Run with trace output
 cargo test test_router_scoring -- --nocapture

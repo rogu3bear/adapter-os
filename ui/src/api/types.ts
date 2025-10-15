@@ -376,13 +376,16 @@ export interface CommitDiff {
 }
 
 // Metrics
+// Citation: API contract for system metrics from adapteros-server-api
 export interface SystemMetrics {
+  // Core metrics (always present)
   memory_usage_pct: number;
   adapter_count: number;
   active_sessions: number;
   tokens_per_second: number;
   latency_p95_ms: number;
-  // Extended fields for detailed resource monitoring
+
+  // Extended fields for detailed resource monitoring (optional)
   cpu_usage_percent?: number;
   cpu_cores?: number;
   cpu_temp_celsius?: number;
@@ -403,6 +406,8 @@ export interface SystemMetrics {
   network_tx_bytes?: number;
   network_rx_packets?: number;
   network_tx_packets?: number;
+
+  // Training-specific fields (optional)
   current_loss?: number;
   learning_rate?: number;
   current_epoch?: number;
@@ -702,6 +707,38 @@ export interface TenantUsageResponse {
 }
 
 // Domain Adapter Types
+//! Strongly typed configuration for domain adapters
+//! 
+//! # Citations
+//! - TypeScript best practices: Avoid `any` types for type safety
+//! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
+
+export interface DomainAdapterConfig {
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  stop_sequences?: string[];
+  custom_parameters?: Record<string, string | number | boolean>;
+}
+
+//! Strongly typed notification and alerting configuration
+export interface NotificationChannel {
+  type: 'email' | 'webhook' | 'slack' | 'pagerduty';
+  endpoint?: string;
+  recipients?: string[];
+  enabled: boolean;
+  settings?: Record<string, string | number | boolean>;
+}
+
+export interface EscalationRule {
+  level: number;
+  delay_minutes: number;
+  notification_channels: string[];
+  conditions?: Record<string, string | number | boolean>;
+}
+
 export interface DomainAdapter {
   id: string;
   name: string;
@@ -712,7 +749,7 @@ export interface DomainAdapter {
   hash: string;
   input_format: string;
   output_format: string;
-  config: Record<string, any>;
+  config: DomainAdapterConfig; // Strongly typed instead of any
   status: 'loaded' | 'unloaded' | 'error';
   epsilon_stats?: EpsilonStats;
   last_execution?: string;
@@ -750,7 +787,7 @@ export interface CreateDomainAdapterRequest {
   hash: string;
   input_format: string;
   output_format: string;
-  config: Record<string, any>;
+  config: DomainAdapterConfig; // Strongly typed instead of any
 }
 
 export interface TestDomainAdapterRequest {
@@ -783,7 +820,7 @@ export interface DomainAdapterManifest {
   hash: string;
   input_format: string;
   output_format: string;
-  config: Record<string, any>;
+  config: DomainAdapterConfig; // Strongly typed instead of any
   created_at: string;
   updated_at: string;
 }
@@ -1357,8 +1394,8 @@ export interface MonitoringRule {
   cooldown_seconds: number;
   severity: string;
   is_active: boolean;
-  notification_channels?: Record<string, any>;
-  escalation_rules?: Record<string, any>;
+  notification_channels?: Record<string, NotificationChannel>;
+  escalation_rules?: Record<string, EscalationRule>;
   created_at: string;
   updated_at: string;
 }
@@ -1373,8 +1410,8 @@ export interface CreateMonitoringRuleRequest {
   evaluation_window_seconds: number;
   cooldown_seconds: number;
   severity: string;
-  notification_channels?: Record<string, any>;
-  escalation_rules?: Record<string, any>;
+  notification_channels?: Record<string, NotificationChannel>;
+  escalation_rules?: Record<string, EscalationRule>;
 }
 
 export interface Alert {
@@ -1430,7 +1467,7 @@ export interface ProcessLog {
   level: string;
   message: string;
   timestamp: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, string | number | boolean>;
 }
 
 export interface ProcessCrash {
@@ -1459,7 +1496,25 @@ export interface DebugSession {
 
 export interface TroubleshootingStep {
   step_type: string;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, string | number | boolean>;
+}
+
+//! Telemetry event types for activity feed
+//! 
+//! # Citations
+//! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
+//! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
+
+export interface TelemetryEvent {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  level: string;
+  message: string;
+  component?: string;
+  tenant_id?: string;
+  user_id?: string;
+  metadata?: Record<string, string | number | boolean>;
 }
 
 export interface TroubleshootingResult {

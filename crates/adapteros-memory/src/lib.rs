@@ -27,6 +27,7 @@ pub mod memory_map;
 pub mod pointer_canonicalizer;
 pub mod replay_integration;
 pub mod unified_memory;
+pub mod unified_interface;
 pub mod watchdog;
 
 pub use buffer_relocation::BufferRelocationDetector;
@@ -36,6 +37,10 @@ pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use replay_integration::ReplayMemoryLogger;
 pub use unified_memory::{
     AllocationRequest, MemoryBlock, MemoryStats, MemoryType, UnifiedMemoryManager,
+};
+pub use unified_interface::{
+    MemoryManager, MemoryUsageStats, AdapterMemoryInfo, AdapterState, AdapterCategory,
+    MemoryPressureLevel, MemoryCleanupReport, CleanupOperation, UnifiedMemoryManager as UnifiedMemoryManagerInterface,
 };
 pub use watchdog::MemoryWatchdog;
 
@@ -117,18 +122,6 @@ pub enum MigrationType {
     PressureEviction,
 }
 
-/// Memory pressure level
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum MemoryPressureLevel {
-    /// Normal memory pressure
-    Normal,
-    /// Moderate memory pressure
-    Moderate,
-    /// High memory pressure
-    High,
-    /// Critical memory pressure
-    Critical,
-}
 
 /// Configuration for memory watchdog
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -17,7 +17,7 @@
 //! cargo run --example basic_inference
 //! ```
 
-use mplora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use mplora_mlx::{LoRAAdapter, LoRAConfig, MLXBackend, MLXModel};
 
 fn main() -> anyhow::Result<()> {

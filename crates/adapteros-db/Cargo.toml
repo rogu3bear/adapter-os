@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 # Internal crates
-adapteros-core = { path = "../adapteros-core" }
+adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 
 # Workspace dependencies
 anyhow.workspace = true
@@ -26,3 +26,4 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 argon2 = "0.5"
 rand = "0.8"
+async-trait = "0.1"

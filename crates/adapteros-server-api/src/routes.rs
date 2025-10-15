@@ -139,6 +139,15 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::DomainAdapterExecutionResponse,
         // Model status types
         crate::types::BaseModelStatusResponse,
+        // Git types
+        handlers::git::GitBranchInfo,
+        handlers::git::GitStatusResponse,
+        handlers::git::StartGitSessionRequest,
+        handlers::git::StartGitSessionResponse,
+        handlers::git::EndGitSessionRequest,
+        handlers::git::EndGitSessionResponse,
+        handlers::git::SessionAction,
+        handlers::git::FileChangeEvent,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -156,6 +165,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "contacts", description = "Contact discovery and management"),
         (name = "streams", description = "Real-time SSE event streams"),
         (name = "domain-adapters", description = "Domain adapter management"),
+        (name = "git", description = "Git integration and session management"),
     )
 )]
 pub struct ApiDoc;
@@ -169,10 +179,8 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/meta", get(handlers::meta));
 
     // Metrics endpoint (custom auth, not JWT)
-    // TODO: Fix handler signature - metrics_handler needs proper axum::response::Response impl
-    // For now, metrics are available but need handler signature fix
     let metrics_route = Router::new()
-        // .route("/metrics", get(handlers::metrics_handler))
+        .route("/metrics", get(handlers::metrics_handler))
         .with_state(state.clone());
 
     // Protected routes (require auth)

@@ -7,9 +7,9 @@
 //! 4. Telemetry integration works correctly
 
 use adapteros_numerics::noise::{EpsilonStats, GlobalStabilityReport, Tensor, measure_error, NumericsError};
-use mplora_kernel_mtl::{MetalKernels, NoiseTracker, NoiseTrackingConfig};
-use mplora_kernel_api::{IoBuffers, RouterRing};
-use mplora_telemetry::TelemetryWriter;
+use adapteros_lora_kernel_mtl::{MetalKernels, NoiseTracker, NoiseTrackingConfig};
+use adapteros_lora_kernel_api::{IoBuffers, RouterRing};
+use adapteros_telemetry::TelemetryWriter;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;

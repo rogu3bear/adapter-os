@@ -21,6 +21,7 @@ import {
 import apiClient from '../api/client';
 import { RouterConfig, FeatureVector, AdapterScore } from '../api/types';
 import { toast } from 'sonner';
+import { logger } from '../utils/logger';
 
 interface RouterConfigPageProps {
   selectedTenant: string;
@@ -82,7 +83,13 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         }
       }
     } catch (error) {
-      console.error('Failed to load router config:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load router config';
+      logger.error('Failed to load router config', {
+        component: 'RouterConfigPage',
+        operation: 'loadRouterConfig',
+        tenant: selectedTenant,
+        error: errorMessage
+      });
       toast.error('Failed to load router configuration');
     } finally {
       setIsLoading(false);
@@ -161,9 +168,21 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       });
 
       setHasUnsavedChanges(false);
+      logger.info('Router configuration saved', {
+        component: 'RouterConfigPage',
+        operation: 'saveConfiguration',
+        tenant: selectedTenant,
+        config
+      });
       toast.success('Router configuration saved successfully');
     } catch (error) {
-      console.error('Failed to save router config:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save router config';
+      logger.error('Failed to save router config', {
+        component: 'RouterConfigPage',
+        operation: 'saveConfiguration',
+        tenant: selectedTenant,
+        error: errorMessage
+      });
       toast.error('Failed to save configuration');
     } finally {
       setIsSaving(false);
@@ -182,9 +201,20 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         prompt: testPrompt
       });
       setTestResults(result.selected_adapters);
+      logger.info('Router test completed', {
+        component: 'RouterConfigPage',
+        operation: 'testRouterConfig',
+        resultCount: result.selected_adapters.length
+      });
       toast.success('Router test completed');
     } catch (error) {
-      console.error('Failed to test router:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to test router';
+      logger.error('Failed to test router', {
+        component: 'RouterConfigPage',
+        operation: 'testRouterConfig',
+        testPrompt,
+        error: errorMessage
+      });
       toast.error('Router test failed');
     } finally {
       setIsLoading(false);

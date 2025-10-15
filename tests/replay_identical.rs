@@ -12,7 +12,7 @@ use adapteros_trace::{
     events::{inference_start_event, token_generated_event, inference_end_event},
 };
 use adapteros_replay::{replay_trace, compare_traces, ComparisonResult, ReplaySession, VerificationMode};
-use mplora_core::B3Hash;
+use adapteros_core::B3Hash;
 
 /// Create a test trace bundle with deterministic events
 fn create_test_trace_bundle() -> (TempDir, PathBuf) {

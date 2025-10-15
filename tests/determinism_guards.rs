@@ -4,7 +4,7 @@
 //! and catch nondeterministic operations.
 
 use adapteros_lint::{runtime_guards, strict_mode};
-use mplora_worker::{
+use adapteros_lora_worker::{
     determinism_guards_enabled, determinism_violation_count, init_determinism_guards,
 };
 

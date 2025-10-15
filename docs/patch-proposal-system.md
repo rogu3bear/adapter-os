@@ -20,7 +20,7 @@ Multi-source evidence retrieval with RAG integration:
 - **Framework-specific Retrieval**: Framework-specific evidence
 
 ```rust
-use mplora_worker::evidence::{EvidenceRetriever, EvidenceRequest, EvidenceType};
+use adapteros_lora_worker::evidence::{EvidenceRetriever, EvidenceRequest, EvidenceType};
 
 let retriever = EvidenceRetriever::new(
     rag_system,
@@ -53,7 +53,7 @@ LLM-integrated patch generation with structured output:
 - **Confidence Scoring**: Confidence assessment for generated patches
 
 ```rust
-use mplora_worker::patch_generator::{PatchGenerator, PatchGenerationRequest, MockLlmBackend};
+use adapteros_lora_worker::patch_generator::{PatchGenerator, PatchGenerationRequest, MockLlmBackend};
 
 let generator = PatchGenerator::new(
     Box::new(MockLlmBackend),
@@ -85,8 +85,8 @@ Comprehensive policy validation and security checks:
 - **Global Policy Engine**: Integration with AdapterOS policy engine
 
 ```rust
-use mplora_worker::patch_validator::{PatchValidator, CodePolicy};
-use mplora_policy::PolicyEngine;
+use adapteros_lora_worker::patch_validator::{PatchValidator, CodePolicy};
+use adapteros_policy::PolicyEngine;
 
 let policy = CodePolicy::default();
 let policy_engine = PolicyEngine::new(policies);
@@ -134,8 +134,8 @@ Comprehensive telemetry and monitoring:
 - **Telemetry Writer Integration**: Integration with AdapterOS telemetry system
 
 ```rust
-use mplora_worker::patch_telemetry::{PatchTelemetry, EvidenceMetrics};
-use mplora_telemetry::TelemetryWriter;
+use adapteros_lora_worker::patch_telemetry::{PatchTelemetry, EvidenceMetrics};
+use adapteros_telemetry::TelemetryWriter;
 
 let telemetry_writer = TelemetryWriter::new("/tmp/telemetry", 1000, 1024*1024)?;
 let mut telemetry = PatchTelemetry::new_with_writer(telemetry_writer);
@@ -157,7 +157,7 @@ telemetry.log_evidence_retrieval("tenant_id", metrics, Some("proposal_123"));
 ### Basic Patch Proposal
 
 ```rust
-use mplora_worker::{Worker, InferenceRequest, RequestType, PatchProposalRequest};
+use adapteros_lora_worker::{Worker, InferenceRequest, RequestType, PatchProposalRequest};
 
 let mut worker = Worker::new(config)?;
 

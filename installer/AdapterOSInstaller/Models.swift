@@ -15,6 +15,7 @@ enum InstallStep: String, Codable, CaseIterable {
     case buildMetal = "build_metal"
     case downloadModel = "download_model"
     case createTenant = "create_tenant"
+    case smokeTest = "smoke_test"
     case complete = "complete"
     
     var displayName: String {
@@ -26,6 +27,7 @@ enum InstallStep: String, Codable, CaseIterable {
         case .buildMetal: return "Compiling Metal Kernels"
         case .downloadModel: return "Downloading Model"
         case .createTenant: return "Creating Default Tenant"
+        case .smokeTest: return "Running Smoke Tests"
         case .complete: return "Installation Complete"
         }
     }
@@ -39,6 +41,7 @@ enum InstallStep: String, Codable, CaseIterable {
         case .buildMetal: return 0.7
         case .downloadModel: return 0.85
         case .createTenant: return 0.95
+        case .smokeTest: return 0.98
         case .complete: return 1.0
         }
     }

@@ -27,7 +27,6 @@ import apiClient from '../api/client';
 interface ResourceMonitorProps {
   jobId?: string;
   nodeId?: string;
-  refreshInterval?: number;
 }
 
 interface ResourceMetrics {
@@ -82,7 +81,7 @@ interface NodeInfo {
   last_heartbeat: string;
 }
 
-export function ResourceMonitor({ jobId, nodeId, refreshInterval = 5000 }: ResourceMonitorProps) {
+export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   const [metrics, setMetrics] = useState<ResourceMetrics[]>([]);
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,7 +166,8 @@ export function ResourceMonitor({ jobId, nodeId, refreshInterval = 5000 }: Resou
     fetchData();
 
     if (isMonitoring) {
-      intervalRef.current = window.setInterval(fetchData, refreshInterval);
+      // Fixed 1-second interval for instant updates
+      intervalRef.current = window.setInterval(fetchData, 1000);
     }
 
     return () => {
@@ -175,7 +175,7 @@ export function ResourceMonitor({ jobId, nodeId, refreshInterval = 5000 }: Resou
         clearInterval(intervalRef.current);
       }
     };
-  }, [jobId, nodeId, refreshInterval, isMonitoring]);
+  }, [jobId, nodeId, isMonitoring]);
 
   const getStatusColor = (usage: number) => {
     if (usage > 90) return 'text-red-600';

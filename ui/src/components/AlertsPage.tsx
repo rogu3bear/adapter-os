@@ -118,8 +118,8 @@ export function AlertsPage({ selectedTenant }: AlertsPageProps) {
     loadAlerts();
     loadMetrics();
 
-    // Poll metrics every 10 seconds
-    const interval = setInterval(loadMetrics, 10000);
+    // Poll metrics every 2 seconds for instant updates
+    const interval = setInterval(loadMetrics, 2000);
     return () => clearInterval(interval);
   }, [selectedTenant]);
 

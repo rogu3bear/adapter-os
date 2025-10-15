@@ -1,8 +1,10 @@
 //! Policy enforcement for AdapterOS
 
 pub mod policy_pack;
+pub mod policy_packs;
 pub mod registry;
 pub mod validation;
+pub mod unified_enforcement;
 
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
@@ -36,6 +38,20 @@ pub use patch_policy::{
 };
 pub use policy_pack::{PolicyPackRegistry, SignedPolicyPack};
 pub use refusal::{RefusalReason, RefusalResponse};
+pub use unified_enforcement::{
+    PolicyEnforcer, UnifiedPolicyEnforcer, PolicyRequest, PolicyValidationResult,
+    PolicyViolation, PolicyEnforcementResult, PolicyComplianceReport, Operation,
+    RequestType, OperationType, ViolationSeverity, EnforcementAction,
+};
+pub use policy_packs::{
+    PolicyPackManager, PolicyPackValidator, PolicyPackId, PolicyPackConfig,
+    EnforcementLevel, EgressValidator, DeterminismValidator, RouterValidator,
+    EvidenceValidator, RefusalValidator, NumericUnitsValidator, RagIndexValidator,
+    IsolationValidator, TelemetryValidator, RetentionValidator, PerformanceValidator,
+    MemoryValidator, ArtifactsValidator, SecretsValidator, BuildReleaseValidator,
+    ComplianceValidator, IncidentValidator, LlmOutputValidator, AdapterLifecycleValidator,
+    FullPackValidator,
+};
 
 /// Policy engine for enforcing all 20 policy packs
 pub struct PolicyEngine {

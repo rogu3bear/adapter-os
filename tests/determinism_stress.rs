@@ -8,8 +8,8 @@
 //!
 //! Run with: cargo test --test determinism_stress --ignored -- --test-threads=1
 
-use mplora_core::B3Hash;
-use mplora_worker::Worker;
+use adapteros_core::B3Hash;
+use adapteros_lora_worker::Worker;
 use std::sync::Arc;
 
 /// Setup a worker instance for testing
@@ -18,15 +18,15 @@ fn setup_worker() -> Worker {
     let manifest_path = "manifests/qwen7b.yaml";
     let manifest = std::fs::read_to_string(manifest_path).expect("Failed to read manifest");
 
-    let manifest: mplora_manifest::Manifest =
+    let manifest: adapteros_manifest::Manifest =
         serde_yaml::from_str(&manifest).expect("Failed to parse manifest");
 
     Worker::new(Arc::new(manifest)).expect("Failed to create worker")
 }
 
 /// Create a deterministic test request
-fn create_test_request() -> mplora_core::InferenceRequest {
-    mplora_core::InferenceRequest {
+fn create_test_request() -> adapteros_core::InferenceRequest {
+    adapteros_core::InferenceRequest {
         prompt: "What is the capital of France?".to_string(),
         max_tokens: 50,
         temperature: 0.0, // Deterministic sampling
