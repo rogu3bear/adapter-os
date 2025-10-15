@@ -405,6 +405,22 @@ Examples:
         bundle_dir: PathBuf,
     },
 
+    /// Verify cross-host federation signatures
+    #[command(after_help = r#"Examples:
+  aosctl federation-verify --bundle-dir ./var/telemetry
+  aosctl federation-verify --bundle-dir ./var/telemetry --database ./var/cp.db
+  aosctl federation-verify --bundle-dir ./var/telemetry --json > federation.json
+"#)]
+    FederationVerify {
+        /// Telemetry bundle directory
+        #[arg(short, long)]
+        bundle_dir: PathBuf,
+
+        /// Database path
+        #[arg(long, default_value = "./var/cp.db")]
+        database: PathBuf,
+    },
+
     /// Check for environment drift
     #[command(after_help = "\
 Examples:
@@ -627,6 +643,23 @@ Examples:
         /// Test suite path
         #[arg(short, long)]
         suite: Option<PathBuf>,
+    },
+
+    /// Audit backend determinism attestation
+    #[command(after_help = "\
+Examples:
+  # Audit Metal backend (default)
+  aosctl audit-determinism
+
+  # Audit with JSON output
+  aosctl audit-determinism --format json
+
+  # Audit MLX backend (requires --features experimental-backends)
+  aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
+")]
+    AuditDeterminism {
+        #[command(flatten)]
+        args: audit_determinism::AuditDeterminismArgs,
     },
 
     /// Replay a bundle
@@ -1174,6 +1207,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             verify_telemetry::verify_telemetry_chain(&bundle_dir, &output).await?;
         }
 
+        Commands::FederationVerify { bundle_dir, database } => {
+            verify_federation::run(&bundle_dir, &database, &output).await?;
+        }
+
         Commands::DriftCheck {
             db,
             baseline,
@@ -1239,6 +1276,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
         Commands::Audit { cpid, suite } => {
             audit::run(&cpid, suite.as_deref(), &output).await?;
+        }
+        Commands::AuditDeterminism { args } => {
+            let exit_code = audit_determinism::run(args, &output)?;
+            std::process::exit(exit_code);
         }
         Commands::Replay { bundle, verbose } => {
             // Merge command-specific verbose flag with global verbose
@@ -1360,6 +1401,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::TelemetryVerify { .. } => "verify-telemetry",
+        Commands::FederationVerify { .. } => "federation-verify",
         Commands::DriftCheck { .. } => "drift-check",
         Commands::CallgraphExport { .. } => "callgraph-export",
         Commands::CodegraphStats { .. } => "codegraph-stats",
@@ -1370,6 +1412,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
+        Commands::AuditDeterminism { .. } => "audit-determinism",
         Commands::Replay { .. } => "replay",
         Commands::Rollback { .. } => "rollback",
         Commands::Golden(_) => "golden",
