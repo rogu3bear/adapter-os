@@ -170,6 +170,16 @@ pub enum AosError {
     #[error("Promotion error: {0}")]
     Promotion(String),
 
+    #[error("System quarantined due to policy hash violations: {0}")]
+    Quarantined(String),
+
+    #[error("Policy hash mismatch for {pack_id}: expected {expected}, got {actual}")]
+    PolicyHashMismatch {
+        pack_id: String,
+        expected: String,
+        actual: String,
+    },
+
     #[error("RNG error [seed:{seed_hash}|label:{label}|counter:{counter}]: {message}")]
     RngError {
         seed_hash: String,

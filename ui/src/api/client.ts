@@ -351,6 +351,18 @@ class ApiClient {
     });
   }
 
+  async loadAdapter(adapterId: string): Promise<types.AdapterResponse> {
+    return this.request<types.AdapterResponse>(`/v1/adapters/${adapterId}/load`, {
+      method: 'POST',
+    });
+  }
+
+  async unloadAdapter(adapterId: string): Promise<void> {
+    return this.request<void>(`/v1/adapters/${adapterId}/unload`, {
+      method: 'POST',
+    });
+  }
+
   // Training endpoints
   async listTrainingJobs(): Promise<types.TrainingJob[]> {
     return this.request<types.TrainingJob[]>('/v1/training/jobs');

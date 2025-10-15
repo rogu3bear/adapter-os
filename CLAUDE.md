@@ -338,18 +338,34 @@ When adding dependencies, check if already in `[workspace.dependencies]` in root
 
 ### Backend Architecture
 
-MPLoRA supports two backends:
+MPLoRA uses a unified deterministic kernel abstraction with attestation enforcement:
 
-**Metal Backend (Primary)**
-- Native Metal implementation with precompiled kernels
+**Metal Backend (Primary - Deterministic)**
+- Native Metal implementation with precompiled kernels (`.metallib`)
+- BLAKE3 hash verification of kernel binaries
+- HKDF-seeded RNG for reproducible execution
+- Deterministic floating-point mode (no fast-math)
 - Maximum performance on Apple Silicon
-- Default backend for production use
+- **DEFAULT AND REQUIRED FOR PRODUCTION**
 
-**MLX Backend (Secondary)**
+**Backend Attestation System**
+- All backends must implement `attest_determinism()` from `FusedKernels` trait
+- Returns `DeterminismReport` with metallib hash, RNG method, compiler flags
+- Policy engine validates attestation before allowing serving operations
+- CLI tool `aosctl audit-determinism` provides detailed validation reports
+
+**Feature Flags:**
+- `default = ["deterministic-only"]` - Metal backend only (production)
+- `experimental-backends` - Enables MLX/CoreML (development/testing only)
+
+**MLX Backend (Experimental - Non-Deterministic)**
 - Python/MLX implementation for development and experimentation
-- Requires PyO3 linking (temporary technical requirement)
+- **Requires `--features experimental-backends` at compile time**
 - Currently disabled due to PyO3 linker issues
-- Use `mplora-mlx` crate for Python interop
+- **NOT FOR PRODUCTION**: Cannot guarantee reproducible outputs
+- Runtime guards prevent accidental use in production builds
+
+See `docs/determinism-attestation.md` for comprehensive documentation.
 
 ### Code Style
 
@@ -396,6 +412,19 @@ export RUST_LOG=adapteros_lora_router=debug
 
 # Run with trace output
 cargo test test_router_scoring -- --nocapture
+```
+
+### Auditing Backend Determinism
+
+```bash
+# Validate Metal backend attestation
+aosctl audit-determinism
+
+# Get JSON report for automation
+aosctl audit-determinism --format json > attestation.json
+
+# Check exit code for CI/CD
+aosctl audit-determinism && echo "Backend is deterministic"
 ```
 
 ### Testing Patch Proposals
@@ -480,6 +509,8 @@ The system enforces 20 comprehensive policy packs covering all aspects of operat
 A Control Plane can promote only if all policy requirements are met:
 
 - **Determinism:** metallib present and hashed; replay shows zero diff
+- **Backend Attestation:** `attest_determinism()` passes validation; Metal backend only
+- **Feature Flags:** Built with `deterministic-only` (default), no experimental backends
 - **Egress:** PF enforced; outbound tests fail as expected
 - **Router:** K, entropy floor, and gate quantization match policy
 - **Evidence:** ARR ≥ 0.95 and ECS@5 ≥ 0.75 on regulated suite

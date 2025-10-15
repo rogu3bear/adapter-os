@@ -20,6 +20,10 @@ pub mod refusal;
 // Policy packs implemented in Phase 3
 pub mod packs;
 
+// Policy hash watcher and quarantine (Determinism Ruleset #2)
+pub mod hash_watcher;
+pub mod quarantine;
+
 // Re-export registry types
 pub use registry::{
     explain_policy, get_policy, list_policies, Audit, Policy, PolicyContext, PolicyId, PolicySpec,
@@ -52,6 +56,8 @@ pub use policy_packs::{
     ComplianceValidator, IncidentValidator, LlmOutputValidator, AdapterLifecycleValidator,
     FullPackValidator,
 };
+pub use hash_watcher::{PolicyHashWatcher, HashViolation, ValidationResult};
+pub use quarantine::{QuarantineManager, QuarantineOperation};
 
 /// Policy engine for enforcing all 20 policy packs
 pub struct PolicyEngine {

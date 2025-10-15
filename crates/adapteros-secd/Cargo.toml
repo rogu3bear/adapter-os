@@ -11,8 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+blake3 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 security-framework = "2.11"
 core-foundation = "0.9"

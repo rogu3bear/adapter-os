@@ -16,6 +16,7 @@
 
 pub mod channel;
 pub mod cpu_affinity;
+pub mod global_ledger;
 pub mod multi_agent;
 pub mod select;
 
@@ -416,6 +417,8 @@ pub struct DeterministicExecutor {
     running: Arc<AtomicU64>,
     /// Pinned thread IDs for deterministic scheduling
     pinned_threads: Mutex<Vec<ThreadId>>,
+    /// Global tick ledger (optional, for cross-host tracking)
+    global_ledger: Option<Arc<global_ledger::GlobalTickLedger>>,
 }
 
 impl DeterministicExecutor {
@@ -444,7 +447,18 @@ impl DeterministicExecutor {
             replay_index: Mutex::new(0),
             running: Arc::new(AtomicU64::new(0)),
             pinned_threads: Mutex::new(Vec::new()),
+            global_ledger: None,
         }
+    }
+    
+    /// Create executor with global tick ledger
+    pub fn with_global_ledger(
+        config: ExecutorConfig,
+        ledger: Arc<global_ledger::GlobalTickLedger>,
+    ) -> Self {
+        let mut executor = Self::new(config);
+        executor.global_ledger = Some(ledger);
+        executor
     }
 
     /// Spawn a deterministic task

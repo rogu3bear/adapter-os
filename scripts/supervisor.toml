@@ -1,0 +1,71 @@
+# AdapterOS Supervisor Configuration
+
+[supervisor]
+# Health check interval (seconds)
+health_check_interval_secs = 5
+
+# Policy validation interval (seconds)
+policy_check_interval_secs = 30
+
+# Adapter update check interval (seconds)
+adapter_check_interval_secs = 60
+
+# Memory monitoring interval (seconds)
+memory_check_interval_secs = 10
+
+# Database path
+db_path = "/var/lib/aos/aos.db"
+
+# Auto-quarantine enabled
+auto_quarantine_enabled = true
+
+# Hot-reload enabled
+hot_reload_enabled = true
+
+[workers]
+# Default worker configuration
+default_memory_limit_mb = 8192
+default_cpu_limit_percent = 80
+
+# Worker startup timeout (seconds)
+startup_timeout_secs = 30
+
+# Worker shutdown timeout (seconds)
+shutdown_timeout_secs = 15
+
+[policy]
+# Policy hash validation settings
+validation_timeout_secs = 10
+cache_ttl_secs = 300
+
+# Quarantine settings
+quarantine_timeout_secs = 3600
+auto_clear_quarantine = false
+
+[adapters]
+# Adapter registry settings
+registry_path = "/var/lib/aos/adapters"
+cache_size_mb = 1024
+
+# Hot-reload settings
+reload_timeout_secs = 30
+reload_retry_attempts = 3
+
+[telemetry]
+# Telemetry settings
+export_mode = "uds"
+uds_socket_path = "/var/run/aos/supervisor/metrics.sock"
+enable_prometheus_compat = true
+
+# Event sampling
+sample_rate = 1.0
+max_events_per_bundle = 10000
+
+[security]
+# Security settings
+enable_sandboxing = true
+enable_capability_dropping = true
+
+# File permissions
+socket_mode = 0o600
+log_mode = 0o644

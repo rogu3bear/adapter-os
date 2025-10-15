@@ -298,6 +298,32 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     }
   };
 
+  const handleLoadAdapter = async (adapterId: string) => {
+    try {
+      toast.info('Loading adapter...');
+      await apiClient.loadAdapter(adapterId);
+      toast.success('Adapter loaded successfully');
+      // Reload adapters to get updated state
+      loadAdapters();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load adapter';
+      toast.error(errorMsg);
+    }
+  };
+
+  const handleUnloadAdapter = async (adapterId: string) => {
+    try {
+      toast.info('Unloading adapter...');
+      await apiClient.unloadAdapter(adapterId);
+      toast.success('Adapter unloaded successfully');
+      // Reload adapters to get updated state
+      loadAdapters();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to unload adapter';
+      toast.error(errorMsg);
+    }
+  };
+
   const handlePinToggle = async (adapter: Adapter) => {
     try {
       if (adapter.pinned) {
@@ -536,6 +562,17 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {adapter.current_state === 'warm' || adapter.current_state === 'hot' || adapter.current_state === 'resident' ? (
+                              <DropdownMenuItem onClick={() => handleUnloadAdapter(adapter.adapter_id)}>
+                                <Pause className="mr-2 h-4 w-4" />
+                                Unload
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => handleLoadAdapter(adapter.adapter_id)}>
+                                <Play className="mr-2 h-4 w-4" />
+                                Load
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handlePinToggle(adapter)}>
                               <Pin className="mr-2 h-4 w-4" />
                               {adapter.pinned ? 'Unpin' : 'Pin'}

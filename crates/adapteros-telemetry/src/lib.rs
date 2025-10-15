@@ -18,6 +18,7 @@ pub mod merkle;
 pub mod metrics;
 pub mod replay;
 pub mod report;
+pub mod uds_exporter;
 pub mod unified_events;
 
 pub use audit_log::{
@@ -29,7 +30,7 @@ pub use bundle_store::{
     GarbageCollectionReport, RetentionPolicy, StorageStats,
 };
 pub use event::Event;
-pub use events::{InferenceEvent, RngSnapshot, RouterDecisionEvent};
+pub use events::{InferenceEvent, RngSnapshot, RouterDecisionEvent, PolicyHashValidationEvent, ValidationStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
 pub use metrics::{
     MetricsCollector, MetricsServer, MetricsSnapshot, LatencyMetrics, QueueDepthMetrics,
@@ -39,6 +40,7 @@ pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
 pub use report::generate_html_report;
+pub use uds_exporter::{UdsMetricsExporter, MetricValue, MetricMetadata};
 pub use unified_events::{
     TelemetryEvent as UnifiedTelemetryEvent, LogLevel, EventType, TelemetryFilters, TelemetryEventBuilder,
 };
@@ -215,6 +217,17 @@ impl TelemetryWriter {
         event: crate::events::PerformanceBudgetViolationEvent,
     ) -> Result<()> {
         self.log("performance.budget_violation", event)
+    }
+
+    /// Log a policy hash validation event
+    /// 
+    /// Logged at 100% sampling (policy violations per Telemetry Ruleset #9).
+    /// Used to track runtime policy pack hash validation and detect mutations.
+    pub fn log_policy_hash_validation(
+        &self,
+        event: crate::events::PolicyHashValidationEvent,
+    ) -> Result<()> {
+        self.log("policy.hash_validation", event)
     }
 }
 

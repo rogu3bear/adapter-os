@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+experimental-backends = ["adapteros-lora-mlx-ffi"]
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-db = { path = "../adapteros-db" }
@@ -14,13 +18,14 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
-pyo3 = { workspace = true }
+pyo3 = { workspace = true, optional = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

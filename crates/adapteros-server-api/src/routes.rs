@@ -23,6 +23,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_adapter,
         handlers::register_adapter,
         handlers::delete_adapter,
+        handlers::load_adapter,
+        handlers::unload_adapter,
         handlers::get_adapter_activations,
         handlers::list_repositories,
         handlers::register_repository,
@@ -361,6 +363,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapters/:adapter_id",
             axum::routing::delete(handlers::delete_adapter),
+        )
+        .route(
+            "/v1/adapters/:adapter_id/load",
+            post(handlers::load_adapter),
+        )
+        .route(
+            "/v1/adapters/:adapter_id/unload",
+            post(handlers::unload_adapter),
         )
         .route(
             "/v1/adapters/:adapter_id/activations",

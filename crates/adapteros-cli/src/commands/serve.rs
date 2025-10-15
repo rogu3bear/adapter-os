@@ -226,6 +226,16 @@ pub async fn run(
     // 4. Initialize backend based on selection
     output.info(format!("Initializing {:?} backend...", backend));
 
+    // Compile-time guard for experimental backends
+    #[cfg(feature = "experimental-backends")]
+    {
+        if !matches!(backend, BackendType::Metal) {
+            output.warning("⚠️  EXPERIMENTAL BACKENDS ENABLED - NOT FOR PRODUCTION ⚠️");
+            output.warning("The selected backend may not provide deterministic execution.");
+            output.warning("For production use, rebuild with default features (Metal only).");
+        }
+    }
+
     let backend_choice = match backend {
         BackendType::Metal => {
             output.verbose("Using Metal backend (macOS GPU)");
@@ -234,31 +244,56 @@ pub async fn run(
         BackendType::Mlx => {
             output.verbose("Using MLX backend (Python/MLX)");
 
-            // Check if MLX is available
-            let mlx_available = std::process::Command::new("python3")
-                .args(&["-c", "import mlx.core; print('ok')"])
-                .output()
-                .map(|out| String::from_utf8_lossy(&out.stdout).contains("ok"))
-                .unwrap_or(false);
-
-            if !mlx_available {
-                output.error("MLX not found. Please install MLX:");
-                output.info("  uv pip install mlx");
-                output.info("Or use: pip install mlx");
-                return Err(anyhow::anyhow!("MLX not installed"));
+            #[cfg(not(feature = "experimental-backends"))]
+            {
+                output.error("MLX backend requires --features experimental-backends");
+                output.info("Rebuild with: cargo build --features experimental-backends");
+                return Err(anyhow::anyhow!(
+                    "MLX backend not available in deterministic-only build"
+                ));
             }
 
-            output.verbose("MLX detected");
-            adapteros_lora_worker::BackendChoice::Mlx {
-                model_path: std::path::PathBuf::from(&model_path),
+            #[cfg(feature = "experimental-backends")]
+            {
+                // Check if MLX is available
+                let mlx_available = std::process::Command::new("python3")
+                    .args(&["-c", "import mlx.core; print('ok')"])
+                    .output()
+                    .map(|out| String::from_utf8_lossy(&out.stdout).contains("ok"))
+                    .unwrap_or(false);
+
+                if !mlx_available {
+                    output.error("MLX not found. Please install MLX:");
+                    output.info("  uv pip install mlx");
+                    output.info("Or use: pip install mlx");
+                    return Err(anyhow::anyhow!("MLX not installed"));
+                }
+
+                output.verbose("MLX detected");
+                adapteros_lora_worker::BackendChoice::Mlx {
+                    model_path: std::path::PathBuf::from(&model_path),
+                }
             }
         }
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
-            // CoreML backend not yet implemented
-            output.error("CoreML backend not yet implemented");
-            output.info("Please use Metal or MLX backend instead");
-            return Err(anyhow::anyhow!("CoreML backend not implemented"));
+            
+            #[cfg(not(feature = "experimental-backends"))]
+            {
+                output.error("CoreML backend requires --features experimental-backends");
+                output.info("Rebuild with: cargo build --features experimental-backends");
+                return Err(anyhow::anyhow!(
+                    "CoreML backend not available in deterministic-only build"
+                ));
+            }
+
+            #[cfg(feature = "experimental-backends")]
+            {
+                // CoreML backend not yet implemented
+                output.error("CoreML backend not yet implemented");
+                output.info("Please use Metal or MLX backend instead");
+                return Err(anyhow::anyhow!("CoreML backend not implemented"));
+            }
         }
     };
 

@@ -193,6 +193,8 @@ pub use patch_proposals::PatchProposal;
 pub mod pinned_adapters;
 pub mod plans;
 pub mod policies;
+pub mod policy_hash;
+pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;

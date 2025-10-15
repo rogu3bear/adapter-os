@@ -220,6 +220,83 @@ impl DeterminismPolicy {
 
         Ok(())
     }
+
+    /// Validate backend attestation report
+    ///
+    /// Checks that the attestation report from a kernel backend meets
+    /// all determinism policy requirements:
+    /// - Metallib hash matches if required
+    /// - RNG seeding method matches policy
+    /// - No forbidden compiler flags
+    /// - Overall deterministic flag is true
+    pub fn validate_backend_attestation(
+        &self,
+        report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
+    ) -> Result<()> {
+        use adapteros_lora_kernel_api::attestation::{BackendType, RngSeedingMethod as AttestationRngMethod};
+
+        // Check overall deterministic flag
+        if !report.deterministic {
+            return Err(AosError::PolicyViolation(
+                "Backend attestation indicates non-deterministic execution".to_string(),
+            ));
+        }
+
+        // Check backend type is allowed
+        if !report.backend_type.is_deterministic_by_design() {
+            return Err(AosError::PolicyViolation(format!(
+                "Backend type {:?} is not deterministic by design",
+                report.backend_type
+            )));
+        }
+
+        // For Metal backend, require metallib hash match
+        if self.config.require_metallib_embed
+            && report.backend_type == BackendType::Metal
+            && report.metallib_hash.is_none()
+        {
+            return Err(AosError::PolicyViolation(
+                "Metal backend must provide metallib hash".to_string(),
+            ));
+        }
+
+        // Check RNG seeding method matches policy
+        let rng_matches = match (&self.config.rng, &report.rng_seed_method) {
+            (RngSeedingMethod::HkdfSeeded, AttestationRngMethod::HkdfSeeded) => true,
+            (RngSeedingMethod::FixedSeed(_), AttestationRngMethod::FixedSeed(_)) => true,
+            _ => false,
+        };
+
+        if !rng_matches {
+            return Err(AosError::PolicyViolation(format!(
+                "RNG seeding method mismatch: policy requires {:?}, backend reports {:?}",
+                self.config.rng, report.rng_seed_method
+            )));
+        }
+
+        // Check for forbidden compiler flags
+        let forbidden_flags = ["-ffast-math", "-funsafe-math-optimizations"];
+        for flag in &report.compiler_flags {
+            for forbidden in &forbidden_flags {
+                if flag.contains(forbidden) {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Forbidden compiler flag detected: {}",
+                        flag
+                    )));
+                }
+            }
+        }
+
+        // Check floating-point mode
+        if !report.floating_point_mode.is_deterministic() {
+            return Err(AosError::PolicyViolation(format!(
+                "Floating-point mode {:?} is not deterministic",
+                report.floating_point_mode
+            )));
+        }
+
+        Ok(())
+    }
 }
 
 impl Policy for DeterminismPolicy {

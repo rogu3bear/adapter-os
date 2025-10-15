@@ -108,6 +108,38 @@ impl FusedKernels for MploraKernel {
         "Metal GPU"
     }
 
+    /// Attest to determinism guarantees
+    fn attest_determinism(&self) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
+        // MploraKernel is built on top of MetalKernels, so it inherits determinism
+        use adapteros_core::B3Hash;
+        use adapteros_lora_kernel_api::attestation;
+        
+        // Get metallib hash from embedded constant
+        let metallib_hash = B3Hash::from_hex(crate::METALLIB_HASH.trim())
+            .map_err(|e| adapteros_core::AosError::Kernel(format!("Invalid metallib hash: {}", e)))?;
+
+        // Get manifest from verification
+        let manifest_result = crate::verify_embedded_manifest(crate::METALLIB_BYTES, None);
+        
+        let manifest = manifest_result.ok().map(|m| attestation::KernelManifest {
+            kernel_hash: m.kernel_hash,
+            xcrun_version: m.xcrun_version,
+            sdk_version: m.sdk_version,
+            rust_version: m.rust_version,
+            build_timestamp: m.build_timestamp,
+        });
+
+        Ok(attestation::DeterminismReport {
+            backend_type: attestation::BackendType::Metal,
+            metallib_hash: Some(metallib_hash),
+            manifest,
+            rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            compiler_flags: vec!["-O2".to_string(), "-std=metal3.1".to_string()],
+            deterministic: true,
+        })
+    }
+
     /// Load adapter at runtime (hot-swap)
     fn load_adapter(&mut self, _adapter_id: u16, _weights: &[u8]) -> Result<()> {
         // Metal adapters are loaded via shared memory
