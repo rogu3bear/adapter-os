@@ -3481,6 +3481,329 @@ pub async fn delete_adapter(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Load an adapter into memory
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/load",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter loaded successfully", body = AdapterResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Failed to load adapter", body = ErrorResponse)
+    )
+)]
+pub async fn load_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Get adapter from database
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Update adapter state to 'loading'
+    state.db.update_adapter_state(&adapter_id, "loading", "user_request")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter state")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    tracing::info!("Loading adapter {} ({})", adapter_id, adapter.name);
+
+    // Actually load the adapter using LifecycleManager if available
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        // Get adapter index (this is a simplified lookup - in production you'd maintain a proper mapping)
+        let adapter_idx = adapter.id.parse::<u16>().unwrap_or(0);
+        
+        // Use AdapterLoader via LifecycleManager
+        let mut lifecycle_mgr = lifecycle.lock().await;
+        
+        // Load adapter file from disk
+        use adapteros_lora_lifecycle::AdapterLoader;
+        use std::path::PathBuf;
+        
+        let adapters_path = PathBuf::from("./adapters");
+        let mut loader = AdapterLoader::new(adapters_path);
+        
+        match loader.load_adapter_async(adapter_idx, &adapter.hash_b3).await {
+            Ok(handle) => {
+                // Update adapter state to 'warm' and record memory usage
+                state.db.update_adapter_state(&adapter_id, "warm", "loaded_successfully")
+                    .await
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to update adapter state")
+                                    .with_code("INTERNAL_SERVER_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+
+                state.db.update_adapter_memory(&adapter_id, handle.memory_bytes() as i64)
+                    .await
+                    .map_err(|e| {
+                        tracing::warn!("Failed to update adapter memory: {}", e);
+                        // Don't fail the request for this
+                    })
+                    .ok();
+
+                tracing::info!(
+                    event = "adapter.load",
+                    adapter_id = %adapter_id,
+                    adapter_name = %adapter.name,
+                    memory_bytes = handle.memory_bytes(),
+                    "Adapter loaded successfully"
+                );
+            }
+            Err(e) => {
+                // Rollback state on error
+                state.db.update_adapter_state(&adapter_id, "cold", "load_failed")
+                    .await
+                    .ok();
+                
+                tracing::error!("Failed to load adapter {}: {}", adapter_id, e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to load adapter")
+                            .with_code("LOAD_FAILED")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        }
+    } else {
+        // No lifecycle manager - just simulate for testing
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        state.db.update_adapter_state(&adapter_id, "warm", "simulated_load")
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+        tracing::info!(
+            event = "adapter.load",
+            adapter_id = %adapter_id,
+            adapter_name = %adapter.name,
+            "Adapter loaded successfully (simulated)"
+        );
+    }
+
+    // Return the adapter with updated stats
+    let (total, selected, avg_gate) = state
+        .db
+        .get_adapter_stats(&adapter_id)
+        .await
+        .unwrap_or((0, 0, 0.0));
+
+    let selection_rate = if total > 0 {
+        (selected as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(Json(AdapterResponse {
+        id: adapter.id,
+        adapter_id: adapter.adapter_id,
+        name: adapter.name,
+        hash_b3: adapter.hash_b3,
+        rank: adapter.rank,
+        tier: adapter.tier,
+        languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]")).unwrap_or_default(),
+        framework: adapter.framework,
+        created_at: adapter.created_at,
+        stats: Some(AdapterStats {
+            total_activations: total,
+            selected_count: selected,
+            avg_gate_value: avg_gate,
+            selection_rate,
+        }),
+    }))
+}
+
+/// Unload an adapter from memory
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/unload",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter unloaded successfully"),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Failed to unload adapter", body = ErrorResponse)
+    )
+)]
+pub async fn unload_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Get adapter from database
+    let _adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Update adapter state to 'unloading'
+    state.db.update_adapter_state(&adapter_id, "unloading", "user_request")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter state")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    tracing::info!("Unloading adapter {}", adapter_id);
+
+    // Actually unload the adapter using LifecycleManager if available
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        let adapter_idx = _adapter.id.parse::<u16>().unwrap_or(0);
+        
+        let mut lifecycle_mgr = lifecycle.lock().await;
+        
+        use adapteros_lora_lifecycle::AdapterLoader;
+        use std::path::PathBuf;
+        
+        let adapters_path = PathBuf::from("./adapters");
+        let mut loader = AdapterLoader::new(adapters_path);
+        
+        match loader.unload_adapter(adapter_idx) {
+            Ok(_) => {
+                // Update adapter state to 'cold' and reset memory
+                state.db.update_adapter_state(&adapter_id, "cold", "unloaded_successfully")
+                    .await
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to update adapter state")
+                                    .with_code("INTERNAL_SERVER_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+
+                state.db.update_adapter_memory(&adapter_id, 0)
+                    .await
+                    .ok();
+
+                tracing::info!(
+                    event = "adapter.unload",
+                    adapter_id = %adapter_id,
+                    "Adapter unloaded successfully"
+                );
+            }
+            Err(e) => {
+                // Rollback state on error
+                state.db.update_adapter_state(&adapter_id, "warm", "unload_failed")
+                    .await
+                    .ok();
+                
+                tracing::error!("Failed to unload adapter {}: {}", adapter_id, e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to unload adapter")
+                            .with_code("UNLOAD_FAILED")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        }
+    } else {
+        // No lifecycle manager - just simulate
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        
+        state.db.update_adapter_state(&adapter_id, "cold", "simulated_unload")
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+        state.db.update_adapter_memory(&adapter_id, 0).await.ok();
+
+        tracing::info!(
+            event = "adapter.unload",
+            adapter_id = %adapter_id,
+            "Adapter unloaded successfully (simulated)"
+        );
+    }
+
+    Ok(StatusCode::OK)
+}
+
 /// Get adapter activations
 #[utoipa::path(
     get,

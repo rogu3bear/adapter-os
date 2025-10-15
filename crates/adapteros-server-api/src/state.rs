@@ -1,8 +1,10 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;
+use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_orchestrator::TrainingService;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex;
 
 /// Runtime configuration subset needed by API handlers
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +57,7 @@ pub struct AppState {
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
     pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>>,
     pub crypto: Arc<CryptoState>,
+    pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
 }
 
 impl AppState {
@@ -73,7 +76,13 @@ impl AppState {
             git_subsystem: None,
             file_change_tx: None,
             crypto: Arc::new(CryptoState::new()),
+            lifecycle_manager: None,
         }
+    }
+
+    pub fn with_lifecycle(mut self, lifecycle_manager: Arc<Mutex<LifecycleManager>>) -> Self {
+        self.lifecycle_manager = Some(lifecycle_manager);
+        self
     }
 
     pub fn with_git(
@@ -84,5 +93,10 @@ impl AppState {
         self.git_subsystem = Some(git_subsystem);
         self.file_change_tx = Some(file_change_tx);
         self
+    }
+
+    /// Helper to check if lifecycle manager is available
+    pub fn has_lifecycle_manager(&self) -> bool {
+        self.lifecycle_manager.is_some()
     }
 }

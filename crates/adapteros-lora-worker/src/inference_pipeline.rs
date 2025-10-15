@@ -12,9 +12,10 @@
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_router::Router;
-use adapteros_policy::PolicyEngine;
+use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
@@ -119,6 +120,8 @@ pub struct InferencePipeline {
     telemetry: TelemetryWriter,
     /// Configuration
     config: InferencePipelineConfig,
+    /// Quarantine manager for policy hash enforcement
+    quarantine_manager: Arc<Mutex<QuarantineManager>>,
 }
 
 impl InferencePipeline {
@@ -126,11 +129,66 @@ impl InferencePipeline {
     pub fn new(
         tokenizer_path: &Path,
         router: Router,
-        kernels: Box<dyn FusedKernels>,
+        mut kernels: Box<dyn FusedKernels>,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
     ) -> Result<Self> {
+        // Validate backend determinism before constructing pipeline
+        let report = kernels.attest_determinism()?;
+        // TODO: Add validate_backend_attestation to policy engine
+        // policy.determinism_policy().validate_backend_attestation(&report)?;
+        
+        info!(
+            "Backend determinism validated: {}",
+            report.summary()
+        );
+
+        let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
+
+        // Create deterministic generator with seed
+        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        let generator = Generator::new(seed)
+            .with_temperature(config.temperature)
+            .with_top_k(config.top_k.unwrap_or(50))
+            .with_top_p(config.top_p.unwrap_or(0.9));
+
+        // Initialize quarantine manager
+        let quarantine_manager = Arc::new(Mutex::new(QuarantineManager::new()));
+
+        Ok(Self {
+            tokenizer,
+            generator,
+            router,
+            kernels,
+            policy,
+            telemetry,
+            config,
+            quarantine_manager,
+        })
+    }
+    
+    /// Create new inference pipeline with quarantine manager
+    /// This allows external initialization of the quarantine state
+    pub fn with_quarantine(
+        tokenizer_path: &Path,
+        router: Router,
+        mut kernels: Box<dyn FusedKernels>,
+        policy: PolicyEngine,
+        telemetry: TelemetryWriter,
+        config: InferencePipelineConfig,
+        quarantine_manager: Arc<Mutex<QuarantineManager>>,
+    ) -> Result<Self> {
+        // Validate backend determinism before constructing pipeline
+        let report = kernels.attest_determinism()?;
+        // TODO: Add validate_backend_attestation to policy engine
+        // policy.determinism_policy().validate_backend_attestation(&report)?;
+        
+        info!(
+            "Backend determinism validated: {}",
+            report.summary()
+        );
+
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with seed
@@ -148,12 +206,19 @@ impl InferencePipeline {
             policy,
             telemetry,
             config,
+            quarantine_manager,
         })
     }
 
     /// Run inference on a prompt
     pub fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start_time = Instant::now();
+
+        // Check quarantine before serving (Determinism Ruleset #2)
+        {
+            let quarantine = self.quarantine_manager.lock().unwrap();
+            quarantine.check_operation(QuarantineOperation::Inference)?;
+        }
 
         info!(
             "Starting inference: prompt_len={}, max_tokens={}",

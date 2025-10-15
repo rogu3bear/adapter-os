@@ -497,3 +497,84 @@ impl PerformanceBudgetViolationEvent {
         }
     }
 }
+
+/// Policy hash validation event
+/// 
+/// Logged at 100% sampling (policy violations per Telemetry Ruleset #9).
+/// Tracks runtime policy pack hash validation to detect mutations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyHashValidationEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Policy pack identifier
+    pub policy_pack_id: String,
+    /// Previously known hash (baseline)
+    pub prev_hash: String,
+    /// Currently computed hash
+    pub current_hash: String,
+    /// Validation status
+    pub status: ValidationStatus,
+    /// Control Plane ID (optional)
+    pub cpid: Option<String>,
+}
+
+/// Policy hash validation status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ValidationStatus {
+    /// Hash matches baseline
+    Valid,
+    /// Hash mismatch detected
+    Mismatch,
+    /// No baseline hash found
+    Missing,
+}
+
+impl PolicyHashValidationEvent {
+    pub fn valid(policy_pack_id: String, hash: String, cpid: Option<String>) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            policy_pack_id,
+            prev_hash: hash.clone(),
+            current_hash: hash,
+            status: ValidationStatus::Valid,
+            cpid,
+        }
+    }
+
+    pub fn mismatch(
+        policy_pack_id: String,
+        prev_hash: String,
+        current_hash: String,
+        cpid: Option<String>,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            policy_pack_id,
+            prev_hash,
+            current_hash,
+            status: ValidationStatus::Mismatch,
+            cpid,
+        }
+    }
+
+    pub fn missing(policy_pack_id: String, current_hash: String, cpid: Option<String>) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            policy_pack_id,
+            prev_hash: String::new(),
+            current_hash,
+            status: ValidationStatus::Missing,
+            cpid,
+        }
+    }
+}

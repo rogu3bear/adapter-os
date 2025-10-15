@@ -1278,7 +1278,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             audit::run(&cpid, suite.as_deref(), &output).await?;
         }
         Commands::AuditDeterminism { args } => {
-            let exit_code = audit_determinism::run(args, &output)?;
+            let audit_output = audit_determinism::Output;
+            let exit_code = audit_determinism::run(args, &audit_output)?;
             std::process::exit(exit_code);
         }
         Commands::Replay { bundle, verbose } => {

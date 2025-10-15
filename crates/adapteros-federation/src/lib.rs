@@ -18,6 +18,10 @@
 //! - Telemetry Ruleset (#9): Signed bundle rotation
 //! - Artifacts Ruleset (#13): Signature verification gates
 
+pub mod output_hash;
+pub mod peer;
+pub mod signature;
+
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::{Keypair, PublicKey, Signature};
 use adapteros_db::Db;
@@ -453,6 +457,13 @@ trait Pipe: Sized {
 }
 
 impl<T> Pipe for T {}
+
+// Re-export key types
+pub use output_hash::{ComparisonResult, OutputHashManager, OutputHashRecord};
+pub use peer::{AttestationMetadata, PeerInfo, PeerRegistry};
+pub use signature::{
+    BundleSignatureExchange, QuorumManager, QuorumStatus, VerificationResult,
+};
 
 #[cfg(test)]
 mod tests {

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use adapteros_orchestrator::{TrainingJob, TrainingTemplate, TrainingConfig};
 
 /// Training configuration request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -47,6 +48,29 @@ pub struct TrainingJobResponse {
     pub estimated_completion: Option<String>,
 }
 
+impl From<TrainingJob> for TrainingJobResponse {
+    fn from(job: TrainingJob) -> Self {
+        Self {
+            id: job.id,
+            adapter_name: job.adapter_name,
+            template_id: job.template_id,
+            repo_id: job.repo_id,
+            status: job.status.to_string(),
+            progress_pct: job.progress_pct,
+            current_epoch: job.current_epoch,
+            total_epochs: job.total_epochs,
+            current_loss: job.current_loss,
+            learning_rate: job.learning_rate,
+            tokens_per_second: job.tokens_per_second,
+            created_at: job.created_at,
+            started_at: job.started_at,
+            completed_at: job.completed_at,
+            error_message: job.error_message,
+            estimated_completion: None, // Calculate if needed
+        }
+    }
+}
+
 /// Training template response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingTemplateResponse {
@@ -60,6 +84,39 @@ pub struct TrainingTemplateResponse {
     pub epochs: u32,
     pub learning_rate: f32,
     pub batch_size: u32,
+}
+
+impl From<TrainingConfigRequest> for TrainingConfig {
+    fn from(req: TrainingConfigRequest) -> Self {
+        Self {
+            rank: req.rank,
+            alpha: req.alpha,
+            targets: req.targets,
+            epochs: req.epochs,
+            learning_rate: req.learning_rate,
+            batch_size: req.batch_size,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+        }
+    }
+}
+
+impl From<TrainingTemplate> for TrainingTemplateResponse {
+    fn from(template: TrainingTemplate) -> Self {
+        Self {
+            id: template.id,
+            name: template.name,
+            description: template.description,
+            category: template.category,
+            rank: template.config.rank,
+            alpha: template.config.alpha,
+            targets: template.config.targets,
+            epochs: template.config.epochs,
+            learning_rate: template.config.learning_rate,
+            batch_size: template.config.batch_size,
+        }
+    }
 }
 
 /// Training metrics response

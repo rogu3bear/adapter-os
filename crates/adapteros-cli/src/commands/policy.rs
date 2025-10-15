@@ -1,9 +1,11 @@
 //! Policy management commands
 
-use adapteros_core::Result;
-use adapteros_policy::{explain_policy, list_policies, PolicyId};
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_db::Db;
+use adapteros_policy::{explain_policy, list_policies, PolicyHashWatcher, PolicyId, QuarantineManager};
 use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum PolicyCommand {
@@ -38,6 +40,66 @@ pub enum PolicyCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    
+    /// Show policy hash status and violations
+    HashStatus {
+        /// Control Plane ID (optional)
+        #[arg(long)]
+        cpid: Option<String>,
+        
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: OutputFormat,
+    },
+    
+    /// Set baseline hash for a policy pack
+    HashBaseline {
+        /// Policy pack ID or name
+        pack_id: String,
+        
+        /// Baseline hash (hex-encoded BLAKE3)
+        hash: String,
+        
+        /// Control Plane ID (optional)
+        #[arg(long)]
+        cpid: Option<String>,
+        
+        /// Signer public key (hex-encoded Ed25519)
+        #[arg(long)]
+        signer: Option<String>,
+    },
+    
+    /// Manually trigger policy hash validation
+    HashVerify {
+        /// Control Plane ID (optional)
+        #[arg(long)]
+        cpid: Option<String>,
+    },
+    
+    /// Clear quarantine for a policy pack (requires operator authorization)
+    QuarantineClear {
+        /// Policy pack ID or name to clear
+        pack_id: String,
+        
+        /// Control Plane ID (optional)
+        #[arg(long)]
+        cpid: Option<String>,
+        
+        /// Force clear without confirmation
+        #[arg(long)]
+        force: bool,
+    },
+    
+    /// Rollback to last known good policy configuration
+    QuarantineRollback {
+        /// Control Plane ID (optional)
+        #[arg(long)]
+        cpid: Option<String>,
+        
+        /// Force rollback without confirmation
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -56,6 +118,21 @@ impl PolicyCommand {
             PolicyCommand::Explain { policy } => explain_policy_pack(&policy),
             PolicyCommand::Enforce { pack, all, dry_run } => {
                 enforce_policies(pack.as_deref(), all, dry_run)
+            }
+            PolicyCommand::HashStatus { cpid, format } => {
+                hash_status(cpid.as_deref(), format)
+            }
+            PolicyCommand::HashBaseline { pack_id, hash, cpid, signer } => {
+                hash_baseline(&pack_id, &hash, cpid.as_deref(), signer.as_deref())
+            }
+            PolicyCommand::HashVerify { cpid } => {
+                hash_verify(cpid.as_deref())
+            }
+            PolicyCommand::QuarantineClear { pack_id, cpid, force } => {
+                quarantine_clear(&pack_id, cpid.as_deref(), force)
+            }
+            PolicyCommand::QuarantineRollback { cpid, force } => {
+                quarantine_rollback(cpid.as_deref(), force)
             }
         }
     }
@@ -231,6 +308,262 @@ fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
                 ))
             })
     }
+}
+
+fn hash_status(cpid: Option<&str>, format: OutputFormat) -> Result<()> {
+    // Get database path from environment or use default
+    let db_path = std::env::var("AOS_DB_PATH").unwrap_or_else(|_| "var/aos.db".to_string());
+    
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+        AosError::Worker(format!("Failed to create tokio runtime: {}", e))
+    })?;
+    
+    runtime.block_on(async {
+        // Connect to database
+        let db = Db::connect(&db_path).await.map_err(|e| {
+            AosError::Database(format!("Failed to connect to database: {}", e))
+        })?;
+        
+        // Get all policy hash records
+        let records = db.list_policy_hashes(cpid).await.map_err(|e| {
+            AosError::Database(format!("Failed to list policy hashes: {}", e))
+        })?;
+        
+        match format {
+            OutputFormat::Table => {
+                println!("📊 Policy Hash Status\n");
+                
+                if let Some(cpid_val) = cpid {
+                    println!("Control Plane ID: {}\n", cpid_val);
+                }
+                
+                if records.is_empty() {
+                    println!("No policy hashes registered.");
+                    return Ok(());
+                }
+                
+                let mut table = Table::new();
+                table.load_preset(UTF8_FULL);
+                table.set_header(vec![
+                    Cell::new("Policy Pack ID").fg(Color::Cyan),
+                    Cell::new("Baseline Hash").fg(Color::Cyan),
+                    Cell::new("CPID").fg(Color::Cyan),
+                    Cell::new("Signer").fg(Color::Cyan),
+                    Cell::new("Updated At").fg(Color::Cyan),
+                ]);
+                
+                for record in &records {
+                    table.add_row(vec![
+                        Cell::new(&record.policy_pack_id),
+                        Cell::new(&record.baseline_hash.to_hex()[..16]),
+                        Cell::new(record.cpid.as_deref().unwrap_or("global")),
+                        Cell::new(record.signer_pubkey.as_deref().unwrap_or("N/A")),
+                        Cell::new(format!("{}", record.updated_at)),
+                    ]);
+                }
+                
+                println!("{table}");
+                println!("\nTotal: {} policy pack hashes registered", records.len());
+            }
+            OutputFormat::Json => {
+                let json = serde_json::to_string_pretty(&records)?;
+                println!("{}", json);
+            }
+            OutputFormat::Yaml => {
+                println!("policy_hashes:");
+                for record in &records {
+                    println!("  - policy_pack_id: {}", record.policy_pack_id);
+                    println!("    baseline_hash: {}", record.baseline_hash.to_hex());
+                    println!("    cpid: {}", record.cpid.as_deref().unwrap_or("global"));
+                    if let Some(ref signer) = record.signer_pubkey {
+                        println!("    signer: {}", signer);
+                    }
+                    println!("    updated_at: {}", record.updated_at);
+                }
+            }
+        }
+        
+        Ok(())
+    })
+}
+
+fn hash_baseline(pack_id: &str, hash: &str, cpid: Option<&str>, signer: Option<&str>) -> Result<()> {
+    println!("🔐 Setting Baseline Hash\n");
+    println!("Policy Pack: {}", pack_id);
+    println!("Hash: {}", hash);
+    
+    if let Some(cpid_val) = cpid {
+        println!("Control Plane ID: {}", cpid_val);
+    }
+    
+    if let Some(signer_val) = signer {
+        println!("Signer: {}", signer_val);
+    }
+    
+    // Validate hash format
+    if hash.len() != 64 {
+        return Err(AosError::Validation(
+            "Hash must be 64 hex characters (BLAKE3)".to_string(),
+        ));
+    }
+    
+    // Parse hash
+    let baseline_hash = B3Hash::from_hex(hash)?;
+    
+    // Get database path
+    let db_path = std::env::var("AOS_DB_PATH").unwrap_or_else(|_| "var/aos.db".to_string());
+    
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+        AosError::Worker(format!("Failed to create tokio runtime: {}", e))
+    })?;
+    
+    runtime.block_on(async {
+        // Connect to database
+        let db = Db::connect(&db_path).await.map_err(|e| {
+            AosError::Database(format!("Failed to connect to database: {}", e))
+        })?;
+        
+        // Insert or update policy hash
+        db.insert_policy_hash(pack_id, &baseline_hash, cpid, signer).await.map_err(|e| {
+            AosError::Database(format!("Failed to insert policy hash: {}", e))
+        })?;
+        
+        println!("\n✓ Baseline hash registered successfully");
+        println!("  Policy Pack: {}", pack_id);
+        println!("  Hash: {}", hash);
+        println!("  CPID: {}", cpid.unwrap_or("global"));
+        
+        Ok(())
+    })
+}
+
+fn hash_verify(cpid: Option<&str>) -> Result<()> {
+    println!("🔍 Verifying Policy Hashes\n");
+    
+    if let Some(cpid_val) = cpid {
+        println!("Control Plane ID: {}\n", cpid_val);
+    }
+    
+    // Get database path
+    let db_path = std::env::var("AOS_DB_PATH").unwrap_or_else(|_| "var/aos.db".to_string());
+    
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+        AosError::Worker(format!("Failed to create tokio runtime: {}", e))
+    })?;
+    
+    runtime.block_on(async {
+        // Connect to database
+        let db = Arc::new(Db::connect(&db_path).await.map_err(|e| {
+            AosError::Database(format!("Failed to connect to database: {}", e))
+        })?);
+        
+        // Get all policy hash records
+        let records = db.list_policy_hashes(cpid).await.map_err(|e| {
+            AosError::Database(format!("Failed to list policy hashes: {}", e))
+        })?;
+        
+        if records.is_empty() {
+            println!("No policy hashes registered. Use 'aosctl policy hash-baseline' first.");
+            return Ok(());
+        }
+        
+        println!("Verifying {} policy pack hashes...\n", records.len());
+        
+        // Note: Full verification requires loading actual policy configs and computing their hashes
+        // For now, we just display the registered baselines
+        let mut table = comfy_table::Table::new();
+        table.load_preset(comfy_table::presets::UTF8_FULL);
+        table.set_header(vec![
+            comfy_table::Cell::new("Policy Pack ID").fg(comfy_table::Color::Cyan),
+            comfy_table::Cell::new("Status").fg(comfy_table::Color::Cyan),
+            comfy_table::Cell::new("Baseline Hash").fg(comfy_table::Color::Cyan),
+        ]);
+        
+        for record in &records {
+            let status_cell = comfy_table::Cell::new("✓ Baseline Set").fg(comfy_table::Color::Green);
+            
+            table.add_row(vec![
+                comfy_table::Cell::new(&record.policy_pack_id),
+                status_cell,
+                comfy_table::Cell::new(&record.baseline_hash.to_hex()[..16]),
+            ]);
+        }
+        
+        println!("{table}");
+        println!("\n✓ All registered policy packs have baseline hashes set");
+        println!("\nNote: Full hash validation requires runtime policy manager integration.");
+        
+        Ok(())
+    })
+}
+
+fn quarantine_clear(pack_id: &str, cpid: Option<&str>, force: bool) -> Result<()> {
+    println!("🔓 Clearing Quarantine\n");
+    println!("Policy Pack: {}", pack_id);
+    
+    if let Some(cpid_val) = cpid {
+        println!("Control Plane ID: {}", cpid_val);
+    }
+    
+    if !force {
+        println!("\n⚠️  WARNING: Clearing quarantine without fixing the underlying");
+        println!("policy hash mismatch may lead to non-deterministic behavior.");
+        println!("\nRecommended actions:");
+        println!("  1. Investigate why the policy hash changed");
+        println!("  2. Either rollback to known-good policy or re-sign new policy");
+        println!("  3. Only clear quarantine after verification");
+        println!("\nUse --force to proceed without confirmation.");
+        return Ok(());
+    }
+    
+    println!("\n⚠️  Quarantine clearing requires runtime policy manager connection.");
+    println!("\nOperation: Clear violations for policy pack: {}", pack_id);
+    println!("Status: This command requires integration with a running policy manager.");
+    println!("\nIn production, this would:");
+    println!("  1. Connect to PolicyHashWatcher");
+    println!("  2. Call watcher.clear_violations(pack_id)");
+    println!("  3. Update QuarantineManager state");
+    println!("  4. Log operator action to telemetry");
+    println!("\nNote: Clear violations only after verifying policy integrity.");
+    
+    Ok(())
+}
+
+fn quarantine_rollback(cpid: Option<&str>, force: bool) -> Result<()> {
+    println!("⏮️  Rolling Back to Last Known Good Configuration\n");
+    
+    if let Some(cpid_val) = cpid {
+        println!("Control Plane ID: {}", cpid_val);
+    }
+    
+    if !force {
+        println!("\n⚠️  WARNING: This will rollback all policy packs to their");
+        println!("last known good configuration from the database.");
+        println!("\nThis action will:");
+        println!("  1. Load baseline hashes from database");
+        println!("  2. Restore policy pack configurations");
+        println!("  3. Clear all quarantine violations");
+        println!("  4. Restart policy enforcement");
+        println!("\nUse --force to proceed without confirmation.");
+        return Ok(());
+    }
+    
+    // Note: This is a placeholder implementation
+    // In production, this would:
+    // 1. Connect to database
+    // 2. Load all baseline policy pack configurations
+    // 3. Restore configurations
+    // 4. Clear quarantine
+    // 5. Log rollback action to telemetry
+    println!("\n⚠️  Rollback requires database and policy manager connection.");
+    println!("This command will:");
+    println!("  1. Query policy_hashes table for baseline configurations");
+    println!("  2. Restore policy pack configurations");
+    println!("  3. Clear all violations");
+    println!("  4. Log rollback action");
+    println!("\nTo implement: Integrate with PolicyPackManager and PolicyHashWatcher");
+    
+    Ok(())
 }
 
 #[cfg(test)]

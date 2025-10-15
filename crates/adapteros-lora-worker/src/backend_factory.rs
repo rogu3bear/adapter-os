@@ -1,7 +1,7 @@
 //! Backend factory for creating kernel backends at runtime
 
-use adapteros_core::Result;
-use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_core::{AosError, Result};
+use adapteros_lora_kernel_api::{attestation, FusedKernels};
 use std::path::PathBuf;
 
 /// Backend selection enum
@@ -38,6 +38,23 @@ pub enum BackendChoice {
 /// # Ok::<(), adapteros_core::AosError>(())
 /// ```
 pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
+    // Create backend based on choice
+    let mut backend = create_backend_internal(choice)?;
+    
+    // Validate determinism attestation (runtime guard)
+    let report = backend.attest_determinism()?;
+    tracing::info!("Backend attestation: {}", report.summary());
+    
+    // Validate the attestation report
+    report.validate()?;
+    
+    tracing::info!("Backend attestation validated successfully");
+    
+    Ok(backend)
+}
+
+/// Internal backend creation without attestation validation
+fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
     match choice {
         BackendChoice::Metal => {
             #[cfg(target_os = "macos")]
@@ -49,20 +66,75 @@ pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
 
             #[cfg(not(target_os = "macos"))]
             {
-                Err(adapteros_core::AosError::Unsupported(
+                Err(AosError::Unsupported(
                     "Metal backend only available on macOS".to_string(),
                 ))
             }
         }
 
-        BackendChoice::Mlx { model_path: _ } => Err(adapteros_core::AosError::Other(
-            "MLX backend temporarily disabled due to dependency issues".to_string(),
-        )),
+        BackendChoice::Mlx { model_path: _ } => {
+            // Compile-time guard: MLX backend requires experimental-backends feature
+            #[cfg(not(feature = "experimental-backends"))]
+            {
+                Err(AosError::PolicyViolation(
+                    "MLX backend requires --features experimental-backends (not enabled in deterministic-only build)".to_string(),
+                ))
+            }
 
-        BackendChoice::CoreML => Err(adapteros_core::AosError::Other(
-            "CoreML backend temporarily disabled due to dependency issues".to_string(),
-        )),
+            #[cfg(feature = "experimental-backends")]
+            {
+                tracing::warn!(
+                    "MLX backend is experimental and non-deterministic - NOT FOR PRODUCTION"
+                );
+                Err(AosError::Other(
+                    "MLX backend temporarily disabled due to dependency issues".to_string(),
+                ))
+            }
+        }
+
+        BackendChoice::CoreML => {
+            // Compile-time guard: CoreML backend requires experimental-backends feature
+            #[cfg(not(feature = "experimental-backends"))]
+            {
+                Err(AosError::PolicyViolation(
+                    "CoreML backend requires --features experimental-backends (not enabled in deterministic-only build)".to_string(),
+                ))
+            }
+
+            #[cfg(feature = "experimental-backends")]
+            {
+                tracing::warn!(
+                    "CoreML backend is experimental - determinism depends on ANE availability"
+                );
+                Err(AosError::Other(
+                    "CoreML backend temporarily disabled due to dependency issues".to_string(),
+                ))
+            }
+        }
     }
+}
+
+/// Validate determinism report against policy requirements
+///
+/// This function provides additional validation beyond the basic report.validate()
+/// and can be extended with policy-specific checks.
+pub fn validate_determinism_report(report: &attestation::DeterminismReport) -> Result<()> {
+    // First perform basic validation
+    report.validate()?;
+    
+    // Additional policy-specific validations can be added here
+    // For example:
+    // - Check metallib hash against allowlist
+    // - Verify toolchain versions match policy requirements
+    // - Check compiler flags match policy constraints
+    
+    tracing::debug!(
+        "Determinism report validation passed: backend={:?}, deterministic={}",
+        report.backend_type,
+        report.deterministic
+    );
+    
+    Ok(())
 }
 
 #[cfg(test)]

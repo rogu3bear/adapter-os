@@ -22,6 +22,18 @@ pub enum TrainingJobStatus {
     Cancelled,
 }
 
+impl std::fmt::Display for TrainingJobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TrainingJobStatus::Pending => write!(f, "pending"),
+            TrainingJobStatus::Running => write!(f, "running"),
+            TrainingJobStatus::Completed => write!(f, "completed"),
+            TrainingJobStatus::Failed => write!(f, "failed"),
+            TrainingJobStatus::Cancelled => write!(f, "cancelled"),
+        }
+    }
+}
+
 /// Training job information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingJob {

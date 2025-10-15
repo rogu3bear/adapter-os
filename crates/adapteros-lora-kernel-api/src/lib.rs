@@ -3,6 +3,8 @@
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 
+pub mod attestation;
+
 /// Ring buffer for router decisions (Q15 gates)
 #[derive(Debug, Clone)]
 pub struct RouterRing {
@@ -57,6 +59,15 @@ pub trait FusedKernels: Send {
     /// Get device name
     fn device_name(&self) -> &str;
 
+    /// Attest to determinism guarantees of this backend
+    ///
+    /// Returns a DeterminismReport containing metallib hash, RNG seeding method,
+    /// floating-point mode, compiler flags, and overall deterministic attestation.
+    ///
+    /// This method is called during backend initialization and before serving
+    /// to validate that the backend meets determinism requirements.
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport>;
+
     /// Load adapter at runtime (hot-swap)
     ///
     /// Default implementation returns error for backends that don't support hot-swap
@@ -109,6 +120,19 @@ impl FusedKernels for MockKernels {
     fn device_name(&self) -> &str {
         &self.device_name
     }
+
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        // Mock kernels are deterministic for testing purposes
+        Ok(attestation::DeterminismReport {
+            backend_type: attestation::BackendType::Mock,
+            metallib_hash: None,
+            manifest: None,
+            rng_seed_method: attestation::RngSeedingMethod::FixedSeed(0),
+            floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            compiler_flags: vec![],
+            deterministic: true,
+        })
+    }
 }
 
 impl Default for MockKernels {
@@ -129,6 +153,10 @@ impl FusedKernels for Box<dyn FusedKernels> {
 
     fn device_name(&self) -> &str {
         (**self).device_name()
+    }
+
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        (**self).attest_determinism()
     }
 
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {

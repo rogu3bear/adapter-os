@@ -21,7 +21,7 @@ impl AdapterLoader {
         }
     }
 
-    /// Load an adapter from disk
+    /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
     pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
         let adapter_path = self.base_path.join(format!("{}.safetensors", adapter_name));
 
@@ -36,11 +36,67 @@ impl AdapterLoader {
         let _weights = self.load_adapter_weights(&adapter_path)?;
         self.loaded.insert(adapter_id, adapter_path.clone());
 
+        tracing::info!(
+            "Loaded adapter {} ({}) from {}",
+            adapter_id,
+            adapter_name,
+            adapter_path.display()
+        );
+
         Ok(AdapterHandle {
             adapter_id,
             path: adapter_path,
             memory_bytes: Self::estimate_adapter_size(adapter_name),
         })
+    }
+
+    /// Load an adapter asynchronously using DeterministicExecutor
+    pub async fn load_adapter_async(
+        &mut self,
+        adapter_id: u16,
+        adapter_name: &str,
+    ) -> Result<AdapterHandle> {
+        // Perform the blocking load operation in a blocking task
+        let base_path = self.base_path.clone();
+        let adapter_name = adapter_name.to_string();
+        
+        let handle = tokio::task::spawn_blocking(move || {
+            let adapter_path = base_path.join(format!("{}.safetensors", adapter_name));
+
+            if !adapter_path.exists() {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter file not found: {}",
+                    adapter_path.display()
+                )));
+            }
+
+            // Load adapter weights from SafeTensors format
+            use std::fs;
+            let weights_data = fs::read(&adapter_path).map_err(|e| {
+                AosError::Lifecycle(format!("Failed to read adapter file: {}", e))
+            })?;
+
+            tracing::info!(
+                "Loaded adapter {} ({}) from {} ({} bytes)",
+                adapter_id,
+                adapter_name,
+                adapter_path.display(),
+                weights_data.len()
+            );
+
+            Ok(AdapterHandle {
+                adapter_id,
+                path: adapter_path.clone(),
+                memory_bytes: weights_data.len(),
+            })
+        })
+        .await
+        .map_err(|e| AosError::Lifecycle(format!("Failed to spawn load task: {}", e)))??;
+
+        // Update internal state
+        self.loaded.insert(adapter_id, handle.path.clone());
+
+        Ok(handle)
     }
 
     /// Unload an adapter from memory

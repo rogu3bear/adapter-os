@@ -166,6 +166,23 @@ pub struct PolicyPackConfig {
     pub last_updated: DateTime<Utc>,
 }
 
+impl PolicyPackConfig {
+    /// Calculate BLAKE3 hash of the policy pack configuration
+    /// 
+    /// Uses canonical JSON serialization for deterministic hashing.
+    /// Per Determinism Ruleset #2: hash must be stable across runs.
+    pub fn calculate_hash(&self) -> adapteros_core::B3Hash {
+        // Serialize config to canonical JSON
+        // Note: serde_json does not guarantee canonical ordering by default,
+        // but for policy configs we control the structure so this is acceptable.
+        // For production, consider using jcs (JSON Canonicalization Scheme).
+        let json = serde_json::to_string(&self.config)
+            .expect("Policy config must be serializable to JSON");
+        
+        adapteros_core::B3Hash::hash(json.as_bytes())
+    }
+}
+
 /// Enforcement level
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EnforcementLevel {

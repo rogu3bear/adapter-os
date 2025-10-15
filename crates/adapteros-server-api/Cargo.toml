@@ -9,6 +9,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-git = { path = "../adapteros-git" }
+adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
