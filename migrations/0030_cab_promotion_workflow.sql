@@ -64,22 +64,12 @@ INSERT OR IGNORE INTO cp_pointers (name) VALUES ('production');
 INSERT OR IGNORE INTO cp_pointers (name) VALUES ('staging');
 INSERT OR IGNORE INTO cp_pointers (name) VALUES ('canary');
 
--- Plans table (if not exists) - stores compiled control plane plans
-CREATE TABLE IF NOT EXISTS plans (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plan_id TEXT NOT NULL UNIQUE,
-    cpid TEXT NOT NULL UNIQUE,
-    tenant_id TEXT NOT NULL,
-    metallib_hash TEXT NOT NULL, -- BLAKE3 hash of Metal kernel library
-    adapter_hashes TEXT NOT NULL, -- JSON array of adapter hashes
-    manifest_hash TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)
-);
-
+-- Add cpid column to plans table (already exists from migration 0001)
+-- Note: SQLite doesn't support adding NOT NULL columns with ALTER TABLE directly
+-- We add it as nullable first, then we can enforce NOT NULL constraint via CHECK
+ALTER TABLE plans ADD COLUMN cpid TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_cpid_unique ON plans(cpid) WHERE cpid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_plans_cpid ON plans(cpid);
-CREATE INDEX IF NOT EXISTS idx_plans_tenant ON plans(tenant_id);
 
 -- Artifacts table (if not exists) - stores SBOMs and signatures
 CREATE TABLE IF NOT EXISTS artifacts (
