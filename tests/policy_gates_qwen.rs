@@ -1,30 +1,33 @@
 //! Policy gates acceptance tests for Qwen integration
 
+use adapteros_chat::{ChatMessage, ChatTemplate, ChatTemplateProcessor, SpecialTokens};
 use adapteros_core::{B3Hash, CPID};
-use adapteros_chat::{ChatMessage, ChatTemplateProcessor, ChatTemplate, SpecialTokens};
-use adapteros_lora_plan::{ModelLoader, GqaConfig, RopeConfig};
-use adapteros_manifest::{ManifestV3, Base, Adapter, AdapterTier, RouterCfg, TelemetryCfg, SamplingCfg, BundleCfg, Policies, AccessCfg, Seeds};
-use tempfile::tempdir;
+use adapteros_lora_plan::{GqaConfig, ModelLoader, RopeConfig};
+use adapteros_manifest::{
+    AccessCfg, Adapter, AdapterTier, Base, BundleCfg, ManifestV3, Policies, RouterCfg, SamplingCfg,
+    Seeds, TelemetryCfg,
+};
 use std::path::PathBuf;
+use tempfile::tempdir;
 
 /// Test policy enforcement for Qwen integration
 #[tokio::test]
 async fn test_qwen_policy_gates() {
     // Test 1: Evidence requirement policy
     test_evidence_requirement_policy().await;
-    
+
     // Test 2: Router entropy floor policy
     test_router_entropy_floor_policy().await;
-    
+
     // Test 3: Numeric validation policy
     test_numeric_validation_policy().await;
-    
+
     // Test 4: Refusal policy for underspecified prompts
     test_refusal_policy().await;
-    
+
     // Test 5: Egress block policy
     test_egress_block_policy().await;
-    
+
     println!("✅ All Qwen policy gates tests passed!");
 }
 
@@ -32,19 +35,19 @@ async fn test_qwen_policy_gates() {
 async fn test_evidence_requirement_policy() {
     // Simulate a regulated tenant with evidence requirements
     let manifest = create_regulated_manifest();
-    
+
     // Test that factual claims require evidence
     let prompt = "What is the torque specification for the Boeing 737 landing gear?";
-    
+
     // This should trigger evidence requirement
     let requires_evidence = check_evidence_requirement(&prompt, &manifest);
     assert!(requires_evidence, "Factual claims should require evidence");
-    
+
     // Test that non-factual prompts don't require evidence
     let prompt = "Hello, how are you today?";
     let requires_evidence = check_evidence_requirement(&prompt, &manifest);
     assert!(!requires_evidence, "Greetings should not require evidence");
-    
+
     println!("✅ Evidence requirement policy test passed");
 }
 
@@ -57,22 +60,28 @@ async fn test_router_entropy_floor_policy() {
         tau: 1.0,
         sample_tokens_full: 128,
     };
-    
+
     // Test that entropy floor prevents adapter collapse
     let adapter_activations = vec![0.95, 0.03, 0.02]; // One adapter dominates
-    let adjusted_activations = apply_entropy_floor(&adapter_activations, router_config.entropy_floor);
-    
+    let adjusted_activations =
+        apply_entropy_floor(&adapter_activations, router_config.entropy_floor);
+
     // Check that no adapter is below entropy floor
     for activation in &adjusted_activations {
-        assert!(*activation >= router_config.entropy_floor, 
-                "Adapter activation should not be below entropy floor");
+        assert!(
+            *activation >= router_config.entropy_floor,
+            "Adapter activation should not be below entropy floor"
+        );
     }
-    
+
     // Check that entropy is increased
     let original_entropy = calculate_entropy(&adapter_activations);
     let adjusted_entropy = calculate_entropy(&adjusted_activations);
-    assert!(adjusted_entropy > original_entropy, "Entropy should increase after applying floor");
-    
+    assert!(
+        adjusted_entropy > original_entropy,
+        "Entropy should increase after applying floor"
+    );
+
     println!("✅ Router entropy floor policy test passed");
 }
 
@@ -84,24 +93,32 @@ async fn test_numeric_validation_policy() {
         "Pressure should be 200",
         "Temperature is 75",
     ];
-    
+
     for number in &invalid_numbers {
         let is_valid = validate_numeric_claim(number);
-        assert!(!is_valid, "Unit-free numbers should be rejected: {}", number);
+        assert!(
+            !is_valid,
+            "Unit-free numbers should be rejected: {}",
+            number
+        );
     }
-    
+
     // Test that numbers with units are accepted
     let valid_numbers = vec![
         "The torque is 1500 in-lbf",
         "Pressure should be 200 psi",
         "Temperature is 75°F",
     ];
-    
+
     for number in &valid_numbers {
         let is_valid = validate_numeric_claim(number);
-        assert!(is_valid, "Numbers with units should be accepted: {}", number);
+        assert!(
+            is_valid,
+            "Numbers with units should be accepted: {}",
+            number
+        );
     }
-    
+
     println!("✅ Numeric validation policy test passed");
 }
 
@@ -113,24 +130,35 @@ async fn test_refusal_policy() {
         "Tell me about the component",
         "What are the requirements?",
     ];
-    
+
     for prompt in &underspecified_prompts {
         let refusal = check_refusal_policy(prompt);
-        assert!(refusal.should_refuse, "Underspecified prompt should be refused: {}", prompt);
-        assert!(!refusal.needed_fields.is_empty(), "Refusal should list needed fields");
+        assert!(
+            refusal.should_refuse,
+            "Underspecified prompt should be refused: {}",
+            prompt
+        );
+        assert!(
+            !refusal.needed_fields.is_empty(),
+            "Refusal should list needed fields"
+        );
     }
-    
+
     // Test well-specified prompts that should be accepted
     let well_specified_prompts = vec![
         "What is the torque specification for the Boeing 737 landing gear component P/N 12345?",
         "Tell me about the hydraulic system requirements for aircraft effectivity 737-800",
     ];
-    
+
     for prompt in &well_specified_prompts {
         let refusal = check_refusal_policy(prompt);
-        assert!(!refusal.should_refuse, "Well-specified prompt should not be refused: {}", prompt);
+        assert!(
+            !refusal.should_refuse,
+            "Well-specified prompt should not be refused: {}",
+            prompt
+        );
     }
-    
+
     println!("✅ Refusal policy test passed");
 }
 
@@ -142,23 +170,31 @@ async fn test_egress_block_policy() {
         "https://api.openai.com/v1/chat",
         "dns://8.8.8.8",
     ];
-    
+
     for connection in &blocked_connections {
         let is_blocked = check_egress_block(connection);
-        assert!(is_blocked, "Outbound connection should be blocked: {}", connection);
+        assert!(
+            is_blocked,
+            "Outbound connection should be blocked: {}",
+            connection
+        );
     }
-    
+
     // Test that UDS connections are allowed
     let allowed_connections = vec![
         "/var/run/aos/tenant1/serve.sock",
         "/var/run/aos/tenant2/rag.sock",
     ];
-    
+
     for connection in &allowed_connections {
         let is_blocked = check_egress_block(connection);
-        assert!(!is_blocked, "UDS connection should be allowed: {}", connection);
+        assert!(
+            !is_blocked,
+            "UDS connection should be allowed: {}",
+            connection
+        );
     }
-    
+
     println!("✅ Egress block policy test passed");
 }
 
@@ -239,40 +275,51 @@ fn create_regulated_manifest() -> ManifestV3 {
 fn check_evidence_requirement(prompt: &str, _manifest: &ManifestV3) -> bool {
     // Simple heuristic: factual claims require evidence
     let factual_keywords = vec![
-        "torque", "specification", "requirement", "standard", "regulation",
-        "boeing", "airbus", "component", "part number", "effectivity",
+        "torque",
+        "specification",
+        "requirement",
+        "standard",
+        "regulation",
+        "boeing",
+        "airbus",
+        "component",
+        "part number",
+        "effectivity",
     ];
-    
-    factual_keywords.iter().any(|keyword| prompt.to_lowercase().contains(keyword))
+
+    factual_keywords
+        .iter()
+        .any(|keyword| prompt.to_lowercase().contains(keyword))
 }
 
 /// Apply entropy floor to adapter activations
 fn apply_entropy_floor(activations: &[f32], floor: f32) -> Vec<f32> {
     let mut adjusted = activations.to_vec();
-    
+
     // Find the minimum activation
     let min_activation = adjusted.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-    
+
     // If minimum is below floor, adjust all activations
     if min_activation < floor {
         let adjustment = floor - min_activation;
         for activation in &mut adjusted {
             *activation += adjustment;
         }
-        
+
         // Renormalize
         let sum: f32 = adjusted.iter().sum();
         for activation in &mut adjusted {
             *activation /= sum;
         }
     }
-    
+
     adjusted
 }
 
 /// Calculate entropy of a probability distribution
 fn calculate_entropy(probabilities: &[f32]) -> f32 {
-    -probabilities.iter()
+    -probabilities
+        .iter()
         .filter(|&&p| p > 0.0)
         .map(|&p| p * p.log2())
         .sum::<f32>()
@@ -285,31 +332,32 @@ fn validate_numeric_claim(text: &str) -> bool {
         r"\d+\s*(in-lbf|ft-lbf|psi|bar|°F|°C|rpm|hz|hz)",
         r"\d+\s*(inches|feet|pounds|degrees)",
     ];
-    
-    unit_patterns.iter().any(|pattern| {
-        regex::Regex::new(pattern).unwrap().is_match(text)
-    })
+
+    unit_patterns
+        .iter()
+        .any(|pattern| regex::Regex::new(pattern).unwrap().is_match(text))
 }
 
 /// Check refusal policy
 fn check_refusal_policy(prompt: &str) -> RefusalResult {
     let mut needed_fields = Vec::new();
-    
+
     // Check for missing aircraft effectivity
     if prompt.to_lowercase().contains("torque") && !prompt.to_lowercase().contains("effectivity") {
         needed_fields.push("aircraft_effectivity".to_string());
     }
-    
+
     // Check for missing component part number
     if prompt.to_lowercase().contains("component") && !prompt.to_lowercase().contains("p/n") {
         needed_fields.push("component_pn".to_string());
     }
-    
+
     // Check for missing system specification
-    if prompt.to_lowercase().contains("system") && !prompt.to_lowercase().contains("specification") {
+    if prompt.to_lowercase().contains("system") && !prompt.to_lowercase().contains("specification")
+    {
         needed_fields.push("system_spec".to_string());
     }
-    
+
     RefusalResult {
         should_refuse: !needed_fields.is_empty(),
         needed_fields,
@@ -319,17 +367,20 @@ fn check_refusal_policy(prompt: &str) -> RefusalResult {
 /// Check egress block policy
 fn check_egress_block(connection: &str) -> bool {
     // Block TCP/UDP connections
-    if connection.starts_with("tcp://") || connection.starts_with("udp://") || 
-       connection.starts_with("https://") || connection.starts_with("http://") ||
-       connection.starts_with("dns://") {
+    if connection.starts_with("tcp://")
+        || connection.starts_with("udp://")
+        || connection.starts_with("https://")
+        || connection.starts_with("http://")
+        || connection.starts_with("dns://")
+    {
         return true;
     }
-    
+
     // Allow UDS connections
     if connection.starts_with("/var/run/aos/") {
         return false;
     }
-    
+
     // Default to blocking
     true
 }
@@ -351,37 +402,50 @@ async fn test_router_heatmap_policy() {
         tau: 1.0,
         sample_tokens_full: 128,
     };
-    
+
     // Test different prompt types
     let prompts = vec![
-        ("torque specification", vec!["torque-spec", "general-knowledge"]),
+        (
+            "torque specification",
+            vec!["torque-spec", "general-knowledge"],
+        ),
         ("general question", vec!["general-knowledge"]),
         ("mixed query", vec!["torque-spec", "general-knowledge"]),
     ];
-    
+
     for (prompt, expected_adapters) in &prompts {
         let activations = simulate_router_activation(prompt, &router_config);
-        
+
         // Check that expected adapters are activated
         for expected_adapter in expected_adapters {
-            let is_activated = activations.iter().any(|(adapter, _)| adapter == expected_adapter);
-            assert!(is_activated, "Expected adapter {} should be activated for prompt: {}", 
-                    expected_adapter, prompt);
+            let is_activated = activations
+                .iter()
+                .any(|(adapter, _)| adapter == expected_adapter);
+            assert!(
+                is_activated,
+                "Expected adapter {} should be activated for prompt: {}",
+                expected_adapter, prompt
+            );
         }
-        
+
         // Check entropy floor
-        let min_activation = activations.iter().map(|(_, activation)| *activation).fold(f32::INFINITY, f32::min);
-        assert!(min_activation >= router_config.entropy_floor, 
-                "Minimum activation should not be below entropy floor");
+        let min_activation = activations
+            .iter()
+            .map(|(_, activation)| *activation)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            min_activation >= router_config.entropy_floor,
+            "Minimum activation should not be below entropy floor"
+        );
     }
-    
+
     println!("✅ Router heatmap policy test passed");
 }
 
 /// Simulate router activation for a prompt
 fn simulate_router_activation(prompt: &str, _router_config: &RouterCfg) -> Vec<(String, f32)> {
     let mut activations = Vec::new();
-    
+
     // Simple simulation based on prompt content
     if prompt.contains("torque") {
         activations.push(("torque-spec".to_string(), 0.7));
@@ -393,21 +457,24 @@ fn simulate_router_activation(prompt: &str, _router_config: &RouterCfg) -> Vec<(
         activations.push(("general-knowledge".to_string(), 0.6));
         activations.push(("torque-spec".to_string(), 0.35));
     }
-    
+
     // Apply entropy floor
-    let min_activation = activations.iter().map(|(_, activation)| *activation).fold(f32::INFINITY, f32::min);
+    let min_activation = activations
+        .iter()
+        .map(|(_, activation)| *activation)
+        .fold(f32::INFINITY, f32::min);
     if min_activation < 0.02 {
         let adjustment = 0.02 - min_activation;
         for (_, activation) in &mut activations {
             *activation += adjustment;
         }
-        
+
         // Renormalize
         let sum: f32 = activations.iter().map(|(_, activation)| *activation).sum();
         for (_, activation) in &mut activations {
             *activation /= sum;
         }
     }
-    
+
     activations
 }

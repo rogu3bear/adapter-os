@@ -1,7 +1,7 @@
 use crate::output::OutputWriter;
+use adapteros_db::Db;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Table};
-use adapteros_db::Db;
 use serde::Serialize;
 
 #[derive(Serialize)]

@@ -1,8 +1,8 @@
 //! Adapter hot-swap command
 
-use anyhow::{Context, Result};
 use adapteros_core::B3Hash;
 use adapteros_lora_worker::{AdapterCommand, AdapterCommandResult};
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -166,7 +166,7 @@ async fn execute_command(
 
 /// Create HTTP client configured for Unix Domain Socket
 fn create_uds_client(socket_path: &PathBuf) -> Result<reqwest::Client> {
-// HTTP client configuration will be enhanced when UDS transport is optimized
+    // HTTP client configuration will be enhanced when UDS transport is optimized
 
     // Check if socket exists
     if !socket_path.exists() {

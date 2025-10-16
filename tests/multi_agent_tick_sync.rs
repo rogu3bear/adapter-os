@@ -3,7 +3,7 @@
 //! Verifies that AgentBarrier correctly synchronizes agents at tick boundaries.
 
 use adapteros_deterministic_exec::multi_agent::{
-    AgentBarrier, CoordinatedAction, next_global_seq, reset_global_seq,
+    next_global_seq, reset_global_seq, AgentBarrier, CoordinatedAction,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,13 +19,9 @@ async fn test_agent_barrier_basic() {
     let barrier2 = barrier.clone();
 
     // Spawn two agents
-    let handle1 = tokio::spawn(async move {
-        barrier1.wait("agent-1", 100).await
-    });
+    let handle1 = tokio::spawn(async move { barrier1.wait("agent-1", 100).await });
 
-    let handle2 = tokio::spawn(async move {
-        barrier2.wait("agent-2", 100).await
-    });
+    let handle2 = tokio::spawn(async move { barrier2.wait("agent-2", 100).await });
 
     // Both should complete
     handle1.await.unwrap().unwrap();
@@ -48,23 +44,17 @@ async fn test_agent_barrier_staggered_arrival() {
     let barrier3 = barrier.clone();
 
     // Agent 1 arrives first
-    let handle1 = tokio::spawn(async move {
-        barrier1.wait("agent-1", 100).await
-    });
+    let handle1 = tokio::spawn(async move { barrier1.wait("agent-1", 100).await });
 
     // Small delay before agent 2
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    let handle2 = tokio::spawn(async move {
-        barrier2.wait("agent-2", 100).await
-    });
+    let handle2 = tokio::spawn(async move { barrier2.wait("agent-2", 100).await });
 
     // Longer delay before agent 3
     tokio::time::sleep(Duration::from_millis(20)).await;
 
-    let handle3 = tokio::spawn(async move {
-        barrier3.wait("agent-3", 100).await
-    });
+    let handle3 = tokio::spawn(async move { barrier3.wait("agent-3", 100).await });
 
     // All should complete
     handle1.await.unwrap().unwrap();
@@ -86,13 +76,9 @@ async fn test_agent_barrier_multiple_rounds() {
         let barrier1 = barrier.clone();
         let barrier2 = barrier.clone();
 
-        let h1 = tokio::spawn(async move {
-            barrier1.wait("agent-1", 100).await
-        });
+        let h1 = tokio::spawn(async move { barrier1.wait("agent-1", 100).await });
 
-        let h2 = tokio::spawn(async move {
-            barrier2.wait("agent-2", 100).await
-        });
+        let h2 = tokio::spawn(async move { barrier2.wait("agent-2", 100).await });
 
         h1.await.unwrap().unwrap();
         h2.await.unwrap().unwrap();
@@ -105,13 +91,9 @@ async fn test_agent_barrier_multiple_rounds() {
         let barrier1 = barrier.clone();
         let barrier2 = barrier.clone();
 
-        let h1 = tokio::spawn(async move {
-            barrier1.wait("agent-1", 200).await
-        });
+        let h1 = tokio::spawn(async move { barrier1.wait("agent-1", 200).await });
 
-        let h2 = tokio::spawn(async move {
-            barrier2.wait("agent-2", 200).await
-        });
+        let h2 = tokio::spawn(async move { barrier2.wait("agent-2", 200).await });
 
         h1.await.unwrap().unwrap();
         h2.await.unwrap().unwrap();
@@ -147,23 +129,11 @@ async fn test_global_sequence_ordering() {
 async fn test_coordinated_action_ordering() {
     reset_global_seq();
 
-    let action1 = CoordinatedAction::new(
-        "agent-1".to_string(),
-        100,
-        vec![1, 2, 3],
-    );
+    let action1 = CoordinatedAction::new("agent-1".to_string(), 100, vec![1, 2, 3]);
 
-    let action2 = CoordinatedAction::new(
-        "agent-2".to_string(),
-        100,
-        vec![4, 5, 6],
-    );
+    let action2 = CoordinatedAction::new("agent-2".to_string(), 100, vec![4, 5, 6]);
 
-    let action3 = CoordinatedAction::new(
-        "agent-1".to_string(),
-        101,
-        vec![7, 8, 9],
-    );
+    let action3 = CoordinatedAction::new("agent-1".to_string(), 101, vec![7, 8, 9]);
 
     // Sequences should be strictly increasing
     assert_eq!(action1.sequence, 0);
@@ -175,11 +145,7 @@ async fn test_coordinated_action_ordering() {
 async fn test_coordinated_action_hash_determinism() {
     reset_global_seq();
 
-    let action1 = CoordinatedAction::new(
-        "agent-1".to_string(),
-        100,
-        vec![1, 2, 3],
-    );
+    let action1 = CoordinatedAction::new("agent-1".to_string(), 100, vec![1, 2, 3]);
 
     // Hash should be deterministic
     let hash1 = action1.hash();
@@ -192,11 +158,7 @@ async fn test_coordinated_action_hash_determinism() {
 async fn test_coordinated_action_serialization() {
     reset_global_seq();
 
-    let action = CoordinatedAction::new(
-        "agent-1".to_string(),
-        100,
-        vec![1, 2, 3],
-    );
+    let action = CoordinatedAction::new("agent-1".to_string(), 100, vec![1, 2, 3]);
 
     // Serialize and deserialize
     let json = serde_json::to_string(&action).unwrap();
@@ -219,14 +181,10 @@ async fn test_agent_barrier_mixed_ticks() {
     let barrier2 = barrier.clone();
 
     // Agent 1 at tick 100
-    let handle1 = tokio::spawn(async move {
-        barrier1.wait("agent-1", 100).await
-    });
+    let handle1 = tokio::spawn(async move { barrier1.wait("agent-1", 100).await });
 
     // Agent 2 at tick 150 (ahead)
-    let handle2 = tokio::spawn(async move {
-        barrier2.wait("agent-2", 150).await
-    });
+    let handle2 = tokio::spawn(async move { barrier2.wait("agent-2", 150).await });
 
     // Agent 2 should wait for agent 1 to catch up to at least 150
     // This will timeout in this test since agent 1 only goes to 100

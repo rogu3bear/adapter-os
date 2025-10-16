@@ -3,34 +3,34 @@
 //! This crate provides unified request/response types used across
 //! the control plane API, client libraries, and UI components.
 
+pub mod adapters;
 pub mod auth;
-pub mod tenants;
+pub mod domain_adapters;
+pub mod git;
+pub mod inference;
+pub mod metrics;
 pub mod nodes;
 pub mod plans;
-pub mod workers;
-pub mod adapters;
 pub mod repositories;
-pub mod metrics;
 pub mod telemetry;
-pub mod inference;
-pub mod git;
+pub mod tenants;
 pub mod training;
-pub mod domain_adapters;
+pub mod workers;
 
 // Re-export commonly used types
+pub use adapters::*;
 pub use auth::*;
-pub use tenants::*;
+pub use domain_adapters::*;
+pub use git::*;
+pub use inference::*;
+pub use metrics::*;
 pub use nodes::*;
 pub use plans::*;
-pub use workers::*;
-pub use adapters::*;
 pub use repositories::*;
-pub use metrics::*;
 pub use telemetry::*;
-pub use inference::*;
-pub use git::*;
+pub use tenants::*;
 pub use training::*;
-pub use domain_adapters::*;
+pub use workers::*;
 
 /// Common error response structure
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -85,8 +85,12 @@ pub struct PaginationParams {
     pub limit: u32,
 }
 
-fn default_page() -> u32 { 1 }
-fn default_limit() -> u32 { 50 }
+fn default_page() -> u32 {
+    1
+}
+fn default_limit() -> u32 {
+    50
+}
 
 /// Paginated response wrapper
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]

@@ -6,7 +6,7 @@
 use crate::{ExecutorEvent, TaskId};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
-use adapteros_telemetry::{TelemetryWriter, TelemetryEventBuilder, LogLevel};
+use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::Row;
@@ -74,25 +74,25 @@ pub struct DivergencePoint {
 pub struct GlobalTickLedger {
     /// Local tick counter
     local_tick: Arc<AtomicU64>,
-    
+
     /// Database handle
     db: Arc<Db>,
-    
+
     /// Tenant ID
     tenant_id: String,
-    
+
     /// Host ID
     host_id: String,
-    
+
     /// In-memory cache of recent entries
     entries: Arc<RwLock<VecDeque<TickLedgerEntry>>>,
-    
+
     /// Maximum cache size
     max_cache_size: usize,
-    
+
     /// Telemetry writer
     telemetry: Option<Arc<TelemetryWriter>>,
-    
+
     /// Last entry hash (for Merkle chain)
     last_entry_hash: Arc<RwLock<Option<B3Hash>>>,
 }
@@ -110,11 +110,7 @@ impl std::fmt::Debug for GlobalTickLedger {
 
 impl GlobalTickLedger {
     /// Create a new global tick ledger
-    pub fn new(
-        db: Arc<Db>,
-        tenant_id: String,
-        host_id: String,
-    ) -> Self {
+    pub fn new(db: Arc<Db>, tenant_id: String, host_id: String) -> Self {
         Self {
             local_tick: Arc::new(AtomicU64::new(0)),
             db,
@@ -126,7 +122,7 @@ impl GlobalTickLedger {
             last_entry_hash: Arc::new(RwLock::new(None)),
         }
     }
-    
+
     /// Create with telemetry writer
     pub fn with_telemetry(
         db: Arc<Db>,
@@ -145,29 +141,25 @@ impl GlobalTickLedger {
             last_entry_hash: Arc::new(RwLock::new(None)),
         }
     }
-    
+
     /// Get current tick
     pub fn current_tick(&self) -> u64 {
         self.local_tick.load(Ordering::SeqCst)
     }
-    
+
     /// Increment tick counter
     pub fn increment_tick(&self) -> u64 {
         self.local_tick.fetch_add(1, Ordering::SeqCst) + 1
     }
-    
+
     /// Record a tick event
-    pub async fn record_tick(
-        &self,
-        task_id: TaskId,
-        event: &ExecutorEvent,
-    ) -> Result<B3Hash> {
+    pub async fn record_tick(&self, task_id: TaskId, event: &ExecutorEvent) -> Result<B3Hash> {
         let tick = self.current_tick();
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_micros() as u64;
-        
+
         // Serialize event type
         let event_type = match event {
             ExecutorEvent::TaskSpawned { .. } => "TaskSpawned",
@@ -176,19 +168,19 @@ impl GlobalTickLedger {
             ExecutorEvent::TaskTimeout { .. } => "TaskTimeout",
             ExecutorEvent::TickAdvanced { .. } => "TickAdvanced",
         };
-        
+
         // Compute event hash
         let event_hash = self.compute_event_hash(tick, task_id, event);
-        
+
         // Get previous entry hash
         let prev_entry_hash = {
             let lock = self.last_entry_hash.read().unwrap();
             *lock
         };
-        
+
         // Compute entry hash (combines prev_hash, event_hash)
         let entry_hash = self.compute_entry_hash(&event_hash, prev_entry_hash.as_ref());
-        
+
         // Create entry
         let entry = TickLedgerEntry {
             id: None,
@@ -201,27 +193,27 @@ impl GlobalTickLedger {
             timestamp_us,
             prev_entry_hash,
         };
-        
+
         // Store in database
         self.store_entry(&entry).await?;
-        
+
         // Update cache
         {
             let mut entries = self.entries.write().unwrap();
             entries.push_back(entry.clone());
-            
+
             // Trim cache if needed
             while entries.len() > self.max_cache_size {
                 entries.pop_front();
             }
         }
-        
+
         // Update last entry hash
         {
             let mut lock = self.last_entry_hash.write().unwrap();
             *lock = Some(entry_hash);
         }
-        
+
         // Log to telemetry
         if let Some(ref telemetry) = self.telemetry {
             let event = TelemetryEventBuilder::new(
@@ -239,10 +231,10 @@ impl GlobalTickLedger {
                 "event_hash": event_hash.to_hex(),
             }))
             .build();
-            
+
             let _ = telemetry.log_event(event);
         }
-        
+
         debug!(
             tick = tick,
             tenant_id = %self.tenant_id,
@@ -250,10 +242,10 @@ impl GlobalTickLedger {
             task_id = %task_id,
             "Tick ledger entry recorded"
         );
-        
+
         Ok(entry_hash)
     }
-    
+
     /// Get ledger entries for a tick range
     pub async fn get_entries(
         &self,
@@ -261,7 +253,7 @@ impl GlobalTickLedger {
         tick_end: u64,
     ) -> Result<Vec<TickLedgerEntry>> {
         let pool = self.db.pool();
-        
+
         let rows = sqlx::query(
             r#"
             SELECT id, tick, tenant_id, host_id, task_id, event_type, event_hash, 
@@ -269,7 +261,7 @@ impl GlobalTickLedger {
             FROM tick_ledger_entries
             WHERE tenant_id = ? AND host_id = ? AND tick >= ? AND tick <= ?
             ORDER BY tick ASC
-            "#
+            "#,
         )
         .bind(&self.tenant_id)
         .bind(&self.host_id)
@@ -278,16 +270,15 @@ impl GlobalTickLedger {
         .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch ledger entries: {}", e)))?;
-        
+
         let mut entries = Vec::new();
         for row in rows {
             let event_hash_hex: String = row.try_get("event_hash")?;
             let event_hash = B3Hash::from_hex(&event_hash_hex)?;
-            
+
             let prev_hash_hex: Option<String> = row.try_get("prev_entry_hash").ok();
-            let prev_entry_hash = prev_hash_hex
-                .and_then(|hex| B3Hash::from_hex(&hex).ok());
-            
+            let prev_entry_hash = prev_hash_hex.and_then(|hex| B3Hash::from_hex(&hex).ok());
+
             let task_id_hex: String = row.try_get("task_id")?;
             let task_id_bytes = hex::decode(&task_id_hex)
                 .map_err(|e| AosError::Database(format!("Invalid task ID: {}", e)))?;
@@ -296,7 +287,7 @@ impl GlobalTickLedger {
                 task_id_array.copy_from_slice(&task_id_bytes);
             }
             let task_id = TaskId::from_bytes(task_id_array);
-            
+
             entries.push(TickLedgerEntry {
                 id: Some(row.try_get("id")?),
                 tick: row.try_get::<i64, _>("tick")? as u64,
@@ -309,10 +300,10 @@ impl GlobalTickLedger {
                 prev_entry_hash,
             });
         }
-        
+
         Ok(entries)
     }
-    
+
     /// Verify consistency with another host
     pub async fn verify_cross_host(
         &self,
@@ -326,19 +317,19 @@ impl GlobalTickLedger {
             tick_range = ?tick_range,
             "Verifying cross-host consistency"
         );
-        
+
         // Fetch our entries
         let our_entries = self.get_entries(tick_range.0, tick_range.1).await?;
-        
+
         // Fetch peer entries
         let peer_entries = self.get_peer_entries(peer_host_id, tick_range).await?;
-        
+
         // Compare entries
         let divergences = self.compute_divergences(&our_entries, &peer_entries);
-        
+
         let consistent = divergences.is_empty();
         let divergence_count = divergences.len();
-        
+
         let report = ConsistencyReport {
             tenant_id: self.tenant_id.clone(),
             host_a: self.host_id.clone(),
@@ -349,10 +340,10 @@ impl GlobalTickLedger {
             divergence_count,
             divergences: divergences.clone(),
         };
-        
+
         // Store report
         self.store_consistency_report(&report).await?;
-        
+
         // Log to telemetry
         if let Some(ref telemetry) = self.telemetry {
             let event_type = if consistent {
@@ -360,10 +351,14 @@ impl GlobalTickLedger {
             } else {
                 "tick_ledger.inconsistent"
             };
-            
+
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom(event_type.to_string()),
-                if consistent { LogLevel::Info } else { LogLevel::Warn },
+                if consistent {
+                    LogLevel::Info
+                } else {
+                    LogLevel::Warn
+                },
                 format!(
                     "Cross-host consistency check: {} (divergences: {})",
                     if consistent { "PASS" } else { "FAIL" },
@@ -381,56 +376,59 @@ impl GlobalTickLedger {
                 "divergence_count": divergence_count,
             }))
             .build();
-            
+
             let _ = telemetry.log_event(event);
         }
-        
+
         if consistent {
-            info!("Cross-host consistency verified: {} entries match", our_entries.len());
+            info!(
+                "Cross-host consistency verified: {} entries match",
+                our_entries.len()
+            );
         } else {
             warn!(
                 "Cross-host inconsistency detected: {} divergences found",
                 divergence_count
             );
         }
-        
+
         Ok(report)
     }
-    
+
     /// Compute event hash
     fn compute_event_hash(&self, tick: u64, task_id: TaskId, event: &ExecutorEvent) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&tick.to_le_bytes());
         hasher.update(task_id.as_bytes());
-        
+
         // Hash event-specific data
         let event_json = serde_json::to_string(event).unwrap_or_default();
         hasher.update(event_json.as_bytes());
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
-    
+
     /// Compute entry hash (for Merkle chain)
     fn compute_entry_hash(&self, event_hash: &B3Hash, prev_hash: Option<&B3Hash>) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
-        
+
         if let Some(prev) = prev_hash {
             hasher.update(prev.as_bytes());
         }
-        
+
         hasher.update(event_hash.as_bytes());
-        
+
         B3Hash::new(*hasher.finalize().as_bytes())
     }
-    
+
     /// Store entry in database
     async fn store_entry(&self, entry: &TickLedgerEntry) -> Result<()> {
         let pool = self.db.pool();
-        
+
         let task_id_hex = hex::encode(entry.task_id.as_bytes());
         let event_hash_hex = entry.event_hash.to_hex();
         let prev_hash_hex = entry.prev_entry_hash.as_ref().map(|h| h.to_hex());
-        
+
         sqlx::query(
             r#"
             INSERT INTO tick_ledger_entries 
@@ -449,10 +447,10 @@ impl GlobalTickLedger {
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store ledger entry: {}", e)))?;
-        
+
         Ok(())
     }
-    
+
     /// Get peer entries
     async fn get_peer_entries(
         &self,
@@ -460,7 +458,7 @@ impl GlobalTickLedger {
         tick_range: (u64, u64),
     ) -> Result<Vec<TickLedgerEntry>> {
         let pool = self.db.pool();
-        
+
         let rows = sqlx::query(
             r#"
             SELECT id, tick, tenant_id, host_id, task_id, event_type, event_hash, 
@@ -468,7 +466,7 @@ impl GlobalTickLedger {
             FROM tick_ledger_entries
             WHERE tenant_id = ? AND host_id = ? AND tick >= ? AND tick <= ?
             ORDER BY tick ASC
-            "#
+            "#,
         )
         .bind(&self.tenant_id)
         .bind(peer_host_id)
@@ -477,16 +475,15 @@ impl GlobalTickLedger {
         .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch peer entries: {}", e)))?;
-        
+
         let mut entries = Vec::new();
         for row in rows {
             let event_hash_hex: String = row.try_get("event_hash")?;
             let event_hash = B3Hash::from_hex(&event_hash_hex)?;
-            
+
             let prev_hash_hex: Option<String> = row.try_get("prev_entry_hash").ok();
-            let prev_entry_hash = prev_hash_hex
-                .and_then(|hex| B3Hash::from_hex(&hex).ok());
-            
+            let prev_entry_hash = prev_hash_hex.and_then(|hex| B3Hash::from_hex(&hex).ok());
+
             let task_id_hex: String = row.try_get("task_id")?;
             let task_id_bytes = hex::decode(&task_id_hex)
                 .map_err(|e| AosError::Database(format!("Invalid task ID: {}", e)))?;
@@ -495,7 +492,7 @@ impl GlobalTickLedger {
                 task_id_array.copy_from_slice(&task_id_bytes);
             }
             let task_id = TaskId::from_bytes(task_id_array);
-            
+
             entries.push(TickLedgerEntry {
                 id: Some(row.try_get("id")?),
                 tick: row.try_get::<i64, _>("tick")? as u64,
@@ -508,10 +505,10 @@ impl GlobalTickLedger {
                 prev_entry_hash,
             });
         }
-        
+
         Ok(entries)
     }
-    
+
     /// Compute divergences between two entry lists
     fn compute_divergences(
         &self,
@@ -519,18 +516,18 @@ impl GlobalTickLedger {
         peer_entries: &[TickLedgerEntry],
     ) -> Vec<DivergencePoint> {
         let mut divergences = Vec::new();
-        
+
         // Create maps for quick lookup
         let our_map: std::collections::HashMap<u64, &TickLedgerEntry> =
             our_entries.iter().map(|e| (e.tick, e)).collect();
         let peer_map: std::collections::HashMap<u64, &TickLedgerEntry> =
             peer_entries.iter().map(|e| (e.tick, e)).collect();
-        
+
         // Find all unique ticks
         let mut all_ticks: Vec<u64> = our_map.keys().chain(peer_map.keys()).copied().collect();
         all_ticks.sort_unstable();
         all_ticks.dedup();
-        
+
         // Compare entries at each tick
         for tick in all_ticks {
             match (our_map.get(&tick), peer_map.get(&tick)) {
@@ -550,8 +547,14 @@ impl GlobalTickLedger {
                     let zero_hash = B3Hash::new([0u8; 32]);
                     divergences.push(DivergencePoint {
                         tick,
-                        hash_a: our_map.get(&tick).map(|e| e.event_hash).unwrap_or(zero_hash),
-                        hash_b: peer_map.get(&tick).map(|e| e.event_hash).unwrap_or(zero_hash),
+                        hash_a: our_map
+                            .get(&tick)
+                            .map(|e| e.event_hash)
+                            .unwrap_or(zero_hash),
+                        hash_b: peer_map
+                            .get(&tick)
+                            .map(|e| e.event_hash)
+                            .unwrap_or(zero_hash),
                     });
                 }
                 (None, None) => {
@@ -559,24 +562,24 @@ impl GlobalTickLedger {
                 }
             }
         }
-        
+
         divergences
     }
-    
+
     /// Store consistency report
     async fn store_consistency_report(&self, report: &ConsistencyReport) -> Result<()> {
         let pool = self.db.pool();
-        
-        let divergence_json = serde_json::to_string(&report.divergences)
-            .unwrap_or_else(|_| "[]".to_string());
-        
+
+        let divergence_json =
+            serde_json::to_string(&report.divergences).unwrap_or_else(|_| "[]".to_string());
+
         sqlx::query(
             r#"
             INSERT INTO tick_ledger_consistency_reports 
                 (tenant_id, host_a, host_b, tick_range_start, tick_range_end, 
                  consistent, divergence_count, divergence_details)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(&report.tenant_id)
         .bind(&report.host_a)
@@ -589,7 +592,7 @@ impl GlobalTickLedger {
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store consistency report: {}", e)))?;
-        
+
         Ok(())
     }
 
@@ -643,18 +646,12 @@ mod tests {
     async fn test_cross_host_consistency() {
         let (db, _temp) = setup_test_db().await;
         let db = Arc::new(db);
-        
-        let ledger_a = GlobalTickLedger::new(
-            db.clone(),
-            "test-tenant".to_string(),
-            "host-a".to_string(),
-        );
-        
-        let ledger_b = GlobalTickLedger::new(
-            db.clone(),
-            "test-tenant".to_string(),
-            "host-b".to_string(),
-        );
+
+        let ledger_a =
+            GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-a".to_string());
+
+        let ledger_b =
+            GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-b".to_string());
 
         // Record same events on both hosts
         let task_id = TaskId::from_bytes([1u8; 32]);
@@ -675,4 +672,3 @@ mod tests {
         assert_eq!(report.divergence_count, 0);
     }
 }
-

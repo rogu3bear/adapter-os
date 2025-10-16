@@ -19,17 +19,18 @@ pub async fn drift_check(
     info!("Starting drift check...");
 
     // Capture current fingerprint
-    let current = DeviceFingerprint::capture_current()
-        .context("Failed to capture device fingerprint")?;
+    let current =
+        DeviceFingerprint::capture_current().context("Failed to capture device fingerprint")?;
 
     info!("Current fingerprint: {}", current.summary());
 
     // Determine baseline path
-    let baseline_path = baseline_path.unwrap_or_else(|| PathBuf::from("var/baseline_fingerprint.json"));
+    let baseline_path =
+        baseline_path.unwrap_or_else(|| PathBuf::from("var/baseline_fingerprint.json"));
 
     // Get keypair for signing/verification
-    let keypair = get_or_create_fingerprint_keypair()
-        .context("Failed to get fingerprint signing keypair")?;
+    let keypair =
+        get_or_create_fingerprint_keypair().context("Failed to get fingerprint signing keypair")?;
 
     // Check if baseline exists
     if !baseline_path.exists() {
@@ -146,7 +147,10 @@ async fn load_drift_policy(db_path: Option<&std::path::Path>) -> Result<DriftPol
                         return Ok(policies.drift);
                     }
                     Err(e) => {
-                        warn!("Could not load policies from database: {}, using defaults", e);
+                        warn!(
+                            "Could not load policies from database: {}, using defaults",
+                            e
+                        );
                     }
                 }
             }
@@ -171,11 +175,10 @@ fn save_drift_history(drift_report: &adapteros_verify::DriftReport) -> Result<()
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let report_path = history_dir.join(format!("drift_report_{}.json", timestamp));
 
-    let report_json = serde_json::to_string_pretty(&drift_report)
-        .context("Failed to serialize drift report")?;
+    let report_json =
+        serde_json::to_string_pretty(&drift_report).context("Failed to serialize drift report")?;
 
-    fs::write(&report_path, &report_json)
-        .context("Failed to write drift report")?;
+    fs::write(&report_path, &report_json).context("Failed to write drift report")?;
 
     info!("Drift report saved to: {:?}", report_path);
 
@@ -185,10 +188,7 @@ fn save_drift_history(drift_report: &adapteros_verify::DriftReport) -> Result<()
     let signature = adapteros_crypto::sign_bytes(&keypair, report_hash.as_bytes());
 
     let sig_path = report_path.with_extension("sig");
-    fs::write(&sig_path, signature.to_bytes())
-        .context("Failed to write drift report signature")?;
+    fs::write(&sig_path, signature.to_bytes()).context("Failed to write drift report signature")?;
 
     Ok(())
 }
-
-

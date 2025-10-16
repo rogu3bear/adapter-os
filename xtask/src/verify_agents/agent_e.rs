@@ -58,9 +58,10 @@ fn check_workflows() -> Check {
     if missing.is_empty() {
         Check::pass(
             "Workflows",
-            vec![
-                format!("All required workflows found: {}", found.join(", ")),
-            ],
+            vec![format!(
+                "All required workflows found: {}",
+                found.join(", ")
+            )],
         )
     } else {
         Check::fail(
@@ -89,11 +90,7 @@ fn check_coverage() -> Check {
 
     // Check if coverage workflow exists
     if !Path::new(".github/workflows/coverage.yml").exists() {
-        return Check::fail(
-            "Coverage gate",
-            vec![],
-            "coverage.yml workflow not found",
-        );
+        return Check::fail("Coverage gate", vec![], "coverage.yml workflow not found");
     }
 
     Check::pass(
@@ -227,7 +224,10 @@ fn check_sbom() -> Check {
                             vec![
                                 "xtask/src/sbom.rs exists".to_string(),
                                 "target/sbom.spdx.json exists and is valid".to_string(),
-                                format!("Packages count: {}", json["packages"].as_array().map_or(0, |a| a.len())),
+                                format!(
+                                    "Packages count: {}",
+                                    json["packages"].as_array().map_or(0, |a| a.len())
+                                ),
                             ],
                         )
                     } else {
@@ -348,7 +348,8 @@ fn check_release_checklist() -> Check {
     };
 
     // Check if it references orchestrator
-    let has_orchestrator_ref = content.contains("orchestrator") || content.contains("mplora-orchestrator");
+    let has_orchestrator_ref =
+        content.contains("orchestrator") || content.contains("mplora-orchestrator");
 
     if has_orchestrator_ref {
         Check::pass(

@@ -1238,7 +1238,9 @@ pub struct DiscoveryStreamQuery {
 // ============================================================================
 
 /// Convert TrainingConfigRequest to orchestrator TrainingConfig
-pub fn training_config_from_request(req: TrainingConfigRequest) -> adapteros_orchestrator::TrainingConfig {
+pub fn training_config_from_request(
+    req: TrainingConfigRequest,
+) -> adapteros_orchestrator::TrainingConfig {
     adapteros_orchestrator::TrainingConfig {
         rank: req.rank,
         alpha: req.alpha,
@@ -1275,7 +1277,9 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
 }
 
 /// Convert orchestrator TrainingTemplate to TrainingTemplateResponse
-pub fn training_template_to_response(template: adapteros_orchestrator::TrainingTemplate) -> TrainingTemplateResponse {
+pub fn training_template_to_response(
+    template: adapteros_orchestrator::TrainingTemplate,
+) -> TrainingTemplateResponse {
     TrainingTemplateResponse {
         id: template.id,
         name: template.name,

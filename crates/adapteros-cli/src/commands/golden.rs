@@ -1,7 +1,7 @@
 //! Golden run archive management
 
 use crate::output::OutputWriter;
-use clap::{Parser, Subcommand};
+use adapteros_crypto::Keypair;
 use adapteros_verify::{
     archive::{create_golden_run, GoldenRunArchive},
     init_golden_runs_dir, list_golden_runs,
@@ -9,7 +9,7 @@ use adapteros_verify::{
     ComparisonConfig, StrictnessLevel,
 };
 use anyhow::{Context, Result};
-use adapteros_crypto::Keypair;
+use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
 /// Golden run commands
@@ -123,11 +123,14 @@ pub async fn create(
     sign: bool,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(format!("Creating golden run from bundle: {}", bundle_path.display()));
+    output.info(format!(
+        "Creating golden run from bundle: {}",
+        bundle_path.display()
+    ));
 
     // Initialize golden_runs directory if needed
-    let golden_runs_dir = init_golden_runs_dir(".")
-        .context("Failed to initialize golden_runs directory")?;
+    let golden_runs_dir =
+        init_golden_runs_dir(".").context("Failed to initialize golden_runs directory")?;
 
     // Determine toolchain version
     let toolchain = toolchain_version.unwrap_or(env!("CARGO_PKG_RUST_VERSION"));
@@ -145,7 +148,10 @@ pub async fn create(
     output.kv("CPID", &archive.metadata.cpid);
     output.kv("Plan ID", &archive.metadata.plan_id);
     output.kv("Toolchain", &archive.metadata.toolchain.summary());
-    output.kv("Adapters", &format!("{} adapters", archive.metadata.adapters.len()));
+    output.kv(
+        "Adapters",
+        &format!("{} adapters", archive.metadata.adapters.len()),
+    );
     output.kv(
         "Epsilon stats",
         &format!("{} layers", archive.epsilon_stats.layer_stats.len()),
@@ -162,7 +168,8 @@ pub async fn create(
         // Generate or load keypair (in production, would use Secure Enclave)
         let keypair = Keypair::generate();
 
-        archive.sign(&keypair)
+        archive
+            .sign(&keypair)
             .context("Failed to sign golden run")?;
 
         output.progress_done(true);
@@ -173,7 +180,8 @@ pub async fn create(
     let baseline_dir = golden_runs_dir.join("baselines").join(name);
     output.progress(format!("Saving to {}", baseline_dir.display()));
 
-    archive.save(&baseline_dir)
+    archive
+        .save(&baseline_dir)
         .context("Failed to save golden run")?;
 
     output.progress_done(true);
@@ -261,12 +269,13 @@ pub async fn list(output: &OutputWriter) -> Result<()> {
         return Ok(());
     }
 
-    let runs = list_golden_runs(golden_runs_dir)
-        .context("Failed to list golden runs")?;
+    let runs = list_golden_runs(golden_runs_dir).context("Failed to list golden runs")?;
 
     if runs.is_empty() {
         output.warning("No golden runs found");
-        output.verbose("Create a golden run with: aosctl golden create --bundle <path> --name <name>");
+        output.verbose(
+            "Create a golden run with: aosctl golden create --bundle <path> --name <name>",
+        );
         return Ok(());
     }
 
@@ -283,9 +292,22 @@ pub async fn list(output: &OutputWriter) -> Result<()> {
                 output.kv(run_name, "");
                 output.verbose(format!("  CPID: {}", archive.metadata.cpid));
                 output.verbose(format!("  Plan: {}", archive.metadata.plan_id));
-                output.verbose(format!("  Created: {}", archive.metadata.created_at.format("%Y-%m-%d %H:%M UTC")));
-                output.verbose(format!("  Toolchain: {}", archive.metadata.toolchain.summary()));
-                output.verbose(format!("  Signed: {}", if archive.signature.is_some() { "yes" } else { "no" }));
+                output.verbose(format!(
+                    "  Created: {}",
+                    archive.metadata.created_at.format("%Y-%m-%d %H:%M UTC")
+                ));
+                output.verbose(format!(
+                    "  Toolchain: {}",
+                    archive.metadata.toolchain.summary()
+                ));
+                output.verbose(format!(
+                    "  Signed: {}",
+                    if archive.signature.is_some() {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                ));
                 output.blank();
             } else {
                 output.kv(run_name, "(failed to load)");
@@ -308,8 +330,7 @@ pub async fn show(golden_name: &str, output: &OutputWriter) -> Result<()> {
 
     output.info(format!("Loading golden run: {}", golden_name));
 
-    let archive = GoldenRunArchive::load(&golden_dir)
-        .context("Failed to load golden run")?;
+    let archive = GoldenRunArchive::load(&golden_dir).context("Failed to load golden run")?;
 
     if output.is_json() {
         output.json(&archive)?;
@@ -319,10 +340,20 @@ pub async fn show(golden_name: &str, output: &OutputWriter) -> Result<()> {
         println!("Epsilon Statistics:");
         println!("  Layers: {}", archive.epsilon_stats.layer_stats.len());
         println!("  Max epsilon: {:.6e}", archive.epsilon_stats.max_epsilon());
-        println!("  Mean epsilon: {:.6e}", archive.epsilon_stats.mean_epsilon());
+        println!(
+            "  Mean epsilon: {:.6e}",
+            archive.epsilon_stats.mean_epsilon()
+        );
         println!();
         println!("Bundle Hash: {}", archive.bundle_hash);
-        println!("Signed: {}", if archive.signature.is_some() { "yes" } else { "no" });
+        println!(
+            "Signed: {}",
+            if archive.signature.is_some() {
+                "yes"
+            } else {
+                "no"
+            }
+        );
     }
 
     Ok(())
@@ -332,8 +363,8 @@ pub async fn show(golden_name: &str, output: &OutputWriter) -> Result<()> {
 pub async fn init(output: &OutputWriter) -> Result<()> {
     output.info("Initializing golden_runs directory");
 
-    let golden_runs_dir = init_golden_runs_dir(".")
-        .context("Failed to initialize golden_runs directory")?;
+    let golden_runs_dir =
+        init_golden_runs_dir(".").context("Failed to initialize golden_runs directory")?;
 
     output.success(format!("Initialized: {}", golden_runs_dir.display()));
     output.kv("baselines/", "Active golden run baselines");
@@ -342,4 +373,3 @@ pub async fn init(output: &OutputWriter) -> Result<()> {
 
     Ok(())
 }
-

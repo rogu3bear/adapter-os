@@ -450,7 +450,7 @@ impl DeterministicExecutor {
             global_ledger: None,
         }
     }
-    
+
     /// Create executor with global tick ledger
     pub fn with_global_ledger(
         config: ExecutorConfig,

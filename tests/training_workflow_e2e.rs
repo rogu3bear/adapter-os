@@ -6,7 +6,7 @@ use anyhow::Result;
 async fn test_training_service_lifecycle() -> Result<()> {
     // This test requires the orchestrator to be running
     // For now, we'll create a minimal test structure
-    
+
     // Test: Create training service
     // Test: List templates
     // Test: Start training job
@@ -14,7 +14,7 @@ async fn test_training_service_lifecycle() -> Result<()> {
     // Test: Get job details
     // Test: Cancel job
     // Test: Verify job status
-    
+
     Ok(())
 }
 
@@ -23,7 +23,7 @@ async fn test_training_template_loading() -> Result<()> {
     // Test: Load default templates
     // Test: Validate template configuration
     // Test: Apply template to new job
-    
+
     Ok(())
 }
 
@@ -33,7 +33,7 @@ async fn test_training_metrics_collection() -> Result<()> {
     // Test: Collect metrics at intervals
     // Test: Verify metrics accuracy
     // Test: Check telemetry emission
-    
+
     Ok(())
 }
 
@@ -43,7 +43,6 @@ async fn test_training_error_handling() -> Result<()> {
     // Test: Resource exhaustion handling
     // Test: Cancellation cleanup
     // Test: Recovery from failures
-    
+
     Ok(())
 }
-

@@ -107,9 +107,18 @@ async fn main() -> Result<()> {
 
     let repo_data: serde_json::Value = repo_status.json().await?;
     println!("Repository Status:");
-    println!("  Repo ID: {}", repo_data["repo_id"].as_str().unwrap_or("unknown"));
-    println!("  Status: {}", repo_data["status"].as_str().unwrap_or("unknown"));
-    println!("  Latest Scan: {}", repo_data["latest_scan_commit"].as_str().unwrap_or("none"));
+    println!(
+        "  Repo ID: {}",
+        repo_data["repo_id"].as_str().unwrap_or("unknown")
+    );
+    println!(
+        "  Status: {}",
+        repo_data["status"].as_str().unwrap_or("unknown")
+    );
+    println!(
+        "  Latest Scan: {}",
+        repo_data["latest_scan_commit"].as_str().unwrap_or("none")
+    );
 
     // Step 5: Demonstrate file change streaming
     println!("\nStep 5: File change streaming available at:");
@@ -126,4 +135,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-

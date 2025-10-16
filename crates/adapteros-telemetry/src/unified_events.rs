@@ -7,46 +7,46 @@
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - CLAUDE.md L132: "Telemetry via `TelemetryWriter::log(event_type, data)`"
 
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use adapteros_core::B3Hash;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Unified telemetry event structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryEvent {
     /// Unique event identifier
     pub id: String,
-    
+
     /// Event timestamp in ISO 8601 format
     pub timestamp: DateTime<Utc>,
-    
+
     /// Event type identifier
     pub event_type: String,
-    
+
     /// Log level
     pub level: LogLevel,
-    
+
     /// Human-readable message
     pub message: String,
-    
+
     /// Component that generated the event
     pub component: Option<String>,
-    
+
     /// Tenant ID (if applicable)
     pub tenant_id: Option<String>,
-    
+
     /// User ID (if applicable)
     pub user_id: Option<String>,
-    
+
     /// Additional metadata
     pub metadata: Option<serde_json::Value>,
-    
+
     /// Trace ID for distributed tracing
     pub trace_id: Option<String>,
-    
+
     /// Span ID for distributed tracing
     pub span_id: Option<String>,
-    
+
     /// Event hash for integrity verification
     pub event_hash: Option<B3Hash>,
 }
@@ -69,7 +69,7 @@ pub enum EventType {
     SystemStop,
     SystemError,
     SystemWarning,
-    
+
     // Adapter events
     AdapterLoaded,
     AdapterUnloaded,
@@ -78,67 +78,67 @@ pub enum EventType {
     AdapterUnpinned,
     AdapterActivated,
     AdapterDeactivated,
-    
+
     // Inference events
     InferenceStart,
     InferenceComplete,
     InferenceError,
     InferenceTimeout,
-    
+
     // Policy events
     PolicyViolation,
     PolicyEnforcement,
     PolicyCheck,
     PolicyUpdate,
-    
+
     // Memory events
     MemoryPressure,
     MemoryEviction,
     MemoryAllocation,
     MemoryDeallocation,
-    
+
     // Training events
     TrainingStart,
     TrainingComplete,
     TrainingError,
     TrainingProgress,
-    
+
     // User events
     UserLogin,
     UserLogout,
     UserAction,
     UserError,
-    
+
     // Router events
     RouterDecision,
     RouterCalibration,
     RouterError,
-    
+
     // Telemetry events
     TelemetryBundleCreated,
     TelemetryBundleSigned,
     TelemetryBundleRotated,
-    
+
     // Database events
     DatabaseQuery,
     DatabaseError,
     DatabaseMigration,
-    
+
     // Network events
     NetworkRequest,
     NetworkResponse,
     NetworkError,
-    
+
     // Security events
     SecurityViolation,
     SecurityCheck,
     SecurityAlert,
-    
+
     // Performance events
     PerformanceMetric,
     PerformanceAlert,
     PerformanceDegradation,
-    
+
     // Custom events
     Custom(String),
 }
@@ -206,28 +206,28 @@ impl EventType {
 pub struct TelemetryFilters {
     /// Maximum number of events to return
     pub limit: Option<usize>,
-    
+
     /// Filter by tenant ID
     pub tenant_id: Option<String>,
-    
+
     /// Filter by user ID
     pub user_id: Option<String>,
-    
+
     /// Filter by start time
     pub start_time: Option<DateTime<Utc>>,
-    
+
     /// Filter by end time
     pub end_time: Option<DateTime<Utc>>,
-    
+
     /// Filter by event type
     pub event_type: Option<String>,
-    
+
     /// Filter by log level
     pub level: Option<LogLevel>,
-    
+
     /// Filter by component
     pub component: Option<String>,
-    
+
     /// Filter by trace ID
     pub trace_id: Option<String>,
 }
@@ -329,7 +329,10 @@ mod tests {
     fn test_event_type_string_conversion() {
         assert_eq!(EventType::SystemStart.as_str(), "system.start");
         assert_eq!(EventType::AdapterLoaded.as_str(), "adapter.loaded");
-        assert_eq!(EventType::Custom("custom.event".to_string()).as_str(), "custom.event");
+        assert_eq!(
+            EventType::Custom("custom.event".to_string()).as_str(),
+            "custom.event"
+        );
     }
 
     #[test]

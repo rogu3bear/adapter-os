@@ -23,7 +23,7 @@ pub use wasm::WasmClient as DefaultClient;
 pub use uds::{ConnectionPool, Signal, UdsClient, UdsClientError};
 
 /// Unified client trait for all AdapterOS API access
-/// 
+///
 /// # Citations
 /// - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
 /// - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
@@ -46,9 +46,12 @@ pub trait AdapterOSClient {
 
     // Memory Management
     async fn get_memory_usage(&self) -> Result<MemoryUsageResponse>;
-    
+
     // Training
-    async fn start_adapter_training(&self, req: StartTrainingRequest) -> Result<TrainingSessionResponse>;
+    async fn start_adapter_training(
+        &self,
+        req: StartTrainingRequest,
+    ) -> Result<TrainingSessionResponse>;
     async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse>;
     async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>>;
 
@@ -81,7 +84,8 @@ pub trait AdapterOSClient {
     // Policies
     async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>>;
     async fn get_policy(&self, cpid: String) -> Result<PolicyPackResponse>;
-    async fn validate_policy(&self, req: ValidatePolicyRequest) -> Result<PolicyValidationResponse>;
+    async fn validate_policy(&self, req: ValidatePolicyRequest)
+        -> Result<PolicyValidationResponse>;
     async fn apply_policy(&self, req: ApplyPolicyRequest) -> Result<PolicyPackResponse>;
 
     // Telemetry Bundles
@@ -94,10 +98,17 @@ pub trait AdapterOSClient {
     async fn list_adapters_by_tenant(&self, tenant_id: String) -> Result<ListAdaptersResponse>;
     async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>>;
     async fn create_commit_delta(&self, req: CommitDeltaRequest) -> Result<CommitDeltaResponse>;
-    async fn get_commit_details(&self, repo_id: String, commit: String) -> Result<CommitDetailsResponse>;
+    async fn get_commit_details(
+        &self,
+        repo_id: String,
+        commit: String,
+    ) -> Result<CommitDetailsResponse>;
 
     // Routing Inspector
-    async fn extract_router_features(&self, req: RouterFeaturesRequest) -> Result<RouterFeaturesResponse>;
+    async fn extract_router_features(
+        &self,
+        req: RouterFeaturesRequest,
+    ) -> Result<RouterFeaturesResponse>;
     async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse>;
 
     // Patch Lab

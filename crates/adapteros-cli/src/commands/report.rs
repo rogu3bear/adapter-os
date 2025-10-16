@@ -1,8 +1,8 @@
 //! Generate HTML report from telemetry bundle
 
 use crate::output::OutputWriter;
-use anyhow::Result;
 use adapteros_telemetry::generate_html_report;
+use anyhow::Result;
 use serde::Serialize;
 use std::path::Path;
 

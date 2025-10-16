@@ -136,9 +136,7 @@ fn check_charts() -> Check {
     if content.contains("plotters") {
         Check::pass(
             "Charts",
-            vec![
-                "plotters dependency found in web-ui/Cargo.toml".to_string(),
-            ],
+            vec!["plotters dependency found in web-ui/Cargo.toml".to_string()],
         )
     } else {
         Check::skip(

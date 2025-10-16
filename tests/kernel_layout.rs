@@ -33,11 +33,15 @@ fn test_size_mismatch_detected() {
 
     // Try to validate with wrong parameters (512 elements * 4 bytes = 2048, but buffer is 1024)
     let result = validator.validate_buffer("test_tensor", &buffer, 4, 512);
-    
+
     assert!(result.is_err());
-    
+
     match result {
-        Err(adapteros_core::AosError::KernelLayoutMismatch { tensor, expected, got }) => {
+        Err(adapteros_core::AosError::KernelLayoutMismatch {
+            tensor,
+            expected,
+            got,
+        }) => {
             assert_eq!(tensor, "test_tensor");
             assert!(expected.contains("2048"));
             assert!(got.contains("1024"));
@@ -76,10 +80,14 @@ fn test_min_size_validation() {
     let buffer = device.new_buffer(2048, MTLResourceOptions::StorageModeShared);
 
     // Buffer is 2048, min is 1024 - should pass
-    assert!(validator.validate_min_size("var_buffer", &buffer, 1024).is_ok());
+    assert!(validator
+        .validate_min_size("var_buffer", &buffer, 1024)
+        .is_ok());
 
     // Buffer is 2048, min is 4096 - should fail
-    assert!(validator.validate_min_size("var_buffer", &buffer, 4096).is_err());
+    assert!(validator
+        .validate_min_size("var_buffer", &buffer, 4096)
+        .is_err());
 }
 
 #[test]
@@ -93,7 +101,7 @@ fn test_custom_alignment() {
     // Metal buffers should be naturally aligned, but test the API
     // (actual alignment check depends on Metal's allocation strategy)
     let result = validator.validate_buffer("aligned_tensor", &buffer, 4, 256);
-    
+
     // Result depends on actual buffer address alignment
     // Just ensure the validator doesn't panic
     let _ = result;

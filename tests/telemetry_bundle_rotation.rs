@@ -169,5 +169,3 @@ fn test_merkle_root_determinism() {
     // Merkle roots should be identical for identical events
     assert_eq!(merkle1, merkle2);
 }
-
-

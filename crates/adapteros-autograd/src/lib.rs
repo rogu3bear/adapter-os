@@ -251,7 +251,7 @@ impl AutogradContext {
     ) -> Result<()> {
         let tensor_a = ctx.get_tensor(a).unwrap();
         let tensor_b = ctx.get_tensor(b).unwrap();
-        
+
         let a_requires_grad = tensor_a.requires_grad;
         let b_requires_grad = tensor_b.requires_grad;
         let a_data = tensor_a.data.clone();
@@ -262,7 +262,7 @@ impl AutogradContext {
             let grad_a = grad_output.dot(&b_data.t());
             ctx.accumulate_gradient(a, grad_a)?;
         }
-        
+
         // dB = A^T * grad_output
         if b_requires_grad {
             let grad_b = a_data.t().dot(&grad_output);
@@ -282,7 +282,7 @@ impl AutogradContext {
     ) -> Result<()> {
         let tensor_a = ctx.get_tensor(a).unwrap();
         let tensor_b = ctx.get_tensor(b).unwrap();
-        
+
         let a_requires_grad = tensor_a.requires_grad;
         let b_requires_grad = tensor_b.requires_grad;
 
@@ -290,7 +290,7 @@ impl AutogradContext {
         if a_requires_grad {
             ctx.accumulate_gradient(a, grad_output.clone())?;
         }
-        
+
         // dB = grad_output
         if b_requires_grad {
             ctx.accumulate_gradient(b, grad_output)?;
@@ -309,7 +309,7 @@ impl AutogradContext {
     ) -> Result<()> {
         let tensor_a = ctx.get_tensor(a).unwrap();
         let tensor_b = ctx.get_tensor(b).unwrap();
-        
+
         let a_requires_grad = tensor_a.requires_grad;
         let b_requires_grad = tensor_b.requires_grad;
         let a_data = tensor_a.data.clone();
@@ -320,7 +320,7 @@ impl AutogradContext {
             let grad_a = &grad_output * &b_data;
             ctx.accumulate_gradient(a, grad_a)?;
         }
-        
+
         // dB = grad_output * A
         if b_requires_grad {
             let grad_b = &grad_output * &a_data;

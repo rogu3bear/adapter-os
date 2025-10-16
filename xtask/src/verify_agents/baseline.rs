@@ -28,9 +28,10 @@ fn run_fmt_check() -> Check {
         .output();
 
     match output {
-        Ok(out) if out.status.success() => {
-            Check::pass("cargo fmt", vec!["All files properly formatted".to_string()])
-        }
+        Ok(out) if out.status.success() => Check::pass(
+            "cargo fmt",
+            vec!["All files properly formatted".to_string()],
+        ),
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             Check::fail(

@@ -3,11 +3,11 @@
 //! Validates graceful degradation, error recovery, fallback mechanisms,
 //! and system resilience under various failure conditions.
 
+use crate::orchestration::TestEnvironment;
+use adapteros_core::{AosError, Result};
+use adapteros_telemetry::{AdapterEvictionEvent, KReductionEvent, TelemetryWriter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use adapteros_core::{AosError, Result};
-use adapteros_telemetry::{TelemetryWriter, AdapterEvictionEvent, KReductionEvent};
-use crate::orchestration::TestEnvironment;
 
 /// Failure scenario test suite
 pub struct FailureScenarioTest {
@@ -62,9 +62,21 @@ impl FailureScenarioTest {
     /// Test adapter loading failures and recovery
     async fn test_adapter_load_failures(&self, env: &TestEnvironment) -> Result<()> {
         let failure_scenarios = vec![
-            ("corrupted_adapter", "hash_mismatch", "Adapter file corrupted"),
-            ("incompatible_version", "version_conflict", "Adapter version incompatible"),
-            ("insufficient_memory", "memory_allocation_failed", "Not enough memory for adapter"),
+            (
+                "corrupted_adapter",
+                "hash_mismatch",
+                "Adapter file corrupted",
+            ),
+            (
+                "incompatible_version",
+                "version_conflict",
+                "Adapter version incompatible",
+            ),
+            (
+                "insufficient_memory",
+                "memory_allocation_failed",
+                "Not enough memory for adapter",
+            ),
             ("disk_io_error", "io_error", "Disk I/O failure during load"),
         ];
 
@@ -79,7 +91,8 @@ impl FailureScenarioTest {
                 "retry_count": 0,
                 "fallback_available": true
             });
-            env.telemetry().log("adapter_load_failure", &failure_event)?;
+            env.telemetry()
+                .log("adapter_load_failure", &failure_event)?;
 
             // Simulate fallback to base model
             let fallback_event = serde_json::json!({
@@ -168,7 +181,8 @@ impl FailureScenarioTest {
                 "actual_results": partial_results,
                 "degraded_response": partial_results > 0
             });
-            env.telemetry().log("evidence_retrieval_failure", &failure_event)?;
+            env.telemetry()
+                .log("evidence_retrieval_failure", &failure_event)?;
 
             // Test policy response to evidence failure
             let policy_response = if partial_results > 0 {
@@ -183,7 +197,8 @@ impl FailureScenarioTest {
                 "evidence_threshold_met": partial_results > 0,
                 "user_notification": partial_results == 0
             });
-            env.telemetry().log("policy_evidence_response", &policy_event)?;
+            env.telemetry()
+                .log("policy_evidence_response", &policy_event)?;
         }
 
         Ok(())
@@ -192,10 +207,26 @@ impl FailureScenarioTest {
     /// Test policy enforcement failures
     async fn test_policy_enforcement_failures(&self, env: &TestEnvironment) -> Result<()> {
         let policy_failures = vec![
-            ("evidence_threshold_not_met", "Insufficient evidence for factual claim", "refuse"),
-            ("classification_violation", "Attempted access to restricted data", "block"),
-            ("rate_limit_exceeded", "Too many requests per minute", "throttle"),
-            ("content_safety_violation", "Generated content violates safety rules", "filter"),
+            (
+                "evidence_threshold_not_met",
+                "Insufficient evidence for factual claim",
+                "refuse",
+            ),
+            (
+                "classification_violation",
+                "Attempted access to restricted data",
+                "block",
+            ),
+            (
+                "rate_limit_exceeded",
+                "Too many requests per minute",
+                "throttle",
+            ),
+            (
+                "content_safety_violation",
+                "Generated content violates safety rules",
+                "filter",
+            ),
         ];
 
         for (violation_type, description, enforcement_action) in policy_failures {
@@ -223,7 +254,8 @@ impl FailureScenarioTest {
                     _ => "Request denied.",
                 }
             });
-            env.telemetry().log("policy_enforcement", &enforcement_event)?;
+            env.telemetry()
+                .log("policy_enforcement", &enforcement_event)?;
         }
 
         Ok(())
@@ -232,10 +264,22 @@ impl FailureScenarioTest {
     /// Test network isolation violations
     async fn test_network_isolation_violations(&self, env: &TestEnvironment) -> Result<()> {
         let network_violations = vec![
-            ("egress_attempt", "Attempted external network access", "blocked"),
+            (
+                "egress_attempt",
+                "Attempted external network access",
+                "blocked",
+            ),
             ("dns_resolution", "DNS query attempted", "blocked"),
-            ("websocket_connection", "WebSocket connection attempted", "blocked"),
-            ("file_upload", "Attempted file upload to external service", "blocked"),
+            (
+                "websocket_connection",
+                "WebSocket connection attempted",
+                "blocked",
+            ),
+            (
+                "file_upload",
+                "Attempted file upload to external service",
+                "blocked",
+            ),
         ];
 
         for (violation_type, description, action) in network_violations {
@@ -258,7 +302,8 @@ impl FailureScenarioTest {
                 "alert_generated": true,
                 "audit_logged": true
             });
-            env.telemetry().log("isolation_enforcement", &isolation_event)?;
+            env.telemetry()
+                .log("isolation_enforcement", &isolation_event)?;
         }
 
         Ok(())
@@ -267,10 +312,26 @@ impl FailureScenarioTest {
     /// Test determinism verification failures
     async fn test_determinism_verification_failures(&self, env: &TestEnvironment) -> Result<()> {
         let determinism_failures = vec![
-            ("rng_divergence", "Random number generator state mismatch", 42),
-            ("kernel_hash_mismatch", "GPU kernel hash changed unexpectedly", 0),
-            ("evidence_ordering_change", "Evidence retrieval order changed", 15),
-            ("adapter_routing_different", "Adapter routing produced different result", 23),
+            (
+                "rng_divergence",
+                "Random number generator state mismatch",
+                42,
+            ),
+            (
+                "kernel_hash_mismatch",
+                "GPU kernel hash changed unexpectedly",
+                0,
+            ),
+            (
+                "evidence_ordering_change",
+                "Evidence retrieval order changed",
+                15,
+            ),
+            (
+                "adapter_routing_different",
+                "Adapter routing produced different result",
+                23,
+            ),
         ];
 
         for (failure_type, description, divergence_point) in determinism_failures {
@@ -294,7 +355,8 @@ impl FailureScenarioTest {
                 "monitoring_increased": true,
                 "user_notification": failure_type == "evidence_ordering_change"
             });
-            env.telemetry().log("determinism_recovery", &recovery_event)?;
+            env.telemetry()
+                .log("determinism_recovery", &recovery_event)?;
         }
 
         Ok(())
@@ -303,10 +365,30 @@ impl FailureScenarioTest {
     /// Test graceful degradation under failure conditions
     async fn test_graceful_degradation(&self, env: &TestEnvironment) -> Result<()> {
         let degradation_scenarios = vec![
-            ("adapter_unavailable", vec!["base_model_only"], 0.85, "Reduced adapter coverage"),
-            ("memory_pressure", vec!["k_reduction", "adapter_eviction"], 0.75, "Limited capacity"),
-            ("evidence_limited", vec!["degraded_evidence"], 0.60, "Lower confidence responses"),
-            ("multiple_failures", vec!["base_model_only", "degraded_evidence", "throttled"], 0.45, "Minimal functionality"),
+            (
+                "adapter_unavailable",
+                vec!["base_model_only"],
+                0.85,
+                "Reduced adapter coverage",
+            ),
+            (
+                "memory_pressure",
+                vec!["k_reduction", "adapter_eviction"],
+                0.75,
+                "Limited capacity",
+            ),
+            (
+                "evidence_limited",
+                vec!["degraded_evidence"],
+                0.60,
+                "Lower confidence responses",
+            ),
+            (
+                "multiple_failures",
+                vec!["base_model_only", "degraded_evidence", "throttled"],
+                0.45,
+                "Minimal functionality",
+            ),
         ];
 
         for (scenario, degradations, performance_level, description) in degradation_scenarios {
@@ -323,7 +405,8 @@ impl FailureScenarioTest {
                 },
                 "automatic_recovery": true
             });
-            env.telemetry().log("graceful_degradation", &degradation_event)?;
+            env.telemetry()
+                .log("graceful_degradation", &degradation_event)?;
         }
 
         Ok(())
@@ -332,10 +415,26 @@ impl FailureScenarioTest {
     /// Test recovery mechanisms after failures
     async fn test_recovery_mechanisms(&self, env: &TestEnvironment) -> Result<()> {
         let recovery_scenarios = vec![
-            ("adapter_reload", "Failed adapter reloaded successfully", 5000),
-            ("memory_cleanup", "Memory pressure relieved through cleanup", 2000),
-            ("evidence_cache_rebuild", "Evidence cache rebuilt after corruption", 15000),
-            ("network_isolation_reset", "Network isolation policies reset", 1000),
+            (
+                "adapter_reload",
+                "Failed adapter reloaded successfully",
+                5000,
+            ),
+            (
+                "memory_cleanup",
+                "Memory pressure relieved through cleanup",
+                2000,
+            ),
+            (
+                "evidence_cache_rebuild",
+                "Evidence cache rebuilt after corruption",
+                15000,
+            ),
+            (
+                "network_isolation_reset",
+                "Network isolation policies reset",
+                1000,
+            ),
         ];
 
         for (recovery_type, description, recovery_time_ms) in recovery_scenarios {
@@ -358,7 +457,8 @@ impl FailureScenarioTest {
                 "performance_baseline": 0.95,
                 "monitoring_active": true
             });
-            env.telemetry().log("recovery_validation", &validation_event)?;
+            env.telemetry()
+                .log("recovery_validation", &validation_event)?;
         }
 
         Ok(())
@@ -371,11 +471,26 @@ pub async fn test_cascading_failures(env: Arc<Mutex<TestEnvironment>>) -> Result
 
     // Simulate a cascading failure: adapter failure → memory pressure → evidence issues
     let cascade_sequence = vec![
-        ("initial_adapter_failure", "Adapter load failure triggers cascade"),
-        ("memory_pressure_follows", "Memory pressure from failed cleanup"),
-        ("evidence_degradation", "Evidence retrieval affected by memory pressure"),
-        ("policy_enforcement_strain", "Policy checks slowed by resource pressure"),
-        ("final_stabilization", "System stabilizes with degraded performance"),
+        (
+            "initial_adapter_failure",
+            "Adapter load failure triggers cascade",
+        ),
+        (
+            "memory_pressure_follows",
+            "Memory pressure from failed cleanup",
+        ),
+        (
+            "evidence_degradation",
+            "Evidence retrieval affected by memory pressure",
+        ),
+        (
+            "policy_enforcement_strain",
+            "Policy checks slowed by resource pressure",
+        ),
+        (
+            "final_stabilization",
+            "System stabilizes with degraded performance",
+        ),
     ];
 
     for (stage, description) in cascade_sequence {
@@ -411,10 +526,26 @@ pub async fn test_failure_prediction(env: Arc<Mutex<TestEnvironment>>) -> Result
     let env = env.lock().await;
 
     let prediction_scenarios = vec![
-        ("memory_trend", "Predicted memory exhaustion in 5 minutes", "preemptive_cleanup"),
-        ("adapter_wear", "Adapter performance degradation detected", "proactive_reload"),
-        ("evidence_staleness", "Evidence cache becoming stale", "cache_refresh"),
-        ("policy_drift", "Policy rules may need updating", "rule_validation"),
+        (
+            "memory_trend",
+            "Predicted memory exhaustion in 5 minutes",
+            "preemptive_cleanup",
+        ),
+        (
+            "adapter_wear",
+            "Adapter performance degradation detected",
+            "proactive_reload",
+        ),
+        (
+            "evidence_staleness",
+            "Evidence cache becoming stale",
+            "cache_refresh",
+        ),
+        (
+            "policy_drift",
+            "Policy rules may need updating",
+            "rule_validation",
+        ),
     ];
 
     for (prediction_type, description, prevention_action) in prediction_scenarios {
@@ -427,7 +558,8 @@ pub async fn test_failure_prediction(env: Arc<Mutex<TestEnvironment>>) -> Result
             "automatic_mitigation": true,
             "success_probability": 0.92
         });
-        env.telemetry().log("failure_prediction", &prediction_event)?;
+        env.telemetry()
+            .log("failure_prediction", &prediction_event)?;
 
         // Test prevention mechanism
         let prevention_event = serde_json::json!({
@@ -437,7 +569,8 @@ pub async fn test_failure_prediction(env: Arc<Mutex<TestEnvironment>>) -> Result
             "failure_averted": true,
             "resource_usage": "minimal"
         });
-        env.telemetry().log("failure_prevention", &prevention_event)?;
+        env.telemetry()
+            .log("failure_prevention", &prevention_event)?;
     }
 
     Ok(())

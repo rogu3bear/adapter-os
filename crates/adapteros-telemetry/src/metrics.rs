@@ -122,8 +122,21 @@ impl MetricsCollector {
             )
             .buckets(latency_buckets.clone()),
             &["tenant_id", "adapter_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create inference latency histogram: {}", e)))?;
-        registry.register(Box::new(inference_latency.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register inference latency histogram: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create inference latency histogram: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(inference_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register inference latency histogram: {}",
+                    e
+                ))
+            })?;
 
         let router_latency = HistogramVec::new(
             HistogramOpts::new(
@@ -132,8 +145,18 @@ impl MetricsCollector {
             )
             .buckets(latency_buckets.clone()),
             &["tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create router latency histogram: {}", e)))?;
-        registry.register(Box::new(router_latency.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register router latency histogram: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create router latency histogram: {}", e))
+        })?;
+        registry
+            .register(Box::new(router_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register router latency histogram: {}",
+                    e
+                ))
+            })?;
 
         let kernel_latency = HistogramVec::new(
             HistogramOpts::new(
@@ -142,18 +165,30 @@ impl MetricsCollector {
             )
             .buckets(latency_buckets.clone()),
             &["kernel_type", "tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create kernel latency histogram: {}", e)))?;
-        registry.register(Box::new(kernel_latency.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register kernel latency histogram: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create kernel latency histogram: {}", e))
+        })?;
+        registry
+            .register(Box::new(kernel_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register kernel latency histogram: {}",
+                    e
+                ))
+            })?;
 
         // Queue depth gauges
         let queue_depth = GaugeVec::new(
-            Opts::new(
-                "adapteros_queue_depth",
-                "Current queue depth",
-            ),
+            Opts::new("adapteros_queue_depth", "Current queue depth"),
             &["queue_type", "tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create queue depth gauge: {}", e)))?;
-        registry.register(Box::new(queue_depth.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register queue depth gauge: {}", e)))?;
+        )
+        .map_err(|e| AosError::Telemetry(format!("Failed to create queue depth gauge: {}", e)))?;
+        registry
+            .register(Box::new(queue_depth.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!("Failed to register queue depth gauge: {}", e))
+            })?;
 
         let adapter_queue_depth = GaugeVec::new(
             Opts::new(
@@ -161,43 +196,73 @@ impl MetricsCollector {
                 "Adapter-specific queue depth",
             ),
             &["adapter_id", "tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create adapter queue depth gauge: {}", e)))?;
-        registry.register(Box::new(adapter_queue_depth.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register adapter queue depth gauge: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create adapter queue depth gauge: {}", e))
+        })?;
+        registry
+            .register(Box::new(adapter_queue_depth.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter queue depth gauge: {}",
+                    e
+                ))
+            })?;
 
         // Token throughput metrics
         let tokens_generated_total = CounterVec::new(
-            Opts::new(
-                "adapteros_tokens_generated_total",
-                "Total tokens generated",
-            ),
+            Opts::new("adapteros_tokens_generated_total", "Total tokens generated"),
             &["tenant_id", "adapter_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create tokens generated counter: {}", e)))?;
-        registry.register(Box::new(tokens_generated_total.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register tokens generated counter: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create tokens generated counter: {}", e))
+        })?;
+        registry
+            .register(Box::new(tokens_generated_total.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register tokens generated counter: {}",
+                    e
+                ))
+            })?;
 
         let tokens_per_second = GaugeVec::new(
-            Opts::new(
-                "adapteros_tokens_per_second",
-                "Current tokens per second",
-            ),
+            Opts::new("adapteros_tokens_per_second", "Current tokens per second"),
             &["tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create tokens per second gauge: {}", e)))?;
-        registry.register(Box::new(tokens_per_second.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register tokens per second gauge: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create tokens per second gauge: {}", e))
+        })?;
+        registry
+            .register(Box::new(tokens_per_second.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!("Failed to register tokens per second gauge: {}", e))
+            })?;
 
         // System metrics
         let active_sessions = Gauge::new(
             "adapteros_active_sessions",
             "Number of active inference sessions",
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create active sessions gauge: {}", e)))?;
-        registry.register(Box::new(active_sessions.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register active sessions gauge: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create active sessions gauge: {}", e))
+        })?;
+        registry
+            .register(Box::new(active_sessions.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!("Failed to register active sessions gauge: {}", e))
+            })?;
 
         let memory_usage_bytes = GaugeVec::new(
-            Opts::new(
-                "adapteros_memory_usage_bytes",
-                "Memory usage in bytes",
-            ),
+            Opts::new("adapteros_memory_usage_bytes", "Memory usage in bytes"),
             &["component", "tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create memory usage gauge: {}", e)))?;
-        registry.register(Box::new(memory_usage_bytes.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register memory usage gauge: {}", e)))?;
+        )
+        .map_err(|e| AosError::Telemetry(format!("Failed to create memory usage gauge: {}", e)))?;
+        registry
+            .register(Box::new(memory_usage_bytes.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!("Failed to register memory usage gauge: {}", e))
+            })?;
 
         // Policy metrics
         let policy_violations_total = CounterVec::new(
@@ -206,17 +271,31 @@ impl MetricsCollector {
                 "Total policy violations",
             ),
             &["policy_name", "violation_type"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create policy violations counter: {}", e)))?;
-        registry.register(Box::new(policy_violations_total.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register policy violations counter: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create policy violations counter: {}", e))
+        })?;
+        registry
+            .register(Box::new(policy_violations_total.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register policy violations counter: {}",
+                    e
+                ))
+            })?;
 
         let abstain_events_total = CounterVec::new(
-            Opts::new(
-                "adapteros_abstain_events_total",
-                "Total abstain events",
-            ),
+            Opts::new("adapteros_abstain_events_total", "Total abstain events"),
             &["reason", "tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create abstain events counter: {}", e)))?;
-        registry.register(Box::new(abstain_events_total.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register abstain events counter: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create abstain events counter: {}", e))
+        })?;
+        registry
+            .register(Box::new(abstain_events_total.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!("Failed to register abstain events counter: {}", e))
+            })?;
 
         // Adapter metrics
         let adapter_activations_total = CounterVec::new(
@@ -225,8 +304,21 @@ impl MetricsCollector {
                 "Total adapter activations",
             ),
             &["adapter_id", "tenant_id"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create adapter activations counter: {}", e)))?;
-        registry.register(Box::new(adapter_activations_total.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register adapter activations counter: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter activations counter: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(adapter_activations_total.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter activations counter: {}",
+                    e
+                ))
+            })?;
 
         let adapter_evictions_total = CounterVec::new(
             Opts::new(
@@ -234,8 +326,18 @@ impl MetricsCollector {
                 "Total adapter evictions",
             ),
             &["adapter_id", "tenant_id", "reason"],
-        ).map_err(|e| AosError::Telemetry(format!("Failed to create adapter evictions counter: {}", e)))?;
-        registry.register(Box::new(adapter_evictions_total.clone())).map_err(|e| AosError::Telemetry(format!("Failed to register adapter evictions counter: {}", e)))?;
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create adapter evictions counter: {}", e))
+        })?;
+        registry
+            .register(Box::new(adapter_evictions_total.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter evictions counter: {}",
+                    e
+                ))
+            })?;
 
         let metrics_cache = Arc::new(RwLock::new(MetricsSnapshot::default()));
 
@@ -378,21 +480,49 @@ impl MetricsCollector {
         let kernel_p99 = self.get_histogram_percentile(&self.kernel_latency, 0.99);
 
         // Collect gauge values
-        let request_queue = self.queue_depth.with_label_values(&["request", "default"]).get();
-        let adapter_queue = self.adapter_queue_depth.with_label_values(&["default", "default"]).get();
-        let kernel_queue = self.queue_depth.with_label_values(&["kernel", "default"]).get();
+        let request_queue = self
+            .queue_depth
+            .with_label_values(&["request", "default"])
+            .get();
+        let adapter_queue = self
+            .adapter_queue_depth
+            .with_label_values(&["default", "default"])
+            .get();
+        let kernel_queue = self
+            .queue_depth
+            .with_label_values(&["kernel", "default"])
+            .get();
 
         let tokens_per_second = self.tokens_per_second.with_label_values(&["default"]).get();
-        let tokens_generated_total = self.tokens_generated_total.with_label_values(&["default", "default"]).get() as u64;
+        let tokens_generated_total = self
+            .tokens_generated_total
+            .with_label_values(&["default", "default"])
+            .get() as u64;
         let active_sessions = self.active_sessions.get();
 
-        let memory_usage_mb = self.memory_usage_bytes.with_label_values(&["worker", "default"]).get() / 1_048_576.0;
+        let memory_usage_mb = self
+            .memory_usage_bytes
+            .with_label_values(&["worker", "default"])
+            .get()
+            / 1_048_576.0;
 
         // Collect counter values
-        let violations_total = self.policy_violations_total.with_label_values(&["egress", "attempt"]).get() as u64;
-        let abstain_events_total = self.abstain_events_total.with_label_values(&["low_confidence", "default"]).get() as u64;
-        let activations_total = self.adapter_activations_total.with_label_values(&["default", "default"]).get() as u64;
-        let evictions_total = self.adapter_evictions_total.with_label_values(&["default", "default", "memory"]).get() as u64;
+        let violations_total = self
+            .policy_violations_total
+            .with_label_values(&["egress", "attempt"])
+            .get() as u64;
+        let abstain_events_total = self
+            .abstain_events_total
+            .with_label_values(&["low_confidence", "default"])
+            .get() as u64;
+        let activations_total = self
+            .adapter_activations_total
+            .with_label_values(&["default", "default"])
+            .get() as u64;
+        let evictions_total = self
+            .adapter_evictions_total
+            .with_label_values(&["default", "default", "memory"])
+            .get() as u64;
 
         MetricsSnapshot {
             timestamp,
@@ -456,10 +586,10 @@ impl MetricsCollector {
         // In production, you'd want to use proper percentile calculation
         // For now, return a placeholder value
         match percentile {
-            0.5 => 0.025,   // 25ms p50
-            0.95 => 0.100,  // 100ms p95
-            0.99 => 0.200,  // 200ms p99
-            _ => 0.050,     // 50ms default
+            0.5 => 0.025,  // 25ms p50
+            0.95 => 0.100, // 100ms p95
+            0.99 => 0.200, // 200ms p99
+            _ => 0.050,    // 50ms default
         }
     }
 
@@ -528,7 +658,10 @@ impl MetricsServer {
 
     /// Start the metrics server (simplified implementation)
     pub async fn start(&self) -> Result<()> {
-        info!("Metrics server would start on port {} (simplified implementation)", self.port);
+        info!(
+            "Metrics server would start on port {} (simplified implementation)",
+            self.port
+        );
         // TODO: Implement full HTTP server with axum
         Ok(())
     }
@@ -561,13 +694,13 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_recording() {
         let collector = MetricsCollector::new().expect("Should create metrics collector");
-        
+
         // Record some metrics
         collector.record_inference_latency("tenant1", "adapter1", 0.025);
         collector.record_router_latency("tenant1", 0.005);
         collector.update_queue_depth("request", "tenant1", 5.0);
         collector.record_tokens_generated("tenant1", "adapter1", 100);
-        
+
         // Get snapshot
         let snapshot = collector.get_metrics_snapshot().await;
         assert!(snapshot.timestamp > 0);
@@ -580,10 +713,11 @@ mod tests {
     async fn test_metrics_snapshot_serialization() {
         let collector = MetricsCollector::new().expect("Should create metrics collector");
         let snapshot = collector.get_metrics_snapshot().await;
-        
+
         let json = serde_json::to_string(&snapshot).expect("Should serialize to JSON");
-        let deserialized: MetricsSnapshot = serde_json::from_str(&json).expect("Should deserialize from JSON");
-        
+        let deserialized: MetricsSnapshot =
+            serde_json::from_str(&json).expect("Should deserialize from JSON");
+
         assert_eq!(snapshot.timestamp, deserialized.timestamp);
     }
 }

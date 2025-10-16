@@ -40,16 +40,16 @@ pub enum BackendChoice {
 pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
     // Create backend based on choice
     let mut backend = create_backend_internal(choice)?;
-    
+
     // Validate determinism attestation (runtime guard)
     let report = backend.attest_determinism()?;
     tracing::info!("Backend attestation: {}", report.summary());
-    
+
     // Validate the attestation report
     report.validate()?;
-    
+
     tracing::info!("Backend attestation validated successfully");
-    
+
     Ok(backend)
 }
 
@@ -121,19 +121,19 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
 pub fn validate_determinism_report(report: &attestation::DeterminismReport) -> Result<()> {
     // First perform basic validation
     report.validate()?;
-    
+
     // Additional policy-specific validations can be added here
     // For example:
     // - Check metallib hash against allowlist
     // - Verify toolchain versions match policy requirements
     // - Check compiler flags match policy constraints
-    
+
     tracing::debug!(
         "Determinism report validation passed: backend={:?}, deterministic={}",
         report.backend_type,
         report.deterministic
     );
-    
+
     Ok(())
 }
 

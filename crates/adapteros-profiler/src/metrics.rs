@@ -15,7 +15,13 @@ pub struct AdapterMetrics {
     pub total_tokens: usize,
     pub activation_pct: f32,
     pub avg_latency_us: f32,
+    pub latency_p95_us: f32,
+    pub latency_p99_us: f32,
     pub memory_bytes: usize,
+    pub peak_memory_bytes: usize,
+    pub memory_fragmentation: f32,
+    pub gpu_utilization_pct: f32,
+    pub gpu_memory_bytes: usize,
     pub quality_delta: f32,
 }
 
@@ -27,7 +33,13 @@ impl AdapterMetrics {
             total_tokens: 0,
             activation_pct: 0.0,
             avg_latency_us: 0.0,
+            latency_p95_us: 0.0,
+            latency_p99_us: 0.0,
             memory_bytes: 0,
+            peak_memory_bytes: 0,
+            memory_fragmentation: 0.0,
+            gpu_utilization_pct: 0.0,
+            gpu_memory_bytes: 0,
             quality_delta: 0.0,
         }
     }
@@ -131,6 +143,25 @@ impl LatencyWindow {
 
         measurements.iter().sum::<u64>() as f32 / measurements.len() as f32
     }
+
+    /// Compute percentile latency for adapter
+    pub fn latency_percentile(&self, adapter_id: u16, percentile: f32) -> f32 {
+        let mut measurements: Vec<u64> = self
+            .measurements
+            .iter()
+            .filter(|(id, _)| *id == adapter_id)
+            .map(|(_, latency)| *latency)
+            .collect();
+
+        if measurements.is_empty() {
+            return 0.0;
+        }
+
+        measurements.sort_unstable();
+        let clamped = percentile.clamp(0.0, 100.0) / 100.0;
+        let index = ((measurements.len() - 1) as f32 * clamped).round() as usize;
+        measurements[index] as f32
+    }
 }
 
 /// Memory usage tracker
@@ -138,12 +169,22 @@ impl LatencyWindow {
 pub struct MemoryTracker {
     /// Map of adapter_id -> memory_bytes
     usage: Vec<usize>,
+    /// Track peak usage for each adapter
+    peak_usage: Vec<usize>,
+    /// Rolling history for fragmentation computation
+    history: Vec<VecDeque<usize>>,
+    history_window: usize,
 }
 
 impl MemoryTracker {
     pub fn new(num_adapters: usize) -> Self {
         Self {
             usage: vec![0; num_adapters],
+            peak_usage: vec![0; num_adapters],
+            history: (0..num_adapters)
+                .map(|_| VecDeque::with_capacity(32))
+                .collect(),
+            history_window: 32,
         }
     }
 
@@ -151,6 +192,15 @@ impl MemoryTracker {
     pub fn update(&mut self, adapter_id: u16, bytes: usize) {
         if let Some(entry) = self.usage.get_mut(adapter_id as usize) {
             *entry = bytes;
+            if let Some(peak) = self.peak_usage.get_mut(adapter_id as usize) {
+                *peak = (*peak).max(bytes);
+            }
+            if let Some(history) = self.history.get_mut(adapter_id as usize) {
+                if history.len() == self.history_window {
+                    history.pop_front();
+                }
+                history.push_back(bytes);
+            }
         }
     }
 
@@ -159,9 +209,127 @@ impl MemoryTracker {
         self.usage.get(adapter_id as usize).copied().unwrap_or(0)
     }
 
+    /// Get peak memory usage observed for adapter
+    pub fn peak(&self, adapter_id: u16) -> usize {
+        self.peak_usage
+            .get(adapter_id as usize)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Estimate memory fragmentation as coefficient of variation of recent samples.
+    pub fn fragmentation(&self, adapter_id: u16) -> f32 {
+        let Some(history) = self.history.get(adapter_id as usize) else {
+            return 0.0;
+        };
+        if history.len() < 2 {
+            return 0.0;
+        }
+
+        let mean = history.iter().copied().sum::<usize>() as f32 / history.len() as f32;
+        if mean == 0.0 {
+            return 0.0;
+        }
+
+        let variance = history
+            .iter()
+            .map(|value| {
+                let diff = *value as f32 - mean;
+                diff * diff
+            })
+            .sum::<f32>()
+            / history.len() as f32;
+        (variance.sqrt() / mean).min(1.0)
+    }
+
     /// Get total memory usage
     pub fn total(&self) -> usize {
         self.usage.iter().sum()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GpuSample {
+    adapter_id: u16,
+    utilization_pct: f32,
+    memory_bytes: usize,
+    timestamp: Instant,
+}
+
+/// GPU utilization window for adapters
+#[derive(Debug)]
+pub struct GpuWindow {
+    samples: VecDeque<GpuSample>,
+    max_size: usize,
+}
+
+impl GpuWindow {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            samples: VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    pub fn record(&mut self, adapter_id: u16, utilization_pct: f32, memory_bytes: usize) {
+        if self.samples.len() >= self.max_size {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(GpuSample {
+            adapter_id,
+            utilization_pct,
+            memory_bytes,
+            timestamp: Instant::now(),
+        });
+    }
+
+    pub fn avg_utilization(&self, adapter_id: u16) -> f32 {
+        let mut count = 0usize;
+        let total: f32 = self
+            .samples
+            .iter()
+            .filter(|sample| sample.adapter_id == adapter_id)
+            .map(|sample| {
+                count += 1;
+                sample.utilization_pct
+            })
+            .sum();
+
+        if count == 0 {
+            0.0
+        } else {
+            total / count as f32
+        }
+    }
+
+    pub fn avg_memory(&self, adapter_id: u16) -> usize {
+        let mut count = 0usize;
+        let total: usize = self
+            .samples
+            .iter()
+            .filter(|sample| sample.adapter_id == adapter_id)
+            .map(|sample| {
+                count += 1;
+                sample.memory_bytes
+            })
+            .sum();
+
+        if count == 0 {
+            0
+        } else {
+            total / count
+        }
+    }
+
+    pub fn prune_older_than(&mut self, duration: Duration) {
+        let now = Instant::now();
+        while let Some(sample) = self.samples.front() {
+            if now.duration_since(sample.timestamp) > duration {
+                self.samples.pop_front();
+            } else {
+                break;
+            }
+        }
     }
 }
 
@@ -198,6 +366,7 @@ pub struct MetricsAggregator {
     latency_window: LatencyWindow,
     memory_tracker: MemoryTracker,
     quality_tracker: QualityTracker,
+    gpu_window: GpuWindow,
     num_adapters: usize,
 }
 
@@ -208,6 +377,7 @@ impl MetricsAggregator {
             latency_window: LatencyWindow::new(WINDOW_SIZE),
             memory_tracker: MemoryTracker::new(num_adapters),
             quality_tracker: QualityTracker::new(num_adapters),
+            gpu_window: GpuWindow::new(WINDOW_SIZE),
             num_adapters,
         }
     }
@@ -232,6 +402,17 @@ impl MetricsAggregator {
         self.quality_tracker.update(adapter_id, delta);
     }
 
+    /// Record GPU utilization and memory samples for an adapter.
+    pub fn record_gpu_metrics(
+        &mut self,
+        adapter_id: u16,
+        utilization_pct: f32,
+        memory_bytes: usize,
+    ) {
+        self.gpu_window
+            .record(adapter_id, utilization_pct.clamp(0.0, 100.0), memory_bytes);
+    }
+
     /// Get metrics for a specific adapter
     pub fn get_metrics(&self, adapter_id: u16, adapter_name: String) -> AdapterMetrics {
         AdapterMetrics {
@@ -240,7 +421,13 @@ impl MetricsAggregator {
             total_tokens: self.activation_window.total(),
             activation_pct: self.activation_window.activation_pct(adapter_id),
             avg_latency_us: self.latency_window.avg_latency_us(adapter_id),
+            latency_p95_us: self.latency_window.latency_percentile(adapter_id, 95.0),
+            latency_p99_us: self.latency_window.latency_percentile(adapter_id, 99.0),
             memory_bytes: self.memory_tracker.get(adapter_id),
+            peak_memory_bytes: self.memory_tracker.peak(adapter_id),
+            memory_fragmentation: self.memory_tracker.fragmentation(adapter_id),
+            gpu_utilization_pct: self.gpu_window.avg_utilization(adapter_id),
+            gpu_memory_bytes: self.gpu_window.avg_memory(adapter_id),
             quality_delta: self.quality_tracker.get(adapter_id),
         }
     }
@@ -261,6 +448,7 @@ impl MetricsAggregator {
     /// Prune old events
     pub fn prune_old(&mut self, duration: Duration) {
         self.activation_window.prune_older_than(duration);
+        self.gpu_window.prune_older_than(duration);
     }
 }
 
@@ -297,6 +485,7 @@ mod tests {
 
         assert!((window.avg_latency_us(0) - 150.0).abs() < 0.1);
         assert!((window.avg_latency_us(1) - 300.0).abs() < 0.1);
+        assert!((window.latency_percentile(0, 95.0) - 200.0).abs() < 0.1);
     }
 
     #[test]
@@ -305,9 +494,23 @@ mod tests {
 
         tracker.update(0, 1000);
         tracker.update(1, 2000);
+        tracker.update(0, 1500);
 
-        assert_eq!(tracker.get(0), 1000);
+        assert_eq!(tracker.get(0), 1500);
         assert_eq!(tracker.get(1), 2000);
-        assert_eq!(tracker.total(), 3000);
+        assert_eq!(tracker.total(), 3500);
+        assert_eq!(tracker.peak(0), 1500);
+        assert!(tracker.fragmentation(0) >= 0.0);
+    }
+
+    #[test]
+    fn test_gpu_window() {
+        let mut window = GpuWindow::new(8);
+        window.record(0, 80.0, 1_000_000);
+        window.record(0, 60.0, 1_200_000);
+        window.record(1, 50.0, 500_000);
+
+        assert!((window.avg_utilization(0) - 70.0).abs() < 0.1);
+        assert_eq!(window.avg_memory(1), 500_000);
     }
 }

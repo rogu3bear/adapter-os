@@ -11,7 +11,7 @@ use std::collections::HashMap;
 fn test_dataset_generator_tokenization() {
     let gen = DatasetGenerator::default();
     let tokens = gen.tokenize("hello world");
-    
+
     assert!(!tokens.is_empty());
     assert_eq!(tokens.len(), "hello world".len());
 }
@@ -23,7 +23,7 @@ fn test_dataset_generator_creates_pairs() {
     let new_tokens: Vec<u32> = (0..20).collect();
 
     let pairs = gen.create_pairs(&old_tokens, &new_tokens);
-    
+
     assert!(!pairs.is_empty());
     assert!(pairs[0].0.len() <= 10);
     assert!(pairs[0].1.len() <= 10);
@@ -52,7 +52,7 @@ fn test_dataset_validation_empty() {
 #[test]
 fn test_training_config_default() {
     let config = TrainingConfig::default();
-    
+
     assert_eq!(config.rank, 4);
     assert_eq!(config.alpha, 16.0);
     assert_eq!(config.batch_size, 8);
@@ -69,7 +69,7 @@ async fn test_training_loop_small_dataset() {
         learning_rate: 0.01,
         ..Default::default()
     };
-    
+
     let trainer = MicroLoRATrainer::new(config);
     let examples = vec![
         TrainingExample {
@@ -85,7 +85,7 @@ async fn test_training_loop_small_dataset() {
     ];
 
     let result = trainer.train(&examples).await;
-    
+
     assert!(result.is_ok());
     let result = result.unwrap();
     assert!(result.final_loss >= 0.0);
@@ -97,22 +97,15 @@ async fn test_training_loop_small_dataset() {
 #[test]
 fn test_quantization_round_trip() {
     use adapteros_lora_worker::LoRAWeights;
-    
+
     let original = LoRAWeights {
-        lora_a: vec![
-            vec![0.1, -0.2, 0.3],
-            vec![-0.1, 0.2, -0.3],
-        ],
-        lora_b: vec![
-            vec![0.5, -0.5],
-            vec![0.4, -0.4],
-            vec![0.3, -0.3],
-        ],
+        lora_a: vec![vec![0.1, -0.2, 0.3], vec![-0.1, 0.2, -0.3]],
+        lora_b: vec![vec![0.5, -0.5], vec![0.4, -0.4], vec![0.3, -0.3]],
     };
 
     // Quantize
     let quantized = LoRAQuantizer::quantize_to_q15(&original);
-    
+
     // Verify structure
     assert_eq!(quantized.lora_a_q15.len(), 2);
     assert_eq!(quantized.lora_b_q15.len(), 3);
@@ -121,7 +114,7 @@ fn test_quantization_round_trip() {
 
     // Dequantize
     let dequantized = LoRAQuantizer::dequantize_from_q15(&quantized);
-    
+
     // Check structure matches
     assert_eq!(dequantized.lora_a.len(), original.lora_a.len());
     assert_eq!(dequantized.lora_b.len(), original.lora_b.len());
@@ -134,7 +127,7 @@ fn test_quantization_round_trip() {
 #[test]
 fn test_quantization_value_conversion() {
     use adapteros_lora_worker::LoRAWeights;
-    
+
     let original = LoRAWeights {
         lora_a: vec![vec![0.0, 0.5, -0.5, 1.0, -1.0]],
         lora_b: vec![vec![0.0]],
@@ -142,7 +135,7 @@ fn test_quantization_value_conversion() {
 
     let quantized = LoRAQuantizer::quantize_to_q15(&original);
     let dequantized = LoRAQuantizer::dequantize_from_q15(&quantized);
-    
+
     // Check that values are close
     for (orig, deq) in original.lora_a[0].iter().zip(dequantized.lora_a[0].iter()) {
         let diff = (orig - deq).abs();
@@ -160,22 +153,20 @@ async fn test_end_to_end_training_and_quantization() {
         learning_rate: 0.01,
         ..Default::default()
     };
-    
+
     let trainer = MicroLoRATrainer::new(config);
-    let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-        },
-    ];
+    let examples = vec![TrainingExample {
+        input: vec![1, 2, 3],
+        target: vec![4, 5, 6],
+        metadata: HashMap::new(),
+    }];
 
     // Train
     let result = trainer.train(&examples).await.unwrap();
-    
+
     // Quantize
     let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
-    
+
     // Verify quantized structure
     assert_eq!(quantized.lora_a_q15.len(), 2);
     assert!(quantized.scale_a.iter().all(|&s| s > 0.0));
@@ -186,7 +177,7 @@ async fn test_end_to_end_training_and_quantization() {
 #[ignore] // Expensive test
 async fn test_training_performance_benchmark() {
     use std::time::Instant;
-    
+
     let config = TrainingConfig {
         rank: 4,
         hidden_dim: 768,
@@ -195,9 +186,9 @@ async fn test_training_performance_benchmark() {
         learning_rate: 1e-4,
         ..Default::default()
     };
-    
+
     let trainer = MicroLoRATrainer::new(config);
-    
+
     // Generate 100 examples
     let mut examples = Vec::new();
     for i in 0..100 {
@@ -211,11 +202,14 @@ async fn test_training_performance_benchmark() {
     let start = Instant::now();
     let result = trainer.train(&examples).await.unwrap();
     let duration = start.elapsed();
-    
+
     println!("Training completed in {:?}", duration);
     println!("Final loss: {}", result.final_loss);
-    
-    // Should complete in < 30s
-    assert!(duration.as_secs() < 30, "Training took too long: {:?}", duration);
-}
 
+    // Should complete in < 30s
+    assert!(
+        duration.as_secs() < 30,
+        "Training took too long: {:?}",
+        duration
+    );
+}

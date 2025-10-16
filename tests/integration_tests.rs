@@ -10,50 +10,61 @@
 //! Note: These tests are written but not executed automatically.
 //! They require a running AdapterOS instance and proper configuration.
 
+use adapteros_api_types::{
+    ApplyPatchResponse, CodeMetricsRequest, CodeMetricsResponse, CommitDetailsResponse,
+    GetCodePolicyResponse, HealthResponse, JobResponse, ListAdaptersResponse, LoginResponse,
+    ProposePatchResponse, RepoResponse, RouterFeaturesResponse, ScoreAdaptersResponse,
+    TenantResponse, UserInfoResponse, ValidatePatchResponse,
+};
+use adapteros_client::{
+    ApplyPatchRequest, CpClient, CreateTenantRequest, DefaultClient, LoginRequest,
+    ProposePatchRequest, RegisterRepoRequest, RouterFeaturesRequest, ScanRepoRequest,
+    ScoreAdaptersRequest, UpdateCodePolicyRequest, ValidatePatchRequest,
+};
 use anyhow::Result;
-use adapteros_client::{CpClient, DefaultClient, LoginRequest, RegisterRepoRequest, ScanRepoRequest, ProposePatchRequest, ValidatePatchRequest, ApplyPatchRequest, CreateTenantRequest, UpdateCodePolicyRequest, RouterFeaturesRequest, ScoreAdaptersRequest};
-use adapteros_api_types::{HealthResponse, LoginResponse, UserInfoResponse, TenantResponse, RepoResponse, ListAdaptersResponse, CommitDetailsResponse, RouterFeaturesResponse, ScoreAdaptersResponse, ProposePatchResponse, ValidatePatchResponse, ApplyPatchResponse, GetCodePolicyResponse, CodeMetricsResponse, JobResponse, CodeMetricsRequest};
 
 /// Helper to create a test base URL
 fn test_base_url() -> String {
-    std::env::var("MPLORA_TEST_URL")
-        .unwrap_or_else(|_| "http://localhost:9443".to_string())
+    std::env::var("MPLORA_TEST_URL").unwrap_or_else(|_| "http://localhost:9443".to_string())
 }
 
 #[tokio::test]
 async fn test_health_check() -> Result<()> {
     let client = create_test_client();
-    
+
     let health = client.health().await?;
     assert_eq!(health.status, "healthy");
     assert!(!health.version.is_empty());
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_authentication_flow() -> Result<()> {
     let client = create_test_client();
-    
+
     // Test login with valid credentials
-    let login_response = client.login(LoginRequest {
-        email: "admin@example.com".to_string(),
-        password: "admin_password".to_string(),
-    }).await?;
-    
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
     assert!(!login_response.token.is_empty());
     assert_eq!(login_response.user.email, "admin@example.com");
-    
+
     // Test logout
     client.logout().await?;
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_repository_registration_workflow() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // 1. Register repository
     let repo_request = RegisterRepoRequest {
         repo_id: "test/example".to_string(),
@@ -61,28 +72,28 @@ async fn test_repository_registration_workflow() -> Result<()> {
         languages: vec!["rust".to_string()],
         default_branch: "main".to_string(),
     };
-    
+
     let repo_response = client.register_repo(repo_request).await?;
     assert_eq!(repo_response.repo_id, "test/example");
     assert_eq!(repo_response.status, "registered");
-    
+
     // 2. Trigger scan
     let scan_request = ScanRepoRequest {
         repo_id: "test/example".to_string(),
         commit: "HEAD".to_string(),
         full_scan: true,
     };
-    
+
     let scan_response = client.scan_repo(scan_request).await?;
     assert!(scan_response.job_id.is_some());
-    
+
     // 3. Wait for scan completion (with timeout)
     let mut attempts = 0;
     let max_attempts = 30;
-    
+
     while attempts < max_attempts {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        
+
         let repos = client.list_repos().await?;
         if let Some(repo) = repos.iter().find(|r| r.repo_id == "test/example") {
             if repo.status == "ready" {
@@ -92,139 +103,156 @@ async fn test_repository_registration_workflow() -> Result<()> {
                 return Err(anyhow::anyhow!("Repository scan failed"));
             }
         }
-        
+
         attempts += 1;
     }
-    
-    assert!(attempts < max_attempts, "Scan did not complete within timeout");
-    
+
+    assert!(
+        attempts < max_attempts,
+        "Scan did not complete within timeout"
+    );
+
     // 4. Verify repository details
     let repos = client.list_repos().await?;
-    let repo = repos.iter().find(|r| r.repo_id == "test/example")
+    let repo = repos
+        .iter()
+        .find(|r| r.repo_id == "test/example")
         .expect("Repository not found");
-    
+
     assert_eq!(repo.status, "ready");
     assert!(repo.file_count.unwrap_or(0) > 0);
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_patch_proposal_workflow() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // 1. Propose patch
     let patch_request = ProposePatchRequest {
         prompt: "Fix the failing test in main.rs".to_string(),
         context_files: vec!["src/main.rs".to_string()],
         repo_path: "/tmp/test-repo".to_string(),
     };
-    
+
     let patch_response = client.propose_patch(patch_request).await?;
     assert!(!patch_response.proposal_id.is_empty());
     assert!(!patch_response.patches.is_empty());
     assert!(!patch_response.evidence.is_empty());
     assert!(patch_response.confidence > 0.0);
-    
+
     // 2. Validate patch (dry run)
     let validate_request = ValidatePatchRequest {
         proposal_id: patch_response.proposal_id.clone(),
         dry_run: true,
     };
-    
+
     let validate_response = client.validate_patch(validate_request).await?;
     assert!(validate_response.valid);
     assert!(validate_response.errors.is_empty());
-    
+
     // 3. Apply patch (if validation passed)
     if validate_response.valid {
         let apply_request = ApplyPatchRequest {
             proposal_id: patch_response.proposal_id,
             confirm: true,
         };
-        
+
         let apply_response = client.apply_patch(apply_request).await?;
         assert!(apply_response.success);
         assert!(apply_response.backup_id.is_some());
-        
-        println!("Patch applied successfully. Backup ID: {:?}", apply_response.backup_id);
+
+        println!(
+            "Patch applied successfully. Backup ID: {:?}",
+            apply_response.backup_id
+        );
     }
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_rbac_enforcement() -> Result<()> {
     // Test admin access
-    let (admin_client, _) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (admin_client, _) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // Admin can create tenants
     let tenant_request = CreateTenantRequest {
         name: "test-tenant".to_string(),
         itar_flag: false,
     };
-    
+
     let tenant_response = admin_client.create_tenant(tenant_request).await?;
     assert_eq!(tenant_response.name, "test-tenant");
-    
+
     // Test viewer access (should fail for tenant creation)
-    let (viewer_client, _) = create_authenticated_client("viewer@example.com", "viewer_password").await?;
-    
+    let (viewer_client, _) =
+        create_authenticated_client("viewer@example.com", "viewer_password").await?;
+
     let tenant_request = CreateTenantRequest {
         name: "test-tenant-2".to_string(),
         itar_flag: false,
     };
-    
+
     let result = viewer_client.create_tenant(tenant_request).await;
-    assert!(result.is_err(), "Viewer should not be able to create tenants");
-    
+    assert!(
+        result.is_err(),
+        "Viewer should not be able to create tenants"
+    );
+
     // Viewer can list tenants (read-only)
     let tenants = viewer_client.list_tenants().await?;
     assert!(!tenants.is_empty());
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_adapter_management() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // List adapters
     let adapters_response = client.list_adapters("default").await?;
     assert!(!adapters_response.adapters.is_empty());
-    
+
     // Check tier breakdown
     assert!(adapters_response.tier_breakdown.base > 0);
-    
+
     // Get adapter activations
     let activations = client.get_adapter_activations("default", 100).await?;
     assert!(!activations.is_empty());
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_commit_inspection() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // Get commit details
     let commit_details = client.get_commit_details("test/example", "abc123").await?;
-    
+
     assert_eq!(commit_details.repo_id, "test/example");
     assert_eq!(commit_details.sha, "abc123");
     assert!(!commit_details.changed_files.is_empty());
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_code_policy_management() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // Get current policy
     let policy = client.get_code_policy().await?;
     assert!(policy.policy.min_evidence_spans >= 1);
-    
+
     // Update policy
     let update_request = UpdateCodePolicyRequest {
         policy: adapteros_client::CodePolicy {
@@ -237,75 +265,83 @@ async fn test_code_policy_management() -> Result<()> {
             max_patch_size: 600,
         },
     };
-    
+
     let updated_policy = client.update_code_policy(update_request).await?;
     assert_eq!(updated_policy.policy.min_evidence_spans, 2);
     assert_eq!(updated_policy.policy.max_patch_size, 600);
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_metrics_collection() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // Get code metrics
-    let metrics = client.get_code_metrics(CodeMetricsRequest {
-        cpid: "code_v1".to_string(),
-        time_range: "7d".to_string(),
-    }).await?;
-    
+    let metrics = client
+        .get_code_metrics(CodeMetricsRequest {
+            cpid: "code_v1".to_string(),
+            time_range: "7d".to_string(),
+        })
+        .await?;
+
     assert!(metrics.acceptance_rate >= 0.0 && metrics.acceptance_rate <= 1.0);
     assert!(metrics.compile_success_rate >= 0.0 && metrics.compile_success_rate <= 1.0);
     assert!(metrics.test_pass_rate >= 0.0 && metrics.test_pass_rate <= 1.0);
-    
+
     println!("Metrics for code_v1:");
     println!("  Acceptance rate: {:.2}%", metrics.acceptance_rate * 100.0);
-    println!("  Compile success: {:.2}%", metrics.compile_success_rate * 100.0);
+    println!(
+        "  Compile success: {:.2}%",
+        metrics.compile_success_rate * 100.0
+    );
     println!("  Test pass rate: {:.2}%", metrics.test_pass_rate * 100.0);
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_routing_inspector() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     // Extract router features
     let features_request = RouterFeaturesRequest {
         prompt: "Fix the timeout issue in the payment processor".to_string(),
         context_file: "src/payments/processor.rs".to_string(),
         repo_path: "/tmp/test-repo".to_string(),
     };
-    
+
     let features = client.extract_router_features(features_request).await?;
-    
+
     assert!(!features.language_scores.is_empty());
     assert!(features.symbol_hits > 0);
-    
+
     // Score adapters
     let score_request = ScoreAdaptersRequest {
         repo_path: "/tmp/test-repo".to_string(),
         adapter_ids: vec!["adapter1".to_string(), "adapter2".to_string()],
         features: Some(features.clone()),
     };
-    
+
     let scores = client.score_adapters(score_request).await?;
     assert!(!scores.adapter_scores.is_empty());
-    
+
     // Check that top K adapters are selected
     let selected_count = scores.adapter_scores.iter().filter(|s| s.selected).count();
     assert!(selected_count > 0 && selected_count <= 3); // K=3
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_end_to_end_code_intelligence() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
-    
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
     println!("Starting end-to-end code intelligence test...");
-    
+
     // 1. Register repository
     println!("1. Registering repository...");
     let repo_request = RegisterRepoRequest {
@@ -314,10 +350,10 @@ async fn test_end_to_end_code_intelligence() -> Result<()> {
         languages: vec!["rust".to_string(), "python".to_string()],
         default_branch: "main".to_string(),
     };
-    
+
     let repo = client.register_repo(repo_request).await?;
     println!("   ✓ Repository registered: {}", repo.repo_id);
-    
+
     // 2. Trigger scan
     println!("2. Triggering repository scan...");
     let scan_request = ScanRepoRequest {
@@ -325,10 +361,10 @@ async fn test_end_to_end_code_intelligence() -> Result<()> {
         commit: "HEAD".to_string(),
         full_scan: true,
     };
-    
+
     client.scan_repo(scan_request).await?;
     println!("   ✓ Scan initiated");
-    
+
     // 3. Wait for scan completion
     println!("3. Waiting for scan completion...");
     let mut attempts = 0;
@@ -343,12 +379,12 @@ async fn test_end_to_end_code_intelligence() -> Result<()> {
         }
         attempts += 1;
     }
-    
+
     // 4. Check adapters were created
     println!("4. Checking adapters...");
     let adapters = client.list_adapters("default").await?;
     println!("   ✓ Found {} adapters", adapters.adapters.len());
-    
+
     // 5. Propose a patch
     println!("5. Proposing patch...");
     let patch_request = ProposePatchRequest {
@@ -356,38 +392,47 @@ async fn test_end_to_end_code_intelligence() -> Result<()> {
         context_files: vec!["src/main.rs".to_string()],
         repo_path: "/tmp/e2e-test-repo".to_string(),
     };
-    
+
     let patch = client.propose_patch(patch_request).await?;
     println!("   ✓ Patch proposed (ID: {})", patch.proposal_id);
     println!("   ✓ Confidence: {:.2}", patch.confidence);
     println!("   ✓ Citations: {}", patch.evidence.len());
-    
+
     // 6. Validate patch
     println!("6. Validating patch...");
     let validate_request = ValidatePatchRequest {
         proposal_id: patch.proposal_id.clone(),
         dry_run: true,
     };
-    
+
     let validation = client.validate_patch(validate_request).await?;
-    println!("   ✓ Validation: {}", if validation.valid { "PASSED" } else { "FAILED" });
-    
+    println!(
+        "   ✓ Validation: {}",
+        if validation.valid { "PASSED" } else { "FAILED" }
+    );
+
     // 7. Check metrics
     println!("7. Checking metrics...");
-    let metrics = client.get_code_metrics(CodeMetricsRequest {
-        cpid: "code_v1".to_string(),
-        time_range: "7d".to_string(),
-    }).await?;
-    println!("   ✓ Acceptance rate: {:.2}%", metrics.acceptance_rate * 100.0);
-    
+    let metrics = client
+        .get_code_metrics(CodeMetricsRequest {
+            cpid: "code_v1".to_string(),
+            time_range: "7d".to_string(),
+        })
+        .await?;
+    println!(
+        "   ✓ Acceptance rate: {:.2}%",
+        metrics.acceptance_rate * 100.0
+    );
+
     println!("\n✓ End-to-end test completed successfully!");
-    
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_adapter_fusion_end_to_end() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // 1. Register a repository with adapter fusion code
     let repo_request = RegisterRepoRequest {
@@ -424,7 +469,10 @@ async fn test_adapter_fusion_end_to_end() -> Result<()> {
 
     // 4. Verify adapters were created
     let adapters = client.list_adapters("default").await?;
-    assert!(!adapters.adapters.is_empty(), "Should have created adapters");
+    assert!(
+        !adapters.adapters.is_empty(),
+        "Should have created adapters"
+    );
 
     // 5. Test adapter activation (simulated fusion operation)
     let activations = client.get_adapter_activations("default", 100).await?;
@@ -451,17 +499,31 @@ async fn test_gpu_kernel_fusion_validation() -> Result<()> {
     assert!(kernel_file.exists(), "Metal kernel file should exist");
 
     // Read kernel file to verify fusion operations are present
-    let kernel_content = std::fs::read_to_string(&kernel_file)
-        .expect("Failed to read kernel file");
+    let kernel_content = std::fs::read_to_string(&kernel_file).expect("Failed to read kernel file");
 
     // Verify key fusion kernel functions exist
-    assert!(kernel_content.contains("kernel void fused_mlp"), "Should contain fused_mlp kernel");
-    assert!(kernel_content.contains("kernel void fused_qkv_gqa"), "Should contain fused_qkv_gqa kernel");
-    assert!(kernel_content.contains("kernel void flash_attention"), "Should contain flash_attention kernel");
+    assert!(
+        kernel_content.contains("kernel void fused_mlp"),
+        "Should contain fused_mlp kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void fused_qkv_gqa"),
+        "Should contain fused_qkv_gqa kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void flash_attention"),
+        "Should contain flash_attention kernel"
+    );
 
     // Verify adapter fusion logic is present
-    assert!(kernel_content.contains("adapter fusion"), "Should contain adapter fusion comments");
-    assert!(kernel_content.contains("mplora_fused_paths"), "Should contain multi-path LoRA fusion");
+    assert!(
+        kernel_content.contains("adapter fusion"),
+        "Should contain adapter fusion comments"
+    );
+    assert!(
+        kernel_content.contains("mplora_fused_paths"),
+        "Should contain multi-path LoRA fusion"
+    );
 
     // Test kernel compilation (if build script exists)
     let build_script = metal_dir.join("build.sh");
@@ -472,7 +534,11 @@ async fn test_gpu_kernel_fusion_validation() -> Result<()> {
             .output()
             .expect("Failed to run build script");
 
-        assert!(output.status.success(), "Kernel build should succeed: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "Kernel build should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     println!("✓ GPU kernel fusion validation test completed - kernels compile and contain fusion operations");
@@ -482,13 +548,16 @@ async fn test_gpu_kernel_fusion_validation() -> Result<()> {
 
 #[tokio::test]
 async fn test_fusion_performance_metrics() -> Result<()> {
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // Test that fusion operations are tracked in metrics
-    let metrics = client.get_code_metrics(CodeMetricsRequest {
-        cpid: "fusion_test".to_string(),
-        time_range: "1h".to_string(),
-    }).await?;
+    let metrics = client
+        .get_code_metrics(CodeMetricsRequest {
+            cpid: "fusion_test".to_string(),
+            time_range: "1h".to_string(),
+        })
+        .await?;
 
     // Verify that fusion-related metrics are being collected
     // This would check for metrics like fusion success rate,
@@ -521,7 +590,11 @@ async fn test_deterministic_fusion_operations() -> Result<()> {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             let hash2 = std::fs::read_to_string(&hash_path).expect("Failed to read hash");
 
-            assert_eq!(hash1.trim(), hash2.trim(), "Kernel hashes should be deterministic");
+            assert_eq!(
+                hash1.trim(),
+                hash2.trim(),
+                "Kernel hashes should be deterministic"
+            );
         }
     }
 
@@ -542,19 +615,39 @@ async fn test_gpu_kernel_execution_verification() -> Result<()> {
     assert!(kernel_file.exists(), "Metal kernel file should exist");
 
     // Read kernel file to verify GPU execution functions
-    let kernel_content = std::fs::read_to_string(&kernel_file)
-        .expect("Failed to read kernel file");
+    let kernel_content = std::fs::read_to_string(&kernel_file).expect("Failed to read kernel file");
 
     // Verify key GPU execution kernel functions exist
-    assert!(kernel_content.contains("kernel void fused_mlp"), "Should contain fused_mlp kernel");
-    assert!(kernel_content.contains("kernel void fused_qkv_gqa"), "Should contain fused_qkv_gqa kernel");
-    assert!(kernel_content.contains("kernel void flash_attention"), "Should contain flash_attention kernel");
-    assert!(kernel_content.contains("kernel void vocabulary_projection"), "Should contain vocabulary_projection kernel");
+    assert!(
+        kernel_content.contains("kernel void fused_mlp"),
+        "Should contain fused_mlp kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void fused_qkv_gqa"),
+        "Should contain fused_qkv_gqa kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void flash_attention"),
+        "Should contain flash_attention kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void vocabulary_projection"),
+        "Should contain vocabulary_projection kernel"
+    );
 
     // Verify Metal-specific features for GPU execution
-    assert!(kernel_content.contains("#include <metal_stdlib>"), "Should include Metal stdlib");
-    assert!(kernel_content.contains("using namespace metal"), "Should use metal namespace");
-    assert!(kernel_content.contains("thread_position_in_grid"), "Should use GPU thread indexing");
+    assert!(
+        kernel_content.contains("#include <metal_stdlib>"),
+        "Should include Metal stdlib"
+    );
+    assert!(
+        kernel_content.contains("using namespace metal"),
+        "Should use metal namespace"
+    );
+    assert!(
+        kernel_content.contains("thread_position_in_grid"),
+        "Should use GPU thread indexing"
+    );
 
     // Test kernel compilation (if build script exists)
     let build_script = metal_dir.join("build.sh");
@@ -565,7 +658,11 @@ async fn test_gpu_kernel_execution_verification() -> Result<()> {
             .output()
             .expect("Failed to run build script");
 
-        assert!(output.status.success(), "Kernel build should succeed: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "Kernel build should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         println!("✓ Metal kernels compiled successfully for GPU execution");
     }
 
@@ -577,7 +674,8 @@ async fn test_gpu_kernel_execution_verification() -> Result<()> {
 #[tokio::test]
 async fn test_fusion_accuracy_validation() -> Result<()> {
     // Test that adapter fusion produces results within acceptable accuracy bounds
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // Create test repository with fusion code
     let repo_request = RegisterRepoRequest {
@@ -614,7 +712,10 @@ async fn test_fusion_accuracy_validation() -> Result<()> {
 
     // Verify adapters were created
     let adapters = client.list_adapters("default").await?;
-    assert!(!adapters.adapters.is_empty(), "Should have created adapters for accuracy testing");
+    assert!(
+        !adapters.adapters.is_empty(),
+        "Should have created adapters for accuracy testing"
+    );
 
     // Test fusion accuracy by comparing against reference implementation
     // This would involve:
@@ -623,10 +724,12 @@ async fn test_fusion_accuracy_validation() -> Result<()> {
     // 3. Verifying results are within numerical precision bounds
 
     // For now, verify that fusion operations are tracked in metrics
-    let metrics = client.get_code_metrics(CodeMetricsRequest {
-        cpid: "fusion_accuracy_test".to_string(),
-        time_range: "1h".to_string(),
-    }).await?;
+    let metrics = client
+        .get_code_metrics(CodeMetricsRequest {
+            cpid: "fusion_accuracy_test".to_string(),
+            time_range: "1h".to_string(),
+        })
+        .await?;
 
     // Verify fusion-related metrics exist and are reasonable
     // In a full implementation, this would check fusion accuracy metrics
@@ -638,7 +741,8 @@ async fn test_fusion_accuracy_validation() -> Result<()> {
 #[tokio::test]
 async fn test_adapter_fusion_result_verification() -> Result<()> {
     // Test that adapter fusion produces expected results
-    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // Create test repository with known adapter fusion behavior
     let repo_request = RegisterRepoRequest {
@@ -675,7 +779,10 @@ async fn test_adapter_fusion_result_verification() -> Result<()> {
 
     // Verify adapters were created
     let adapters = client.list_adapters("default").await?;
-    assert!(!adapters.adapters.is_empty(), "Should have created adapters for verification");
+    assert!(
+        !adapters.adapters.is_empty(),
+        "Should have created adapters for verification"
+    );
 
     // Test adapter activation and fusion results
     let activations = client.get_adapter_activations("default", 100).await?;
@@ -688,16 +795,23 @@ async fn test_adapter_fusion_result_verification() -> Result<()> {
     // 4. Results are consistent across identical inputs
 
     let total_activation: f32 = activations.iter().map(|a| a.activation).sum();
-    assert!(total_activation >= 0.0 && total_activation <= activations.len() as f32,
-        "Total activation should be within reasonable bounds");
+    assert!(
+        total_activation >= 0.0 && total_activation <= activations.len() as f32,
+        "Total activation should be within reasonable bounds"
+    );
 
     // Check that individual activations are reasonable
     for activation in &activations {
-        assert!(activation.activation >= 0.0 && activation.activation <= 1.0,
-            "Individual activation {} should be between 0 and 1", activation.activation);
+        assert!(
+            activation.activation >= 0.0 && activation.activation <= 1.0,
+            "Individual activation {} should be between 0 and 1",
+            activation.activation
+        );
     }
 
-    println!("✓ Adapter fusion result verification test completed - results within expected bounds");
+    println!(
+        "✓ Adapter fusion result verification test completed - results within expected bounds"
+    );
 
     Ok(())
 }
@@ -713,26 +827,61 @@ async fn test_metal_kernel_fusion_comprehensive() -> Result<()> {
     let kernel_file = metal_dir.join("src/kernels/adapteros_kernels.metal");
     assert!(kernel_file.exists(), "Metal kernel file should exist");
 
-    let kernel_content = std::fs::read_to_string(&kernel_file)
-        .expect("Failed to read kernel file");
+    let kernel_content = std::fs::read_to_string(&kernel_file).expect("Failed to read kernel file");
 
     // Verify all fusion-related kernels are present
-    assert!(kernel_content.contains("kernel void fused_mlp"), "Should contain fused_mlp kernel");
-    assert!(kernel_content.contains("kernel void fused_qkv_gqa"), "Should contain fused_qkv_gqa kernel");
-    assert!(kernel_content.contains("kernel void flash_attention"), "Should contain flash_attention kernel");
-    assert!(kernel_content.contains("kernel void mplora_fused_paths"), "Should contain mplora_fused_paths kernel");
-    assert!(kernel_content.contains("kernel void vocabulary_projection"), "Should contain vocabulary_projection kernel");
+    assert!(
+        kernel_content.contains("kernel void fused_mlp"),
+        "Should contain fused_mlp kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void fused_qkv_gqa"),
+        "Should contain fused_qkv_gqa kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void flash_attention"),
+        "Should contain flash_attention kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void mplora_fused_paths"),
+        "Should contain mplora_fused_paths kernel"
+    );
+    assert!(
+        kernel_content.contains("kernel void vocabulary_projection"),
+        "Should contain vocabulary_projection kernel"
+    );
 
     // Verify fusion-specific features
-    assert!(kernel_content.contains("adapter fusion"), "Should contain adapter fusion comments");
-    assert!(kernel_content.contains("mplora"), "Should contain MPLoRA fusion");
-    assert!(kernel_content.contains("shared downsample"), "Should contain shared downsample fusion");
-    assert!(kernel_content.contains("LoRA"), "Should contain LoRA adaptation");
+    assert!(
+        kernel_content.contains("adapter fusion"),
+        "Should contain adapter fusion comments"
+    );
+    assert!(
+        kernel_content.contains("mplora"),
+        "Should contain MPLoRA fusion"
+    );
+    assert!(
+        kernel_content.contains("shared downsample"),
+        "Should contain shared downsample fusion"
+    );
+    assert!(
+        kernel_content.contains("LoRA"),
+        "Should contain LoRA adaptation"
+    );
 
     // Verify Metal performance optimizations
-    assert!(kernel_content.contains("#pragma clang fp contract(off)"), "Should disable fast math for determinism");
-    assert!(kernel_content.contains("deterministic_silu"), "Should use deterministic activations");
-    assert!(kernel_content.contains("q15_to_float"), "Should handle Q15 quantization");
+    assert!(
+        kernel_content.contains("#pragma clang fp contract(off)"),
+        "Should disable fast math for determinism"
+    );
+    assert!(
+        kernel_content.contains("deterministic_silu"),
+        "Should use deterministic activations"
+    );
+    assert!(
+        kernel_content.contains("q15_to_float"),
+        "Should handle Q15 quantization"
+    );
 
     // Test kernel compilation
     let build_script = metal_dir.join("build.sh");
@@ -743,7 +892,11 @@ async fn test_metal_kernel_fusion_comprehensive() -> Result<()> {
             .output()
             .expect("Failed to run build script");
 
-        assert!(output.status.success(), "Kernel compilation should succeed: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "Kernel compilation should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     // Verify kernel hash consistency for determinism
@@ -752,7 +905,11 @@ async fn test_metal_kernel_fusion_comprehensive() -> Result<()> {
         let hash1 = std::fs::read_to_string(&hash_path).expect("Failed to read hash");
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         let hash2 = std::fs::read_to_string(&hash_path).expect("Failed to read hash");
-        assert_eq!(hash1.trim(), hash2.trim(), "Kernel hashes should be deterministic");
+        assert_eq!(
+            hash1.trim(),
+            hash2.trim(),
+            "Kernel hashes should be deterministic"
+        );
     }
 
     println!("✓ Comprehensive Metal kernel fusion test completed - all fusion operations verified");
@@ -772,13 +929,18 @@ mod helpers {
     }
 
     /// Create an authenticated test client
-    pub async fn create_authenticated_client(email: &str, password: &str) -> Result<(DefaultClient, String)> {
+    pub async fn create_authenticated_client(
+        email: &str,
+        password: &str,
+    ) -> Result<(DefaultClient, String)> {
         let client = create_test_client();
 
-        let login_response = client.login(LoginRequest {
-            email: email.to_string(),
-            password: password.to_string(),
-        }).await?;
+        let login_response = client
+            .login(LoginRequest {
+                email: email.to_string(),
+                password: password.to_string(),
+            })
+            .await?;
 
         // Note: In a real implementation, you'd set the auth token on the client
         // For now, we'll just return the client and token

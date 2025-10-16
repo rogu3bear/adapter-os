@@ -1,8 +1,8 @@
 //! aos-secd audit command
 
+use adapteros_db::Db;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
-use adapteros_db::Db;
 use std::path::Path;
 
 /// Display aos-secd operation audit trail

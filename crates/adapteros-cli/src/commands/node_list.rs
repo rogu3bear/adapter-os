@@ -1,8 +1,8 @@
 //! Node list command - show cluster nodes
 
+use adapteros_db::Db;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Table};
-use adapteros_db::Db;
 
 /// List nodes in the cluster
 pub async fn run(offline: bool) -> Result<()> {

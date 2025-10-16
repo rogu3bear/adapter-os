@@ -152,7 +152,10 @@ impl ManifestVerifier {
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("kernel_manifest_verify".to_string()),
                 adapteros_telemetry::LogLevel::Info,
-                format!("Kernel manifest verification: {}", if success { "success" } else { "failure" })
+                format!(
+                    "Kernel manifest verification: {}",
+                    if success { "success" } else { "failure" }
+                ),
             )
             .metadata(serde_json::json!({
                 "kernel_hash": kernel_hash.to_hex(),

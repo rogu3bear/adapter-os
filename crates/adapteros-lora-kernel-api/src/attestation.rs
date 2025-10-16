@@ -269,4 +269,3 @@ mod tests {
         assert!(report.validate().is_ok());
     }
 }
-
