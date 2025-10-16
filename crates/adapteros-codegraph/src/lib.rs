@@ -17,11 +17,21 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 pub mod callgraph;
+pub mod change_detector;
+pub mod directory_analyzer;
+pub mod framework_detector;
 pub mod parsers;
 pub mod sqlite;
 pub mod types;
 
 pub use callgraph::{CallEdge, CallGraph, CallGraphBuilder, ImportEdge};
+pub use change_detector::{
+    detect_recent_changes, ChangeType as DetectedChangeType, DetectedChange,
+};
+pub use directory_analyzer::{
+    analyze_directory, DirectoryAnalysis, DirectorySymbol, DirectorySymbolKind,
+};
+pub use framework_detector::{detect_frameworks, DetectedFramework};
 pub use parsers::{detect_language, parse_directory, parse_file, LanguageParser, ParserFactory};
 pub use sqlite::{CodeGraphDb, DbConfig};
 pub use types::{Language, SymbolId, SymbolKind, SymbolNode, TypeAnnotation, Visibility};
