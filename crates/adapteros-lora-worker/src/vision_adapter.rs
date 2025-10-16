@@ -105,7 +105,7 @@ impl VisionAdapter {
     #[instrument(skip_all, fields(batch = images.len()))]
     pub fn preprocess_batch(&self, images: &[Vec<u8>]) -> Result<VisionBatch> {
         if images.is_empty() {
-            return Err(AosError::InvalidInput("no images supplied".into()));
+            return Err(AosError::Validation("no images supplied".into()));
         }
 
         let mut processed = Vec::new();
@@ -159,13 +159,13 @@ impl VisionAdapter {
         reader.set_format(
             reader
                 .format()
-                .or_else(|| ImageFormat::from_buffer(bytes).ok())
+                .or_else(|| ImageFormat::from_path("dummy.jpg").ok())
                 .unwrap_or(ImageFormat::Png),
         );
 
         reader
             .decode()
-            .map_err(|e| AosError::InvalidInput(format!("failed to decode image: {e}")))
+            .map_err(|e| AosError::Validation(format!("failed to decode image: {e}")))
     }
 
     fn resize_image(&self, image: DynamicImage) -> Result<DynamicImage> {

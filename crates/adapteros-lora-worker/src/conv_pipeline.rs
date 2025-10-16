@@ -13,6 +13,11 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 
+#[cfg(target_os = "macos")]
+use adapteros_lora_kernel_mtl::vision_kernels::{
+    MetalVisionActivation, MetalVisionArchitecture, MetalVisionPooling,
+};
+
 /// Simple NCHW tensor used by the worker side vision adapter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImageBatch {
@@ -42,10 +47,10 @@ impl ImageBatch {
             .checked_mul(channels)
             .and_then(|v| v.checked_mul(height))
             .and_then(|v| v.checked_mul(width))
-            .ok_or_else(|| AosError::InvalidInput("tensor dimensions overflow".into()))?;
+            .ok_or_else(|| AosError::Validation("tensor dimensions overflow".into()))?;
 
         if data.len() != expected {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "tensor has {} elements but {} expected for {}x{}x{}x{}",
                 data.len(),
                 expected,
@@ -150,7 +155,7 @@ struct ConvLayer {
 impl ConvLayer {
     fn forward(&self, input: &ImageBatch, activation: ActivationKind) -> Result<ImageBatch> {
         if input.channels != self.in_channels {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "expected {} input channels, got {}",
                 self.in_channels, input.channels
             )));
@@ -229,7 +234,7 @@ impl ConvPipeline {
     /// is deterministic regardless of the execution backend.
     pub fn process_batch(&self, batch: &ImageBatch) -> Result<ImageBatch> {
         if batch.batch == 0 {
-            return Err(AosError::InvalidInput("empty batch".into()));
+            return Err(AosError::Validation("empty batch".into()));
         }
 
         #[cfg(target_os = "macos")]
@@ -246,9 +251,9 @@ impl ConvPipeline {
 
         current = match self.config.pooling {
             PoolingStrategy::None => current,
-            PoolingStrategy::Max => Self::max_pool(&current),
-            PoolingStrategy::Average => Self::avg_pool(&current),
-        }?;
+            PoolingStrategy::Max => Self::max_pool(&current)?,
+            PoolingStrategy::Average => Self::avg_pool(&current)?,
+        };
 
         if self.config.apply_batch_norm {
             current = Self::batch_normalize(&current)?;
@@ -370,7 +375,7 @@ impl ConvPipeline {
         let mut normalized = batch.clone();
         let elements_per_channel = batch.batch * batch.height * batch.width;
         if elements_per_channel == 0 {
-            return Err(AosError::InvalidInput("invalid tensor dimensions".into()));
+            return Err(AosError::Validation("invalid tensor dimensions".into()));
         }
 
         for c in 0..batch.channels {

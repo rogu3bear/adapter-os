@@ -64,9 +64,9 @@ impl<'a> MetalImageTensor<'a> {
             .checked_mul(channels)
             .and_then(|v| v.checked_mul(height))
             .and_then(|v| v.checked_mul(width))
-            .ok_or_else(|| AosError::InvalidInput("tensor dimensions overflow".into()))?;
+            .ok_or_else(|| AosError::Validation("tensor dimensions overflow".into()))?;
         if data.len() != expected {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "tensor has {} elements but expected {}",
                 data.len(),
                 expected
@@ -215,7 +215,7 @@ struct ConvLayer {
 impl ConvLayer {
     fn forward(&self, input: &ImageBatch, activation: MetalVisionActivation) -> Result<ImageBatch> {
         if input.channels != self.in_channels {
-            return Err(AosError::InvalidInput("channel mismatch".into()));
+            return Err(AosError::Validation("channel mismatch".into()));
         }
 
         let out_height = ((input.height + 2 * self.padding - self.kernel_size) / self.stride) + 1;
@@ -415,7 +415,7 @@ fn batch_normalize(batch: &ImageBatch) -> Result<ImageBatch> {
     let mut normalized = batch.clone();
     let elements_per_channel = batch.batch * batch.height * batch.width;
     if elements_per_channel == 0 {
-        return Err(AosError::InvalidInput("invalid tensor dimensions".into()));
+        return Err(AosError::Validation("invalid tensor dimensions".into()));
     }
 
     for c in 0..batch.channels {

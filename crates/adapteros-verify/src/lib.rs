@@ -100,6 +100,9 @@ pub enum VerifyError {
 
     #[error("Crypto error: {0}")]
     Crypto(String),
+
+    #[error("Anyhow error: {0}")]
+    Anyhow(#[from] anyhow::Error),
 }
 
 /// Result type for verification operations

@@ -85,7 +85,7 @@ pub struct TelemetryAdapter {
 impl TelemetryAdapter {
     pub fn new(config: TelemetryAdapterConfig) -> Result<Self> {
         if config.sample_rate_hz <= 0.0 {
-            return Err(AosError::InvalidInput(
+            return Err(AosError::Validation(
                 "sample rate must be positive".into(),
             ));
         }
@@ -128,7 +128,7 @@ impl TelemetryAdapter {
     /// Process telemetry channels and return filtered signals and anomalies.
     pub fn process_channels(&mut self, channels: &[SignalChannel]) -> Result<Vec<TelemetryOutput>> {
         if channels.is_empty() {
-            return Err(AosError::InvalidInput(
+            return Err(AosError::Validation(
                 "no telemetry channels supplied".into(),
             ));
         }
@@ -140,14 +140,18 @@ impl TelemetryAdapter {
         sorted_channels.sort_by(|a, b| a.name.cmp(&b.name));
 
         for channel in sorted_channels.iter() {
-            let filter = self.get_filter(&channel.name)?;
-            let detector = self.get_detector(&channel.name)?;
             let mut filtered = Vec::with_capacity(channel.samples.len());
             let mut anomalies = Vec::new();
 
             for sample in &channel.samples {
-                let filtered_value = filter.apply_sample(sample.value);
-                let score = detector.observe(filtered_value);
+                let filtered_value = {
+                    let filter = self.get_filter(&channel.name)?;
+                    filter.apply_sample(sample.value)
+                };
+                let score = {
+                    let detector = self.get_detector(&channel.name)?;
+                    detector.observe(filtered_value)
+                };
                 filtered.push(filtered_value);
                 if score.is_anomaly {
                     anomalies.push(score.clone());
