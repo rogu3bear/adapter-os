@@ -50,11 +50,13 @@ pub mod category_policies;
 pub mod loader;
 pub mod policy;
 pub mod state;
+pub mod ttl_manager;
 
 pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
 pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
 pub use state::{AdapterState, AdapterStateRecord, EvictionPriority};
+pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
 
 /// Enhanced lifecycle manager for adapters with category-aware state management
 pub struct LifecycleManager {
