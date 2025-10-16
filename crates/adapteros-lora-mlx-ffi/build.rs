@@ -2,7 +2,7 @@
 // Compiles C++ wrapper and links against MLX
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     // Tell cargo to re-run this build script if wrapper files change
@@ -12,53 +12,117 @@ fn main() {
     // Get the MLX installation path
     let mlx_path = env::var("MLX_PATH").unwrap_or_else(|_| "/opt/homebrew".to_string()); // Default to Homebrew path
 
-    let _mlx_include = format!("{}/include", mlx_path);
-    let _mlx_lib = format!("{}/lib", mlx_path);
+    let include_dir = Path::new(&mlx_path).join("include");
+    let lib_dir = Path::new(&mlx_path).join("lib");
 
-    // Always use stub implementation for now
-    // MLX is primarily a Python framework and doesn't have a C++ model API
-    println!("cargo:warning=Using stub MLX implementation (MLX is Python-first framework)");
-    println!("cargo:warning=For production use, consider integrating with MLX Python API via PyO3");
+    let use_stub = should_use_stub(&include_dir);
 
-    // Generate stub bindings for development
-    generate_stub_bindings();
-    return;
+    if use_stub {
+        println!("cargo:warning=Using stub MLX implementation (MLX is Python-first framework)");
+        println!("cargo:warning=Falling back to stub C++ wrapper - real MLX headers not found");
 
-    #[allow(unreachable_code)]
-    // Compile the C++ wrapper
-    cc::Build::new()
+        compile_stub_wrapper();
+        generate_stub_bindings();
+    } else {
+        compile_real_wrapper(&include_dir, &lib_dir);
+        generate_real_bindings(&include_dir);
+    }
+}
+
+fn should_use_stub(include_dir: &Path) -> bool {
+    if env::var("MLX_FORCE_STUB").is_ok() {
+        return true;
+    }
+
+    // Heuristic: require MLX headers to exist
+    let candidates = [
+        include_dir.join("mlx.h"),
+        include_dir.join("mlx/mlx.h"),
+        include_dir.join("mlx/array.h"),
+    ];
+
+    !candidates.iter().any(|path| path.exists())
+}
+
+fn compile_stub_wrapper() {
+    let mut build = cc::Build::new();
+    build
         .cpp(true)
         .std("c++17")
         .file("src/mlx_cpp_wrapper.cpp")
-        .include(&_mlx_include)
-        .include(".")
-        .flag("-fPIC")
-        .flag("-O3")
-        .flag("-Wall")
-        .flag("-Wextra")
-        .compile("mlx_wrapper");
+        .include(".");
 
-    // Link against MLX libraries
-    println!("cargo:rustc-link-search=native={}", _mlx_lib);
+    if cfg!(target_env = "msvc") {
+        build.flag("/EHsc");
+    } else {
+        build.flag_if_supported("-fPIC");
+        build.flag_if_supported("-O2");
+        build.flag_if_supported("-Wall");
+        build.flag_if_supported("-Wextra");
+    }
+
+    build.compile("mlx_wrapper_stub");
+
+    if cfg!(target_os = "macos") {
+        println!("cargo:rustc-link-lib=c++");
+    } else if cfg!(target_env = "msvc") {
+        // MSVC links the C++ runtime automatically
+    } else {
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+}
+
+fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
+    let include = include_dir.display().to_string();
+    let lib = lib_dir.display().to_string();
+
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .std("c++17")
+        .file("src/mlx_cpp_wrapper.cpp")
+        .include(include_dir)
+        .include(".");
+
+    if cfg!(target_env = "msvc") {
+        build.flag("/EHsc");
+    } else {
+        build.flag_if_supported("-fPIC");
+        build.flag_if_supported("-O3");
+        build.flag_if_supported("-Wall");
+        build.flag_if_supported("-Wextra");
+    }
+
+    build.compile("mlx_wrapper");
+
+    println!("cargo:rustc-link-search=native={}", lib);
     println!("cargo:rustc-link-lib=mlx");
-    println!("cargo:rustc-link-lib=c++");
 
-    // Tell cargo to link against system libraries
-    println!("cargo:rustc-link-lib=framework=Accelerate");
-    println!("cargo:rustc-link-lib=framework=Metal");
-    println!("cargo:rustc-link-lib=framework=MetalKit");
-    println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
+    if cfg!(target_os = "macos") {
+        println!("cargo:rustc-link-lib=c++");
+        println!("cargo:rustc-link-lib=framework=Accelerate");
+        println!("cargo:rustc-link-lib=framework=Metal");
+        println!("cargo:rustc-link-lib=framework=MetalKit");
+        println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
+    } else if cfg!(target_env = "msvc") {
+        // MSVC automatically links the STL
+    } else {
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+}
 
-    // Set up bindgen for FFI bindings
+fn generate_real_bindings(include_dir: &Path) {
+    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let include = include_dir.display().to_string();
+
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
-        .clang_arg(format!("-I{}", _mlx_include))
+        .clang_arg(format!("-I{}", include))
         .clang_arg("-I.")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
 
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
