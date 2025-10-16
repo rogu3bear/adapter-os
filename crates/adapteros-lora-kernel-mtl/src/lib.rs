@@ -25,6 +25,7 @@ pub mod mplora;
 pub mod noise_tracker;
 pub mod recovery;
 pub mod ring_buffer;
+pub mod vision_kernels;
 pub mod vram;
 
 pub use debug::{KernelDebugger, KernelParams};
@@ -36,6 +37,7 @@ pub use mplora::MploraKernel;
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
 pub use recovery::RecoveryWrapper;
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
+pub use vision_kernels::{MetalVisionKernels, VisionKernelSpec};
 pub use vram::VramTracker;
 
 /// Embedding dimensions for Metal inference
@@ -61,7 +63,7 @@ pub struct TransformerWeights {
 /// Language modeling head weights for vocabulary projection
 #[derive(Debug)]
 pub struct LmHeadWeights {
-    pub weight: Buffer,  // [hidden_size, vocab_size]
+    pub weight: Buffer, // [hidden_size, vocab_size]
 }
 
 /// Intermediate buffers for transformer computation
@@ -269,7 +271,10 @@ impl MetalKernels {
                 .device
                 .new_compute_pipeline_state_with_function(&function)
                 .map_err(|e| {
-                    AosError::Kernel(format!("Failed to create vocabulary projection pipeline: {}", e))
+                    AosError::Kernel(format!(
+                        "Failed to create vocabulary projection pipeline: {}",
+                        e
+                    ))
                 })?;
             self.lm_head_pipeline = Some(pipeline);
             tracing::info!("Created vocabulary projection pipeline");
@@ -524,15 +529,13 @@ impl MetalKernels {
 
         let buffer_size = hidden_size * seq_len * std::mem::size_of::<f32>() as u64;
 
-        let hidden_states = self.device.new_buffer(
-            buffer_size,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let hidden_states = self
+            .device
+            .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
-        let q_output = self.device.new_buffer(
-            buffer_size,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let q_output = self
+            .device
+            .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
         let k_output = self.device.new_buffer(
             (hidden_size / 8) * seq_len * std::mem::size_of::<f32>() as u64, // GQA
@@ -544,15 +547,13 @@ impl MetalKernels {
             MTLResourceOptions::StorageModeShared,
         );
 
-        let attention_output = self.device.new_buffer(
-            buffer_size,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let attention_output = self
+            .device
+            .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
-        let mlp_output = self.device.new_buffer(
-            buffer_size,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let mlp_output = self
+            .device
+            .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
         tracing::info!("Created intermediate buffers for transformer computation");
 
@@ -652,9 +653,13 @@ impl MetalKernels {
         adapters: &[ActiveAdapter],
         io: &mut IoBuffers,
     ) -> Result<()> {
-        let transformer_weights = self.transformer_weights.as_ref()
+        let transformer_weights = self
+            .transformer_weights
+            .as_ref()
             .ok_or_else(|| AosError::Kernel("Transformer weights not loaded".to_string()))?;
-        let intermediate_buffers = self.intermediate_buffers.as_ref()
+        let intermediate_buffers = self
+            .intermediate_buffers
+            .as_ref()
             .ok_or_else(|| AosError::Kernel("Intermediate buffers not created".to_string()))?;
 
         // Copy input hidden states from embedding lookup
@@ -703,10 +708,7 @@ impl MetalKernels {
 
         // Copy final output to io buffers
         // For now, generate deterministic output based on adapters
-        let total_gate_weight: f32 = adapters
-            .iter()
-            .map(|a| (a.gate as f32) / 32768.0)
-            .sum();
+        let total_gate_weight: f32 = adapters.iter().map(|a| (a.gate as f32) / 32768.0).sum();
 
         for (i, logit) in io.output_logits.iter_mut().enumerate() {
             let adapter_influence: f32 = adapters.iter().map(|a| (a.id as f32) * 0.001).sum();
@@ -721,7 +723,11 @@ impl MetalKernels {
     }
 
     /// Perform vocabulary projection using Metal kernels
-    fn perform_vocabulary_projection(&self, adapters: &[ActiveAdapter], io: &mut IoBuffers) -> Result<()> {
+    fn perform_vocabulary_projection(
+        &self,
+        adapters: &[ActiveAdapter],
+        io: &mut IoBuffers,
+    ) -> Result<()> {
         let lm_head_weights = self
             .lm_head_weights
             .as_ref()
@@ -863,7 +869,9 @@ impl FusedKernels for MetalKernels {
         let lm_head_weights = self.parse_lm_head_weights(plan_bytes)?;
         self.lm_head_weights = Some(lm_head_weights);
 
-        tracing::info!("Metal kernels initialized with embedding, transformer, and LM head weights loaded");
+        tracing::info!(
+            "Metal kernels initialized with embedding, transformer, and LM head weights loaded"
+        );
 
         Ok(())
     }
@@ -932,7 +940,7 @@ impl FusedKernels for MetalKernels {
 
         // Get manifest from verification (contains toolchain info)
         let manifest_result = verify_embedded_manifest(METALLIB_BYTES, None);
-        
+
         let manifest = manifest_result.ok().map(|m| attestation::KernelManifest {
             kernel_hash: m.kernel_hash,
             xcrun_version: m.xcrun_version,

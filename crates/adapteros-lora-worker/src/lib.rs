@@ -39,13 +39,16 @@ use std::time::Instant;
 use tracing::info;
 
 pub mod adapter_hotswap;
+pub mod anomaly_detection;
 pub mod backend_factory;
 pub mod base_model_state;
 pub mod contact_discovery;
+pub mod conv_pipeline;
 pub mod deadlock;
 pub mod deterministic_rng;
 pub mod embeddings;
 pub mod evidence;
+pub mod filter_engine;
 pub mod generation;
 pub mod health;
 pub mod inference_pipeline;
@@ -60,18 +63,28 @@ pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
 pub mod signal;
+pub mod telemetry_adapter;
+pub mod telemetry_lora;
 pub mod test_executor;
 pub mod timeout;
 pub mod tokenizer;
 pub mod training;
+pub mod vision_adapter;
+pub mod vision_lora;
 
 pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult, HotSwapManager};
 pub use adapteros_lora_rag::DocIndexImpl;
 pub use adapteros_lora_rag::SymbolIndexImpl;
 pub use adapteros_lora_rag::TestIndexImpl;
+pub use anomaly_detection::{
+    Anomaly, AnomalyDetector, AnomalyDetectorConfig, AnomalyReport, BaselineModel,
+    DetectionAlgorithm,
+};
 pub use backend_factory::{create_backend, BackendChoice};
+pub use conv_pipeline::{ConvArchitecture, ConvPipeline, ConvPipelineConfig, TensorShape};
 pub use deadlock::{DeadlockConfig, DeadlockDetector};
 pub use deterministic_rng::{DeterministicRng, RngFactory};
+pub use filter_engine::{FilterEngine, FilterEngineConfig, FilterStageConfig, FilterType};
 pub use generation::Generator;
 pub use health::{HealthConfig, HealthMonitor, HealthStatus};
 pub use kvcache::KvCache;
@@ -81,6 +94,13 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::MemoryMonitor;
+pub use telemetry_adapter::{
+    SignalStatistics, SignalType, TelemetryAdapter, TelemetryAdapterConfig, TelemetryOutput,
+    TelemetrySignal,
+};
+pub use telemetry_lora::{
+    DetectionAdjustment, FilterAdjustment, TelemetryLoRAWeights, TelemetryTask,
+};
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
 pub use timeout::{CircuitBreaker, CircuitState, TimeoutConfig, TimeoutWrapper};
 pub use training::{
@@ -88,6 +108,8 @@ pub use training::{
     MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingConfig, TrainingExample,
     TrainingResult,
 };
+pub use vision_adapter::{VisionAdapterConfig as WorkerVisionAdapterConfig, VisionAdapterEngine};
+pub use vision_lora::{LayerLoRA, VisionLoRAWeights, VisionTask};
 
 /// Inference request
 #[derive(Debug, Clone, Serialize, Deserialize)]
