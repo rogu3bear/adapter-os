@@ -2,6 +2,7 @@
 
 pub mod adapter;
 pub mod adapter_info;
+pub mod code;
 pub mod adapter_swap;
 pub mod audit;
 pub mod audit_determinism;

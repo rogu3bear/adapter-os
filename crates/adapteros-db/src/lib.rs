@@ -165,6 +165,7 @@ pub use sqlx::Row;
 pub mod adapters;
 pub mod artifacts;
 pub mod audits;
+pub mod migration_verify;
 pub mod unified_access;
 pub use audits::Audit;
 pub mod code_policies;

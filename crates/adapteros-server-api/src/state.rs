@@ -1,7 +1,7 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_lora_lifecycle::LifecycleManager;
-use adapteros_orchestrator::TrainingService;
+use adapteros_orchestrator::{TrainingService, CodeJobManager};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -58,6 +58,7 @@ pub struct AppState {
     pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>>,
     pub crypto: Arc<CryptoState>,
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
+    pub code_job_manager: Option<Arc<CodeJobManager>>,
 }
 
 impl AppState {
@@ -77,6 +78,7 @@ impl AppState {
             file_change_tx: None,
             crypto: Arc::new(CryptoState::new()),
             lifecycle_manager: None,
+            code_job_manager: None,
         }
     }
 
@@ -92,6 +94,11 @@ impl AppState {
     ) -> Self {
         self.git_subsystem = Some(git_subsystem);
         self.file_change_tx = Some(file_change_tx);
+        self
+    }
+
+    pub fn with_code_jobs(mut self, code_job_manager: Arc<CodeJobManager>) -> Self {
+        self.code_job_manager = Some(code_job_manager);
         self
     }
 
