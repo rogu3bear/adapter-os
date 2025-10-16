@@ -978,6 +978,82 @@ Examples:
         #[arg(short, long)]
         gid: u32,
     },
+
+    // ============================================================
+    // Code Intelligence Commands
+    // ============================================================
+    /// Initialize a code repository
+    #[command(after_help = "\
+Examples:
+  # Initialize current directory
+  aosctl code-init .
+
+  # Initialize specific repository
+  aosctl code-init /path/to/repo --tenant default
+")]
+    CodeInit {
+        /// Repository path
+        path: PathBuf,
+
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Update repository scan
+    #[command(after_help = "\
+Examples:
+  # Scan repository at current commit
+  aosctl code-update my-repo
+
+  # Scan specific commit
+  aosctl code-update my-repo --commit abc123
+")]
+    CodeUpdate {
+        /// Repository ID
+        repo_id: String,
+
+        /// Commit SHA (defaults to HEAD)
+        #[arg(long)]
+        commit: Option<String>,
+
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// List registered repositories
+    #[command(after_help = "\
+Examples:
+  # List all repositories
+  aosctl code-list
+
+  # List with JSON output
+  aosctl code-list --json
+")]
+    CodeList {
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Get repository status
+    #[command(after_help = "\
+Examples:
+  # Get repository status
+  aosctl code-status my-repo
+
+  # Get status with JSON output
+  aosctl code-status my-repo --json
+")]
+    CodeStatus {
+        /// Repository ID
+        repo_id: String,
+
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1379,6 +1455,24 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Train { args } => {
             args.execute().await?;
         }
+
+        // Code Intelligence Commands
+        Commands::CodeInit { path, tenant } => {
+            commands::code::code_init(&path, &tenant, &output).await?;
+        }
+        Commands::CodeUpdate {
+            repo_id,
+            commit,
+            tenant,
+        } => {
+            commands::code::code_update(&repo_id, &tenant, commit.as_deref(), &output).await?;
+        }
+        Commands::CodeList { tenant } => {
+            commands::code::code_list(&tenant, &output).await?;
+        }
+        Commands::CodeStatus { repo_id, tenant } => {
+            commands::code::code_status(&repo_id, &tenant, &output).await?;
+        }
     }
 
     Ok(())
@@ -1428,6 +1522,10 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
+        Commands::CodeInit { .. } => "code-init",
+        Commands::CodeUpdate { .. } => "code-update",
+        Commands::CodeList { .. } => "code-list",
+        Commands::CodeStatus { .. } => "code-status",
     }
     .to_string()
 }

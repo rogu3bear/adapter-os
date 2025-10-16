@@ -62,6 +62,17 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::git::end_git_session,
         handlers::git::list_git_branches,
         handlers::git::file_changes_stream,
+        // Code intelligence handlers
+        handlers::code::register_repo,
+        handlers::code::scan_repo,
+        handlers::code::get_scan_status,
+        handlers::code::list_repositories as code_list_repositories,
+        handlers::code::get_repository,
+        handlers::code::create_commit_delta,
+        // Federation handlers (TODO: integrate with AppState)
+        // handlers::federation::get_federation_status,
+        // handlers::federation::get_quarantine_status,
+        // handlers::federation::release_quarantine,
         // Domain adapter handlers
         domain_adapters::list_domain_adapters,
         domain_adapters::get_domain_adapter,
@@ -168,6 +179,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "streams", description = "Real-time SSE event streams"),
         (name = "domain-adapters", description = "Domain adapter management"),
         (name = "git", description = "Git integration and session management"),
+        (name = "federation", description = "Federation verification and quarantine management"),
     )
 )]
 pub struct ApiDoc;
@@ -442,6 +454,13 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/streams/training", get(handlers::training_stream))
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
+        // Code intelligence routes
+        .route("/v1/code/register-repo", post(handlers::code::register_repo))
+        .route("/v1/code/scan", post(handlers::code::scan_repo))
+        .route("/v1/code/scan/:job_id", get(handlers::code::get_scan_status))
+        .route("/v1/code/repositories", get(handlers::code::list_repositories))
+        .route("/v1/code/repositories/:repo_id", get(handlers::code::get_repository))
+        .route("/v1/code/commit-delta", post(handlers::code::create_commit_delta))
         // Repository routes
         .route("/v1/repositories", get(handlers::list_repositories))
         .route(
@@ -515,6 +534,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/streams/file-changes",
             get(handlers::git::file_changes_stream),
         )
+        // Federation routes (TODO: integrate with AppState)
+        // .route("/v1/federation/status", get(handlers::federation::get_federation_status))
+        // .route("/v1/federation/quarantine", get(handlers::federation::get_quarantine_status))
+        // .route("/v1/federation/release-quarantine", post(handlers::federation::release_quarantine))
+        // Audit endpoints
+        .route("/v1/audit/federation", get(handlers::get_federation_audit))
+        .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
         // Agent D contract endpoints
         .route("/v1/audits", get(handlers::list_audits_extended))
         .route("/v1/promotions/:id", get(handlers::get_promotion))
