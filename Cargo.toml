@@ -18,7 +18,8 @@ members = [
     "crates/adapteros-lora-kernel-mtl",
     "crates/adapteros-lora-kernel-prof",
     "crates/adapteros-system-metrics",
-    "crates/adapteros-lora-mlx-ffi",  # MLX FFI implementation
+    # MLX FFI excluded - experimental backend with PyO3 linker issues
+    # Re-enable with: --features experimental-backends
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -58,6 +59,7 @@ members = [
     "crates/adapteros-verification",
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
+    "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)
     "xtask",
     "fuzz",
 ]

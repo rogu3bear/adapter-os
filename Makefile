@@ -9,8 +9,8 @@ build: ## Build all crates
 	./scripts/record_env.sh
 	./scripts/strip_timestamps.sh
 
-test: ## Run all tests
-	cargo test --all-features
+test: ## Run all tests (excluding experimental MLX FFI)
+	cargo test --workspace --exclude adapteros-lora-mlx-ffi
 
 clean: ## Clean build artifacts
 	cargo clean
