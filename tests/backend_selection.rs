@@ -138,18 +138,23 @@ fn test_experimental_build_includes_all_backends() {
     // but should not fail with feature-related errors
     use std::path::PathBuf;
 
-    let mlx_result = create_backend(BackendChoice::Mlx {
-        model_path: PathBuf::from("test"),
-    });
+    let mut mlx_backend = create_backend(BackendChoice::Mlx {
+        model_path: PathBuf::from("test-model"),
+    })
+    .expect("MLX backend should initialize under experimental feature");
+    let report = mlx_backend
+        .attest_determinism()
+        .expect("MLX backend should provide attestation");
+    assert!(report.validate().is_ok());
 
-    // Should fail with "temporarily disabled" or similar, not feature error
-    if let Err(e) = mlx_result {
-        let err_msg = format!("{:?}", e);
-        assert!(
-            !err_msg.contains("requires --features"),
-            "Should not require feature flag in experimental build"
-        );
-    }
+    // Execute a deterministic step to ensure backend is operational
+    let mut ring = adapteros_lora_kernel_api::RouterRing::new(2);
+    ring.set(&[0, 1], &[1024, 2048]);
+    let mut io = adapteros_lora_kernel_api::IoBuffers::new(8);
+    io.input_ids = vec![1, 2, 3];
+    mlx_backend
+        .run_step(&ring, &mut io)
+        .expect("MLX backend run_step should succeed");
 
     let coreml_result = create_backend(BackendChoice::CoreML);
     if let Err(e) = coreml_result {
