@@ -418,14 +418,17 @@ impl PolicyHashWatcher {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use uuid::Uuid;
 
     async fn setup_test_watcher() -> (PolicyHashWatcher, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
+        // Use unique database name per test to avoid migration conflicts
+        let db_path = temp_dir.path().join(format!("test-{}.db", Uuid::new_v4()));
         let db_url = format!("sqlite://{}", db_path.display());
 
         let db = Db::connect(&db_url).await.unwrap();
-        db.migrate().await.unwrap();
+        // Run migrations - each test has unique database so this should succeed
+        db.migrate().await.expect("Failed to run migrations in test");
 
         let telemetry_dir = temp_dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();
