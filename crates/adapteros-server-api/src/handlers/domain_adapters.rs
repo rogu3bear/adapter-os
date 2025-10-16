@@ -4,14 +4,24 @@ use crate::types::{
     DomainAdapterResponse, EpsilonStatsResponse, ErrorResponse, LoadDomainAdapterRequest,
     TestDomainAdapterRequest, TestDomainAdapterResponse,
 };
+use adapteros_core::{AosError, B3Hash};
+use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
+use adapteros_domain::{
+    error::DomainAdapterError, text::text_to_tensor, text::TextAdapter, DomainAdapter, TensorData,
+};
+use adapteros_trace::{Event, TraceBundle};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::Json,
 };
 use chrono::Utc;
-// use adapteros_core::error::AosError; // unused
+use serde_json::Value;
 use std::collections::HashMap;
+use std::env;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+use tracing::error;
 use uuid::Uuid;
 
 /// List all domain adapters
@@ -312,6 +322,119 @@ pub async fn get_domain_adapter_manifest(
     Ok(Json(manifest))
 }
 
+fn manifest_path_for(adapter_id: &str) -> PathBuf {
+    env::var("ADAPTEROS_DOMAIN_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("manifests/domain_adapters"))
+        .join(format!("{adapter_id}.toml"))
+}
+
+fn map_domain_error(context: &str, error: DomainAdapterError) -> AosError {
+    match error {
+        DomainAdapterError::InvalidManifest { reason } => {
+            AosError::InvalidManifest(format!("{context}: {reason}"))
+        }
+        DomainAdapterError::ManifestLoadError { path, source } => AosError::InvalidManifest(
+            format!("{context}: failed to load manifest {}: {}", path, source),
+        ),
+        DomainAdapterError::UnsupportedInputFormat { format }
+        | DomainAdapterError::UnsupportedOutputFormat { format } => {
+            AosError::Validation(format!("{context}: unsupported format '{format}'"))
+        }
+        DomainAdapterError::TensorShapeMismatch { expected, actual } => {
+            AosError::Validation(format!(
+                "{context}: tensor shape mismatch, expected {:?}, got {:?}",
+                expected, actual
+            ))
+        }
+        DomainAdapterError::AdapterNotInitialized { adapter_name } => AosError::Internal(format!(
+            "{context}: adapter '{adapter_name}' not initialized"
+        )),
+        DomainAdapterError::DeterminismViolation { details } => {
+            AosError::DeterminismViolation(format!("{context}: {details}"))
+        }
+        DomainAdapterError::NumericalErrorThreshold { error, threshold } => {
+            AosError::DeterminismViolation(format!(
+                "{context}: numerical error {:.6} exceeded threshold {:.6}",
+                error, threshold
+            ))
+        }
+        DomainAdapterError::ModelFileNotFound { path } => {
+            AosError::NotFound(format!("{context}: model file not found {path}"))
+        }
+        DomainAdapterError::HashVerificationFailed { expected, actual } => {
+            AosError::Validation(format!(
+                "{context}: hash verification failed (expected {}, actual {})",
+                expected, actual
+            ))
+        }
+        DomainAdapterError::TokenizationError { details }
+        | DomainAdapterError::ImageProcessingError { details }
+        | DomainAdapterError::TelemetryError { details } => {
+            AosError::Internal(format!("{context}: {details}"))
+        }
+        DomainAdapterError::ExecutorError(e) => {
+            AosError::DeterministicExecutor(format!("{context}: {e}"))
+        }
+        DomainAdapterError::NumericsError(e) => AosError::Internal(format!("{context}: {e}")),
+        DomainAdapterError::IoError(e) => AosError::Io(format!("{context}: {e}")),
+        DomainAdapterError::SerializationError(e) => AosError::Serialization(e),
+        DomainAdapterError::TomlError(e) => AosError::InvalidManifest(format!("{context}: {e}")),
+    }
+}
+
+fn http_error_from_aos(message: &str, error: AosError) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match error {
+        AosError::Validation(_) => StatusCode::BAD_REQUEST,
+        AosError::NotFound(_) => StatusCode::NOT_FOUND,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    let code = match status {
+        StatusCode::BAD_REQUEST => "BAD_REQUEST",
+        StatusCode::NOT_FOUND => "NOT_FOUND",
+        StatusCode::UNAUTHORIZED => "UNAUTHORIZED",
+        StatusCode::FORBIDDEN => "FORBIDDEN",
+        StatusCode::CONFLICT => "CONFLICT",
+        _ => "INTERNAL_ERROR",
+    };
+
+    let details = error.to_string();
+    error!(
+        target: "adapteros_server_api::domain_adapters",
+        %details,
+        "{message}"
+    );
+
+    (
+        status,
+        Json(
+            ErrorResponse::new(message)
+                .with_code(code)
+                .with_string_details(details),
+        ),
+    )
+}
+
+fn summarize_event(event: &Event) -> String {
+    format!(
+        "{}:{}:{}",
+        event.tick_id,
+        event.op_id,
+        event.blake3_hash.to_hex()
+    )
+}
+
+fn ensure_tensor_hash(stage: &str, tensor: &TensorData) -> std::result::Result<(), AosError> {
+    if tensor.verify_hash() {
+        Ok(())
+    } else {
+        Err(AosError::Validation(format!(
+            "{stage} tensor hash verification failed"
+        )))
+    }
+}
+
 /// Execute domain adapter with input data
 #[utoipa::path(
     post,
@@ -330,26 +453,238 @@ pub async fn execute_domain_adapter(
     Path(adapter_id): Path<String>,
     Json(input_data): Json<serde_json::Value>,
 ) -> Result<Json<DomainAdapterExecutionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Adapter execution - placeholder implementation
-    // This would involve:
-    // 1. Preparing the input data
-    // 2. Running through the deterministic executor
-    // 3. Collecting trace events
-    // 4. Calculating epsilon
-    // 5. Returning the result
+    let input_object = match input_data.as_object() {
+        Some(obj) => obj,
+        None => {
+            let err = AosError::Validation(
+                "Input payload must be a JSON object with an 'input' or 'input_text' field"
+                    .to_string(),
+            );
+            return Err(http_error_from_aos("Invalid domain adapter input", err));
+        }
+    };
+
+    let input_text = match input_object
+        .get("input")
+        .or_else(|| input_object.get("input_text"))
+        .and_then(Value::as_str)
+    {
+        Some(text) if !text.is_empty() => text.to_string(),
+        _ => {
+            let err = AosError::Validation(
+                "Input must include non-empty string field 'input' or 'input_text'".to_string(),
+            );
+            return Err(http_error_from_aos("Invalid domain adapter input", err));
+        }
+    };
+
+    let manifest_path = manifest_path_for(&adapter_id);
+    if !manifest_path.exists() {
+        let err = AosError::NotFound(format!(
+            "Adapter manifest not found: {}",
+            manifest_path.display()
+        ));
+        return Err(http_error_from_aos("Domain adapter not found", err));
+    }
+
+    let mut adapter = match TextAdapter::load(&manifest_path) {
+        Ok(adapter) => adapter,
+        Err(err) => {
+            let aos_err = map_domain_error("Failed to load domain adapter", err);
+            return Err(http_error_from_aos(
+                "Failed to load domain adapter",
+                aos_err,
+            ));
+        }
+    };
+
+    let input_tensor = match text_to_tensor(&adapter, &input_text) {
+        Ok(tensor) => tensor,
+        Err(err) => {
+            let aos_err = map_domain_error("Failed to preprocess adapter input", err);
+            return Err(http_error_from_aos(
+                "Failed to preprocess adapter input",
+                aos_err,
+            ));
+        }
+    };
+
+    if let Err(err) = ensure_tensor_hash("input", &input_tensor) {
+        return Err(http_error_from_aos("Invalid adapter input", err));
+    }
+
+    let adapter_seed = B3Hash::hash(adapter_id.as_bytes());
+    let mut executor_config = ExecutorConfig::default();
+    executor_config.global_seed = adapter_seed.to_bytes();
+    executor_config.enable_event_logging = true;
+
+    let mut executor = DeterministicExecutor::new(executor_config);
+    executor.clear_event_log();
+
+    if let Err(err) = adapter.prepare(&mut executor) {
+        let aos_err = map_domain_error("Failed to prepare adapter", err);
+        return Err(http_error_from_aos(
+            "Failed to prepare domain adapter",
+            aos_err,
+        ));
+    }
+
+    let session_id = Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string();
+    let mut trace_bundle = TraceBundle::new(
+        adapter_seed,
+        format!("domain_adapter::{}", adapter_id),
+        adapter_id.clone(),
+        "default".to_string(),
+        session_id.clone(),
+    );
+    let mut trace_events: Vec<String> = Vec::new();
+
+    let mut prepare_inputs = HashMap::new();
+    prepare_inputs.insert("stage".to_string(), Value::String("prepare".to_string()));
+    prepare_inputs.insert(
+        "adapter".to_string(),
+        Value::String(adapter.name().to_string()),
+    );
+    let mut prepare_outputs = HashMap::new();
+    prepare_outputs.insert(
+        "status".to_string(),
+        Value::String("initialized".to_string()),
+    );
+    let prepare_event = adapter.create_trace_event(
+        executor.current_tick(),
+        format!("{}::prepare", adapter.name()),
+        &prepare_inputs,
+        &prepare_outputs,
+    );
+    trace_events.push(summarize_event(&prepare_event));
+    trace_bundle.add_event(prepare_event);
+
+    let execution_timer = Instant::now();
+
+    let forward_output = match adapter.forward(&input_tensor) {
+        Ok(output) => output,
+        Err(err) => {
+            let aos_err = map_domain_error("Adapter forward pass failed", err);
+            return Err(http_error_from_aos("Adapter forward pass failed", aos_err));
+        }
+    };
+
+    if let Err(err) = ensure_tensor_hash("forward_output", &forward_output) {
+        return Err(http_error_from_aos(
+            "Forward tensor verification failed",
+            err,
+        ));
+    }
+
+    let input_hash_hex = input_tensor.metadata.hash.to_hex();
+    let forward_hash_hex = forward_output.metadata.hash.to_hex();
+
+    let mut forward_inputs = HashMap::new();
+    forward_inputs.insert(
+        "input_hash".to_string(),
+        Value::String(input_hash_hex.clone()),
+    );
+    let mut forward_outputs = HashMap::new();
+    forward_outputs.insert(
+        "output_hash".to_string(),
+        Value::String(forward_hash_hex.clone()),
+    );
+    let forward_event = adapter.create_trace_event(
+        executor.current_tick(),
+        format!("{}::forward", adapter.name()),
+        &forward_inputs,
+        &forward_outputs,
+    );
+    trace_events.push(summarize_event(&forward_event));
+    trace_bundle.add_event(forward_event);
+
+    let postprocessed_output = match adapter.postprocess(&forward_output) {
+        Ok(output) => output,
+        Err(err) => {
+            let aos_err = map_domain_error("Adapter postprocess failed", err);
+            return Err(http_error_from_aos("Adapter postprocess failed", aos_err));
+        }
+    };
+
+    if let Err(err) = ensure_tensor_hash("postprocess_output", &postprocessed_output) {
+        return Err(http_error_from_aos(
+            "Postprocess tensor verification failed",
+            err,
+        ));
+    }
+
+    let output_hash_hex = postprocessed_output.metadata.hash.to_hex();
+    let mut postprocess_inputs = HashMap::new();
+    postprocess_inputs.insert(
+        "forward_hash".to_string(),
+        Value::String(forward_hash_hex.clone()),
+    );
+    let mut postprocess_outputs = HashMap::new();
+    postprocess_outputs.insert(
+        "output_hash".to_string(),
+        Value::String(output_hash_hex.clone()),
+    );
+    postprocess_outputs.insert(
+        "output_format".to_string(),
+        Value::String(adapter.metadata().output_format.clone()),
+    );
+    let postprocess_event = adapter.create_trace_event(
+        executor.current_tick(),
+        format!("{}::postprocess", adapter.name()),
+        &postprocess_inputs,
+        &postprocess_outputs,
+    );
+    trace_events.push(summarize_event(&postprocess_event));
+    trace_bundle.add_event(postprocess_event);
+
+    let execution_duration = execution_timer.elapsed();
+    let execution_time_ms = execution_duration.as_millis().min(u128::from(u64::MAX)) as u64;
+
+    let epsilon = adapter
+        .epsilon_stats()
+        .map(|stats| stats.mean_error)
+        .unwrap_or(0.0);
+
+    if epsilon > adapter.metadata().epsilon_threshold {
+        let err = AosError::DeterminismViolation(format!(
+            "Observed epsilon {:.6} exceeds threshold {:.6}",
+            epsilon,
+            adapter.metadata().epsilon_threshold
+        ));
+        return Err(http_error_from_aos(
+            "Adapter epsilon threshold exceeded",
+            err,
+        ));
+    }
+
+    for executor_event in executor.get_event_log() {
+        trace_events.push(format!("executor::{executor_event:?}"));
+    }
+
+    if !trace_bundle.verify_hash() {
+        error!(
+            target: "adapteros_server_api::domain_adapters",
+            adapter = %adapter_id,
+            "Trace bundle hash verification failed"
+        );
+        trace_events.push("trace_bundle_hash_mismatch".to_string());
+    }
+
+    trace_events.push(format!(
+        "trace_bundle_hash:{}",
+        trace_bundle.bundle_hash.to_hex()
+    ));
+
+    adapter.reset();
 
     let execution = DomainAdapterExecutionResponse {
         execution_id: Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
         adapter_id: adapter_id.clone(),
-        input_hash: "mock_input_hash".to_string(),
-        output_hash: "mock_output_hash".to_string(),
-        epsilon: 0.001,
-        execution_time_ms: 150,
-        trace_events: vec![
-            "adapter_prepare".to_string(),
-            "adapter_forward".to_string(),
-            "adapter_postprocess".to_string(),
-        ],
+        input_hash: input_hash_hex,
+        output_hash: output_hash_hex,
+        epsilon,
+        execution_time_ms,
+        trace_events,
         executed_at: Utc::now().to_rfc3339(),
     };
 
@@ -380,4 +715,128 @@ pub async fn delete_domain_adapter(
 
     tracing::info!("Domain adapter {} deleted", adapter_id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{ApiConfig, MetricsConfig};
+    use adapteros_db::Db;
+    use adapteros_metrics_exporter::MetricsExporter;
+    use axum::extract::{Path, State as AxumState};
+    use serde_json::json;
+    use std::fs;
+    use std::sync::{Arc, RwLock};
+    use tempfile::TempDir;
+
+    async fn create_test_state() -> AppState {
+        let db = Db::connect(":memory:")
+            .await
+            .expect("in-memory database should connect");
+        let config = Arc::new(RwLock::new(ApiConfig {
+            metrics: MetricsConfig {
+                enabled: false,
+                bearer_token: "test-token".to_string(),
+            },
+        }));
+        let metrics_exporter = Arc::new(
+            MetricsExporter::new(vec![0.1, 0.5, 1.0]).expect("metrics exporter should initialize"),
+        );
+
+        AppState::new(db, b"jwt-secret".to_vec(), config, metrics_exporter)
+    }
+
+    fn write_text_manifest(dir: &TempDir, adapter_name: &str) {
+        let manifest_path = dir.path().join(format!("{adapter_name}.toml"));
+        let manifest = format!(
+            r#"[adapter]
+name = "{adapter_name}"
+version = "1.0.0"
+model = "test-model"
+hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+input_format = "UTF8 canonical"
+output_format = "BPE deterministic"
+epsilon_threshold = 0.1
+deterministic = true
+
+[adapter.parameters]
+vocab_size = 128
+max_sequence_length = 64
+"#
+        );
+
+        fs::write(&manifest_path, manifest).expect("manifest should be written");
+    }
+
+    #[tokio::test]
+    async fn execute_domain_adapter_runs_text_pipeline() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        write_text_manifest(&temp_dir, "test_adapter");
+        std::env::set_var("ADAPTEROS_DOMAIN_MANIFEST_DIR", temp_dir.path());
+
+        let state = create_test_state().await;
+
+        let result = execute_domain_adapter(
+            AxumState(state.clone()),
+            Path("test_adapter".to_string()),
+            Json(json!({ "input_text": "hello world" })),
+        )
+        .await;
+
+        std::env::remove_var("ADAPTEROS_DOMAIN_MANIFEST_DIR");
+
+        assert!(result.is_ok(), "execution should succeed: {result:?}");
+        let Json(response) = result.unwrap();
+        assert_eq!(response.adapter_id, "test_adapter");
+        assert!(!response.input_hash.is_empty());
+        assert!(!response.output_hash.is_empty());
+        assert!(response.trace_events.len() >= 3);
+        assert!(response.execution_time_ms <= u64::MAX);
+        assert!(response.epsilon >= 0.0);
+    }
+
+    #[tokio::test]
+    async fn execute_domain_adapter_rejects_missing_input() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        write_text_manifest(&temp_dir, "test_adapter");
+        std::env::set_var("ADAPTEROS_DOMAIN_MANIFEST_DIR", temp_dir.path());
+
+        let state = create_test_state().await;
+
+        let result = execute_domain_adapter(
+            AxumState(state.clone()),
+            Path("test_adapter".to_string()),
+            Json(json!({})),
+        )
+        .await;
+
+        std::env::remove_var("ADAPTEROS_DOMAIN_MANIFEST_DIR");
+
+        assert!(result.is_err());
+        let (status, Json(err)) = result.err().unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err.code, "BAD_REQUEST");
+    }
+
+    #[tokio::test]
+    async fn execute_domain_adapter_reports_missing_manifest() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        std::env::set_var("ADAPTEROS_DOMAIN_MANIFEST_DIR", temp_dir.path());
+
+        let state = create_test_state().await;
+
+        let result = execute_domain_adapter(
+            AxumState(state.clone()),
+            Path("missing_adapter".to_string()),
+            Json(json!({ "input": "hello" })),
+        )
+        .await;
+
+        std::env::remove_var("ADAPTEROS_DOMAIN_MANIFEST_DIR");
+
+        assert!(result.is_err());
+        let (status, Json(err)) = result.err().unwrap();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(err.code, "NOT_FOUND");
+    }
 }
