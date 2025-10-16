@@ -3,11 +3,13 @@
 // Note: MLX is primarily a Python framework, so this is a stub implementation
 
 #include "wrapper.h"
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <cstring>
 
 // Global error state
 static thread_local std::string g_last_error;

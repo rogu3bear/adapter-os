@@ -116,11 +116,17 @@ impl LoRAAdapter {
 
     /// Get total parameter count
     pub fn parameter_count(&self) -> usize {
-        let mut total = 0;
-        for (_module_name, (rows, cols)) in &self.shapes {
-            total += rows * cols;
-        }
-        total
+        let count_a: usize = self
+            .lora_a
+            .values()
+            .map(|matrix| matrix.iter().map(|row| row.len()).sum::<usize>())
+            .sum();
+        let count_b: usize = self
+            .lora_b
+            .values()
+            .map(|matrix| matrix.iter().map(|row| row.len()).sum::<usize>())
+            .sum();
+        count_a + count_b
     }
 
     /// Get memory usage estimate in bytes
