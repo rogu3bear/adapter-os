@@ -173,6 +173,7 @@ base64 = "0.22"
 hostname = "0.3"
 zeroize = "1.0"
 async-trait = "0.1"
+regex = "1.10"
 
 # Auth & Security
 argon2 = "0.5"
