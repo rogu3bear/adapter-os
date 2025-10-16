@@ -73,8 +73,7 @@ impl GoldenBaseline {
                 .map_err(|e| AosError::Io(format!("Failed to create directory: {}", e)))?;
         }
 
-        let json = serde_json::to_string_pretty(self)
-            .map_err(AosError::Serialization)?;
+        let json = serde_json::to_string_pretty(self).map_err(AosError::Serialization)?;
 
         std::fs::write(path, json)
             .map_err(|e| AosError::Io(format!("Failed to write baseline: {}", e)))?;
@@ -86,8 +85,7 @@ impl GoldenBaseline {
         let json = std::fs::read_to_string(path)
             .map_err(|e| AosError::Io(format!("Failed to read baseline: {}", e)))?;
 
-        serde_json::from_str(&json)
-            .map_err(AosError::Serialization)
+        serde_json::from_str(&json).map_err(AosError::Serialization)
     }
 
     fn verify(&self, host: &TestHost) -> (bool, Vec<String>) {

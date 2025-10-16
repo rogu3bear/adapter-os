@@ -53,9 +53,21 @@ fn generate_markdown(report: &VerificationReport) -> Result<String> {
         md.push_str(&format!("## {}\n\n", section.name));
 
         // Count section results
-        let pass = section.checks.iter().filter(|c| c.status == CheckStatus::Pass).count();
-        let fail = section.checks.iter().filter(|c| c.status == CheckStatus::Fail).count();
-        let skip = section.checks.iter().filter(|c| c.status == CheckStatus::Skip).count();
+        let pass = section
+            .checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Pass)
+            .count();
+        let fail = section
+            .checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Fail)
+            .count();
+        let skip = section
+            .checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Skip)
+            .count();
 
         md.push_str(&format!(
             "**Section Summary:** {} PASS, {} FAIL, {} SKIP\n\n",
@@ -81,16 +93,15 @@ fn generate_markdown(report: &VerificationReport) -> Result<String> {
 
             md.push_str(&format!(
                 "| {} | {} | {} |\n",
-                check.name,
-                status_icon,
-                notes
+                check.name, status_icon, notes
             ));
         }
 
         md.push('\n');
 
         // Details for failed checks
-        let failed_checks: Vec<_> = section.checks
+        let failed_checks: Vec<_> = section
+            .checks
             .iter()
             .filter(|c| c.status == CheckStatus::Fail)
             .collect();

@@ -69,7 +69,7 @@ impl Db {
         let row = sqlx::query(
             "SELECT policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at
              FROM policy_hashes
-             WHERE policy_pack_id = $1 AND cpid = $2"
+             WHERE policy_pack_id = $1 AND cpid = $2",
         )
         .bind(policy_pack_id)
         .bind(cpid_str)
@@ -119,7 +119,7 @@ impl Db {
         let result = sqlx::query(
             "UPDATE policy_hashes
              SET baseline_hash = $1, updated_at = $2
-             WHERE policy_pack_id = $3 AND cpid = $4"
+             WHERE policy_pack_id = $3 AND cpid = $4",
         )
         .bind(&hash_hex)
         .bind(now)
@@ -132,21 +132,29 @@ impl Db {
             return Err(AosError::Database(format!(
                 "Policy hash not found: {} (cpid: {})",
                 policy_pack_id, cpid_str
-            )).into());
+            ))
+            .into());
         }
 
         Ok(())
     }
 
     /// List all policy hashes for a given CPID (or all if None)
-    pub async fn list_policy_hashes(&self, cpid: Option<&str>) -> anyhow::Result<Vec<PolicyHashRecord>> {
+    pub async fn list_policy_hashes(
+        &self,
+        cpid: Option<&str>,
+    ) -> anyhow::Result<Vec<PolicyHashRecord>> {
         let rows = if let Some(cpid_val) = cpid {
-            let cpid_str = if cpid_val.is_empty() { "global" } else { cpid_val };
+            let cpid_str = if cpid_val.is_empty() {
+                "global"
+            } else {
+                cpid_val
+            };
             sqlx::query(
                 "SELECT policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at
                  FROM policy_hashes
                  WHERE cpid = $1
-                 ORDER BY policy_pack_id"
+                 ORDER BY policy_pack_id",
             )
             .bind(cpid_str)
             .fetch_all(&self.pool)
@@ -155,7 +163,7 @@ impl Db {
             sqlx::query(
                 "SELECT policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at
                  FROM policy_hashes
-                 ORDER BY cpid, policy_pack_id"
+                 ORDER BY cpid, policy_pack_id",
             )
             .fetch_all(&self.pool)
             .await?
@@ -188,12 +196,16 @@ impl Db {
     }
 
     /// Delete a policy hash
-    pub async fn delete_policy_hash(&self, policy_pack_id: &str, cpid: Option<&str>) -> anyhow::Result<()> {
+    pub async fn delete_policy_hash(
+        &self,
+        policy_pack_id: &str,
+        cpid: Option<&str>,
+    ) -> anyhow::Result<()> {
         let cpid_str = cpid.unwrap_or("global");
 
         let result = sqlx::query(
             "DELETE FROM policy_hashes
-             WHERE policy_pack_id = $1 AND cpid = $2"
+             WHERE policy_pack_id = $1 AND cpid = $2",
         )
         .bind(policy_pack_id)
         .bind(cpid_str)
@@ -204,7 +216,8 @@ impl Db {
             return Err(AosError::Database(format!(
                 "Policy hash not found: {} (cpid: {})",
                 policy_pack_id, cpid_str
-            )).into());
+            ))
+            .into());
         }
 
         Ok(())
@@ -219,12 +232,12 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db_url = format!("sqlite://{}", db_path.display());
-        
+
         let db = Db::connect(&db_url).await.unwrap();
-        
+
         // Run migrations
         db.migrate().await.unwrap();
-        
+
         db
     }
 
@@ -237,7 +250,11 @@ mod tests {
             .await
             .unwrap();
 
-        let record = db.get_policy_hash("test_policy", Some("cp-001")).await.unwrap().unwrap();
+        let record = db
+            .get_policy_hash("test_policy", Some("cp-001"))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(record.policy_pack_id, "test_policy");
         assert_eq!(record.baseline_hash, hash);
         assert_eq!(record.cpid, Some("cp-001".to_string()));
@@ -258,7 +275,11 @@ mod tests {
             .await
             .unwrap();
 
-        let record = db.get_policy_hash("test_policy", Some("cp-001")).await.unwrap().unwrap();
+        let record = db
+            .get_policy_hash("test_policy", Some("cp-001"))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(record.baseline_hash, hash2);
     }
 
@@ -289,9 +310,14 @@ mod tests {
             .await
             .unwrap();
 
-        db.delete_policy_hash("test_policy", Some("cp-001")).await.unwrap();
+        db.delete_policy_hash("test_policy", Some("cp-001"))
+            .await
+            .unwrap();
 
-        let record = db.get_policy_hash("test_policy", Some("cp-001")).await.unwrap();
+        let record = db
+            .get_policy_hash("test_policy", Some("cp-001"))
+            .await
+            .unwrap();
         assert!(record.is_none());
     }
 
@@ -304,8 +330,11 @@ mod tests {
             .await
             .unwrap();
 
-        let record = db.get_policy_hash("global_policy", None).await.unwrap().unwrap();
+        let record = db
+            .get_policy_hash("global_policy", None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(record.cpid, None);
     }
 }
-

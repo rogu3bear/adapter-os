@@ -9,18 +9,25 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 
+pub mod alerting;
 pub mod audit_log;
 pub mod bundle;
 pub mod bundle_store;
 pub mod event;
 pub mod events;
+pub mod health_monitoring;
 pub mod merkle;
 pub mod metrics;
+pub mod performance_monitoring;
 pub mod replay;
 pub mod report;
 pub mod uds_exporter;
 pub mod unified_events;
 
+pub use alerting::{
+    AlertComparator, AlertRecord, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
+    NotificationChannel,
+};
 pub use audit_log::{
     SignatureAuditEntry, SignatureAuditLogger, SignatureOperation, SignatureResult,
 };
@@ -30,19 +37,26 @@ pub use bundle_store::{
     GarbageCollectionReport, RetentionPolicy, StorageStats,
 };
 pub use event::Event;
-pub use events::{InferenceEvent, RngSnapshot, RouterDecisionEvent, PolicyHashValidationEvent, ValidationStatus};
+pub use events::{
+    InferenceEvent, PolicyHashValidationEvent, RngSnapshot, RouterDecisionEvent, ValidationStatus,
+};
+pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
 pub use metrics::{
-    MetricsCollector, MetricsServer, MetricsSnapshot, LatencyMetrics, QueueDepthMetrics,
-    ThroughputMetrics, SystemMetrics, PolicyMetrics, AdapterMetrics,
+    AdapterMetrics, LatencyMetrics, MetricsCollector, MetricsServer, MetricsSnapshot,
+    PolicyMetrics, QueueDepthMetrics, SystemMetrics, ThroughputMetrics,
+};
+pub use performance_monitoring::{
+    LatencySample, PerformanceMonitoringService, PerformanceSnapshot, ThroughputSample,
 };
 pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
 pub use report::generate_html_report;
-pub use uds_exporter::{UdsMetricsExporter, MetricValue, MetricMetadata};
+pub use uds_exporter::{MetricMetadata, MetricValue, UdsMetricsExporter};
 pub use unified_events::{
-    TelemetryEvent as UnifiedTelemetryEvent, LogLevel, EventType, TelemetryFilters, TelemetryEventBuilder,
+    EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
+    TelemetryFilters,
 };
 
 /// Telemetry writer with background thread
@@ -86,7 +100,9 @@ impl TelemetryWriter {
 
     /// Log an event using the unified event schema
     pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
-        self.sender.send(event).map_err(|_| AosError::Io("Failed to send telemetry event".to_string()))?;
+        self.sender
+            .send(event)
+            .map_err(|_| AosError::Io("Failed to send telemetry event".to_string()))?;
         Ok(())
     }
 
@@ -99,7 +115,7 @@ impl TelemetryWriter {
         )
         .metadata(serde_json::to_value(payload)?)
         .build();
-        
+
         self.log_event(event)
     }
 
@@ -220,7 +236,7 @@ impl TelemetryWriter {
     }
 
     /// Log a policy hash validation event
-    /// 
+    ///
     /// Logged at 100% sampling (policy violations per Telemetry Ruleset #9).
     /// Used to track runtime policy pack hash validation and detect mutations.
     pub fn log_policy_hash_validation(

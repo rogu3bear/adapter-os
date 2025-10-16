@@ -30,11 +30,11 @@ fn test_k_reduction_before_hot_eviction() {
     manager.promote_adapter(0).unwrap(); // cold
     manager.promote_adapter(0).unwrap(); // warm
     manager.promote_adapter(0).unwrap(); // hot
-    
+
     manager.promote_adapter(1).unwrap();
     manager.promote_adapter(1).unwrap();
     manager.promote_adapter(1).unwrap();
-    
+
     manager.promote_adapter(2).unwrap();
     manager.promote_adapter(2).unwrap();
     manager.promote_adapter(2).unwrap();
@@ -73,7 +73,7 @@ fn test_k_gradual_reduction() {
 
     let adapter_names = vec!["adapter_0".to_string()];
     let policies = Policies::default();
-    
+
     let manager = LifecycleManager::new(
         adapter_names.clone(),
         &policies,
@@ -122,27 +122,19 @@ fn test_eviction_order_respects_policy() {
     ];
 
     let mut policies = Policies::default();
-    policies.memory.evict_order = vec![
-        "cold_lru".to_string(),
-        "warm_lru".to_string(),
-    ];
+    policies.memory.evict_order = vec!["cold_lru".to_string(), "warm_lru".to_string()];
 
-    let manager = LifecycleManager::new(
-        adapter_names.clone(),
-        &policies,
-        temp_dir.clone(),
-        None,
-        3,
-    );
+    let manager =
+        LifecycleManager::new(adapter_names.clone(), &policies, temp_dir.clone(), None, 3);
 
     let profiler = AdapterProfiler::new(adapter_names, None);
 
     // Set up different states
     manager.promote_adapter(0).unwrap(); // cold
-    
+
     manager.promote_adapter(1).unwrap(); // cold
     manager.promote_adapter(1).unwrap(); // warm
-    
+
     manager.promote_adapter(2).unwrap(); // cold
     manager.promote_adapter(2).unwrap(); // warm
     manager.promote_adapter(2).unwrap(); // hot
@@ -159,7 +151,7 @@ fn test_eviction_order_respects_policy() {
     // Cold adapter should be evicted (back to unloaded)
     use adapteros_lora_lifecycle::AdapterState;
     assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
-    
+
     // Other adapters should remain
     assert!(manager.get_state(1).unwrap().is_loaded());
     assert!(manager.get_state(2).unwrap().is_loaded());
@@ -167,4 +159,3 @@ fn test_eviction_order_respects_policy() {
     // Cleanup
     std::fs::remove_dir_all(temp_dir).unwrap();
 }
-

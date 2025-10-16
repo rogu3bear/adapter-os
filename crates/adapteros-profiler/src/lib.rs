@@ -11,7 +11,7 @@ use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 pub mod metrics;
 pub mod scoring;
@@ -61,6 +61,12 @@ impl AdapterProfiler {
     pub fn record_step_latency(&self, adapter_id: u16, latency: Duration) {
         let mut agg = self.aggregator.write();
         agg.record_latency(adapter_id, latency);
+    }
+
+    /// Record GPU metrics for an adapter
+    pub fn record_gpu_metrics(&self, adapter_id: u16, utilization_pct: f32, memory_bytes: usize) {
+        let mut agg = self.aggregator.write();
+        agg.record_gpu_metrics(adapter_id, utilization_pct, memory_bytes);
     }
 
     /// Update memory usage for an adapter
@@ -134,6 +140,21 @@ impl AdapterProfiler {
         let mut agg = self.aggregator.write();
         agg.prune_old(duration);
     }
+
+    /// Generate a performance report snapshot for operators
+    pub fn generate_report(&self) -> PerformanceReport {
+        let agg = self.aggregator.read();
+        let metrics = agg.get_all_metrics(&self.adapter_names);
+        let total_activations = metrics.iter().map(|m| m.activation_count).sum();
+        let total_memory_bytes = metrics.iter().map(|m| m.memory_bytes).sum();
+
+        PerformanceReport {
+            generated_at: SystemTime::now(),
+            total_activations,
+            total_memory_bytes,
+            adapters: metrics,
+        }
+    }
 }
 
 /// Inference session for tracking timing
@@ -162,6 +183,15 @@ pub struct ProfilingSnapshot {
     pub metrics: Vec<AdapterMetrics>,
 }
 
+/// Performance report summarising adapter estate health
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceReport {
+    pub generated_at: SystemTime,
+    pub total_activations: usize,
+    pub total_memory_bytes: usize,
+    pub adapters: Vec<AdapterMetrics>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +210,8 @@ mod tests {
         profiler.record_routing_decision(&[0, 1]);
         profiler.record_routing_decision(&[0, 2]);
         profiler.record_routing_decision(&[0, 1]);
+        profiler.record_gpu_metrics(0, 80.0, 1_000_000);
+        profiler.record_step_latency(0, Duration::from_micros(120));
 
         let metrics = profiler.get_all_metrics();
 
@@ -199,5 +231,17 @@ mod tests {
 
         let timings = session.step_timings();
         assert_eq!(timings.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_report() {
+        let profiler = AdapterProfiler::new(vec!["adapter".into()], None);
+        profiler.record_routing_decision(&[0]);
+        profiler.update_memory_usage(0, 1024);
+
+        let report = profiler.generate_report();
+        assert_eq!(report.adapters.len(), 1);
+        assert_eq!(report.total_activations, 1);
+        assert_eq!(report.total_memory_bytes, 1024);
     }
 }

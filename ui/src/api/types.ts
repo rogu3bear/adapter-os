@@ -427,9 +427,12 @@ export interface AdapterMetrics {
 }
 
 export interface AdapterPerformance {
-  avg_latency_ms: number;
-  quality_score: number;
-  activation_count: number;
+  avg_latency_ms?: number;
+  avg_latency_us?: number;
+  quality_score?: number;
+  activation_count?: number;
+  activation_rate?: number;
+  total_requests?: number;
 }
 
 // Routing

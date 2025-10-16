@@ -240,16 +240,12 @@ pub async fn scan_repo(
         })?;
 
     // Check for existing running scan
-    let existing_jobs = state
-        .db
-        .list_scan_jobs(&repo.id, 10)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(e.to_string())),
-            )
-        })?;
+    let existing_jobs = state.db.list_scan_jobs(&repo.id, 10).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(e.to_string())),
+        )
+    })?;
 
     if existing_jobs
         .iter()
@@ -257,10 +253,7 @@ pub async fn scan_repo(
     {
         return Err((
             StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new("Scan already in progress")
-                    .with_code("CONFLICT"),
-            ),
+            Json(ErrorResponse::new("Scan already in progress").with_code("CONFLICT")),
         ));
     }
 
@@ -408,16 +401,12 @@ pub async fn list_repositories(
             )
         })?;
 
-    let total = state
-        .db
-        .count_repositories(tenant_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(e.to_string())),
-            )
-        })?;
+    let total = state.db.count_repositories(tenant_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(e.to_string())),
+        )
+    })?;
 
     let repo_infos: Vec<RepositoryInfo> = repos
         .into_iter()
@@ -563,4 +552,3 @@ pub async fn create_commit_delta(
         message: "Commit delta pack creation started".to_string(),
     }))
 }
-

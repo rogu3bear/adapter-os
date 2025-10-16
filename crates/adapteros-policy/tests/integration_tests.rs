@@ -9,8 +9,8 @@
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 use adapteros_policy::policy_packs::{
-    PolicyPackManager, PolicyPackId, PolicyRequest, RequestType, PolicyContext, Priority,
-    ViolationSeverity, PolicyPackConfig, EnforcementLevel,
+    EnforcementLevel, PolicyContext, PolicyPackConfig, PolicyPackId, PolicyPackManager,
+    PolicyRequest, Priority, RequestType, ViolationSeverity,
 };
 use serde_json;
 
@@ -18,11 +18,11 @@ use serde_json;
 #[tokio::test]
 async fn test_all_policy_packs_integration() {
     let manager = PolicyPackManager::new();
-    
+
     // Verify all 20 policy packs are initialized
     let configs = manager.get_all_configs();
     assert_eq!(configs.len(), 20);
-    
+
     // Test each policy pack individually
     test_egress_policy_pack(&manager).await;
     test_determinism_policy_pack(&manager).await;
@@ -65,16 +65,18 @@ async fn test_egress_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let tcp_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Egress Ruleset" && v.message.contains("TCP/UDP connections are not allowed"));
+
+    let tcp_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Egress Ruleset"
+            && v.message.contains("TCP/UDP connections are not allowed")
+    });
     assert!(tcp_violation.is_some());
     assert_eq!(tcp_violation.unwrap().severity, ViolationSeverity::Blocker);
-    
+
     // Test DNS resolution attempt (should be blocked)
     let dns_request = PolicyRequest {
         request_id: "test-egress-dns".to_string(),
@@ -91,13 +93,16 @@ async fn test_egress_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let dns_result = manager.validate_request(&dns_request).unwrap();
     assert!(!dns_result.valid);
     assert!(!dns_result.violations.is_empty());
-    
-    let dns_violation = dns_result.violations.iter()
-        .find(|v| v.policy_pack == "Egress Ruleset" && v.message.contains("DNS resolution requests are not allowed"));
+
+    let dns_violation = dns_result.violations.iter().find(|v| {
+        v.policy_pack == "Egress Ruleset"
+            && v.message
+                .contains("DNS resolution requests are not allowed")
+    });
     assert!(dns_violation.is_some());
     assert_eq!(dns_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -120,16 +125,19 @@ async fn test_determinism_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let kernel_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Determinism Ruleset" && v.message.contains("Runtime kernel compilation is not allowed"));
+
+    let kernel_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Determinism Ruleset"
+            && v.message
+                .contains("Runtime kernel compilation is not allowed")
+    });
     assert!(kernel_violation.is_some());
     assert_eq!(kernel_violation.unwrap().severity, ViolationSeverity::Error);
-    
+
     // Test non-HKDF RNG usage (should be blocked)
     let rng_request = PolicyRequest {
         request_id: "test-determinism-rng".to_string(),
@@ -146,13 +154,14 @@ async fn test_determinism_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let rng_result = manager.validate_request(&rng_request).unwrap();
     assert!(!rng_result.valid);
     assert!(!rng_result.violations.is_empty());
-    
-    let rng_violation = rng_result.violations.iter()
-        .find(|v| v.policy_pack == "Determinism Ruleset" && v.message.contains("Non-HKDF RNG usage detected"));
+
+    let rng_violation = rng_result.violations.iter().find(|v| {
+        v.policy_pack == "Determinism Ruleset" && v.message.contains("Non-HKDF RNG usage detected")
+    });
     assert!(rng_violation.is_some());
     assert_eq!(rng_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -175,16 +184,17 @@ async fn test_router_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let k_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Router Ruleset" && v.message.contains("K-sparse value exceeds maximum"));
+
+    let k_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Router Ruleset" && v.message.contains("K-sparse value exceeds maximum")
+    });
     assert!(k_violation.is_some());
     assert_eq!(k_violation.unwrap().severity, ViolationSeverity::Error);
-    
+
     // Test non-Q15 gate quantization (should be blocked)
     let gate_request = PolicyRequest {
         request_id: "test-router-gate-quant".to_string(),
@@ -201,13 +211,14 @@ async fn test_router_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let gate_result = manager.validate_request(&gate_request).unwrap();
     assert!(!gate_result.valid);
     assert!(!gate_result.violations.is_empty());
-    
-    let gate_violation = gate_result.violations.iter()
-        .find(|v| v.policy_pack == "Router Ruleset" && v.message.contains("Gate quantization must be Q15"));
+
+    let gate_violation = gate_result.violations.iter().find(|v| {
+        v.policy_pack == "Router Ruleset" && v.message.contains("Gate quantization must be Q15")
+    });
     assert!(gate_violation.is_some());
     assert_eq!(gate_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -230,15 +241,21 @@ async fn test_evidence_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let evidence_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Evidence Ruleset" && v.message.contains("Evidence spans are required for inference"));
+
+    let evidence_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Evidence Ruleset"
+            && v.message
+                .contains("Evidence spans are required for inference")
+    });
     assert!(evidence_violation.is_some());
-    assert_eq!(evidence_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(
+        evidence_violation.unwrap().severity,
+        ViolationSeverity::Error
+    );
 }
 
 /// Test Refusal Policy Pack (#5)
@@ -259,16 +276,22 @@ async fn test_refusal_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     // Refusal policy pack emits Warning violations which don't block at Error enforcement level
     assert!(result.valid);
     assert!(!result.violations.is_empty());
-    
-    let refusal_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Refusal Ruleset" && v.message.contains("Low confidence response should be refused"));
+
+    let refusal_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Refusal Ruleset"
+            && v.message
+                .contains("Low confidence response should be refused")
+    });
     assert!(refusal_violation.is_some());
-    assert_eq!(refusal_violation.unwrap().severity, ViolationSeverity::Warning);
+    assert_eq!(
+        refusal_violation.unwrap().severity,
+        ViolationSeverity::Warning
+    );
 }
 
 /// Test Numeric Units Policy Pack (#6)
@@ -291,13 +314,15 @@ async fn test_numeric_units_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let units_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Numeric & Units Ruleset" && v.message.contains("Units are required for numeric values"));
+
+    let units_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Numeric & Units Ruleset"
+            && v.message.contains("Units are required for numeric values")
+    });
     assert!(units_violation.is_some());
     assert_eq!(units_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -321,13 +346,14 @@ async fn test_rag_index_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let rag_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "RAG Index Ruleset" && v.message.contains("Cross-tenant access detected"));
+
+    let rag_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "RAG Index Ruleset" && v.message.contains("Cross-tenant access detected")
+    });
     assert!(rag_violation.is_some());
     assert_eq!(rag_violation.unwrap().severity, ViolationSeverity::Blocker);
 }
@@ -350,15 +376,20 @@ async fn test_isolation_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let isolation_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Isolation Ruleset" && v.message.contains("Shared memory usage is forbidden"));
+
+    let isolation_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Isolation Ruleset"
+            && v.message.contains("Shared memory usage is forbidden")
+    });
     assert!(isolation_violation.is_some());
-    assert_eq!(isolation_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(
+        isolation_violation.unwrap().severity,
+        ViolationSeverity::Error
+    );
 }
 
 /// Test Telemetry Policy Pack (#9)
@@ -379,16 +410,20 @@ async fn test_telemetry_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     // Telemetry policy pack emits Warning violations which don't block at Error enforcement level
     assert!(result.valid);
     assert!(!result.violations.is_empty());
-    
-    let telemetry_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Telemetry Ruleset" && v.message.contains("Sampling rate exceeds maximum"));
+
+    let telemetry_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Telemetry Ruleset" && v.message.contains("Sampling rate exceeds maximum")
+    });
     assert!(telemetry_violation.is_some());
-    assert_eq!(telemetry_violation.unwrap().severity, ViolationSeverity::Warning);
+    assert_eq!(
+        telemetry_violation.unwrap().severity,
+        ViolationSeverity::Warning
+    );
 }
 
 /// Test Retention Policy Pack (#10)
@@ -409,13 +444,15 @@ async fn test_retention_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(result.valid); // Should be valid but with warnings
     assert!(!result.warnings.is_empty());
-    
-    let retention_warning = result.warnings.iter()
-        .find(|w| w.policy_pack == "Retention Ruleset" && w.message.contains("Bundle count exceeds retention limit"));
+
+    let retention_warning = result.warnings.iter().find(|w| {
+        w.policy_pack == "Retention Ruleset"
+            && w.message.contains("Bundle count exceeds retention limit")
+    });
     assert!(retention_warning.is_some());
 }
 
@@ -437,15 +474,19 @@ async fn test_performance_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let performance_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Performance Ruleset" && v.message.contains("Latency exceeds p95 budget"));
+
+    let performance_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Performance Ruleset" && v.message.contains("Latency exceeds p95 budget")
+    });
     assert!(performance_violation.is_some());
-    assert_eq!(performance_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(
+        performance_violation.unwrap().severity,
+        ViolationSeverity::Error
+    );
 }
 
 /// Test Memory Policy Pack (#12)
@@ -466,13 +507,16 @@ async fn test_memory_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let memory_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Memory Ruleset" && v.message.contains("Memory headroom below minimum threshold"));
+
+    let memory_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Memory Ruleset"
+            && v.message
+                .contains("Memory headroom below minimum threshold")
+    });
     assert!(memory_violation.is_some());
     assert_eq!(memory_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -498,15 +542,19 @@ async fn test_artifacts_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let artifacts_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Artifacts Ruleset" && v.message.contains("Artifact signature is required"));
+
+    let artifacts_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Artifacts Ruleset" && v.message.contains("Artifact signature is required")
+    });
     assert!(artifacts_violation.is_some());
-    assert_eq!(artifacts_violation.unwrap().severity, ViolationSeverity::Blocker);
+    assert_eq!(
+        artifacts_violation.unwrap().severity,
+        ViolationSeverity::Blocker
+    );
 }
 
 /// Test Secrets Policy Pack (#14)
@@ -529,15 +577,20 @@ async fn test_secrets_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let secrets_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Secrets Ruleset" && v.message.contains("Plaintext secrets are not allowed"));
+
+    let secrets_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Secrets Ruleset"
+            && v.message.contains("Plaintext secrets are not allowed")
+    });
     assert!(secrets_violation.is_some());
-    assert_eq!(secrets_violation.unwrap().severity, ViolationSeverity::Blocker);
+    assert_eq!(
+        secrets_violation.unwrap().severity,
+        ViolationSeverity::Blocker
+    );
 }
 
 /// Test Build Release Policy Pack (#15)
@@ -558,15 +611,20 @@ async fn test_build_release_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let build_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Build & Release Ruleset" && v.message.contains("Replay shows non-zero diff"));
+
+    let build_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Build & Release Ruleset"
+            && v.message.contains("Replay shows non-zero diff")
+    });
     assert!(build_violation.is_some());
-    assert_eq!(build_violation.unwrap().severity, ViolationSeverity::Blocker);
+    assert_eq!(
+        build_violation.unwrap().severity,
+        ViolationSeverity::Blocker
+    );
 }
 
 /// Test Compliance Policy Pack (#16)
@@ -589,15 +647,20 @@ async fn test_compliance_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let compliance_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Compliance Ruleset" && v.message.contains("Compliance evidence links are required"));
+
+    let compliance_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Compliance Ruleset"
+            && v.message.contains("Compliance evidence links are required")
+    });
     assert!(compliance_violation.is_some());
-    assert_eq!(compliance_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(
+        compliance_violation.unwrap().severity,
+        ViolationSeverity::Error
+    );
 }
 
 /// Test Incident Policy Pack (#17)
@@ -619,15 +682,21 @@ async fn test_incident_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let incident_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Incident Ruleset" && v.message.contains("Incident response procedures are required"));
+
+    let incident_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Incident Ruleset"
+            && v.message
+                .contains("Incident response procedures are required")
+    });
     assert!(incident_violation.is_some());
-    assert_eq!(incident_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(
+        incident_violation.unwrap().severity,
+        ViolationSeverity::Error
+    );
 }
 
 /// Test LLM Output Policy Pack (#18)
@@ -648,13 +717,14 @@ async fn test_llm_output_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let output_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "LLM Output Ruleset" && v.message.contains("Output format must be JSON"));
+
+    let output_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "LLM Output Ruleset" && v.message.contains("Output format must be JSON")
+    });
     assert!(output_violation.is_some());
     assert_eq!(output_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -677,13 +747,16 @@ async fn test_adapter_lifecycle_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(result.valid); // Should be valid but with warnings
     assert!(!result.warnings.is_empty());
-    
-    let lifecycle_warning = result.warnings.iter()
-        .find(|w| w.policy_pack == "Adapter Lifecycle Ruleset" && w.message.contains("Adapter activation below minimum threshold"));
+
+    let lifecycle_warning = result.warnings.iter().find(|w| {
+        w.policy_pack == "Adapter Lifecycle Ruleset"
+            && w.message
+                .contains("Adapter activation below minimum threshold")
+    });
     assert!(lifecycle_warning.is_some());
 }
 
@@ -705,13 +778,14 @@ async fn test_full_pack_policy_pack(manager: &PolicyPackManager) {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid);
     assert!(!result.violations.is_empty());
-    
-    let schema_violation = result.violations.iter()
-        .find(|v| v.policy_pack == "Full Pack Example" && v.message.contains("Invalid policy schema version"));
+
+    let schema_violation = result.violations.iter().find(|v| {
+        v.policy_pack == "Full Pack Example" && v.message.contains("Invalid policy schema version")
+    });
     assert!(schema_violation.is_some());
     assert_eq!(schema_violation.unwrap().severity, ViolationSeverity::Error);
 }
@@ -720,12 +794,12 @@ async fn test_full_pack_policy_pack(manager: &PolicyPackManager) {
 #[tokio::test]
 async fn test_policy_pack_configuration() {
     let mut manager = PolicyPackManager::new();
-    
+
     // Test getting policy pack configuration
     let egress_config = manager.get_pack_config(&PolicyPackId::Egress);
     assert!(egress_config.is_some());
     assert!(egress_config.unwrap().enabled);
-    
+
     // Test updating policy pack configuration
     let new_config = PolicyPackConfig {
         id: PolicyPackId::Egress,
@@ -734,15 +808,19 @@ async fn test_policy_pack_configuration() {
         enforcement_level: EnforcementLevel::Warning,
         last_updated: chrono::Utc::now(),
     };
-    
-    manager.update_pack_config(PolicyPackId::Egress, new_config).unwrap();
-    
+
+    manager
+        .update_pack_config(PolicyPackId::Egress, new_config)
+        .unwrap();
+
     let updated_config = manager.get_pack_config(&PolicyPackId::Egress);
     assert!(updated_config.is_some());
     assert!(!updated_config.unwrap().enabled);
-    
+
     // Test enabling/disabling policy packs
-    manager.set_pack_enabled(PolicyPackId::Egress, true).unwrap();
+    manager
+        .set_pack_enabled(PolicyPackId::Egress, true)
+        .unwrap();
     let enabled_config = manager.get_pack_config(&PolicyPackId::Egress);
     assert!(enabled_config.is_some());
     assert!(enabled_config.unwrap().enabled);
@@ -752,7 +830,7 @@ async fn test_policy_pack_configuration() {
 #[tokio::test]
 async fn test_policy_pack_validation_performance() {
     let manager = PolicyPackManager::new();
-    
+
     let request = PolicyRequest {
         request_id: "test-performance".to_string(),
         request_type: RequestType::Inference,
@@ -770,15 +848,15 @@ async fn test_policy_pack_validation_performance() {
         },
         metadata: None,
     };
-    
+
     let start_time = std::time::Instant::now();
     let result = manager.validate_request(&request).unwrap();
     let duration = start_time.elapsed();
-    
+
     // Policy validation should complete within reasonable time
     assert!(duration.as_millis() < 100);
     assert!(result.duration_ms < 100);
-    
+
     // Should be valid with no violations
     assert!(result.valid);
     assert!(result.violations.is_empty());
@@ -788,7 +866,7 @@ async fn test_policy_pack_validation_performance() {
 #[tokio::test]
 async fn test_comprehensive_policy_integration() {
     let manager = PolicyPackManager::new();
-    
+
     // Test a complex request that triggers multiple policy packs
     let complex_request = PolicyRequest {
         request_id: "test-comprehensive".to_string(),
@@ -811,18 +889,20 @@ async fn test_comprehensive_policy_integration() {
         },
         metadata: None,
     };
-    
+
     let result = manager.validate_request(&complex_request).unwrap();
-    
+
     // Should have multiple violations from different policy packs
     assert!(!result.valid);
     assert!(result.violations.len() > 5);
-    
+
     // Check that multiple policy packs are involved
-    let policy_packs: std::collections::HashSet<String> = result.violations.iter()
+    let policy_packs: std::collections::HashSet<String> = result
+        .violations
+        .iter()
         .map(|v| v.policy_pack.clone())
         .collect();
-    
+
     assert!(policy_packs.len() > 5);
     assert!(policy_packs.contains("Egress Ruleset"));
     assert!(policy_packs.contains("Evidence Ruleset"));
@@ -837,10 +917,10 @@ async fn test_comprehensive_policy_integration() {
 #[tokio::test]
 async fn test_policy_pack_enforcement_levels() {
     let manager = PolicyPackManager::new();
-    
+
     // Test with different enforcement levels
     let configs = manager.get_all_configs();
-    
+
     for (pack_id, config) in configs {
         match config.enforcement_level {
             EnforcementLevel::Info => {
@@ -848,24 +928,45 @@ async fn test_policy_pack_enforcement_levels() {
                 let request = create_test_request(&pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Info level violations should not make the request invalid
-                assert!(result.valid || result.violations.iter().all(|v| matches!(v.severity, ViolationSeverity::Info)));
+                assert!(
+                    result.valid
+                        || result
+                            .violations
+                            .iter()
+                            .all(|v| matches!(v.severity, ViolationSeverity::Info))
+                );
             }
             EnforcementLevel::Warning => {
                 // Warning level should allow operations but flag issues
                 let request = create_test_request(&pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Warning level should be valid or have only warning violations
-                assert!(result.valid || result.violations.iter().all(|v| matches!(v.severity, ViolationSeverity::Warning)));
+                assert!(
+                    result.valid
+                        || result
+                            .violations
+                            .iter()
+                            .all(|v| matches!(v.severity, ViolationSeverity::Warning))
+                );
             }
             EnforcementLevel::Error => {
                 // Error level should block operations when violations occur
                 let request = create_test_request(&pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Error level should block operations if Error-severity violations are present
-                let has_error_violations = result.violations.iter().any(|v| matches!(v.severity, ViolationSeverity::Error));
-                let has_critical_violations = result.violations.iter().any(|v| matches!(v.severity, ViolationSeverity::Critical));
-                let has_blocker_violations = result.violations.iter().any(|v| matches!(v.severity, ViolationSeverity::Blocker));
-                
+                let has_error_violations = result
+                    .violations
+                    .iter()
+                    .any(|v| matches!(v.severity, ViolationSeverity::Error));
+                let has_critical_violations = result
+                    .violations
+                    .iter()
+                    .any(|v| matches!(v.severity, ViolationSeverity::Critical));
+                let has_blocker_violations = result
+                    .violations
+                    .iter()
+                    .any(|v| matches!(v.severity, ViolationSeverity::Blocker));
+
                 if has_error_violations || has_critical_violations || has_blocker_violations {
                     assert!(!result.valid);
                 } else {
@@ -880,7 +981,10 @@ async fn test_policy_pack_enforcement_levels() {
                 let result = manager.validate_request(&request).unwrap();
                 // Critical level should block operations
                 assert!(!result.valid);
-                assert!(result.violations.iter().any(|v| matches!(v.severity, ViolationSeverity::Critical)));
+                assert!(result
+                    .violations
+                    .iter()
+                    .any(|v| matches!(v.severity, ViolationSeverity::Critical)));
             }
         }
     }

@@ -3,10 +3,10 @@
 //! Provides CLI commands for managing system metrics, viewing health status,
 //! and exporting metrics data.
 
+use adapteros_system_metrics::{MetricsConfig, SystemMetricsCollector, SystemMetricsDb};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
-use adapteros_system_metrics::{MetricsConfig, SystemMetricsCollector, SystemMetricsDb};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 

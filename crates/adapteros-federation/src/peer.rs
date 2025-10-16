@@ -150,12 +150,11 @@ impl PeerRegistry {
         .map_err(|e| AosError::Database(format!("Failed to fetch peer: {}", e)))?;
 
         if let Some(row) = row {
-            let pubkey_hex: String = row.try_get("pubkey").map_err(|e| {
-                AosError::Database(format!("Failed to get pubkey: {}", e))
-            })?;
-            let pubkey_bytes = hex::decode(&pubkey_hex).map_err(|e| {
-                AosError::Crypto(format!("Invalid pubkey hex: {}", e))
-            })?;
+            let pubkey_hex: String = row
+                .try_get("pubkey")
+                .map_err(|e| AosError::Database(format!("Failed to get pubkey: {}", e)))?;
+            let pubkey_bytes = hex::decode(&pubkey_hex)
+                .map_err(|e| AosError::Crypto(format!("Invalid pubkey hex: {}", e)))?;
             if pubkey_bytes.len() != 32 {
                 return Err(AosError::Crypto("Invalid public key length".to_string()));
             }
@@ -164,8 +163,8 @@ impl PeerRegistry {
             let pubkey = PublicKey::from_bytes(&key_array)?;
 
             let attestation_metadata: Option<String> = row.try_get("attestation_metadata").ok();
-            let attestation_metadata = attestation_metadata
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let attestation_metadata =
+                attestation_metadata.and_then(|json| serde_json::from_str(&json).ok());
 
             let peer_info = PeerInfo {
                 host_id: row.try_get("host_id").unwrap(),
@@ -192,7 +191,7 @@ impl PeerRegistry {
     /// List all active peers
     pub async fn list_active_peers(&self) -> Result<Vec<PeerInfo>> {
         let pool = self.db.pool();
-        
+
         let rows = sqlx::query(
             r#"
             SELECT host_id, pubkey, hostname, registered_at, last_seen_at, attestation_metadata, active
@@ -207,12 +206,11 @@ impl PeerRegistry {
 
         let mut peers = Vec::new();
         for row in rows {
-            let pubkey_hex: String = row.try_get("pubkey").map_err(|e| {
-                AosError::Database(format!("Failed to get pubkey: {}", e))
-            })?;
-            let pubkey_bytes = hex::decode(&pubkey_hex).map_err(|e| {
-                AosError::Crypto(format!("Invalid pubkey hex: {}", e))
-            })?;
+            let pubkey_hex: String = row
+                .try_get("pubkey")
+                .map_err(|e| AosError::Database(format!("Failed to get pubkey: {}", e)))?;
+            let pubkey_bytes = hex::decode(&pubkey_hex)
+                .map_err(|e| AosError::Crypto(format!("Invalid pubkey hex: {}", e)))?;
             if pubkey_bytes.len() != 32 {
                 return Err(AosError::Crypto("Invalid public key length".to_string()));
             }
@@ -221,8 +219,8 @@ impl PeerRegistry {
             let pubkey = PublicKey::from_bytes(&key_array)?;
 
             let attestation_metadata: Option<String> = row.try_get("attestation_metadata").ok();
-            let attestation_metadata = attestation_metadata
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let attestation_metadata =
+                attestation_metadata.and_then(|json| serde_json::from_str(&json).ok());
 
             peers.push(PeerInfo {
                 host_id: row.try_get("host_id").unwrap(),
@@ -241,13 +239,13 @@ impl PeerRegistry {
     /// Update peer last seen timestamp
     pub async fn update_last_seen(&self, host_id: &str) -> Result<()> {
         let pool = self.db.pool();
-        
+
         sqlx::query(
             r#"
             UPDATE federation_peers
             SET last_seen_at = datetime('now')
             WHERE host_id = ?
-            "#
+            "#,
         )
         .bind(host_id)
         .execute(pool)
@@ -262,13 +260,13 @@ impl PeerRegistry {
         info!(host_id = %host_id, "Deactivating peer");
 
         let pool = self.db.pool();
-        
+
         sqlx::query(
             r#"
             UPDATE federation_peers
             SET active = 0
             WHERE host_id = ?
-            "#
+            "#,
         )
         .bind(host_id)
         .execute(pool)
@@ -329,10 +327,10 @@ impl PeerRegistry {
         info!("Loading peer registry cache");
 
         let peers = self.list_active_peers().await?;
-        
+
         let mut cache = self.cache.write().unwrap();
         cache.clear();
-        
+
         for peer in peers {
             cache.insert(peer.host_id.clone(), peer);
         }
@@ -375,7 +373,7 @@ mod tests {
 
         let peer = registry.get_peer("test-host").await?;
         assert!(peer.is_some());
-        
+
         let peer = peer.unwrap();
         assert_eq!(peer.host_id, "test-host");
         assert_eq!(peer.hostname, Some("test.example.com".to_string()));
@@ -392,21 +390,11 @@ mod tests {
         let keypair2 = Keypair::generate();
 
         registry
-            .register_peer(
-                "host1".to_string(),
-                keypair1.public_key(),
-                None,
-                None,
-            )
+            .register_peer("host1".to_string(), keypair1.public_key(), None, None)
             .await?;
 
         registry
-            .register_peer(
-                "host2".to_string(),
-                keypair2.public_key(),
-                None,
-                None,
-            )
+            .register_peer("host2".to_string(), keypair2.public_key(), None, None)
             .await?;
 
         let peers = registry.list_active_peers().await?;
@@ -434,4 +422,3 @@ mod tests {
         Ok(())
     }
 }
-

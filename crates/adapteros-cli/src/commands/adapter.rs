@@ -1,12 +1,12 @@
 //! Adapter lifecycle management commands
 
+use crate::output::OutputWriter;
+use adapteros_client::{native::NativeClient, AdapterOSClient, UdsClient};
 use adapteros_core::Result;
-use adapteros_client::{AdapterOSClient, native::NativeClient, UdsClient};
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
-use tracing::{info, error, warn};
 use std::time::Duration;
-use crate::output::OutputWriter;
+use tracing::{error, info, warn};
 
 /// Enhanced adapter state structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -72,21 +72,27 @@ fn get_worker_socket_path(tenant_id: Option<&str>) -> std::path::PathBuf {
 /// Validate adapter ID format
 fn validate_adapter_id(adapter_id: &str) -> Result<()> {
     if adapter_id.is_empty() {
-        return Err(adapteros_core::AosError::Parse("Adapter ID cannot be empty".to_string()));
+        return Err(adapteros_core::AosError::Parse(
+            "Adapter ID cannot be empty".to_string(),
+        ));
     }
-    
+
     if adapter_id.len() > 64 {
         return Err(adapteros_core::AosError::Parse(
-            "Adapter ID must be 64 characters or less".to_string()
+            "Adapter ID must be 64 characters or less".to_string(),
         ));
     }
-    
-    if !adapter_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+
+    if !adapter_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(adapteros_core::AosError::Parse(
-            "Adapter ID must contain only alphanumeric characters, hyphens, and underscores".to_string()
+            "Adapter ID must contain only alphanumeric characters, hyphens, and underscores"
+                .to_string(),
         ));
     }
-    
+
     Ok(())
 }
 
@@ -107,7 +113,7 @@ async fn connect_and_fetch_adapter_states(
     info!(socket_path = ?socket_path, "Fetching adapter states via UDS");
 
     let client = UdsClient::new(timeout);
-    
+
     // Add retry logic for transient failures
     let mut retries = 3;
     while retries > 0 {
@@ -115,7 +121,7 @@ async fn connect_and_fetch_adapter_states(
             Ok(json_response) => {
                 let adapters: Vec<AdapterState> = serde_json::from_str(&json_response)
                     .map_err(|e| adapteros_core::AosError::Serialization(e))?;
-                
+
                 info!(count = adapters.len(), "Retrieved adapter states");
                 return Ok(adapters);
             }
@@ -126,11 +132,14 @@ async fn connect_and_fetch_adapter_states(
             }
             Err(e) => {
                 error!(error = %e, "Failed to list adapters via UDS");
-                return Err(adapteros_core::AosError::Io(format!("Failed to list adapters: {}", e)));
+                return Err(adapteros_core::AosError::Io(format!(
+                    "Failed to list adapters: {}",
+                    e
+                )));
             }
         }
     }
-    
+
     unreachable!()
 }
 
@@ -152,7 +161,7 @@ async fn connect_and_fetch_adapter_profile(
     info!(socket_path = ?socket_path, adapter_id = %adapter_id, "Fetching adapter profile via UDS");
 
     let client = UdsClient::new(timeout);
-    
+
     // Add retry logic for transient failures
     let mut retries = 3;
     while retries > 0 {
@@ -160,7 +169,7 @@ async fn connect_and_fetch_adapter_profile(
             Ok(json_response) => {
                 let profile: AdapterProfile = serde_json::from_str(&json_response)
                     .map_err(|e| adapteros_core::AosError::Serialization(e))?;
-                
+
                 info!(adapter_id = %adapter_id, "Retrieved adapter profile");
                 return Ok(profile);
             }
@@ -171,11 +180,14 @@ async fn connect_and_fetch_adapter_profile(
             }
             Err(e) => {
                 error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter profile");
-                return Err(adapteros_core::AosError::Io(format!("Failed to get adapter profile: {}", e)));
+                return Err(adapteros_core::AosError::Io(format!(
+                    "Failed to get adapter profile: {}",
+                    e
+                )));
             }
         }
     }
-    
+
     unreachable!()
 }
 
@@ -203,7 +215,7 @@ async fn send_adapter_command(
 
     // Use unified client trait
     let client = UdsClient::new(timeout);
-    
+
     // Add retry logic for transient failures
     let mut retries = 3;
     while retries > 0 {
@@ -213,10 +225,13 @@ async fn send_adapter_command(
             "unpin" => client.pin_adapter(adapter_id, false).await,
             _ => {
                 error!(command = %command, "Unsupported adapter command");
-                return Err(adapteros_core::AosError::Other(format!("Unsupported command: {}", command)));
+                return Err(adapteros_core::AosError::Other(format!(
+                    "Unsupported command: {}",
+                    command
+                )));
             }
         };
-        
+
         match result {
             Ok(_) => {
                 info!(command = %command, adapter_id = %adapter_id, "Adapter command sent successfully");
@@ -229,18 +244,23 @@ async fn send_adapter_command(
             }
             Err(e) => {
                 error!(error = %e, command = %command, adapter_id = %adapter_id, "Failed to send adapter command");
-                return Err(adapteros_core::AosError::Io(format!("Failed to send adapter command: {}", e)));
+                return Err(adapteros_core::AosError::Io(format!(
+                    "Failed to send adapter command: {}",
+                    e
+                )));
             }
         }
     }
-    
+
     unreachable!()
 }
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum AdapterCommand {
     /// List all adapters with their states
-    #[command(after_help = "Examples:\n  aosctl adapter list\n  aosctl adapter list --json\n  aosctl adapter list --tenant dev")]
+    #[command(
+        after_help = "Examples:\n  aosctl adapter list\n  aosctl adapter list --json\n  aosctl adapter list --tenant dev"
+    )]
     List {
         /// Output format
         #[arg(long)]
@@ -252,7 +272,9 @@ pub enum AdapterCommand {
     },
 
     /// Show detailed metrics for an adapter
-    #[command(after_help = "Examples:\n  aosctl adapter profile adapter-1\n  aosctl adapter profile adapter-1 --json\n  aosctl adapter profile adapter-1 --tenant dev")]
+    #[command(
+        after_help = "Examples:\n  aosctl adapter profile adapter-1\n  aosctl adapter profile adapter-1 --json\n  aosctl adapter profile adapter-1 --tenant dev"
+    )]
     Profile {
         /// Adapter ID
         #[arg()]
@@ -268,7 +290,9 @@ pub enum AdapterCommand {
     },
 
     /// Manually promote an adapter
-    #[command(after_help = "Examples:\n  aosctl adapter promote adapter-1\n  aosctl adapter promote adapter-1 --tenant dev")]
+    #[command(
+        after_help = "Examples:\n  aosctl adapter promote adapter-1\n  aosctl adapter promote adapter-1 --tenant dev"
+    )]
     Promote {
         /// Adapter ID
         #[arg()]
@@ -280,7 +304,9 @@ pub enum AdapterCommand {
     },
 
     /// Manually demote an adapter
-    #[command(after_help = "Examples:\n  aosctl adapter demote adapter-1\n  aosctl adapter demote adapter-1 --tenant dev")]
+    #[command(
+        after_help = "Examples:\n  aosctl adapter demote adapter-1\n  aosctl adapter demote adapter-1 --tenant dev"
+    )]
     Demote {
         /// Adapter ID
         #[arg()]
@@ -292,7 +318,9 @@ pub enum AdapterCommand {
     },
 
     /// Pin adapter to resident state
-    #[command(after_help = "Examples:\n  aosctl adapter pin adapter-1\n  aosctl adapter pin adapter-1 --tenant dev")]
+    #[command(
+        after_help = "Examples:\n  aosctl adapter pin adapter-1\n  aosctl adapter pin adapter-1 --tenant dev"
+    )]
     Pin {
         /// Adapter ID
         #[arg()]
@@ -304,7 +332,9 @@ pub enum AdapterCommand {
     },
 
     /// Unpin adapter from resident state
-    #[command(after_help = "Examples:\n  aosctl adapter unpin adapter-1\n  aosctl adapter unpin adapter-1 --tenant dev")]
+    #[command(
+        after_help = "Examples:\n  aosctl adapter unpin adapter-1\n  aosctl adapter unpin adapter-1 --tenant dev"
+    )]
     Unpin {
         /// Adapter ID
         #[arg()]
@@ -346,28 +376,40 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
 pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) -> Result<()> {
     let command_name = get_adapter_command_name(&cmd);
     let tenant_id = extract_tenant_from_adapter_command(&cmd);
-    
+
     info!(command = ?cmd, "Handling adapter command");
-    
+
     // Emit telemetry
     let _ = crate::cli_telemetry::emit_cli_command(&command_name, tenant_id.as_deref(), true).await;
-    
+
     match cmd {
         AdapterCommand::List { json, tenant } => list_adapters(json, tenant, output).await,
-        AdapterCommand::Profile { adapter_id, json, tenant } => profile_adapter(&adapter_id, json, tenant, output).await,
-        AdapterCommand::Promote { adapter_id, tenant } => promote_adapter(&adapter_id, tenant, output).await,
-        AdapterCommand::Demote { adapter_id, tenant } => demote_adapter(&adapter_id, tenant, output).await,
-        AdapterCommand::Pin { adapter_id, tenant } => pin_adapter(&adapter_id, tenant, output).await,
-        AdapterCommand::Unpin { adapter_id, tenant } => unpin_adapter(&adapter_id, tenant, output).await,
+        AdapterCommand::Profile {
+            adapter_id,
+            json,
+            tenant,
+        } => profile_adapter(&adapter_id, json, tenant, output).await,
+        AdapterCommand::Promote { adapter_id, tenant } => {
+            promote_adapter(&adapter_id, tenant, output).await
+        }
+        AdapterCommand::Demote { adapter_id, tenant } => {
+            demote_adapter(&adapter_id, tenant, output).await
+        }
+        AdapterCommand::Pin { adapter_id, tenant } => {
+            pin_adapter(&adapter_id, tenant, output).await
+        }
+        AdapterCommand::Unpin { adapter_id, tenant } => {
+            unpin_adapter(&adapter_id, tenant, output).await
+        }
     }
 }
 
 /// List all adapters with their current states
 async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
     info!("Listing adapter lifecycle status");
-    
+
     let socket_path = get_worker_socket_path(tenant.as_deref());
-    
+
     if !socket_path.exists() || !socket_path.parent().unwrap().exists() {
         if json {
             let mock_data = serde_json::json!([
@@ -396,11 +438,17 @@ async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter
                     "last_activation": "5m ago"
                 }
             ]);
-            info!("Adapter lifecycle status: {}", serde_json::to_string_pretty(&mock_data)?);
+            info!(
+                "Adapter lifecycle status: {}",
+                serde_json::to_string_pretty(&mock_data)?
+            );
         } else {
             output.result("📊 Adapter Lifecycle Status");
             output.blank();
-            output.warning(&format!("Worker socket not found at: {}", socket_path.display()));
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
             output.result("Showing mock data instead.");
             output.blank();
 
@@ -422,10 +470,54 @@ async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter
                 ]);
 
             // Mock data when worker is not available
-            table.add_row(vec!["python-general", "b3:abc123", "persistent", "16", "hot", "45.2%", "+0.68", "16 MB", "no", "2m ago"]);
-            table.add_row(vec!["django-specific", "b3:def456", "persistent", "8", "warm", "12.8%", "+0.54", "16 MB", "no", "5m ago"]);
-            table.add_row(vec!["rust-general", "b3:789ghi", "persistent", "16", "cold", "2.1%", "+0.23", "16 MB", "no", "never"]);
-            table.add_row(vec!["security-patch", "b3:jkl012", "ephemeral", "32", "resident", "78.9%", "+0.95", "16 MB", "yes", "30s ago"]);
+            table.add_row(vec![
+                "python-general",
+                "b3:abc123",
+                "persistent",
+                "16",
+                "hot",
+                "45.2%",
+                "+0.68",
+                "16 MB",
+                "no",
+                "2m ago",
+            ]);
+            table.add_row(vec![
+                "django-specific",
+                "b3:def456",
+                "persistent",
+                "8",
+                "warm",
+                "12.8%",
+                "+0.54",
+                "16 MB",
+                "no",
+                "5m ago",
+            ]);
+            table.add_row(vec![
+                "rust-general",
+                "b3:789ghi",
+                "persistent",
+                "16",
+                "cold",
+                "2.1%",
+                "+0.23",
+                "16 MB",
+                "no",
+                "never",
+            ]);
+            table.add_row(vec![
+                "security-patch",
+                "b3:jkl012",
+                "ephemeral",
+                "32",
+                "resident",
+                "78.9%",
+                "+0.95",
+                "16 MB",
+                "yes",
+                "30s ago",
+            ]);
 
             output.result(&format!("{table}"));
         }
@@ -458,10 +550,20 @@ async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter
                 for adapter in adapters {
                     let state = if adapter.active { "active" } else { "staged" };
                     let pinned = if adapter.pinned { "yes" } else { "no" };
-                    let last_active = adapter.last_activation
-                        .map(|ts| format!("{}s ago", (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() - ts)))
+                    let last_active = adapter
+                        .last_activation
+                        .map(|ts| {
+                            format!(
+                                "{}s ago",
+                                (std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs()
+                                    - ts)
+                            )
+                        })
                         .unwrap_or_else(|| "never".to_string());
-                    
+
                     table.add_row(vec![
                         &adapter.id,
                         &adapter.hash[..8], // Short hash
@@ -508,10 +610,54 @@ async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter
                         "Last Active",
                     ]);
 
-                table.add_row(vec!["python-general", "b3:abc123", "persistent", "16", "hot", "45.2%", "+0.68", "16 MB", "no", "2m ago"]);
-                table.add_row(vec!["django-specific", "b3:def456", "persistent", "8", "warm", "12.8%", "+0.54", "16 MB", "no", "5m ago"]);
-                table.add_row(vec!["rust-general", "b3:789ghi", "persistent", "16", "cold", "2.1%", "+0.23", "16 MB", "no", "never"]);
-                table.add_row(vec!["security-patch", "b3:jkl012", "ephemeral", "32", "resident", "78.9%", "+0.95", "16 MB", "yes", "30s ago"]);
+                table.add_row(vec![
+                    "python-general",
+                    "b3:abc123",
+                    "persistent",
+                    "16",
+                    "hot",
+                    "45.2%",
+                    "+0.68",
+                    "16 MB",
+                    "no",
+                    "2m ago",
+                ]);
+                table.add_row(vec![
+                    "django-specific",
+                    "b3:def456",
+                    "persistent",
+                    "8",
+                    "warm",
+                    "12.8%",
+                    "+0.54",
+                    "16 MB",
+                    "no",
+                    "5m ago",
+                ]);
+                table.add_row(vec![
+                    "rust-general",
+                    "b3:789ghi",
+                    "persistent",
+                    "16",
+                    "cold",
+                    "2.1%",
+                    "+0.23",
+                    "16 MB",
+                    "no",
+                    "never",
+                ]);
+                table.add_row(vec![
+                    "security-patch",
+                    "b3:jkl012",
+                    "ephemeral",
+                    "32",
+                    "resident",
+                    "78.9%",
+                    "+0.95",
+                    "16 MB",
+                    "yes",
+                    "30s ago",
+                ]);
 
                 output.result(&format!("{table}"));
             }
@@ -522,13 +668,18 @@ async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter
 }
 
 /// Display detailed profile for an adapter
-async fn profile_adapter(adapter_id: &str, json: bool, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
+async fn profile_adapter(
+    adapter_id: &str,
+    json: bool,
+    tenant: Option<String>,
+    output: &OutputWriter,
+) -> Result<()> {
     validate_adapter_id(adapter_id)?;
-    
+
     info!(adapter_id = %adapter_id, "Profiling adapter");
-    
+
     let socket_path = get_worker_socket_path(tenant.as_deref());
-    
+
     if !socket_path.exists() {
         if json {
             let mock_profile = serde_json::json!({
@@ -558,11 +709,17 @@ async fn profile_adapter(adapter_id: &str, json: bool, tenant: Option<String>, o
                     "policy_violations": 0
                 }
             });
-            info!("Adapter profile: {}", serde_json::to_string_pretty(&mock_profile)?);
+            info!(
+                "Adapter profile: {}",
+                serde_json::to_string_pretty(&mock_profile)?
+            );
         } else {
             output.result(&format!("📈 Adapter Profile: {}", adapter_id));
             output.blank();
-            output.warning(&format!("Worker socket not found at: {}", socket_path.display()));
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
             output.result("Showing mock data instead.");
             output.blank();
 
@@ -581,7 +738,8 @@ async fn profile_adapter(adapter_id: &str, json: bool, tenant: Option<String>, o
     }
 
     // Connect to worker and fetch adapter profile
-    match connect_and_fetch_adapter_profile(&socket_path, adapter_id, Duration::from_secs(5)).await {
+    match connect_and_fetch_adapter_profile(&socket_path, adapter_id, Duration::from_secs(5)).await
+    {
         Ok(profile) => {
             if json {
                 output.result(&serde_json::to_string_pretty(&profile)?);
@@ -591,7 +749,10 @@ async fn profile_adapter(adapter_id: &str, json: bool, tenant: Option<String>, o
                     "Activation:      {:.1}% ({} / {} tokens)",
                     profile.activation_pct, profile.activations, profile.total_tokens
                 ));
-                output.result(&format!("Avg Latency:     {:.1} µs", profile.avg_latency_us));
+                output.result(&format!(
+                    "Avg Latency:     {:.1} µs",
+                    profile.avg_latency_us
+                ));
                 output.result(&format!("Memory Usage:    {} KB", profile.memory_kb));
                 output.result(&format!("Quality Delta:   {:.2}", profile.quality_delta));
                 output.blank();
@@ -604,17 +765,44 @@ async fn profile_adapter(adapter_id: &str, json: bool, tenant: Option<String>, o
                 }
                 output.blank();
                 output.result("Performance Metrics:");
-                output.result(&format!("  P50 Latency:    {:.1} µs", profile.performance_metrics.p50_latency_us));
-                output.result(&format!("  P95 Latency:    {:.1} µs", profile.performance_metrics.p95_latency_us));
-                output.result(&format!("  P99 Latency:    {:.1} µs", profile.performance_metrics.p99_latency_us));
-                output.result(&format!("  Throughput:     {:.1} tokens/sec", profile.performance_metrics.throughput_tokens_per_sec));
-                output.result(&format!("  Error Rate:     {:.2}%", profile.performance_metrics.error_rate * 100.0));
+                output.result(&format!(
+                    "  P50 Latency:    {:.1} µs",
+                    profile.performance_metrics.p50_latency_us
+                ));
+                output.result(&format!(
+                    "  P95 Latency:    {:.1} µs",
+                    profile.performance_metrics.p95_latency_us
+                ));
+                output.result(&format!(
+                    "  P99 Latency:    {:.1} µs",
+                    profile.performance_metrics.p99_latency_us
+                ));
+                output.result(&format!(
+                    "  Throughput:     {:.1} tokens/sec",
+                    profile.performance_metrics.throughput_tokens_per_sec
+                ));
+                output.result(&format!(
+                    "  Error Rate:     {:.2}%",
+                    profile.performance_metrics.error_rate * 100.0
+                ));
                 output.blank();
                 output.result("Policy Compliance:");
-                output.result(&format!("  Determinism:   {:.2}", profile.policy_compliance.determinism_score));
-                output.result(&format!("  Evidence:      {:.2}", profile.policy_compliance.evidence_coverage));
-                output.result(&format!("  Refusal Rate:  {:.2}%", profile.policy_compliance.refusal_rate * 100.0));
-                output.result(&format!("  Violations:    {}", profile.policy_compliance.policy_violations));
+                output.result(&format!(
+                    "  Determinism:   {:.2}",
+                    profile.policy_compliance.determinism_score
+                ));
+                output.result(&format!(
+                    "  Evidence:      {:.2}",
+                    profile.policy_compliance.evidence_coverage
+                ));
+                output.result(&format!(
+                    "  Refusal Rate:  {:.2}%",
+                    profile.policy_compliance.refusal_rate * 100.0
+                ));
+                output.result(&format!(
+                    "  Violations:    {}",
+                    profile.policy_compliance.policy_violations
+                ));
             }
         }
         Err(e) => {
@@ -647,9 +835,13 @@ async fn profile_adapter(adapter_id: &str, json: bool, tenant: Option<String>, o
 }
 
 /// Promote adapter to higher priority state
-async fn promote_adapter(adapter_id: &str, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
+async fn promote_adapter(
+    adapter_id: &str,
+    tenant: Option<String>,
+    output: &OutputWriter,
+) -> Result<()> {
     validate_adapter_id(adapter_id)?;
-    
+
     info!(adapter_id = %adapter_id, "Promoting adapter");
     let socket_path = get_worker_socket_path(tenant.as_deref());
 
@@ -663,7 +855,10 @@ async fn promote_adapter(adapter_id: &str, tenant: Option<String>, output: &Outp
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!("Worker socket not found at: {}", socket_path.display()));
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
             output.success(&format!("Promoted adapter: {} (mock)", adapter_id));
             output.result("State: warm → hot");
         }
@@ -703,9 +898,13 @@ async fn promote_adapter(adapter_id: &str, tenant: Option<String>, output: &Outp
 }
 
 /// Demote adapter to lower priority state
-async fn demote_adapter(adapter_id: &str, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
+async fn demote_adapter(
+    adapter_id: &str,
+    tenant: Option<String>,
+    output: &OutputWriter,
+) -> Result<()> {
     validate_adapter_id(adapter_id)?;
-    
+
     info!(adapter_id = %adapter_id, "Demoting adapter");
     let socket_path = get_worker_socket_path(tenant.as_deref());
 
@@ -719,7 +918,10 @@ async fn demote_adapter(adapter_id: &str, tenant: Option<String>, output: &Outpu
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!("Worker socket not found at: {}", socket_path.display()));
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
             output.success(&format!("Demoted adapter: {} (mock)", adapter_id));
             output.result("State: hot → warm");
         }
@@ -759,9 +961,13 @@ async fn demote_adapter(adapter_id: &str, tenant: Option<String>, output: &Outpu
 }
 
 /// Pin adapter to resident state (prevent eviction)
-async fn pin_adapter(adapter_id: &str, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
+async fn pin_adapter(
+    adapter_id: &str,
+    tenant: Option<String>,
+    output: &OutputWriter,
+) -> Result<()> {
     validate_adapter_id(adapter_id)?;
-    
+
     info!(adapter_id = %adapter_id, "Pinning adapter");
     let socket_path = get_worker_socket_path(tenant.as_deref());
 
@@ -775,7 +981,10 @@ async fn pin_adapter(adapter_id: &str, tenant: Option<String>, output: &OutputWr
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!("Worker socket not found at: {}", socket_path.display()));
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
             output.success(&format!("Pinned adapter: {} (mock)", adapter_id));
             output.result("State: → resident (pinned)");
         }
@@ -815,9 +1024,13 @@ async fn pin_adapter(adapter_id: &str, tenant: Option<String>, output: &OutputWr
 }
 
 /// Unpin adapter (allow eviction)
-async fn unpin_adapter(adapter_id: &str, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
+async fn unpin_adapter(
+    adapter_id: &str,
+    tenant: Option<String>,
+    output: &OutputWriter,
+) -> Result<()> {
     validate_adapter_id(adapter_id)?;
-    
+
     info!(adapter_id = %adapter_id, "Unpinning adapter");
     let socket_path = get_worker_socket_path(tenant.as_deref());
 
@@ -831,7 +1044,10 @@ async fn unpin_adapter(adapter_id: &str, tenant: Option<String>, output: &Output
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!("Worker socket not found at: {}", socket_path.display()));
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
             output.success(&format!("Unpinned adapter: {} (mock)", adapter_id));
             output.result("Adapter can now be demoted");
         }
@@ -873,9 +1089,9 @@ async fn unpin_adapter(adapter_id: &str, tenant: Option<String>, output: &Output
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::Result;
     use crate::output::{OutputMode, OutputWriter};
-    
+    use adapteros_core::Result;
+
     #[test]
     fn test_validate_adapter_id() {
         assert!(validate_adapter_id("valid-adapter-1").is_ok());
@@ -886,35 +1102,91 @@ mod tests {
         assert!(validate_adapter_id("adapter with spaces").is_err());
         assert!(validate_adapter_id(&"a".repeat(65)).is_err()); // Too long
     }
-    
+
     #[test]
     fn test_get_adapter_command_name() {
-        assert_eq!(get_adapter_command_name(&AdapterCommand::List { json: false, tenant: None }), "adapter_list");
-        assert_eq!(get_adapter_command_name(&AdapterCommand::Profile { adapter_id: "test".to_string(), json: false, tenant: None }), "adapter_profile");
-        assert_eq!(get_adapter_command_name(&AdapterCommand::Promote { adapter_id: "test".to_string(), tenant: None }), "adapter_promote");
-        assert_eq!(get_adapter_command_name(&AdapterCommand::Demote { adapter_id: "test".to_string(), tenant: None }), "adapter_demote");
-        assert_eq!(get_adapter_command_name(&AdapterCommand::Pin { adapter_id: "test".to_string(), tenant: None }), "adapter_pin");
-        assert_eq!(get_adapter_command_name(&AdapterCommand::Unpin { adapter_id: "test".to_string(), tenant: None }), "adapter_unpin");
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::List {
+                json: false,
+                tenant: None
+            }),
+            "adapter_list"
+        );
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::Profile {
+                adapter_id: "test".to_string(),
+                json: false,
+                tenant: None
+            }),
+            "adapter_profile"
+        );
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::Promote {
+                adapter_id: "test".to_string(),
+                tenant: None
+            }),
+            "adapter_promote"
+        );
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::Demote {
+                adapter_id: "test".to_string(),
+                tenant: None
+            }),
+            "adapter_demote"
+        );
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::Pin {
+                adapter_id: "test".to_string(),
+                tenant: None
+            }),
+            "adapter_pin"
+        );
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::Unpin {
+                adapter_id: "test".to_string(),
+                tenant: None
+            }),
+            "adapter_unpin"
+        );
     }
-    
+
     #[test]
     fn test_extract_tenant_from_adapter_command() {
-        assert_eq!(extract_tenant_from_adapter_command(&AdapterCommand::List { json: false, tenant: None }), None);
-        assert_eq!(extract_tenant_from_adapter_command(&AdapterCommand::List { json: false, tenant: Some("dev".to_string()) }), Some("dev".to_string()));
-        assert_eq!(extract_tenant_from_adapter_command(&AdapterCommand::Profile { adapter_id: "test".to_string(), json: false, tenant: Some("prod".to_string()) }), Some("prod".to_string()));
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::List {
+                json: false,
+                tenant: None
+            }),
+            None
+        );
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::List {
+                json: false,
+                tenant: Some("dev".to_string())
+            }),
+            Some("dev".to_string())
+        );
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::Profile {
+                adapter_id: "test".to_string(),
+                json: false,
+                tenant: Some("prod".to_string())
+            }),
+            Some("prod".to_string())
+        );
     }
-    
+
     #[test]
     fn test_get_worker_socket_path() {
         // Test default tenant
         let path = get_worker_socket_path(None);
         assert!(path.to_string_lossy().contains("default"));
-        
+
         // Test custom tenant
         let path = get_worker_socket_path(Some("dev"));
         assert!(path.to_string_lossy().contains("dev"));
     }
-    
+
     #[tokio::test]
     async fn test_list_adapters_mock() {
         // Test mock data fallback
@@ -922,7 +1194,7 @@ mod tests {
         let result = list_adapters(false, None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_profile_adapter_mock() {
         // Test mock data fallback
@@ -930,7 +1202,7 @@ mod tests {
         let result = profile_adapter("test-adapter", false, None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_promote_adapter_mock() {
         // Test mock data fallback
@@ -938,7 +1210,7 @@ mod tests {
         let result = promote_adapter("test-adapter", None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_demote_adapter_mock() {
         // Test mock data fallback
@@ -946,7 +1218,7 @@ mod tests {
         let result = demote_adapter("test-adapter", None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_pin_adapter_mock() {
         // Test mock data fallback
@@ -954,7 +1226,7 @@ mod tests {
         let result = pin_adapter("test-adapter", None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_unpin_adapter_mock() {
         // Test mock data fallback
@@ -962,7 +1234,7 @@ mod tests {
         let result = unpin_adapter("test-adapter", None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_json_output() {
         // Test JSON output format
@@ -970,7 +1242,7 @@ mod tests {
         let result = list_adapters(true, None, &output).await;
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_adapter_state_serialization() {
         let state = AdapterState {
@@ -985,7 +1257,7 @@ mod tests {
             last_activation: Some(1234567890),
             pinned: false,
         };
-        
+
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: AdapterState = serde_json::from_str(&json).unwrap();
         assert_eq!(state.id, deserialized.id);
@@ -993,7 +1265,7 @@ mod tests {
         assert_eq!(state.vram_mb, deserialized.vram_mb);
         assert_eq!(state.active, deserialized.active);
     }
-    
+
     #[test]
     fn test_adapter_profile_serialization() {
         let profile = AdapterProfile {
@@ -1004,13 +1276,11 @@ mod tests {
             avg_latency_us: 156.2,
             memory_kb: 16384,
             quality_delta: 0.68,
-            recent_activations: vec![
-                ActivationWindow {
-                    start_token: 100,
-                    end_token: 150,
-                    count: 3,
-                }
-            ],
+            recent_activations: vec![ActivationWindow {
+                start_token: 100,
+                end_token: 150,
+                count: 3,
+            }],
             performance_metrics: PerformanceMetrics {
                 p50_latency_us: 142.0,
                 p95_latency_us: 189.0,
@@ -1025,7 +1295,7 @@ mod tests {
                 policy_violations: 0,
             },
         };
-        
+
         let json = serde_json::to_string(&profile).unwrap();
         let deserialized: AdapterProfile = serde_json::from_str(&json).unwrap();
         assert_eq!(profile.state, deserialized.state);

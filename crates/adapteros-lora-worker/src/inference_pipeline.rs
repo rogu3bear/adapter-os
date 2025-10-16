@@ -138,11 +138,8 @@ impl InferencePipeline {
         let report = kernels.attest_determinism()?;
         // TODO: Add validate_backend_attestation to policy engine
         // policy.determinism_policy().validate_backend_attestation(&report)?;
-        
-        info!(
-            "Backend determinism validated: {}",
-            report.summary()
-        );
+
+        info!("Backend determinism validated: {}", report.summary());
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
@@ -167,7 +164,7 @@ impl InferencePipeline {
             quarantine_manager,
         })
     }
-    
+
     /// Create new inference pipeline with quarantine manager
     /// This allows external initialization of the quarantine state
     pub fn with_quarantine(
@@ -183,11 +180,8 @@ impl InferencePipeline {
         let report = kernels.attest_determinism()?;
         // TODO: Add validate_backend_attestation to policy engine
         // policy.determinism_policy().validate_backend_attestation(&report)?;
-        
-        info!(
-            "Backend determinism validated: {}",
-            report.summary()
-        );
+
+        info!("Backend determinism validated: {}", report.summary());
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 

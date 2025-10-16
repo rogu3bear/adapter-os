@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
 #[derive(Serialize, Deserialize)]
 struct ProgressUpdate {
@@ -34,7 +34,10 @@ pub async fn run(
     let script_path = workspace_root.join("scripts/bootstrap_with_checkpoints.sh");
 
     if !script_path.exists() {
-        return Err(AosError::NotFound(format!("Bootstrap script not found at: {}", script_path.display())));
+        return Err(AosError::NotFound(format!(
+            "Bootstrap script not found at: {}",
+            script_path.display()
+        )));
     }
 
     // Prepare checkpoint file argument
@@ -92,7 +95,10 @@ pub async fn run(
         .map_err(|e| AosError::System(format!("Failed to wait for bootstrap process: {}", e)))?;
 
     if !status.success() {
-        return Err(AosError::System(format!("Bootstrap failed with exit code: {:?}", status.code())));
+        return Err(AosError::System(format!(
+            "Bootstrap failed with exit code: {:?}",
+            status.code()
+        )));
     }
 
     if json_output {
@@ -102,7 +108,10 @@ pub async fn run(
             message: "Bootstrap completed successfully".to_string(),
             status: "completed".to_string(),
         };
-        info!("Bootstrap completion: {}", serde_json::to_string(&completion)?);
+        info!(
+            "Bootstrap completion: {}",
+            serde_json::to_string(&completion)?
+        );
     } else {
         info!("✓ Bootstrap completed successfully!");
     }

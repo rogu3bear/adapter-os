@@ -1,9 +1,9 @@
 //! List adapters
 
 use crate::output::OutputWriter;
+use adapteros_registry::Registry;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Table};
-use adapteros_registry::Registry;
 use serde::Serialize;
 
 #[derive(Serialize)]

@@ -130,12 +130,13 @@ impl Operation {
 
 impl fmt::Display for Operation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let inputs_str = self.inputs
+        let inputs_str = self
+            .inputs
             .iter()
             .map(|id| format!("{}", id))
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         write!(
             f,
             "Operation({}, inputs=[{}], output={}, has_backward={})",

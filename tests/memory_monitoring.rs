@@ -8,7 +8,11 @@ fn test_headroom_measurement() {
     let headroom = monitor.headroom_pct();
 
     // Headroom should be a reasonable percentage
-    assert!(headroom > 0.0 && headroom <= 100.0, "Headroom out of range: {}%", headroom);
+    assert!(
+        headroom > 0.0 && headroom <= 100.0,
+        "Headroom out of range: {}%",
+        headroom
+    );
 }
 
 #[test]
@@ -40,7 +44,7 @@ fn test_should_evict_logic() {
 #[test]
 fn test_headroom_consistency() {
     let monitor = MemoryMonitor::new(15);
-    
+
     // Take multiple measurements
     let measurements: Vec<f32> = (0..5)
         .map(|_| {
@@ -58,7 +62,12 @@ fn test_headroom_consistency() {
     let avg = measurements.iter().sum::<f32>() / measurements.len() as f32;
     for &measurement in &measurements {
         let diff = (measurement - avg).abs();
-        assert!(diff < 10.0, "Memory measurement variance too high: {} vs avg {}", measurement, avg);
+        assert!(
+            diff < 10.0,
+            "Memory measurement variance too high: {} vs avg {}",
+            measurement,
+            avg
+        );
     }
 }
 
@@ -70,7 +79,7 @@ fn test_macos_specific_measurement() {
 
     // Verify measurement is reasonable on macOS
     assert!(headroom > 0.0 && headroom < 100.0);
-    
+
     // macOS typically reports some free memory
     assert!(headroom > 1.0, "macOS should report some free memory");
 }
@@ -83,11 +92,9 @@ fn test_linux_specific_measurement() {
 
     // Verify measurement is reasonable on Linux
     assert!(headroom > 0.0 && headroom < 100.0);
-    
+
     // Verify we can read /proc/meminfo
     let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap();
     assert!(meminfo.contains("MemTotal"));
     assert!(meminfo.contains("MemAvailable"));
 }
-
-

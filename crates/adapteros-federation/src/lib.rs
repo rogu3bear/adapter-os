@@ -18,15 +18,15 @@
 //! - Telemetry Ruleset (#9): Signed bundle rotation
 //! - Artifacts Ruleset (#13): Signature verification gates
 
+pub mod attestation;
 pub mod output_hash;
 pub mod peer;
 pub mod signature;
-pub mod attestation;
 
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::{Keypair, PublicKey, Signature};
 use adapteros_db::Db;
-use adapteros_telemetry::{StoredBundleMetadata, TelemetryWriter, TelemetryEventBuilder, LogLevel};
+use adapteros_telemetry::{LogLevel, StoredBundleMetadata, TelemetryEventBuilder, TelemetryWriter};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -146,14 +146,17 @@ impl FederationManager {
     /// # Returns
     ///
     /// A `FederationSignature` record
-    pub async fn sign_bundle(&self, metadata: &StoredBundleMetadata) -> Result<FederationSignature> {
+    pub async fn sign_bundle(
+        &self,
+        metadata: &StoredBundleMetadata,
+    ) -> Result<FederationSignature> {
         // Serialize metadata for signing
         let payload = self.serialize_bundle_metadata(metadata)?;
-        
+
         // Sign with Ed25519
         let signature = self.keypair.sign(&payload);
         let signature_hex = hex::encode(signature.to_bytes());
-        
+
         // Create signature record
         let record = FederationSignature::new(
             self.host_id.clone(),
@@ -161,10 +164,10 @@ impl FederationManager {
             signature_hex,
             metadata.prev_bundle_hash.as_ref().map(|h| h.to_string()),
         );
-        
+
         // Store in database
         self.store_signature(&record).await?;
-        
+
         // Emit telemetry event (100% sampling per Telemetry Ruleset #9)
         if let Some(ref telemetry) = self.telemetry {
             let event = TelemetryEventBuilder::new(
@@ -180,16 +183,16 @@ impl FederationManager {
                 "prev_bundle_hash": metadata.prev_bundle_hash.as_ref().map(|h| h.to_string()),
             }))
             .build();
-            
+
             let _ = telemetry.log_event(event);
         }
-        
+
         info!(
             host_id = %self.host_id,
             bundle_hash = %metadata.merkle_root,
             "Federation bundle signed"
         );
-        
+
         Ok(record)
     }
 
@@ -212,19 +215,19 @@ impl FederationManager {
     ) -> Result<bool> {
         // Serialize metadata
         let payload = self.serialize_bundle_metadata(metadata)?;
-        
+
         // Decode signature
         let sig_bytes = hex::decode(&signature.signature)
             .map_err(|e| AosError::Crypto(format!("Invalid signature hex: {}", e)))?;
-        
+
         if sig_bytes.len() != 64 {
             return Err(AosError::Crypto("Invalid signature length".to_string()));
         }
-        
+
         let mut sig_array = [0u8; 64];
         sig_array.copy_from_slice(&sig_bytes);
         let sig = Signature::from_bytes(&sig_array)?;
-        
+
         // Verify signature
         match public_key.verify(&payload, &sig) {
             Ok(_) => Ok(true),
@@ -248,26 +251,31 @@ impl FederationManager {
         if host_chain.is_empty() {
             return Ok(());
         }
-        
+
         if host_chain.len() == 1 {
             debug!("Single signature in chain, skipping linkage check");
             return Ok(());
         }
-        
+
         // Verify chain linkage
         for window in host_chain.windows(2) {
             let prev = &window[0];
             let curr = &window[1];
-            
+
             // Check prev_host_hash linkage
             if let Some(ref prev_hash) = curr.prev_host_hash {
                 if prev_hash != &prev.bundle_hash {
                     // Emit telemetry event for chain break (100% sampling)
                     if let Some(ref telemetry) = self.telemetry {
                         let event = TelemetryEventBuilder::new(
-                            adapteros_telemetry::EventType::Custom("federation.chain_break".to_string()),
+                            adapteros_telemetry::EventType::Custom(
+                                "federation.chain_break".to_string(),
+                            ),
                             LogLevel::Error,
-                            format!("Federation chain break: {} -> {}", prev.host_id, curr.host_id),
+                            format!(
+                                "Federation chain break: {} -> {}",
+                                prev.host_id, curr.host_id
+                            ),
                         )
                         .component("adapteros-federation".to_string())
                         .metadata(json!({
@@ -277,10 +285,10 @@ impl FederationManager {
                             "actual_prev_hash": prev_hash,
                         }))
                         .build();
-                        
+
                         let _ = telemetry.log_event(event);
                     }
-                    
+
                     return Err(AosError::Validation(format!(
                         "Federation chain break: {} -> {} (expected prev_hash: {}, got: {})",
                         prev.host_id, curr.host_id, prev.bundle_hash, prev_hash
@@ -292,7 +300,7 @@ impl FederationManager {
                     "Missing prev_host_hash in chain"
                 );
             }
-            
+
             // Verify timestamp ordering
             if curr.created_at < prev.created_at {
                 return Err(AosError::Validation(format!(
@@ -301,7 +309,7 @@ impl FederationManager {
                 )));
             }
         }
-        
+
         // Emit telemetry event (100% sampling per Telemetry Ruleset #9)
         if let Some(ref telemetry) = self.telemetry {
             let event = TelemetryEventBuilder::new(
@@ -317,37 +325,40 @@ impl FederationManager {
                 "hosts": host_chain.iter().map(|s| &s.host_id).collect::<Vec<_>>(),
             }))
             .build();
-            
+
             let _ = telemetry.log_event(event);
         }
-        
+
         info!(
             chain_length = host_chain.len(),
             first_host = %host_chain.first().unwrap().host_id,
             last_host = %host_chain.last().unwrap().host_id,
             "Federation chain verified"
         );
-        
+
         Ok(())
     }
 
     /// Get all signatures for a bundle hash
-    pub async fn get_signatures_for_bundle(&self, bundle_hash: &str) -> Result<Vec<FederationSignature>> {
+    pub async fn get_signatures_for_bundle(
+        &self,
+        bundle_hash: &str,
+    ) -> Result<Vec<FederationSignature>> {
         let pool = self.db.pool();
-        
+
         let rows = sqlx::query(
             r#"
             SELECT id, host_id, bundle_hash, signature, prev_host_hash, created_at, verified
             FROM federation_bundle_signatures
             WHERE bundle_hash = ?
             ORDER BY created_at ASC
-            "#
+            "#,
         )
         .bind(bundle_hash)
         .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch signatures: {}", e)))?;
-        
+
         let signatures = rows
             .into_iter()
             .map(|row| FederationSignature {
@@ -362,15 +373,19 @@ impl FederationManager {
                 verified: row.get::<i64, _>("verified") != 0,
             })
             .collect();
-        
+
         Ok(signatures)
     }
 
     /// Get federation chain for a host
-    pub async fn get_host_chain(&self, host_id: &str, limit: usize) -> Result<Vec<FederationSignature>> {
+    pub async fn get_host_chain(
+        &self,
+        host_id: &str,
+        limit: usize,
+    ) -> Result<Vec<FederationSignature>> {
         let pool = self.db.pool();
         let limit = limit as i64;
-        
+
         let rows = sqlx::query(
             r#"
             SELECT id, host_id, bundle_hash, signature, prev_host_hash, created_at, verified
@@ -378,14 +393,14 @@ impl FederationManager {
             WHERE host_id = ?
             ORDER BY created_at DESC
             LIMIT ?
-            "#
+            "#,
         )
         .bind(host_id)
         .bind(limit)
         .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch host chain: {}", e)))?;
-        
+
         let signatures = rows
             .into_iter()
             .map(|row| FederationSignature {
@@ -400,33 +415,32 @@ impl FederationManager {
                 verified: row.get::<i64, _>("verified") != 0,
             })
             .collect();
-        
+
         Ok(signatures)
     }
 
     /// Mark a signature as verified
     pub async fn mark_verified(&self, signature_id: &str) -> Result<()> {
         let pool = self.db.pool();
-        
+
         sqlx::query(
             r#"
             UPDATE federation_bundle_signatures
             SET verified = 1
             WHERE id = ?
-            "#
+            "#,
         )
         .bind(signature_id)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to mark signature as verified: {}", e)))?;
-        
+
         Ok(())
     }
 
     /// Serialize bundle metadata for signing
     fn serialize_bundle_metadata(&self, metadata: &StoredBundleMetadata) -> Result<Vec<u8>> {
-        serde_json::to_vec(metadata)
-            .map_err(|e| AosError::Serialization(e))
+        serde_json::to_vec(metadata).map_err(|e| AosError::Serialization(e))
     }
 
     /// Store signature in database
@@ -434,7 +448,7 @@ impl FederationManager {
         let pool = self.db.pool();
         let created_at = signature.created_at.to_rfc3339();
         let verified = if signature.verified { 1 } else { 0 };
-        
+
         sqlx::query(
             r#"
             INSERT INTO federation_bundle_signatures (id, host_id, bundle_hash, signature, prev_host_hash, created_at, verified)
@@ -451,19 +465,21 @@ impl FederationManager {
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store signature: {}", e)))?;
-        
+
         // Link to tick ledger if we have the latest tick hash
         if let Some(tick_hash) = self.get_latest_tick_hash() {
-            let _ = self.link_to_tick_ledger(&signature.bundle_hash, &tick_hash).await;
+            let _ = self
+                .link_to_tick_ledger(&signature.bundle_hash, &tick_hash)
+                .await;
         }
-        
+
         Ok(())
     }
 
     /// Link federation signature to tick ledger
     async fn link_to_tick_ledger(&self, bundle_hash: &str, tick_hash: &str) -> Result<()> {
         let pool = self.db.pool();
-        
+
         sqlx::query(
             r#"
             UPDATE tick_ledger
@@ -471,7 +487,7 @@ impl FederationManager {
                 SELECT signature FROM federation_bundle_signatures WHERE bundle_hash = ? LIMIT 1
             )
             WHERE tick_hash = ?
-            "#
+            "#,
         )
         .bind(bundle_hash)
         .bind(bundle_hash)
@@ -479,7 +495,7 @@ impl FederationManager {
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to link to tick ledger: {}", e)))?;
-        
+
         Ok(())
     }
 }
@@ -497,12 +513,10 @@ trait Pipe: Sized {
 impl<T> Pipe for T {}
 
 // Re-export key types
+pub use attestation::{attest_bundle, verify_hardware_attestation, AttestationInfo};
 pub use output_hash::{ComparisonResult, OutputHashManager, OutputHashRecord};
 pub use peer::{AttestationMetadata, PeerInfo, PeerRegistry};
-pub use signature::{
-    BundleSignatureExchange, QuorumManager, QuorumStatus, VerificationResult,
-};
-pub use attestation::{attest_bundle, verify_hardware_attestation, AttestationInfo};
+pub use signature::{BundleSignatureExchange, QuorumManager, QuorumStatus, VerificationResult};
 
 #[cfg(test)]
 mod tests {
@@ -512,7 +526,9 @@ mod tests {
 
     async fn setup_test_db() -> Result<Db> {
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join(format!("test_{}.db", std::process::id()));
+        let db_path = temp_dir
+            .path()
+            .join(format!("test_{}.db", std::process::id()));
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
         Ok(db)
@@ -599,4 +615,3 @@ mod tests {
         Ok(())
     }
 }
-

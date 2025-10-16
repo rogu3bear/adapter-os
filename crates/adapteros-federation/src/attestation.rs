@@ -5,8 +5,8 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Signature;
-use serde::{Deserialize, Serialize};
 use hex;
+use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "macos")]
 use adapteros_secd::EnclaveManager;
@@ -87,7 +87,7 @@ pub fn attest_bundle(payload: &[u8]) -> Result<(Signature, AttestationInfo)> {
                 error = %e,
                 "Secure Enclave unavailable, falling back to software signing"
             );
-            
+
             // Fallback to software signing
             use adapteros_crypto::Keypair;
             let keypair = Keypair::generate();
@@ -151,9 +151,9 @@ mod tests {
     fn test_attest_bundle() {
         let payload = b"test federation bundle";
         let result = attest_bundle(payload);
-        
+
         assert!(result.is_ok());
-        
+
         let (_signature, attestation) = result.unwrap();
         assert!(!attestation.attested_at.is_empty());
         assert!(!attestation.algorithm.is_empty());
@@ -164,7 +164,7 @@ mod tests {
     fn test_software_fallback() {
         let payload = b"test bundle";
         let (_sig, attestation) = attest_bundle(payload).unwrap();
-        
+
         assert!(!attestation.hardware_backed);
         assert!(attestation.enclave_id.is_none());
         assert_eq!(attestation.algorithm, "Ed25519-Software");
@@ -191,4 +191,3 @@ mod tests {
         assert!(verify_hardware_attestation(&sw_attestation).is_err());
     }
 }
-

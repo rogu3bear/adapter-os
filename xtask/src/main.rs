@@ -3,9 +3,9 @@
 use anyhow::Result;
 use std::env;
 
+mod determinism_report;
 mod sbom;
 mod verify_agents;
-mod determinism_report;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,15 +29,15 @@ async fn main() -> Result<()> {
             } else {
                 verify_agents::VerifyAgentsArgs::parse()
             };
-            
+
             let report = verify_agents::run(verify_args).await?;
-            
+
             // Print summary
             println!("\n=== Verification Complete ===");
             println!("PASS: {}", report.summary.pass);
             println!("FAIL: {}", report.summary.fail);
             println!("SKIP: {}", report.summary.skip);
-            
+
             // Exit with appropriate code
             std::process::exit(report.exit_code());
         }

@@ -18,28 +18,28 @@ use tracing::warn;
 pub enum QuarantineOperation {
     /// Inference request
     Inference,
-    
+
     /// Load adapter into memory
     AdapterLoad,
-    
+
     /// Swap adapters (hot-swap)
     AdapterSwap,
-    
+
     /// Memory allocation or reallocation
     MemoryOperation,
-    
+
     /// Training operation
     Training,
-    
+
     /// Policy update
     PolicyUpdate,
-    
+
     /// Audit operation (read-only)
     Audit,
-    
+
     /// Status check (read-only)
     Status,
-    
+
     /// Metrics retrieval (read-only)
     Metrics,
 }
@@ -73,7 +73,7 @@ impl QuarantineOperation {
 pub struct QuarantineManager {
     /// Whether the system is currently quarantined
     quarantined: bool,
-    
+
     /// Violation details for reporting
     violation_summary: String,
 }
@@ -104,7 +104,7 @@ impl QuarantineManager {
     }
 
     /// Check if an operation is allowed
-    /// 
+    ///
     /// Returns `Ok(())` if allowed, `Err(AosError::Quarantined)` if denied.
     pub fn check_operation(&self, operation: QuarantineOperation) -> Result<()> {
         if !self.quarantined {
@@ -157,8 +157,12 @@ mod tests {
     fn test_operations_allowed_when_not_quarantined() {
         let manager = QuarantineManager::new();
 
-        assert!(manager.check_operation(QuarantineOperation::Inference).is_ok());
-        assert!(manager.check_operation(QuarantineOperation::AdapterLoad).is_ok());
+        assert!(manager
+            .check_operation(QuarantineOperation::Inference)
+            .is_ok());
+        assert!(manager
+            .check_operation(QuarantineOperation::AdapterLoad)
+            .is_ok());
         assert!(manager.check_operation(QuarantineOperation::Audit).is_ok());
         assert!(manager.check_operation(QuarantineOperation::Status).is_ok());
     }
@@ -168,12 +172,24 @@ mod tests {
         let mut manager = QuarantineManager::new();
         manager.set_quarantined(true, "Test violation".to_string());
 
-        assert!(manager.check_operation(QuarantineOperation::Inference).is_err());
-        assert!(manager.check_operation(QuarantineOperation::AdapterLoad).is_err());
-        assert!(manager.check_operation(QuarantineOperation::AdapterSwap).is_err());
-        assert!(manager.check_operation(QuarantineOperation::MemoryOperation).is_err());
-        assert!(manager.check_operation(QuarantineOperation::Training).is_err());
-        assert!(manager.check_operation(QuarantineOperation::PolicyUpdate).is_err());
+        assert!(manager
+            .check_operation(QuarantineOperation::Inference)
+            .is_err());
+        assert!(manager
+            .check_operation(QuarantineOperation::AdapterLoad)
+            .is_err());
+        assert!(manager
+            .check_operation(QuarantineOperation::AdapterSwap)
+            .is_err());
+        assert!(manager
+            .check_operation(QuarantineOperation::MemoryOperation)
+            .is_err());
+        assert!(manager
+            .check_operation(QuarantineOperation::Training)
+            .is_err());
+        assert!(manager
+            .check_operation(QuarantineOperation::PolicyUpdate)
+            .is_err());
     }
 
     #[test]
@@ -183,13 +199,15 @@ mod tests {
 
         assert!(manager.check_operation(QuarantineOperation::Audit).is_ok());
         assert!(manager.check_operation(QuarantineOperation::Status).is_ok());
-        assert!(manager.check_operation(QuarantineOperation::Metrics).is_ok());
+        assert!(manager
+            .check_operation(QuarantineOperation::Metrics)
+            .is_ok());
     }
 
     #[test]
     fn test_status_message() {
         let mut manager = QuarantineManager::new();
-        
+
         let msg = manager.status_message();
         assert!(msg.contains("OPERATIONAL"));
 
@@ -207,10 +225,9 @@ mod tests {
         assert!(!QuarantineOperation::MemoryOperation.allowed_in_quarantine());
         assert!(!QuarantineOperation::Training.allowed_in_quarantine());
         assert!(!QuarantineOperation::PolicyUpdate.allowed_in_quarantine());
-        
+
         assert!(QuarantineOperation::Audit.allowed_in_quarantine());
         assert!(QuarantineOperation::Status.allowed_in_quarantine());
         assert!(QuarantineOperation::Metrics.allowed_in_quarantine());
     }
 }
-

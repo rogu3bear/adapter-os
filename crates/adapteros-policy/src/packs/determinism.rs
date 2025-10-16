@@ -233,7 +233,9 @@ impl DeterminismPolicy {
         &self,
         report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
     ) -> Result<()> {
-        use adapteros_lora_kernel_api::attestation::{BackendType, RngSeedingMethod as AttestationRngMethod};
+        use adapteros_lora_kernel_api::attestation::{
+            BackendType, RngSeedingMethod as AttestationRngMethod,
+        };
 
         // Check overall deterministic flag
         if !report.deterministic {

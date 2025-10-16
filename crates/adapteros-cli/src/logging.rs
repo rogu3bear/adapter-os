@@ -22,9 +22,9 @@
 //! ```
 
 use adapteros_core::{AosError, Result};
-use adapteros_telemetry::{TelemetryEventBuilder, EventType, LogLevel};
-use tracing::{info, warn, error, debug};
-use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
+use tracing::{debug, error, info, warn};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// Initialize unified logging for CLI commands
 ///
@@ -38,9 +38,8 @@ use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberI
 /// - CONTRIBUTING.md L123: Uses `tracing` instead of `println!`
 pub fn init_logging() -> Result<()> {
     // Configure tracing subscriber with structured output
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-    
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
     let fmt_layer = fmt::layer()
         .with_target(false)
         .with_thread_ids(true)
@@ -71,11 +70,7 @@ pub fn init_logging() -> Result<()> {
 /// # Policy Compliance
 ///
 /// - Policy Pack #9 (Telemetry): Structured logging with canonical JSON
-pub fn log_command_execution(
-    command: &str,
-    args: &[String],
-    result: &Result<()>,
-) {
+pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>) {
     match result {
         Ok(_) => {
             let event = TelemetryEventBuilder::new(
@@ -90,7 +85,7 @@ pub fn log_command_execution(
                 "status": "success"
             }))
             .build();
-            
+
             info!(
                 command = command,
                 args = ?args,
@@ -111,7 +106,7 @@ pub fn log_command_execution(
                 "status": "failure"
             }))
             .build();
-            
+
             error!(
                 command = command,
                 args = ?args,
@@ -133,11 +128,7 @@ pub fn log_command_execution(
 /// # Policy Compliance
 ///
 /// - Policy Pack #9 (Telemetry): Structured logging with canonical JSON
-pub fn log_operation(
-    operation: &str,
-    context: &serde_json::Value,
-    result: &Result<()>,
-) {
+pub fn log_operation(operation: &str, context: &serde_json::Value, result: &Result<()>) {
     match result {
         Ok(_) => {
             info!(
@@ -209,7 +200,11 @@ mod tests {
         // Test command execution logging
         let args = vec!["list".to_string(), "adapters".to_string()];
         log_command_execution("adapter", &args, &Ok(()));
-        log_command_execution("adapter", &args, &Err(AosError::Internal("test error".to_string())));
+        log_command_execution(
+            "adapter",
+            &args,
+            &Err(AosError::Internal("test error".to_string())),
+        );
     }
 
     #[test]
@@ -217,6 +212,10 @@ mod tests {
         // Test operation logging
         let context = serde_json::json!({"tenant_id": "test"});
         log_operation("list_adapters", &context, &Ok(()));
-        log_operation("list_adapters", &context, &Err(AosError::Internal("test error".to_string())));
+        log_operation(
+            "list_adapters",
+            &context,
+            &Err(AosError::Internal("test error".to_string())),
+        );
     }
 }

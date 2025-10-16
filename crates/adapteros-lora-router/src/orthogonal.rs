@@ -69,7 +69,8 @@ impl OrthogonalConstraints {
 
         for (idx, gate) in adapter_indices.iter().zip(gates.iter()) {
             if *idx < 256 {
-                activation[*idx as usize] = *gate as f32 / 32767.0;
+                let value = *gate as f32 / 32767.0;
+                activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
             }
         }
 

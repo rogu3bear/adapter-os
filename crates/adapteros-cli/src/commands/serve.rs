@@ -1,7 +1,7 @@
 //! Start serving
 
-use anyhow::Result;
 use adapteros_policy::egress;
+use anyhow::Result;
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
@@ -277,7 +277,7 @@ pub async fn run(
         }
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
-            
+
             #[cfg(not(feature = "experimental-backends"))]
             {
                 output.error("CoreML backend requires --features experimental-backends");
@@ -322,8 +322,11 @@ pub async fn run(
                     adapter_spec.id, adapter_id
                 ));
 
-                match adapteros_lora_mlx_ffi::LoRAAdapter::load(&adapter_path, adapter_spec.id.clone(), config)
-                {
+                match adapteros_lora_mlx_ffi::LoRAAdapter::load(
+                    &adapter_path,
+                    adapter_spec.id.clone(),
+                    config,
+                ) {
                     Ok(adapter) => {
                         // Load adapter weights into backend
                         // For now, we skip this as it requires extending the trait
@@ -358,7 +361,8 @@ pub async fn run(
         &tokenizer_path,
         &model_path,
         telemetry,
-    ).await?;
+    )
+    .await?;
     output.success("Worker initialized");
 
     output.blank();

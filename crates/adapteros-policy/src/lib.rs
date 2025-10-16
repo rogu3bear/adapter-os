@@ -3,19 +3,23 @@
 pub mod policy_pack;
 pub mod policy_packs;
 pub mod registry;
-pub mod validation;
 pub mod unified_enforcement;
+pub mod validation;
 
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
 
 pub mod abstention;
+pub mod access_control;
 pub mod code_metrics;
 pub mod egress;
 pub mod mplora;
 pub mod numeric;
 pub mod patch_policy;
 pub mod refusal;
+pub mod security_monitoring;
+pub mod security_response;
+pub mod threat_detection;
 
 // Policy packs implemented in Phase 3
 pub mod packs;
@@ -31,9 +35,11 @@ pub use registry::{
 };
 
 pub use abstention::should_abstain;
+pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, RoleDefinition};
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
 };
+pub use hash_watcher::{HashViolation, PolicyHashWatcher, ValidationResult};
 pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
 pub use patch_policy::{
@@ -41,23 +47,24 @@ pub use patch_policy::{
     SecurityValidation, SecurityViolation, TestValidation,
 };
 pub use policy_pack::{PolicyPackRegistry, SignedPolicyPack};
-pub use refusal::{RefusalReason, RefusalResponse};
-pub use unified_enforcement::{
-    PolicyEnforcer, UnifiedPolicyEnforcer, PolicyRequest, PolicyValidationResult,
-    PolicyViolation, PolicyEnforcementResult, PolicyComplianceReport, Operation,
-    RequestType, OperationType, ViolationSeverity, EnforcementAction,
-};
 pub use policy_packs::{
-    PolicyPackManager, PolicyPackValidator, PolicyPackId, PolicyPackConfig,
-    EnforcementLevel, EgressValidator, DeterminismValidator, RouterValidator,
-    EvidenceValidator, RefusalValidator, NumericUnitsValidator, RagIndexValidator,
-    IsolationValidator, TelemetryValidator, RetentionValidator, PerformanceValidator,
-    MemoryValidator, ArtifactsValidator, SecretsValidator, BuildReleaseValidator,
-    ComplianceValidator, IncidentValidator, LlmOutputValidator, AdapterLifecycleValidator,
-    FullPackValidator,
+    AdapterLifecycleValidator, ArtifactsValidator, BuildReleaseValidator, ComplianceValidator,
+    DeterminismValidator, EgressValidator, EnforcementLevel, EvidenceValidator, FullPackValidator,
+    IncidentValidator, IsolationValidator, LlmOutputValidator, MemoryValidator,
+    NumericUnitsValidator, PerformanceValidator, PolicyPackConfig, PolicyPackId, PolicyPackManager,
+    PolicyPackValidator, RagIndexValidator, RefusalValidator, RetentionValidator, RouterValidator,
+    SecretsValidator, TelemetryValidator,
 };
-pub use hash_watcher::{PolicyHashWatcher, HashViolation, ValidationResult};
 pub use quarantine::{QuarantineManager, QuarantineOperation};
+pub use refusal::{RefusalReason, RefusalResponse};
+pub use security_monitoring::{SecurityMonitoringService, SecurityReport};
+pub use security_response::{ResponseAction, ResponsePlan, ResponsePolicy, SecurityResponseEngine};
+pub use threat_detection::{ThreatAssessment, ThreatDetectionEngine, ThreatSeverity, ThreatSignal};
+pub use unified_enforcement::{
+    EnforcementAction, Operation, OperationType, PolicyComplianceReport, PolicyEnforcementResult,
+    PolicyEnforcer, PolicyRequest, PolicyValidationResult, PolicyViolation, RequestType,
+    UnifiedPolicyEnforcer, ViolationSeverity,
+};
 
 /// Policy engine for enforcing all 20 policy packs
 pub struct PolicyEngine {

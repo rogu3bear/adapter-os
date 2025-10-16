@@ -24,23 +24,26 @@
 pub mod buffer_relocation;
 pub mod heap_observer;
 pub mod memory_map;
+pub mod optimization;
 pub mod pointer_canonicalizer;
 pub mod replay_integration;
-pub mod unified_memory;
 pub mod unified_interface;
+pub mod unified_memory;
 pub mod watchdog;
 
 pub use buffer_relocation::BufferRelocationDetector;
 pub use heap_observer::MetalHeapObserver;
 pub use memory_map::MemoryMapHasher;
+pub use optimization::{MemoryOptimizationPlan, MemoryOptimizer, MemoryPressureReport};
 pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use replay_integration::ReplayMemoryLogger;
+pub use unified_interface::{
+    AdapterCategory, AdapterMemoryInfo, AdapterState, CleanupOperation, MemoryCleanupReport,
+    MemoryManager, MemoryPressureLevel, MemoryUsageStats,
+    UnifiedMemoryManager as UnifiedMemoryManagerInterface,
+};
 pub use unified_memory::{
     AllocationRequest, MemoryBlock, MemoryStats, MemoryType, UnifiedMemoryManager,
-};
-pub use unified_interface::{
-    MemoryManager, MemoryUsageStats, AdapterMemoryInfo, AdapterState, AdapterCategory,
-    MemoryPressureLevel, MemoryCleanupReport, CleanupOperation, UnifiedMemoryManager as UnifiedMemoryManagerInterface,
 };
 pub use watchdog::MemoryWatchdog;
 
@@ -121,7 +124,6 @@ pub enum MigrationType {
     /// Memory pressure triggered eviction
     PressureEviction,
 }
-
 
 /// Configuration for memory watchdog
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

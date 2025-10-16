@@ -9,7 +9,7 @@ use std::path::PathBuf;
 async fn test_linter_runner_creates_successfully() {
     let repo_path = PathBuf::from(".");
     let _runner = LinterRunner::new(&repo_path);
-    
+
     // Should create without error
 }
 
@@ -22,23 +22,23 @@ async fn test_linter_with_custom_config() {
         clippy_args: vec!["-W".to_string(), "clippy::all".to_string()],
         fail_on_warnings: true,
     };
-    
+
     let _runner = LinterRunner::new(&repo_path).with_config(config);
-    
+
     // Should create with custom config
 }
 
 #[tokio::test]
 async fn test_linter_result_methods() {
     use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult};
-    
+
     let result = LinterResult {
         linter: LinterType::Clippy,
         errors: vec![],
         warnings: vec![],
         duration_ms: 1000,
     };
-    
+
     assert!(result.passed());
     assert_eq!(result.total_issues(), 0);
 }
@@ -46,7 +46,7 @@ async fn test_linter_result_methods() {
 #[tokio::test]
 async fn test_linter_result_with_issues() {
     use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult};
-    
+
     let result = LinterResult {
         linter: LinterType::Clippy,
         errors: vec![LintIssue {
@@ -60,7 +60,7 @@ async fn test_linter_result_with_issues() {
         warnings: vec![],
         duration_ms: 1000,
     };
-    
+
     assert!(!result.passed());
     assert_eq!(result.total_issues(), 1);
 }
@@ -68,7 +68,7 @@ async fn test_linter_result_with_issues() {
 #[tokio::test]
 async fn test_static_helper_methods() {
     use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult, LinterRunner};
-    
+
     let results = vec![
         LinterResult {
             linter: LinterType::Clippy,
@@ -98,4 +98,3 @@ async fn test_static_helper_methods() {
 
 // Note: Full linter execution is tested via unit tests in the module itself
 // Integration tests here verify the public API and configuration
-

@@ -1,6 +1,6 @@
 //! Tests for profiler metric collection accuracy
 
-use adapteros_profiler::{AdapterProfiler, AdapterMetrics};
+use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
 use std::time::Duration;
 
 #[test]
@@ -86,11 +86,7 @@ fn test_quality_delta_tracking() {
 
 #[test]
 fn test_ranking() {
-    let adapter_names = vec![
-        "low".to_string(),
-        "high".to_string(),
-        "medium".to_string(),
-    ];
+    let adapter_names = vec!["low".to_string(), "high".to_string(), "medium".to_string()];
 
     let profiler = AdapterProfiler::new(adapter_names, None);
 
@@ -133,4 +129,3 @@ fn test_rolling_window() {
     assert_eq!(metrics[0].total_tokens, 1000);
     assert_eq!(metrics[0].activation_count, 1000);
 }
-

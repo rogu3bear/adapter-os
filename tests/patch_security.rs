@@ -10,8 +10,8 @@
 //! Aligns with security requirements from Code Policy.
 
 use adapteros_lora_worker::{
-    patch_generator::{FilePatch, PatchHunk, HunkType},
-    patch_validator::{PatchValidator, CodePolicy, ViolationType, ViolationSeverity},
+    patch_generator::{FilePatch, HunkType, PatchHunk},
+    patch_validator::{CodePolicy, PatchValidator, ViolationSeverity, ViolationType},
 };
 use std::collections::HashMap;
 use tokio;
@@ -38,7 +38,10 @@ async fn test_secret_detection_patterns() {
 
     let result = validator.validate(&[api_key_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
 
     // Test password pattern
     let password_patch = FilePatch {
@@ -56,7 +59,10 @@ async fn test_secret_detection_patterns() {
 
     let result = validator.validate(&[password_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
 
     // Test AWS credentials pattern
     let aws_patch = FilePatch {
@@ -74,7 +80,10 @@ async fn test_secret_detection_patterns() {
 
     let result = validator.validate(&[aws_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
 
     // Test private key pattern
     let private_key_patch = FilePatch {
@@ -92,7 +101,10 @@ async fn test_secret_detection_patterns() {
 
     let result = validator.validate(&[private_key_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
 }
 
 /// Test path restrictions and permissions
@@ -137,7 +149,10 @@ async fn test_path_restrictions() {
 
     let result = validator.validate(&[denied_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::PathDenied)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::PathDenied)));
 
     // Test path not in allowlist
     let not_allowed_patch = FilePatch {
@@ -155,7 +170,10 @@ async fn test_path_restrictions() {
 
     let result = validator.validate(&[not_allowed_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::PathDenied)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::PathDenied)));
 }
 
 /// Test forbidden operations detection
@@ -180,7 +198,10 @@ async fn test_forbidden_operations() {
 
     let result = validator.validate(&[eval_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
 
     // Test exec_raw operation
     let exec_patch = FilePatch {
@@ -198,7 +219,10 @@ async fn test_forbidden_operations() {
 
     let result = validator.validate(&[exec_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
 
     // Test shell_escape operation
     let shell_patch = FilePatch {
@@ -216,7 +240,10 @@ async fn test_forbidden_operations() {
 
     let result = validator.validate(&[shell_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
 
     // Test unsafe_deserialization operation
     let unsafe_patch = FilePatch {
@@ -234,7 +261,10 @@ async fn test_forbidden_operations() {
 
     let result = validator.validate(&[unsafe_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
 }
 
 /// Test dependency policy enforcement
@@ -261,7 +291,10 @@ async fn test_dependency_policy() {
 
     let result = validator.validate(&[rust_dep_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::DependencyBlocked)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::DependencyBlocked)));
 
     // Test external Python dependency
     let python_dep_patch = FilePatch {
@@ -279,7 +312,10 @@ async fn test_dependency_policy() {
 
     let result = validator.validate(&[python_dep_patch]).await.unwrap();
     assert!(!result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::DependencyBlocked)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::DependencyBlocked)));
 
     // Test allowed dependency (when policy allows)
     let mut allowed_policy = CodePolicy::default();
@@ -312,7 +348,10 @@ async fn test_review_requirements() {
 
     let result = validator.validate(&[migration_patch]).await.unwrap();
     assert!(result.is_valid); // Review required is a warning, not an error
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ReviewRequired)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ReviewRequired)));
 
     // Test security-related file
     let security_patch = FilePatch {
@@ -330,7 +369,10 @@ async fn test_review_requirements() {
 
     let result = validator.validate(&[security_patch]).await.unwrap();
     assert!(result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ReviewRequired)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ReviewRequired)));
 
     // Test production config
     let config_patch = FilePatch {
@@ -348,7 +390,10 @@ async fn test_review_requirements() {
 
     let result = validator.validate(&[config_patch]).await.unwrap();
     assert!(result.is_valid);
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ReviewRequired)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ReviewRequired)));
 }
 
 /// Test patch size limits
@@ -394,7 +439,10 @@ async fn test_patch_size_limits() {
     let result = validator.validate(&[large_patch]).await.unwrap();
     assert!(result.is_valid); // Size limit is a warning, not an error
     assert!(!result.warnings.is_empty());
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::SizeExceeded)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::SizeExceeded)));
 }
 
 /// Test multiple security violations in single patch
@@ -411,8 +459,8 @@ async fn test_multiple_violations() {
             context_lines: vec![],
             modified_lines: vec![
                 "api_key = \"sk-1234567890abcdef\"".to_string(), // Secret detected
-                "eval(user_input)".to_string(), // Forbidden operation
-                "use external_crate::function;".to_string(), // Dependency blocked
+                "eval(user_input)".to_string(),                  // Forbidden operation
+                "use external_crate::function;".to_string(),     // Dependency blocked
             ],
             hunk_type: HunkType::Addition,
         }],
@@ -426,10 +474,22 @@ async fn test_multiple_violations() {
     assert!(result.violations.len() >= 3); // Multiple violations
 
     // Check for specific violation types
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::PathDenied)));
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
-    assert!(result.violations.iter().any(|v| matches!(v.violation_type, ViolationType::DependencyBlocked)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::PathDenied)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::SecretDetected)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation)));
+    assert!(result
+        .violations
+        .iter()
+        .any(|v| matches!(v.violation_type, ViolationType::DependencyBlocked)));
 }
 
 /// Test violation severity levels
@@ -453,10 +513,15 @@ async fn test_violation_severity() {
     };
 
     let result = validator.validate(&[secret_patch]).await.unwrap();
-    let secret_violation = result.violations.iter()
+    let secret_violation = result
+        .violations
+        .iter()
         .find(|v| matches!(v.violation_type, ViolationType::SecretDetected))
         .unwrap();
-    assert!(matches!(secret_violation.severity, ViolationSeverity::Critical));
+    assert!(matches!(
+        secret_violation.severity,
+        ViolationSeverity::Critical
+    ));
 
     // Test high severity (forbidden operations)
     let forbidden_patch = FilePatch {
@@ -473,10 +538,15 @@ async fn test_violation_severity() {
     };
 
     let result = validator.validate(&[forbidden_patch]).await.unwrap();
-    let forbidden_violation = result.violations.iter()
+    let forbidden_violation = result
+        .violations
+        .iter()
         .find(|v| matches!(v.violation_type, ViolationType::ForbiddenOperation))
         .unwrap();
-    assert!(matches!(forbidden_violation.severity, ViolationSeverity::Critical));
+    assert!(matches!(
+        forbidden_violation.severity,
+        ViolationSeverity::Critical
+    ));
 
     // Test medium severity (size limits)
     let mut size_policy = CodePolicy::default();
@@ -497,7 +567,9 @@ async fn test_violation_severity() {
     };
 
     let result = size_validator.validate(&[large_patch]).await.unwrap();
-    let size_violation = result.violations.iter()
+    let size_violation = result
+        .violations
+        .iter()
         .find(|v| matches!(v.violation_type, ViolationType::SizeExceeded))
         .unwrap();
     assert!(matches!(size_violation.severity, ViolationSeverity::Medium));

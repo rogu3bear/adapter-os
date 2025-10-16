@@ -15,7 +15,7 @@
 mod e2e;
 
 use adapteros_core::{AosError, Result};
-use e2e::{TestCluster, TestClusterConfig, GoldenBaseline};
+use e2e::{GoldenBaseline, TestCluster, TestClusterConfig};
 use std::path::PathBuf;
 
 const TEST_NAME: &str = "multi_host_determinism";
@@ -48,15 +48,18 @@ async fn test_multi_host_determinism() -> Result<()> {
                 let output = simulate_deterministic_inference(host.id, input).await?;
 
                 // Store output
-                host.store_result("inference_output".to_string(), output).await;
+                host.store_result("inference_output".to_string(), output)
+                    .await;
 
                 // Simulate router decision
                 let router_output = simulate_router_decision(host.id, input).await?;
-                host.store_result("router_output".to_string(), router_output).await;
+                host.store_result("router_output".to_string(), router_output)
+                    .await;
 
                 // Simulate memory state
                 let memory_state = simulate_memory_state(host.id).await?;
-                host.store_result("memory_state".to_string(), memory_state).await;
+                host.store_result("memory_state".to_string(), memory_state)
+                    .await;
 
                 if host.id == 0 {
                     println!("  Host {} completed computation", host.id);

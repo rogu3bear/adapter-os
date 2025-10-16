@@ -78,9 +78,8 @@ impl MigrationVerifier {
             )));
         }
 
-        let signatures_content = fs::read_to_string(&signatures_path).map_err(|e| {
-            AosError::Io(format!("Failed to read signatures file: {}", e))
-        })?;
+        let signatures_content = fs::read_to_string(&signatures_path)
+            .map_err(|e| AosError::Io(format!("Failed to read signatures file: {}", e)))?;
 
         let signatures: SignaturesSchema = serde_json::from_str(&signatures_content)
             .map_err(|e| AosError::Validation(format!("Invalid signatures.json format: {}", e)))?;
@@ -106,7 +105,10 @@ impl MigrationVerifier {
         let migration_files = self.list_migration_files()?;
 
         if migration_files.is_empty() {
-            warn!("No migration files found in {}", self.migrations_dir.display());
+            warn!(
+                "No migration files found in {}",
+                self.migrations_dir.display()
+            );
             return Ok(());
         }
 
@@ -149,16 +151,12 @@ impl MigrationVerifier {
     /// Verify a single migration file
     fn verify_migration(&self, file_path: &Path, filename: &str) -> Result<()> {
         // Get signature for this migration
-        let sig_data = self
-            .signatures
-            .signatures
-            .get(filename)
-            .ok_or_else(|| {
-                AosError::Validation(format!(
-                    "No signature found for migration: {}. Re-sign with scripts/sign_migrations.sh",
-                    filename
-                ))
-            })?;
+        let sig_data = self.signatures.signatures.get(filename).ok_or_else(|| {
+            AosError::Validation(format!(
+                "No signature found for migration: {}. Re-sign with scripts/sign_migrations.sh",
+                filename
+            ))
+        })?;
 
         // Compute file hash
         let file_content = fs::read(file_path)
@@ -199,14 +197,16 @@ impl MigrationVerifier {
 
     /// Verify Ed25519 signature
     fn verify_signature(&self, _file_hash: &str, signature_b64: &str) -> Result<()> {
-        use base64::{Engine as _, engine::general_purpose};
+        use base64::{engine::general_purpose, Engine as _};
 
         // Decode public key from base64 PEM
-        let public_key_pem = general_purpose::STANDARD.decode(&self.signatures.public_key)
+        let public_key_pem = general_purpose::STANDARD
+            .decode(&self.signatures.public_key)
             .map_err(|e| AosError::Crypto(format!("Invalid public key encoding: {}", e)))?;
 
         // Decode signature from base64
-        let signature_bytes = general_purpose::STANDARD.decode(signature_b64)
+        let signature_bytes = general_purpose::STANDARD
+            .decode(signature_b64)
             .map_err(|e| AosError::Crypto(format!("Invalid signature encoding: {}", e)))?;
 
         // Parse PEM to extract raw Ed25519 public key
@@ -248,12 +248,12 @@ impl MigrationVerifier {
     fn list_migration_files(&self) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 
-        let entries = fs::read_dir(&self.migrations_dir).map_err(|e| {
-            AosError::Io(format!("Failed to read migrations directory: {}", e))
-        })?;
+        let entries = fs::read_dir(&self.migrations_dir)
+            .map_err(|e| AosError::Io(format!("Failed to read migrations directory: {}", e)))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?;
+            let entry = entry
+                .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?;
             let path = entry.path();
 
             if path.extension().and_then(|e| e.to_str()) == Some("sql") {
@@ -329,6 +329,9 @@ mod tests {
 
         let result = MigrationVerifier::new(migrations_dir);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("signatures not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("signatures not found"));
     }
 }

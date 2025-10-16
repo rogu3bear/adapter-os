@@ -94,9 +94,8 @@ impl UdsMetricsExporter {
         }
 
         // Bind listener
-        let listener = UnixListener::bind(&self.socket_path).map_err(|e| {
-            AosError::Telemetry(format!("Failed to bind UDS listener: {}", e))
-        })?;
+        let listener = UnixListener::bind(&self.socket_path)
+            .map_err(|e| AosError::Telemetry(format!("Failed to bind UDS listener: {}", e)))?;
 
         info!("UDS metrics exporter bound to: {:?}", self.socket_path);
 
@@ -118,9 +117,11 @@ impl UdsMetricsExporter {
                 Ok((stream, _addr)) => {
                     let registry = self.metrics_registry.clone();
                     let prometheus_compat = self.prometheus_compat;
-                    
+
                     tokio::spawn(async move {
-                        if let Err(e) = Self::handle_connection(stream, registry, prometheus_compat).await {
+                        if let Err(e) =
+                            Self::handle_connection(stream, registry, prometheus_compat).await
+                        {
                             error!("Failed to handle UDS metrics request: {}", e);
                         }
                     });
@@ -375,4 +376,3 @@ mod tests {
         assert!(output.contains("test_gauge 42.5"));
     }
 }
-

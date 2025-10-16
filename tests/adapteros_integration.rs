@@ -144,7 +144,10 @@ async fn test_build_plan_integration() -> Result<()> {
 
     // Verify plan was created
     assert!(output_path.exists(), "Plan file should be created");
-    assert!(output.contains("Plan built successfully"), "Should show success message");
+    assert!(
+        output.contains("Plan built successfully"),
+        "Should show success message"
+    );
 
     let plan_id = fs::read_to_string(&output_path)?;
     assert!(!plan_id.is_empty(), "Plan ID should not be empty");
@@ -185,7 +188,13 @@ async fn test_build_plan_integration() -> Result<()> {
 
     let result = run_aosctl_command(args).await;
     assert!(result.is_err(), "Should fail with invalid manifest");
-    assert!(result.unwrap_err().to_string().contains("validation failed") || result.unwrap_err().to_string().contains("parse"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("validation failed")
+            || result.unwrap_err().to_string().contains("parse")
+    );
 
     println!("   ✓ Invalid manifest correctly rejected");
 
@@ -217,8 +226,14 @@ async fn test_serve_integration() -> Result<()> {
 
     let output = run_aosctl_command(args).await?;
 
-    assert!(output.contains("Dry-run mode"), "Should indicate dry-run mode");
-    assert!(output.contains("All preflight checks passed"), "Should pass preflight checks");
+    assert!(
+        output.contains("Dry-run mode"),
+        "Should indicate dry-run mode"
+    );
+    assert!(
+        output.contains("All preflight checks passed"),
+        "Should pass preflight checks"
+    );
 
     println!("   ✓ Dry-run validation completed");
 
@@ -237,7 +252,10 @@ async fn test_serve_integration() -> Result<()> {
 
     let result = run_aosctl_command(args).await;
     assert!(result.is_err(), "Should fail with missing plan");
-    assert!(result.unwrap_err().to_string().contains("not found") || result.unwrap_err().to_string().contains("directory"));
+    assert!(
+        result.unwrap_err().to_string().contains("not found")
+            || result.unwrap_err().to_string().contains("directory")
+    );
 
     println!("   ✓ Missing plan correctly rejected");
 
@@ -276,11 +294,14 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
 
     let telemetry_writer = TelemetryWriter::new(
         &config.telemetry_dir,
-        1000, // max events
+        1000,        // max events
         1024 * 1024, // max bytes (1MB)
     )?;
 
-    assert!(!telemetry_writer.public_key().is_empty(), "Should have public key");
+    assert!(
+        !telemetry_writer.public_key().is_empty(),
+        "Should have public key"
+    );
 
     println!("   ✓ Telemetry writer initialized");
 
@@ -370,8 +391,11 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
     assert!(!sig_files.is_empty(), "Should have created signature files");
 
     println!("   ✓ Bundle rotation and signing completed");
-    println!("   ✓ Created {} bundle files and {} signature files",
-             bundle_files.len(), sig_files.len());
+    println!(
+        "   ✓ Created {} bundle files and {} signature files",
+        bundle_files.len(),
+        sig_files.len()
+    );
 
     cleanup_test_env(&config).await?;
     println!("\n✅ Telemetry ingest integration test passed");
@@ -403,8 +427,10 @@ async fn test_policy_violation_paths() -> Result<()> {
     assert!(result.is_err(), "Should fail with insufficient evidence");
 
     if let Err(AosError::PolicyViolation(msg)) = result {
-        assert!(msg.contains("Insufficient evidence"),
-                "Should mention evidence requirement");
+        assert!(
+            msg.contains("Insufficient evidence"),
+            "Should mention evidence requirement"
+        );
         println!("   ✓ Evidence violation correctly detected: {}", msg);
     }
 
@@ -419,8 +445,10 @@ async fn test_policy_violation_paths() -> Result<()> {
     assert!(result.is_err(), "Should fail with low confidence");
 
     if let Err(AosError::PolicyViolation(msg)) = result {
-        assert!(msg.contains("Confidence"),
-                "Should mention confidence requirement");
+        assert!(
+            msg.contains("Confidence"),
+            "Should mention confidence requirement"
+        );
         println!("   ✓ Confidence violation correctly detected: {}", msg);
     }
 
@@ -460,7 +488,10 @@ async fn test_end_to_end_workflow() -> Result<()> {
     ];
 
     let output = run_aosctl_command(args).await?;
-    assert!(output.contains("Plan built successfully"), "Plan should build successfully");
+    assert!(
+        output.contains("Plan built successfully"),
+        "Plan should build successfully"
+    );
 
     let plan_id = fs::read_to_string(&output_path)?;
     println!("   ✓ Plan built: {}", plan_id);
@@ -480,7 +511,10 @@ async fn test_end_to_end_workflow() -> Result<()> {
     ];
 
     let output = run_aosctl_command(args).await?;
-    assert!(output.contains("All preflight checks passed"), "Serve should pass preflight");
+    assert!(
+        output.contains("All preflight checks passed"),
+        "Serve should pass preflight"
+    );
 
     println!("   ✓ Serve validation completed");
 
@@ -489,7 +523,7 @@ async fn test_end_to_end_workflow() -> Result<()> {
 
     let telemetry_writer = TelemetryWriter::new(
         &config.telemetry_dir,
-        100, // max events
+        100,         // max events
         1024 * 1024, // max bytes (1MB)
     )?;
 
@@ -520,28 +554,39 @@ async fn test_end_to_end_workflow() -> Result<()> {
 
     // Test both valid and invalid requests
     let test_requests = vec![
-        ("valid_request", true, serde_json::json!({
-            "prompt": "What is the torque specification?",
-            "evidence_spans": [{"doc_id": "DOC-001", "span_hash": "span123", "start": 0, "end": 50}],
-            "numeric_claims": [{"value": 25.0, "unit": "in-lbf", "context": "torque"}],
-            "router_decisions": [
-                {"adapter_id": "adapter_001", "gate_value": 0.6, "token_idx": 0},
-                {"adapter_id": "adapter_002", "gate_value": 0.4, "token_idx": 1}
-            ]
-        })),
-        ("invalid_request", false, serde_json::json!({
-            "prompt": "What is the value?",
-            "evidence_spans": [],
-            "numeric_claims": [{"value": 25.0, "unit": null, "context": "value"}],
-            "router_decisions": [
-                {"adapter_id": "single_adapter", "gate_value": 0.9, "token_idx": 0}
-            ]
-        })),
+        (
+            "valid_request",
+            true,
+            serde_json::json!({
+                "prompt": "What is the torque specification?",
+                "evidence_spans": [{"doc_id": "DOC-001", "span_hash": "span123", "start": 0, "end": 50}],
+                "numeric_claims": [{"value": 25.0, "unit": "in-lbf", "context": "torque"}],
+                "router_decisions": [
+                    {"adapter_id": "adapter_001", "gate_value": 0.6, "token_idx": 0},
+                    {"adapter_id": "adapter_002", "gate_value": 0.4, "token_idx": 1}
+                ]
+            }),
+        ),
+        (
+            "invalid_request",
+            false,
+            serde_json::json!({
+                "prompt": "What is the value?",
+                "evidence_spans": [],
+                "numeric_claims": [{"value": 25.0, "unit": null, "context": "value"}],
+                "router_decisions": [
+                    {"adapter_id": "single_adapter", "gate_value": 0.9, "token_idx": 0}
+                ]
+            }),
+        ),
     ];
 
     for (name, should_pass, request) in test_requests {
         // Test using actual policy engine methods
-        let evidence_spans = request["evidence_spans"].as_array().unwrap_or(&vec![]).len();
+        let evidence_spans = request["evidence_spans"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .len();
         let evidence_result = policy_engine.check_evidence(evidence_spans);
 
         let numeric_claims = request["numeric_claims"].as_array().unwrap_or(&vec![]);
@@ -551,12 +596,18 @@ async fn test_end_to_end_workflow() -> Result<()> {
         let should_fail = !should_pass && (evidence_spans == 0 || !has_numeric_units);
 
         if should_fail {
-            assert!(evidence_result.is_err() || !has_numeric_units,
-                    "Request '{}' should fail due to policy violations", name);
+            assert!(
+                evidence_result.is_err() || !has_numeric_units,
+                "Request '{}' should fail due to policy violations",
+                name
+            );
             println!("   ✓ Invalid request '{}' correctly failed", name);
         } else {
-            assert!(evidence_result.is_ok() && has_numeric_units,
-                    "Request '{}' should pass policy checks", name);
+            assert!(
+                evidence_result.is_ok() && has_numeric_units,
+                "Request '{}' should pass policy checks",
+                name
+            );
             println!("   ✓ Valid request '{}' passed", name);
         }
     }
@@ -567,7 +618,6 @@ async fn test_end_to_end_workflow() -> Result<()> {
     println!("\n✅ End-to-end workflow test passed");
     Ok(())
 }
-
 
 /// Acceptance test for complete integration
 #[test]
@@ -601,7 +651,7 @@ async fn test_telemetry_throughput() -> Result<()> {
 
     let telemetry_writer = TelemetryWriter::new(
         &config.telemetry_dir,
-        10000, // High threshold for performance testing
+        10000,            // High threshold for performance testing
         10 * 1024 * 1024, // 10MB max
     )?;
 
@@ -629,8 +679,11 @@ async fn test_telemetry_throughput() -> Result<()> {
     let elapsed = start_time.elapsed();
     let events_per_second = 1000.0 / elapsed.as_secs_f64();
 
-    println!("   ✓ Wrote 1000 events in {:.2}ms ({:.0} events/sec)",
-             elapsed.as_millis(), events_per_second);
+    println!(
+        "   ✓ Wrote 1000 events in {:.2}ms ({:.0} events/sec)",
+        elapsed.as_millis(),
+        events_per_second
+    );
 
     assert!(events_per_second > 100.0, "Should achieve >100 events/sec");
 
@@ -657,7 +710,8 @@ async fn test_error_handling_and_recovery() -> Result<()> {
         &config.manifest_path.to_string_lossy(),
         "--output",
         &config.plan_dir.join("test.bin").to_string_lossy(),
-    ]).await;
+    ])
+    .await;
 
     assert!(result.is_err(), "Should fail with bad database connection");
     println!("   ✓ Database connection failure handled correctly");
@@ -676,7 +730,8 @@ async fn test_error_handling_and_recovery() -> Result<()> {
         &invalid_manifest.to_string_lossy(),
         "--output",
         &config.plan_dir.join("invalid.bin").to_string_lossy(),
-    ]).await;
+    ])
+    .await;
 
     assert!(result.is_err(), "Should fail with invalid manifest");
 
@@ -686,9 +741,13 @@ async fn test_error_handling_and_recovery() -> Result<()> {
         &config.manifest_path.to_string_lossy(),
         "--output",
         &config.plan_dir.join("recovery.bin").to_string_lossy(),
-    ]).await;
+    ])
+    .await;
 
-    assert!(result.is_ok(), "Should recover and build with valid manifest");
+    assert!(
+        result.is_ok(),
+        "Should recover and build with valid manifest"
+    );
     println!("   ✓ Recovery from invalid manifest successful");
 
     // Test 3: Telemetry write failure recovery
@@ -708,7 +767,10 @@ async fn test_error_handling_and_recovery() -> Result<()> {
 
     // This should fail due to read-only directory
     let telemetry_writer = TelemetryWriter::new(&read_only_dir, 100, 1024);
-    assert!(telemetry_writer.is_err(), "Should fail with read-only directory");
+    assert!(
+        telemetry_writer.is_err(),
+        "Should fail with read-only directory"
+    );
 
     println!("   ✓ Read-only telemetry directory handled correctly");
 
@@ -728,23 +790,25 @@ async fn test_concurrent_operations() -> Result<()> {
     let manifest_path = config.manifest_path.clone();
     let plan_dir = config.plan_dir.clone();
 
-    let handles: Vec<_> = (0..3).map(|i| {
-        let manifest_path = manifest_path.clone();
-        let plan_dir = plan_dir.clone();
-        tokio::spawn(async move {
-            let output_path = plan_dir.join(format!("concurrent_plan_{}.bin", i));
-            let args = &[
-                "build-plan",
-                &manifest_path.to_string_lossy(),
-                "--output",
-                &output_path.to_string_lossy(),
-                "--tenant-id",
-                "integration_test",
-            ];
+    let handles: Vec<_> = (0..3)
+        .map(|i| {
+            let manifest_path = manifest_path.clone();
+            let plan_dir = plan_dir.clone();
+            tokio::spawn(async move {
+                let output_path = plan_dir.join(format!("concurrent_plan_{}.bin", i));
+                let args = &[
+                    "build-plan",
+                    &manifest_path.to_string_lossy(),
+                    "--output",
+                    &output_path.to_string_lossy(),
+                    "--tenant-id",
+                    "integration_test",
+                ];
 
-            run_aosctl_command(args).await
+                run_aosctl_command(args).await
+            })
         })
-    }).collect();
+        .collect();
 
     // Wait for all builds to complete
     let mut results = Vec::new();
@@ -754,8 +818,11 @@ async fn test_concurrent_operations() -> Result<()> {
 
     // All should succeed
     for (i, result) in results.iter().enumerate() {
-        assert!(result.contains("Plan built successfully"),
-                "Concurrent build {} should succeed", i);
+        assert!(
+            result.contains("Plan built successfully"),
+            "Concurrent build {} should succeed",
+            i
+        );
     }
 
     // Verify all plan files exist
@@ -764,7 +831,10 @@ async fn test_concurrent_operations() -> Result<()> {
         assert!(plan_path.exists(), "Plan file {} should exist", i);
     }
 
-    println!("   ✓ {} concurrent plan builds completed successfully", results.len());
+    println!(
+        "   ✓ {} concurrent plan builds completed successfully",
+        results.len()
+    );
 
     cleanup_test_env(&config).await?;
     println!("\n✅ Concurrent operations test passed");
@@ -793,15 +863,24 @@ async fn test_cleanup_and_resource_management() -> Result<()> {
     let bundle_files: Vec<_> = fs::read_dir(&config.telemetry_dir)?
         .filter_map(|e| e.ok())
         .collect();
-    assert!(!bundle_files.is_empty(), "Should have created telemetry files");
+    assert!(
+        !bundle_files.is_empty(),
+        "Should have created telemetry files"
+    );
 
     // Test cleanup
     drop(telemetry_writer);
     cleanup_test_env(&config).await?;
 
     // Verify cleanup removed everything
-    assert!(!config.temp_dir.exists(), "Temp directory should be removed");
-    assert!(!config.telemetry_dir.exists(), "Telemetry directory should be removed");
+    assert!(
+        !config.temp_dir.exists(),
+        "Temp directory should be removed"
+    );
+    assert!(
+        !config.telemetry_dir.exists(),
+        "Telemetry directory should be removed"
+    );
 
     println!("   ✓ Cleanup completed successfully");
 

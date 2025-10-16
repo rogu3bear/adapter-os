@@ -1,18 +1,20 @@
 //! Tests for bit-identical replay verification
 
 use anyhow::Result;
-use tempfile::TempDir;
 use std::path::PathBuf;
+use tempfile::TempDir;
 
+use adapteros_core::B3Hash;
 use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig, ExecutorEvent};
+use adapteros_replay::{
+    compare_traces, replay_trace, ComparisonResult, ReplaySession, VerificationMode,
+};
 use adapteros_trace::{
-    writer::write_trace_bundle,
+    events::{inference_end_event, inference_start_event, token_generated_event},
     reader::read_trace_bundle,
     schema::{TraceBundle, TraceBundleMetadata},
-    events::{inference_start_event, token_generated_event, inference_end_event},
+    writer::write_trace_bundle,
 };
-use adapteros_replay::{replay_trace, compare_traces, ComparisonResult, ReplaySession, VerificationMode};
-use adapteros_core::B3Hash;
 
 /// Create a test trace bundle with deterministic events
 fn create_test_trace_bundle() -> (TempDir, PathBuf) {
@@ -42,10 +44,29 @@ fn create_test_trace_bundle() -> (TempDir, PathBuf) {
         events: Vec::new(),
     };
 
-    bundle.events.push(inference_start_event(1, plan_id.clone(), "test_cpid".to_string(), "test_tenant".to_string(), session_id.clone(), global_seed));
-    bundle.events.push(token_generated_event(2, 0, vec![0.1, 0.2], vec!["adapter_a".to_string()]));
-    bundle.events.push(token_generated_event(3, 1, vec![0.3, 0.4], vec!["adapter_b".to_string()]));
-    bundle.events.push(inference_end_event(4, session_id.clone(), 2, 100));
+    bundle.events.push(inference_start_event(
+        1,
+        plan_id.clone(),
+        "test_cpid".to_string(),
+        "test_tenant".to_string(),
+        session_id.clone(),
+        global_seed,
+    ));
+    bundle.events.push(token_generated_event(
+        2,
+        0,
+        vec![0.1, 0.2],
+        vec!["adapter_a".to_string()],
+    ));
+    bundle.events.push(token_generated_event(
+        3,
+        1,
+        vec![0.3, 0.4],
+        vec!["adapter_b".to_string()],
+    ));
+    bundle
+        .events
+        .push(inference_end_event(4, session_id.clone(), 2, 100));
 
     adapteros_trace::writer::write_trace_bundle(&trace_path, bundle).unwrap();
 
@@ -59,7 +80,10 @@ async fn test_replay_identical_runs() -> Result<()> {
 
     // Compare traces
     let comparison_result = compare_traces(&trace_path_1, &trace_path_2).await?;
-    assert!(matches!(comparison_result, ComparisonResult::Identical), "Traces should be identical");
+    assert!(
+        matches!(comparison_result, ComparisonResult::Identical),
+        "Traces should be identical"
+    );
 
     // Replay trace 1
     let stats_1 = replay_trace(&trace_path_1).await?;
@@ -154,13 +178,15 @@ async fn test_replay_verification_modes() -> Result<()> {
     assert_eq!(stats_strict.hash_mismatches, 0);
 
     // Permissive mode (currently same as strict)
-    let mut session_permissive = ReplaySession::from_log_with_mode(&trace_path, VerificationMode::Permissive)?;
+    let mut session_permissive =
+        ReplaySession::from_log_with_mode(&trace_path, VerificationMode::Permissive)?;
     session_permissive.run().await?;
     let stats_permissive = session_permissive.stats().await;
     assert_eq!(stats_permissive.hash_mismatches, 0);
 
     // HashOnly mode
-    let mut session_hash_only = ReplaySession::from_log_with_mode(&trace_path, VerificationMode::HashOnly)?;
+    let mut session_hash_only =
+        ReplaySession::from_log_with_mode(&trace_path, VerificationMode::HashOnly)?;
     session_hash_only.run().await?;
     let stats_hash_only = session_hash_only.stats().await;
     assert_eq!(stats_hash_only.hash_mismatches, 0); // No mismatches expected as it only checks if hash can be computed

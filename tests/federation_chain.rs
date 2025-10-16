@@ -188,7 +188,9 @@ async fn test_federation_mark_verified() -> Result<()> {
     assert!(!signatures[0].verified);
 
     // Mark as verified
-    manager.mark_verified(signatures[0].id.as_ref().unwrap()).await?;
+    manager
+        .mark_verified(signatures[0].id.as_ref().unwrap())
+        .await?;
 
     // Check it's now verified
     let signatures = manager
@@ -202,7 +204,7 @@ async fn test_federation_mark_verified() -> Result<()> {
 #[tokio::test]
 async fn test_federation_cross_host_chain() -> Result<()> {
     let db = setup_test_db().await?;
-    
+
     // Simulate two different hosts
     let keypair1 = Keypair::generate();
     let manager1 = FederationManager::with_host_id(db.clone(), keypair1, "host1".to_string())?;
@@ -226,4 +228,3 @@ async fn test_federation_cross_host_chain() -> Result<()> {
 
     Ok(())
 }
-

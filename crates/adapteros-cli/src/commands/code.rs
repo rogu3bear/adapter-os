@@ -1,7 +1,6 @@
 ///! Code intelligence CLI commands
 ///!
 ///! Handles repository registration, scanning, and status queries
-
 use crate::output::OutputWriter;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -30,11 +29,7 @@ pub struct ScanJobStatus {
 }
 
 /// Initialize a code repository for scanning
-pub async fn code_init(
-    repo_path: &PathBuf,
-    tenant_id: &str,
-    output: &OutputWriter,
-) -> Result<()> {
+pub async fn code_init(repo_path: &PathBuf, tenant_id: &str, output: &OutputWriter) -> Result<()> {
     output.info(&format!("Initializing repository at {:?}", repo_path));
 
     // Detect languages (simplified)
@@ -149,9 +144,7 @@ pub async fn code_list(tenant_id: &str, output: &OutputWriter) -> Result<()> {
                 for repo in repos {
                     let repo_id = repo["repo_id"].as_str().unwrap_or("unknown");
                     let status = repo["status"].as_str().unwrap_or("unknown");
-                    let scan_commit = repo["latest_scan_commit"]
-                        .as_str()
-                        .unwrap_or("not scanned");
+                    let scan_commit = repo["latest_scan_commit"].as_str().unwrap_or("not scanned");
 
                     println!("  {} ({}): {}", repo_id, status, scan_commit);
                 }
@@ -224,7 +217,10 @@ async fn poll_scan_job(job_id: &str, output: &OutputWriter) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let response = client
-            .get(&format!("http://localhost:8080/api/v1/code/scan/{}", job_id))
+            .get(&format!(
+                "http://localhost:8080/api/v1/code/scan/{}",
+                job_id
+            ))
             .send()
             .await?;
 
@@ -298,4 +294,3 @@ fn detect_languages(repo_path: &PathBuf) -> Result<Vec<String>> {
 
     Ok(languages.into_iter().collect())
 }
-

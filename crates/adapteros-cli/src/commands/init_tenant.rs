@@ -1,8 +1,8 @@
 //! Initialize tenant
 
 use crate::output::OutputWriter;
-use anyhow::Result;
 use adapteros_registry::Registry;
+use anyhow::Result;
 use serde::Serialize;
 
 #[derive(Serialize)]

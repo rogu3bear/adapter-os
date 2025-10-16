@@ -1,9 +1,9 @@
 //! Verify bundle
 
 use crate::output::OutputWriter;
-use anyhow::{Context, Result};
 use adapteros_artifacts::bundle;
 use adapteros_core::B3Hash;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;

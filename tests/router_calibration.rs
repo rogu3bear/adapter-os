@@ -1,7 +1,9 @@
 //! Router calibration algorithm validation tests
 
+use adapteros_lora_router::{
+    CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod,
+};
 use anyhow::Result;
-use adapteros_lora_router::{CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod};
 use std::path::PathBuf;
 
 #[test]
@@ -91,14 +93,16 @@ fn test_calibration_with_synthetic_data() -> Result<()> {
 #[test]
 fn test_weights_save_load() -> Result<()> {
     let calibrator = Calibrator::new(
-        CalibrationDataset { samples: Vec::new() },
+        CalibrationDataset {
+            samples: Vec::new(),
+        },
         OptimizationMethod::GridSearch,
         3,
     );
-    
+
     // Create test weights
     let weights = adapteros_lora_router::RouterWeights::new(0.3, 0.25, 0.2, 0.15, 0.1);
-    
+
     // Save to temp file
     let temp_dir = tempfile::tempdir()?;
     let weights_path = temp_dir.path().join("test_weights.json");
@@ -130,7 +134,7 @@ fn test_validation_metrics() -> Result<()> {
 
     let dataset = CalibrationDataset { samples };
     let calibrator = Calibrator::new(dataset, OptimizationMethod::GridSearch, 2);
-    
+
     // Use default weights for validation
     let weights = adapteros_lora_router::RouterWeights::default();
     let metrics = calibrator.validate(&weights);
@@ -144,4 +148,3 @@ fn test_validation_metrics() -> Result<()> {
 
     Ok(())
 }
-

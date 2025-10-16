@@ -39,30 +39,31 @@ impl Db {
         // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let workspace_root = std::path::Path::new(manifest_dir)
-            .parent()  // crates/
-            .and_then(|p| p.parent())  // workspace root
+            .parent() // crates/
+            .and_then(|p| p.parent()) // workspace root
             .ok_or_else(|| AosError::Database("Failed to find workspace root".to_string()))?;
-        
+
         let migrations_path = workspace_root.join("migrations");
-        
+
         // Verify migrations directory exists
         if !migrations_path.exists() {
             return Err(AosError::Database(format!(
                 "Migrations directory not found: {}",
                 migrations_path.display()
-            )).into());
+            ))
+            .into());
         }
-        
+
         // Use sqlx::migrate with dynamic path
         let migrator = sqlx::migrate::Migrator::new(migrations_path)
             .await
             .map_err(|e| AosError::Database(format!("Failed to create migrator: {}", e)))?;
-        
+
         migrator
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
-        
+
         Ok(())
     }
 
@@ -206,7 +207,6 @@ pub mod workers;
 
 // Re-export unified access types
 pub use unified_access::{
-    DatabaseAccess, UnifiedDatabaseAccess, Transaction, UnifiedTransaction,
-    ConnectionInfo, DatabaseType, HealthStatus, HealthState, DatabaseStatistics,
-    DatabaseConfig, ToSql, SqlParameter,
+    ConnectionInfo, DatabaseAccess, DatabaseConfig, DatabaseStatistics, DatabaseType, HealthState,
+    HealthStatus, SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
 };

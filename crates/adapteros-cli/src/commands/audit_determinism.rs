@@ -14,17 +14,20 @@ impl Output {
     pub fn info(&self, msg: &str) {
         println!("{}", msg);
     }
-    
+
     pub fn verbose(&self, msg: &str) {
-        if std::env::var("RUST_LOG").unwrap_or_default().contains("debug") {
+        if std::env::var("RUST_LOG")
+            .unwrap_or_default()
+            .contains("debug")
+        {
             println!("{}", msg);
         }
     }
-    
+
     pub fn success(&self, msg: &str) {
         println!("✅ {}", msg);
     }
-    
+
     pub fn error(&self, msg: &str) {
         eprintln!("❌ {}", msg);
     }
@@ -52,9 +55,10 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
     let backend_choice = match args.backend.to_lowercase().as_str() {
         "metal" => BackendChoice::Metal,
         "mlx" => {
-            let model_path = args.model_path.clone().ok_or_else(|| {
-                anyhow::anyhow!("MLX backend requires --model-path argument")
-            })?;
+            let model_path = args
+                .model_path
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("MLX backend requires --model-path argument"))?;
             BackendChoice::Mlx {
                 model_path: std::path::PathBuf::from(model_path),
             }
@@ -81,25 +85,28 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
         }
         "text" | _ => {
             output.info("=== Determinism Attestation Report ===\n");
-            
+
             output.info(&format!("Backend Type:       {:?}", report.backend_type));
             output.info(&format!("Deterministic:      {}", report.deterministic));
             output.info(&format!("RNG Seeding:        {:?}", report.rng_seed_method));
-            output.info(&format!("FP Mode:            {:?}", report.floating_point_mode));
-            
+            output.info(&format!(
+                "FP Mode:            {:?}",
+                report.floating_point_mode
+            ));
+
             if let Some(ref hash) = report.metallib_hash {
                 output.info(&format!("Metallib Hash:      {}", hash.to_short_hex()));
             } else {
                 output.info("Metallib Hash:      N/A");
             }
-            
+
             if !report.compiler_flags.is_empty() {
                 output.info("\nCompiler Flags:");
                 for flag in &report.compiler_flags {
                     output.info(&format!("  - {}", flag));
                 }
             }
-            
+
             if let Some(ref manifest) = report.manifest {
                 output.info("\nKernel Manifest:");
                 output.info(&format!("  Build Time:       {}", manifest.build_timestamp));
@@ -107,7 +114,7 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
                 output.info(&format!("  SDK Version:      {}", manifest.sdk_version));
                 output.info(&format!("  xcrun Version:    {}", manifest.xcrun_version));
             }
-            
+
             output.info("\n=== Validation ===\n");
         }
     }
@@ -117,7 +124,9 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
         Ok(()) => {
             if args.format == "text" {
                 output.success("✓ Backend passes determinism validation");
-                output.info("\nThis backend is suitable for production use with deterministic execution.");
+                output.info(
+                    "\nThis backend is suitable for production use with deterministic execution.",
+                );
             }
             Ok(0) // Exit code 0 for success
         }
@@ -131,4 +140,3 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
         }
     }
 }
-

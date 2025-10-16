@@ -12,7 +12,7 @@ fn create_default_policy() -> DeterminismPolicy {
 #[test]
 fn test_policy_validates_deterministic_attestation() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
         metallib_hash: Some(B3Hash::hash(b"test")),
@@ -22,14 +22,14 @@ fn test_policy_validates_deterministic_attestation() {
         compiler_flags: vec!["-O2".to_string()],
         deterministic: true,
     };
-    
+
     assert!(policy.validate_backend_attestation(&report).is_ok());
 }
 
 #[test]
 fn test_policy_rejects_non_deterministic_backend() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Mlx,
         metallib_hash: None,
@@ -39,7 +39,7 @@ fn test_policy_rejects_non_deterministic_backend() {
         compiler_flags: vec![],
         deterministic: false,
     };
-    
+
     let result = policy.validate_backend_attestation(&report);
     assert!(result.is_err());
 }
@@ -47,7 +47,7 @@ fn test_policy_rejects_non_deterministic_backend() {
 #[test]
 fn test_policy_rejects_missing_metallib_hash_for_metal() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
         metallib_hash: None, // Missing hash
@@ -57,7 +57,7 @@ fn test_policy_rejects_missing_metallib_hash_for_metal() {
         compiler_flags: vec![],
         deterministic: true,
     };
-    
+
     let result = policy.validate_backend_attestation(&report);
     assert!(result.is_err());
     assert!(format!("{:?}", result).contains("metallib hash"));
@@ -66,7 +66,7 @@ fn test_policy_rejects_missing_metallib_hash_for_metal() {
 #[test]
 fn test_policy_rejects_wrong_rng_seeding_method() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
         metallib_hash: Some(B3Hash::hash(b"test")),
@@ -76,7 +76,7 @@ fn test_policy_rejects_wrong_rng_seeding_method() {
         compiler_flags: vec![],
         deterministic: true,
     };
-    
+
     let result = policy.validate_backend_attestation(&report);
     assert!(result.is_err());
     assert!(format!("{:?}", result).contains("RNG"));
@@ -85,7 +85,7 @@ fn test_policy_rejects_wrong_rng_seeding_method() {
 #[test]
 fn test_policy_rejects_forbidden_compiler_flags() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
         metallib_hash: Some(B3Hash::hash(b"test")),
@@ -95,7 +95,7 @@ fn test_policy_rejects_forbidden_compiler_flags() {
         compiler_flags: vec!["-ffast-math".to_string()], // Forbidden
         deterministic: true,
     };
-    
+
     let result = policy.validate_backend_attestation(&report);
     assert!(result.is_err());
     assert!(format!("{:?}", result).contains("Forbidden compiler flag"));
@@ -104,7 +104,7 @@ fn test_policy_rejects_forbidden_compiler_flags() {
 #[test]
 fn test_policy_rejects_non_deterministic_floating_point() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
         metallib_hash: Some(B3Hash::hash(b"test")),
@@ -114,7 +114,7 @@ fn test_policy_rejects_non_deterministic_floating_point() {
         compiler_flags: vec![],
         deterministic: true,
     };
-    
+
     let result = policy.validate_backend_attestation(&report);
     assert!(result.is_err());
     assert!(format!("{:?}", result).contains("Floating-point"));
@@ -125,7 +125,7 @@ fn test_policy_accepts_fixed_seed_rng() {
     let mut config = DeterminismConfig::default();
     config.rng = RngSeedingMethod::FixedSeed(42);
     let policy = DeterminismPolicy::new(config);
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Mock,
         metallib_hash: None,
@@ -135,14 +135,14 @@ fn test_policy_accepts_fixed_seed_rng() {
         compiler_flags: vec![],
         deterministic: true,
     };
-    
+
     assert!(policy.validate_backend_attestation(&report).is_ok());
 }
 
 #[test]
 fn test_policy_with_multiple_compiler_flags() {
     let policy = create_default_policy();
-    
+
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
         metallib_hash: Some(B3Hash::hash(b"test")),
@@ -156,14 +156,14 @@ fn test_policy_with_multiple_compiler_flags() {
         ],
         deterministic: true,
     };
-    
+
     assert!(policy.validate_backend_attestation(&report).is_ok());
 }
 
 #[test]
 fn test_policy_validation_error_messages_are_descriptive() {
     let policy = create_default_policy();
-    
+
     // Test non-deterministic flag error
     let report = DeterminismReport {
         backend_type: BackendType::Metal,
@@ -174,10 +174,9 @@ fn test_policy_validation_error_messages_are_descriptive() {
         compiler_flags: vec![],
         deterministic: false,
     };
-    
+
     let result = policy.validate_backend_attestation(&report);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("deterministic") || err_msg.contains("non-deterministic"));
 }
-

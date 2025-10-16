@@ -3,7 +3,7 @@
 use crate::auth::{generate_token, verify_password, Claims};
 use crate::middleware::{require_any_role, require_role};
 use crate::state::AppState;
-use crate::types::*;  // This already re-exports adapteros_api_types::*
+use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
 use adapteros_system_metrics::{
@@ -14,12 +14,12 @@ use adapteros_system_metrics::{
 use axum::response::Response;
 use sqlx::Row;
 
+pub mod code;
 pub mod domain_adapters;
+pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod replay;
-pub mod federation;
-pub mod code;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;
@@ -3527,7 +3527,9 @@ pub async fn load_adapter(
         })?;
 
     // Update adapter state to 'loading'
-    state.db.update_adapter_state(&adapter_id, "loading", "user_request")
+    state
+        .db
+        .update_adapter_state(&adapter_id, "loading", "user_request")
         .await
         .map_err(|e| {
             (
@@ -3556,11 +3558,16 @@ pub async fn load_adapter(
 
         let adapters_path = PathBuf::from("./adapters");
         let mut loader = AdapterLoader::new(adapters_path);
-        
-        match loader.load_adapter_async(adapter_idx, &adapter.hash_b3).await {
+
+        match loader
+            .load_adapter_async(adapter_idx, &adapter.hash_b3)
+            .await
+        {
             Ok(handle) => {
                 // Update adapter state to 'warm' and record memory usage
-                state.db.update_adapter_state(&adapter_id, "warm", "loaded_successfully")
+                state
+                    .db
+                    .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
                     .await
                     .map_err(|e| {
                         (
@@ -3573,7 +3580,9 @@ pub async fn load_adapter(
                         )
                     })?;
 
-                state.db.update_adapter_memory(&adapter_id, handle.memory_bytes() as i64)
+                state
+                    .db
+                    .update_adapter_memory(&adapter_id, handle.memory_bytes() as i64)
                     .await
                     .map_err(|e| {
                         tracing::warn!("Failed to update adapter memory: {}", e);
@@ -3591,10 +3600,12 @@ pub async fn load_adapter(
             }
             Err(e) => {
                 // Rollback state on error
-                state.db.update_adapter_state(&adapter_id, "cold", "load_failed")
+                state
+                    .db
+                    .update_adapter_state(&adapter_id, "cold", "load_failed")
                     .await
                     .ok();
-                
+
                 tracing::error!("Failed to load adapter {}: {}", adapter_id, e);
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -3609,8 +3620,10 @@ pub async fn load_adapter(
     } else {
         // No lifecycle manager - just simulate for testing
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        
-        state.db.update_adapter_state(&adapter_id, "warm", "simulated_load")
+
+        state
+            .db
+            .update_adapter_state(&adapter_id, "warm", "simulated_load")
             .await
             .map_err(|e| {
                 (
@@ -3651,7 +3664,8 @@ pub async fn load_adapter(
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
         tier: adapter.tier,
-        languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]")).unwrap_or_default(),
+        languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
+            .unwrap_or_default(),
         framework: adapter.framework,
         created_at: adapter.created_at,
         stats: Some(AdapterStats {
@@ -3707,7 +3721,9 @@ pub async fn unload_adapter(
         })?;
 
     // Update adapter state to 'unloading'
-    state.db.update_adapter_state(&adapter_id, "unloading", "user_request")
+    state
+        .db
+        .update_adapter_state(&adapter_id, "unloading", "user_request")
         .await
         .map_err(|e| {
             (
@@ -3733,11 +3749,13 @@ pub async fn unload_adapter(
 
         let adapters_path = PathBuf::from("./adapters");
         let mut loader = AdapterLoader::new(adapters_path);
-        
+
         match loader.unload_adapter(adapter_idx) {
             Ok(_) => {
                 // Update adapter state to 'cold' and reset memory
-                state.db.update_adapter_state(&adapter_id, "cold", "unloaded_successfully")
+                state
+                    .db
+                    .update_adapter_state(&adapter_id, "cold", "unloaded_successfully")
                     .await
                     .map_err(|e| {
                         (
@@ -3750,9 +3768,7 @@ pub async fn unload_adapter(
                         )
                     })?;
 
-                state.db.update_adapter_memory(&adapter_id, 0)
-                    .await
-                    .ok();
+                state.db.update_adapter_memory(&adapter_id, 0).await.ok();
 
                 tracing::info!(
                     event = "adapter.unload",
@@ -3762,10 +3778,12 @@ pub async fn unload_adapter(
             }
             Err(e) => {
                 // Rollback state on error
-                state.db.update_adapter_state(&adapter_id, "warm", "unload_failed")
+                state
+                    .db
+                    .update_adapter_state(&adapter_id, "warm", "unload_failed")
                     .await
                     .ok();
-                
+
                 tracing::error!("Failed to unload adapter {}: {}", adapter_id, e);
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -3780,8 +3798,10 @@ pub async fn unload_adapter(
     } else {
         // No lifecycle manager - just simulate
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        
-        state.db.update_adapter_state(&adapter_id, "cold", "simulated_unload")
+
+        state
+            .db
+            .update_adapter_state(&adapter_id, "cold", "simulated_unload")
             .await
             .map_err(|e| {
                 (
@@ -4083,21 +4103,26 @@ pub async fn list_repositories(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> Result<Json<Vec<RepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let repos = state.db.list_repositories("default", 100, 0).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list repositories")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let repos = state
+        .db
+        .list_repositories("default", 100, 0)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list repositories")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let responses: Vec<RepositoryResponse> = repos
         .into_iter()
         .map(|r| {
-            let languages: Vec<String> = r.languages_json
+            let languages: Vec<String> = r
+                .languages_json
                 .as_ref()
                 .and_then(|l| serde_json::from_str(l).ok())
                 .unwrap_or_default();
@@ -4111,7 +4136,7 @@ pub async fn list_repositories(
                 default_branch: r.default_branch,
                 status: r.status,
                 frameworks,
-                file_count: Some(0), // TODO: Get from CodeGraphMetadata
+                file_count: Some(0),   // TODO: Get from CodeGraphMetadata
                 symbol_count: Some(0), // TODO: Get from CodeGraphMetadata
                 created_at: r.created_at,
                 updated_at: r.updated_at,
@@ -4304,7 +4329,9 @@ pub async fn list_commits(
     } else {
         Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         ))
     }
 }
@@ -4345,7 +4372,9 @@ pub async fn get_commit(
     } else {
         Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         ))
     }
 }
@@ -4382,7 +4411,9 @@ pub async fn get_commit_diff(
     } else {
         Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         ))
     }
 }
@@ -4454,14 +4485,12 @@ pub async fn get_routing_history(
                 path_tokens: vec!["handlers".to_string(), "api".to_string()],
                 verb: "implement".to_string(),
             },
-            adapter_scores: vec![
-                AdapterScore {
-                    adapter_id: "rust-code-v1".to_string(),
-                    score: 0.90,
-                    gate_value: 0.80,
-                    selected: true,
-                },
-            ],
+            adapter_scores: vec![AdapterScore {
+                adapter_id: "rust-code-v1".to_string(),
+                score: 0.90,
+                gate_value: 0.80,
+                selected: true,
+            }],
             selected_adapters: vec!["rust-code-v1".to_string()],
             explanation: "Selected rust-code-v1 for Rust implementation task".to_string(),
         },
@@ -4473,14 +4502,12 @@ pub async fn get_routing_history(
                 path_tokens: vec!["components".to_string()],
                 verb: "create".to_string(),
             },
-            adapter_scores: vec![
-                AdapterScore {
-                    adapter_id: "frontend-v1".to_string(),
-                    score: 0.85,
-                    gate_value: 0.75,
-                    selected: true,
-                },
-            ],
+            adapter_scores: vec![AdapterScore {
+                adapter_id: "frontend-v1".to_string(),
+                score: 0.85,
+                gate_value: 0.75,
+                selected: true,
+            }],
             selected_adapters: vec!["frontend-v1".to_string()],
             explanation: "Selected frontend-v1 for React component creation".to_string(),
         },
@@ -4640,7 +4667,7 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
         };
         config.metrics.enabled
     };
-    
+
     if !metrics_enabled {
         return (
             StatusCode::NOT_FOUND,
@@ -6929,7 +6956,7 @@ pub async fn enhanced_system_metrics_stream(
 }
 
 /// Get federation audit report
-/// 
+///
 /// Returns federation chain verification status and host validation results.
 /// Per Observability Layer requirement for canonical audit dashboard.
 #[utoipa::path(
@@ -6947,7 +6974,7 @@ pub async fn get_federation_audit(
 
     // Fetch federation bundle signatures
     let pool = state.db.pool();
-    
+
     let signatures = sqlx::query(
         r#"
         SELECT 
@@ -6959,7 +6986,7 @@ pub async fn get_federation_audit(
         FROM federation_bundle_signatures
         ORDER BY created_at DESC
         LIMIT 100
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await
@@ -6974,7 +7001,8 @@ pub async fn get_federation_audit(
         )
     })?;
 
-    let mut host_chains: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut host_chains: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     let mut total_signatures = 0;
     let mut verified_signatures = 0;
 
@@ -6988,7 +7016,10 @@ pub async fn get_federation_audit(
             verified_signatures += 1;
         }
 
-        host_chains.entry(host_id).or_insert_with(Vec::new).push(bundle_hash);
+        host_chains
+            .entry(host_id)
+            .or_insert_with(Vec::new)
+            .push(bundle_hash);
     }
 
     // Check quarantine status
@@ -6999,7 +7030,7 @@ pub async fn get_federation_audit(
         WHERE released = FALSE
         ORDER BY created_at DESC
         LIMIT 1
-        "#
+        "#,
     )
     .fetch_optional(pool)
     .await
@@ -7015,8 +7046,7 @@ pub async fn get_federation_audit(
     })?;
 
     let quarantined = quarantine_status.is_some();
-    let quarantine_reason = quarantine_status
-        .and_then(|row| row.try_get("reason").ok());
+    let quarantine_reason = quarantine_status.and_then(|row| row.try_get("reason").ok());
 
     Ok(Json(FederationAuditResponse {
         total_hosts: host_chains.len(),
@@ -7037,7 +7067,7 @@ pub async fn get_federation_audit(
 }
 
 /// Get compliance audit report
-/// 
+///
 /// Returns compliance status for all policy packs and control objectives.
 /// Per Observability Layer requirement for canonical audit dashboard.
 #[utoipa::path(
@@ -7055,13 +7085,13 @@ pub async fn get_compliance_audit(
 
     // Fetch policy violations from telemetry bundles
     let pool = state.db.pool();
-    
+
     let violations = sqlx::query(
         r#"
         SELECT COUNT(*) as count
         FROM policy_quarantine
         WHERE released = FALSE
-        "#
+        "#,
     )
     .fetch_one(pool)
     .await
@@ -7083,7 +7113,12 @@ pub async fn get_compliance_audit(
         ComplianceControl {
             control_id: "EGRESS-001".to_string(),
             control_name: "Network Egress Control".to_string(),
-            status: if active_violations == 0 { "compliant" } else { "pending" }.to_string(),
+            status: if active_violations == 0 {
+                "compliant"
+            } else {
+                "pending"
+            }
+            .to_string(),
             last_checked: chrono::Utc::now().to_rfc3339(),
             evidence: vec![
                 "Zero egress mode enforced".to_string(),
