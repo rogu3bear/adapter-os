@@ -1,9 +1,9 @@
 //! Replay bundle for determinism testing
 
 use crate::output::OutputWriter;
-use anyhow::Result;
+use adapteros_replay::{compare_traces, replay_trace, ReplaySession, VerificationMode};
 use adapteros_telemetry::{find_divergence, format_divergence, load_replay_bundle};
-use adapteros_replay::{replay_trace, compare_traces, ReplaySession, VerificationMode};
+use anyhow::Result;
 use std::path::Path;
 
 /// Compute Hamming distance between two f32 slices
@@ -137,18 +137,22 @@ pub async fn run(bundle: &Path, verbose: bool, output: &OutputWriter) -> Result<
         println!("  All {} operations verified", stats.verified_ops);
     } else {
         println!("⚠️  Replay incomplete");
-        println!("  {} of {} operations verified", stats.verified_ops, stats.total_events);
+        println!(
+            "  {} of {} operations verified",
+            stats.verified_ops, stats.total_events
+        );
     }
 
     if verbose {
         println!("\nDetailed statistics:");
         println!("  Current step: {}", stats.current_step);
         println!("  Total steps: {}", stats.total_events);
-        println!("  Verification rate: {:.1}%", 
-            if stats.total_events > 0 { 
-                (stats.verified_ops as f64 / stats.total_events as f64) * 100.0 
-            } else { 
-                0.0 
+        println!(
+            "  Verification rate: {:.1}%",
+            if stats.total_events > 0 {
+                (stats.verified_ops as f64 / stats.total_events as f64) * 100.0
+            } else {
+                0.0
             }
         );
     }
@@ -158,36 +162,42 @@ pub async fn run(bundle: &Path, verbose: bool, output: &OutputWriter) -> Result<
 
 /// Run replay with different verification modes
 pub async fn run_with_mode(
-    bundle: &Path, 
-    mode: VerificationMode, 
-    verbose: bool, 
-    output: &OutputWriter
+    bundle: &Path,
+    mode: VerificationMode,
+    verbose: bool,
+    output: &OutputWriter,
 ) -> Result<()> {
-    output.info(format!("Replaying bundle with {:?} verification: {}", mode, bundle.display()));
+    output.info(format!(
+        "Replaying bundle with {:?} verification: {}",
+        mode,
+        bundle.display()
+    ));
 
     let mut session = ReplaySession::from_log_with_mode(bundle, mode)?;
 
     // Run with progress tracking
-    session.run_with_progress(|stats| {
-        if verbose {
-            println!("Progress: {:.1}% ({} of {} events)", 
-                stats.progress_percent, 
-                stats.current_step, 
-                stats.total_events
-            );
-        }
-    }).await?;
+    session
+        .run_with_progress(|stats| {
+            if verbose {
+                println!(
+                    "Progress: {:.1}% ({} of {} events)",
+                    stats.progress_percent, stats.current_step, stats.total_events
+                );
+            }
+        })
+        .await?;
 
     let final_stats = session.stats().await;
-    
+
     println!("✓ Replay completed with {:?} verification", mode);
     println!("  Total events: {}", final_stats.total_events);
     println!("  Verified operations: {}", final_stats.verified_ops);
-    println!("  Success rate: {:.1}%", 
-        if final_stats.total_events > 0 { 
-            (final_stats.verified_ops as f64 / final_stats.total_events as f64) * 100.0 
-        } else { 
-            0.0 
+    println!(
+        "  Success rate: {:.1}%",
+        if final_stats.total_events > 0 {
+            (final_stats.verified_ops as f64 / final_stats.total_events as f64) * 100.0
+        } else {
+            0.0
         }
     );
 
@@ -196,12 +206,16 @@ pub async fn run_with_mode(
 
 /// Compare two trace files
 pub async fn compare(
-    trace_a: &Path, 
-    trace_b: &Path, 
-    verbose: bool, 
-    output: &OutputWriter
+    trace_a: &Path,
+    trace_b: &Path,
+    verbose: bool,
+    output: &OutputWriter,
 ) -> Result<()> {
-    output.info(format!("Comparing traces: {} vs {}", trace_a.display(), trace_b.display()));
+    output.info(format!(
+        "Comparing traces: {} vs {}",
+        trace_a.display(),
+        trace_b.display()
+    ));
 
     let result = compare_traces(trace_a, trace_b).await?;
 
@@ -213,14 +227,14 @@ pub async fn compare(
         adapteros_replay::ComparisonResult::Divergent { reason, step } => {
             println!("❌ Traces diverge at step {}", step);
             println!("  Reason: {}", reason);
-            
+
             if verbose {
                 println!("\nDetailed comparison:");
                 println!("  Trace A: {}", trace_a.display());
                 println!("  Trace B: {}", trace_b.display());
                 println!("  Divergence point: step {}", step);
             }
-            
+
             std::process::exit(1);
         }
     }

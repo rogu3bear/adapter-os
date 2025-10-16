@@ -3,15 +3,15 @@
 //! Provides comprehensive test environment setup, lifecycle management,
 //! and orchestration capabilities for running complex AdapterOS workflows.
 
+use adapteros_core::{AosError, Result};
+use adapteros_policy::PolicyEngine;
+use adapteros_server_api::handlers::ApiHandler;
+use adapteros_telemetry::{BundleStore, TelemetryWriter};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use adapteros_core::{AosError, Result};
-use adapteros_telemetry::{TelemetryWriter, BundleStore};
-use adapteros_policy::PolicyEngine;
-use adapteros_server_api::handlers::ApiHandler;
 
 /// Test configuration for e2e scenarios
 #[derive(Debug, Clone)]
@@ -83,7 +83,7 @@ impl TestEnvironment {
         // Initialize telemetry
         let telemetry = TelemetryWriter::new(
             &config.telemetry_dir,
-            1000, // max events per bundle
+            1000,             // max events per bundle
             10 * 1024 * 1024, // 10MB per bundle
         )?;
 
@@ -211,7 +211,8 @@ impl TestOrchestrator {
         env_config.model_registry = env_config.test_dir.join("models");
 
         let env = TestEnvironment::new(env_config).await?;
-        self.environments.insert(name.to_string(), Arc::new(Mutex::new(env)));
+        self.environments
+            .insert(name.to_string(), Arc::new(Mutex::new(env)));
         Ok(())
     }
 
@@ -230,13 +231,16 @@ impl TestOrchestrator {
         let test_name = test_name.to_string();
 
         // Mark as running
-        self.results.insert(test_name.clone(), TestResult {
-            test_name: test_name.clone(),
-            status: TestStatus::Running,
-            duration: Duration::ZERO,
-            error: None,
-            artifacts: Vec::new(),
-        });
+        self.results.insert(
+            test_name.clone(),
+            TestResult {
+                test_name: test_name.clone(),
+                status: TestStatus::Running,
+                duration: Duration::ZERO,
+                error: None,
+                artifacts: Vec::new(),
+            },
+        );
 
         // Create environment if it doesn't exist
         if !self.environments.contains_key(&test_name) {
@@ -254,33 +258,27 @@ impl TestOrchestrator {
 
         // Run the test
         let result = match tokio::time::timeout(self.config.timeout, test_fn(env.clone())).await {
-            Ok(Ok(())) => {
-                TestResult {
-                    test_name: test_name.clone(),
-                    status: TestStatus::Passed,
-                    duration: start_time.elapsed(),
-                    error: None,
-                    artifacts: Vec::new(),
-                }
-            }
-            Ok(Err(e)) => {
-                TestResult {
-                    test_name: test_name.clone(),
-                    status: TestStatus::Failed,
-                    duration: start_time.elapsed(),
-                    error: Some(e.to_string()),
-                    artifacts: Vec::new(),
-                }
-            }
-            Err(_) => {
-                TestResult {
-                    test_name: test_name.clone(),
-                    status: TestStatus::TimedOut,
-                    duration: start_time.elapsed(),
-                    error: Some("Test timed out".to_string()),
-                    artifacts: Vec::new(),
-                }
-            }
+            Ok(Ok(())) => TestResult {
+                test_name: test_name.clone(),
+                status: TestStatus::Passed,
+                duration: start_time.elapsed(),
+                error: None,
+                artifacts: Vec::new(),
+            },
+            Ok(Err(e)) => TestResult {
+                test_name: test_name.clone(),
+                status: TestStatus::Failed,
+                duration: start_time.elapsed(),
+                error: Some(e.to_string()),
+                artifacts: Vec::new(),
+            },
+            Err(_) => TestResult {
+                test_name: test_name.clone(),
+                status: TestStatus::TimedOut,
+                duration: start_time.elapsed(),
+                error: Some("Test timed out".to_string()),
+                artifacts: Vec::new(),
+            },
         };
 
         // Cleanup environment

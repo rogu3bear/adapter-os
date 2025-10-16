@@ -62,14 +62,15 @@ impl DeterminismReport {
         for entry in fs::read_dir(&release_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() && is_executable(&path)? {
                 let hash = compute_b3_hash(&path)?;
-                let name = path.file_name()
+                let name = path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown")
                     .to_string();
-                
+
                 self.binary_hashes.insert(name, hash);
             }
         }
@@ -84,14 +85,15 @@ impl DeterminismReport {
             for entry in fs::read_dir(&metal_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                
+
                 if path.extension().and_then(|s| s.to_str()) == Some("metallib") {
                     let hash = compute_b3_hash(&path)?;
-                    let name = path.file_name()
+                    let name = path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    
+
                     self.artifact_hashes.insert(name, hash);
                 }
             }
@@ -101,7 +103,8 @@ impl DeterminismReport {
         let sbom_path = target_dir.join("sbom.spdx.json");
         if sbom_path.exists() {
             let hash = compute_b3_hash(&sbom_path)?;
-            self.artifact_hashes.insert("sbom.spdx.json".to_string(), hash);
+            self.artifact_hashes
+                .insert("sbom.spdx.json".to_string(), hash);
         }
 
         Ok(())
@@ -161,22 +164,20 @@ impl DeterminismReport {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize determinism report")?;
-        
-        fs::write(path, json)
-            .context("Failed to write determinism report")?;
-        
+        let json =
+            serde_json::to_string_pretty(self).context("Failed to serialize determinism report")?;
+
+        fs::write(path, json).context("Failed to write determinism report")?;
+
         Ok(())
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let content = fs::read_to_string(path)
-            .context("Failed to read determinism report")?;
-        
-        let report: Self = serde_json::from_str(&content)
-            .context("Failed to parse determinism report")?;
-        
+        let content = fs::read_to_string(path).context("Failed to read determinism report")?;
+
+        let report: Self =
+            serde_json::from_str(&content).context("Failed to parse determinism report")?;
+
         Ok(report)
     }
 
@@ -188,8 +189,7 @@ impl DeterminismReport {
         if self.build_metadata.rustc_version != other.build_metadata.rustc_version {
             differences.push(format!(
                 "Rustc version: {} vs {}",
-                self.build_metadata.rustc_version,
-                other.build_metadata.rustc_version
+                self.build_metadata.rustc_version, other.build_metadata.rustc_version
             ));
             identical = false;
         }
@@ -197,8 +197,7 @@ impl DeterminismReport {
         if self.build_metadata.rustc_commit_hash != other.build_metadata.rustc_commit_hash {
             differences.push(format!(
                 "Rustc commit: {} vs {}",
-                self.build_metadata.rustc_commit_hash,
-                other.build_metadata.rustc_commit_hash
+                self.build_metadata.rustc_commit_hash, other.build_metadata.rustc_commit_hash
             ));
             identical = false;
         }
@@ -207,10 +206,7 @@ impl DeterminismReport {
         for (name, hash) in &self.binary_hashes {
             if let Some(other_hash) = other.binary_hashes.get(name) {
                 if hash != other_hash {
-                    differences.push(format!(
-                        "Binary {}: {} vs {}",
-                        name, hash, other_hash
-                    ));
+                    differences.push(format!("Binary {}: {} vs {}", name, hash, other_hash));
                     identical = false;
                 }
             } else {
@@ -251,13 +247,13 @@ impl BuildMetadata {
             .and_then(|line| line.split_whitespace().nth(1))
             .unwrap_or("unknown")
             .to_string();
-        
+
         let cargo_version = get_command_output("cargo", &["--version"])?;
         let metal_sdk_version = get_command_output("xcrun", &["--show-sdk-version"])
             .unwrap_or_else(|_| "unknown".to_string());
         let metal_compiler_version = get_command_output("xcrun", &["metal", "--version"])
             .unwrap_or_else(|_| "unknown".to_string());
-        
+
         let target_triple = get_command_output("rustc", &["--version", "--verbose"])?
             .lines()
             .find(|line| line.contains("host"))
@@ -285,72 +281,78 @@ fn get_command_output(command: &str, args: &[&str]) -> Result<String> {
         .args(args)
         .output()
         .context(format!("Failed to execute {}", command))?;
-    
+
     if !output.status.success() {
-        anyhow::bail!("Command {} failed: {}", command, String::from_utf8_lossy(&output.stderr));
+        anyhow::bail!(
+            "Command {} failed: {}",
+            command,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
 fn compute_b3_hash(path: &Path) -> Result<String> {
     use blake3::Hasher;
-    
-    let content = fs::read(path)
-        .context(format!("Failed to read file: {}", path.display()))?;
-    
+
+    let content = fs::read(path).context(format!("Failed to read file: {}", path.display()))?;
+
     let mut hasher = Hasher::new();
     hasher.update(&content);
     let hash = hasher.finalize();
-    
+
     Ok(hash.to_hex().to_string())
 }
 
 fn is_executable(path: &Path) -> Result<bool> {
     use std::os::unix::fs::PermissionsExt;
-    
+
     let metadata = fs::metadata(path)?;
     let permissions = metadata.permissions();
     let mode = permissions.mode();
-    
+
     // Check if file has execute permission
     Ok(mode & 0o111 != 0)
 }
 
 pub fn generate_determinism_report() -> Result<()> {
     println!("Generating determinism report...");
-    
+
     let workspace_root = find_workspace_root()?;
     let target_dir = workspace_root.join("target");
-    
-        let mut report = DeterminismReport::new()?;
-    
+
+    let mut report = DeterminismReport::new()?;
+
     // Collect all data
     report.collect_binary_hashes(&target_dir)?;
     report.collect_artifact_hashes(&target_dir)?;
     report.collect_environment_variables();
     report.calculate_reproducibility_score();
-    
+
     // Save report
     let report_path = target_dir.join("determinism_report.json");
     report.save(&report_path)?;
-    
+
     println!("✓ Determinism report generated: {}", report_path.display());
-    println!("  Reproducibility score: {:.1}/100", report.reproducibility_score);
-    
+    println!(
+        "  Reproducibility score: {:.1}/100",
+        report.reproducibility_score
+    );
+
     if !report.issues.is_empty() {
         println!("  Issues found:");
         for issue in &report.issues {
             println!("    - {}", issue);
         }
     }
-    
+
     Ok(())
 }
 
 fn find_workspace_root() -> Result<PathBuf> {
     let mut current = std::env::current_dir()?;
-    
+
     loop {
         let cargo_toml = current.join("Cargo.toml");
         if cargo_toml.exists() {
@@ -359,7 +361,7 @@ fn find_workspace_root() -> Result<PathBuf> {
                 return Ok(current);
             }
         }
-        
+
         if !current.pop() {
             anyhow::bail!("Could not find workspace root");
         }
@@ -377,20 +379,23 @@ mod chrono {
             // Use SOURCE_DATE_EPOCH if available, otherwise current time
             if let Ok(epoch) = std::env::var("SOURCE_DATE_EPOCH") {
                 if let Ok(secs) = epoch.parse::<i64>() {
-                    return format!("{}Z", chrono::DateTime::from_timestamp(secs, 0)
-                        .unwrap_or_default()
-                        .format("%Y-%m-%dT%H:%M:%S"));
+                    return format!(
+                        "{}Z",
+                        chrono::DateTime::from_timestamp(secs, 0)
+                            .unwrap_or_default()
+                            .format("%Y-%m-%dT%H:%M:%S")
+                    );
                 }
             }
             "2025-01-01T00:00:00Z".to_string()
         }
     }
-    
+
     pub mod date_time {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         pub struct DateTime;
-        
+
         impl DateTime {
             pub fn from_timestamp(secs: i64, _nsecs: u32) -> Option<Self> {
                 if secs > 0 {
@@ -399,7 +404,7 @@ mod chrono {
                     None
                 }
             }
-            
+
             pub fn format(&self, _fmt: &str) -> impl std::fmt::Display {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)

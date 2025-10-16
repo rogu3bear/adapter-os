@@ -3,13 +3,13 @@
 //! Validates telemetry collection, canonical JSON formatting, BLAKE3 hashing,
 //! bundle rotation, Merkle tree signing, and audit trail integrity.
 
+use crate::orchestration::TestEnvironment;
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_telemetry::{BundleMetadata, BundleStore, TelemetryWriter};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use adapteros_core::{AosError, Result, B3Hash};
-use adapteros_telemetry::{TelemetryWriter, BundleStore, BundleMetadata};
-use serde_json::Value;
-use crate::orchestration::TestEnvironment;
 
 /// Telemetry validation test suite
 pub struct TelemetryValidationTest {
@@ -60,11 +60,26 @@ impl TelemetryValidationTest {
     /// Test event collection from various sources
     async fn test_event_collection(&self, env: &TestEnvironment) -> Result<()> {
         let test_events = vec![
-            ("inference_start", serde_json::json!({"request_id": "req_123", "model": "llama_7b"})),
-            ("adapter_load", serde_json::json!({"adapter_id": "aviation_maint", "memory_mb": 256})),
-            ("evidence_retrieval", serde_json::json!({"query": "torque spec", "spans": 3})),
-            ("policy_check", serde_json::json!({"action": "generate", "allowed": true})),
-            ("inference_complete", serde_json::json!({"tokens": 150, "latency_ms": 234})),
+            (
+                "inference_start",
+                serde_json::json!({"request_id": "req_123", "model": "llama_7b"}),
+            ),
+            (
+                "adapter_load",
+                serde_json::json!({"adapter_id": "aviation_maint", "memory_mb": 256}),
+            ),
+            (
+                "evidence_retrieval",
+                serde_json::json!({"query": "torque spec", "spans": 3}),
+            ),
+            (
+                "policy_check",
+                serde_json::json!({"action": "generate", "allowed": true}),
+            ),
+            (
+                "inference_complete",
+                serde_json::json!({"tokens": 150, "latency_ms": 234}),
+            ),
         ];
 
         for (event_type, payload) in test_events {
@@ -98,7 +113,10 @@ impl TelemetryValidationTest {
 
             // Verify canonical bytes are deterministic
             let canonical_again = serde_jcs::to_vec(&payload)?;
-            assert_eq!(canonical_bytes, canonical_again, "Canonical JSON should be deterministic");
+            assert_eq!(
+                canonical_bytes, canonical_again,
+                "Canonical JSON should be deterministic"
+            );
         }
 
         Ok(())
@@ -120,11 +138,18 @@ impl TelemetryValidationTest {
         let computed_hash = B3Hash::hash(&canonical_bytes);
 
         // Verify hash is valid (32 bytes)
-        assert_eq!(computed_hash.as_bytes().len(), 32, "BLAKE3 hash should be 32 bytes");
+        assert_eq!(
+            computed_hash.as_bytes().len(),
+            32,
+            "BLAKE3 hash should be 32 bytes"
+        );
 
         // Verify hash is deterministic
         let computed_hash_again = B3Hash::hash(&canonical_bytes);
-        assert_eq!(computed_hash, computed_hash_again, "Hash should be deterministic");
+        assert_eq!(
+            computed_hash, computed_hash_again,
+            "Hash should be deterministic"
+        );
 
         // Verify different payloads produce different hashes
         let different_payload = serde_json::json!({
@@ -134,7 +159,10 @@ impl TelemetryValidationTest {
         });
         let different_canonical = serde_jcs::to_vec(&different_payload)?;
         let different_hash = B3Hash::hash(&different_canonical);
-        assert_ne!(computed_hash, different_hash, "Different payloads should have different hashes");
+        assert_ne!(
+            computed_hash, different_hash,
+            "Different payloads should have different hashes"
+        );
 
         Ok(())
     }
@@ -144,7 +172,8 @@ impl TelemetryValidationTest {
         let bundle_store = env.bundle_store();
 
         // Log many events to trigger rotation
-        for i in 0..150 { // More than default max_events of 100
+        for i in 0..150 {
+            // More than default max_events of 100
             let event_data = serde_json::json!({
                 "event_id": i,
                 "test_data": format!("test_payload_{}", i),
@@ -158,7 +187,10 @@ impl TelemetryValidationTest {
 
         // Verify multiple bundles were created
         let stats = bundle_store.get_storage_stats()?;
-        assert!(stats.total_bundles > 1, "Should have multiple bundles after rotation");
+        assert!(
+            stats.total_bundles > 1,
+            "Should have multiple bundles after rotation"
+        );
 
         Ok(())
     }
@@ -178,15 +210,18 @@ impl TelemetryValidationTest {
 
         // Verify Merkle root is deterministic
         let merkle_root_again = self.compute_merkle_root(&event_hashes);
-        assert_eq!(merkle_root, merkle_root_again, "Merkle root should be deterministic");
+        assert_eq!(
+            merkle_root, merkle_root_again,
+            "Merkle root should be deterministic"
+        );
 
         // Verify different inputs produce different roots
-        let different_hashes = vec![
-            B3Hash::hash(b"different_1"),
-            B3Hash::hash(b"different_2"),
-        ];
+        let different_hashes = vec![B3Hash::hash(b"different_1"), B3Hash::hash(b"different_2")];
         let different_root = self.compute_merkle_root(&different_hashes);
-        assert_ne!(merkle_root, different_root, "Different inputs should have different Merkle roots");
+        assert_ne!(
+            merkle_root, different_root,
+            "Different inputs should have different Merkle roots"
+        );
 
         Ok(())
     }
@@ -222,7 +257,10 @@ impl TelemetryValidationTest {
 
         // Verify signature is deterministic for same input
         let signature_again = self.sign_merkle_root(&merkle_root)?;
-        assert_eq!(signature, signature_again, "Signature should be deterministic for same input");
+        assert_eq!(
+            signature, signature_again,
+            "Signature should be deterministic for same input"
+        );
 
         Ok(())
     }
@@ -247,17 +285,26 @@ impl TelemetryValidationTest {
         // Test bundle verification
         for bundle_id in bundles {
             let verification = bundle_store.verify_bundle(&bundle_id)?;
-            assert!(verification.is_valid, "Bundle {} should be valid", bundle_id);
+            assert!(
+                verification.is_valid,
+                "Bundle {} should be valid",
+                bundle_id
+            );
 
             // Test replay capability
             let replay_data = bundle_store.replay_bundle(&bundle_id)?;
-            assert!(!replay_data.events.is_empty(), "Bundle should have replayable events");
+            assert!(
+                !replay_data.events.is_empty(),
+                "Bundle should have replayable events"
+            );
 
             // Verify event ordering and determinism
             let events = &replay_data.events;
             for i in 1..events.len() {
-                assert!(events[i-1].timestamp <= events[i].timestamp,
-                    "Events should be in chronological order");
+                assert!(
+                    events[i - 1].timestamp <= events[i].timestamp,
+                    "Events should be in chronological order"
+                );
             }
         }
 
@@ -299,7 +346,9 @@ pub async fn test_telemetry_sampling(env: Arc<Mutex<TestEnvironment>>) -> Result
         assert!(
             (sampled_events as i32 - expected_count as i32).abs() <= tolerance,
             "Sampling for {} should be approximately correct: expected ~{}, got {}",
-            scenario, expected_count, sampled_events
+            scenario,
+            expected_count,
+            sampled_events
         );
     }
 
@@ -326,10 +375,16 @@ pub async fn test_telemetry_performance(env: Arc<Mutex<TestEnvironment>>) -> Res
     let duration = start_time.elapsed();
     let events_per_second = 1000.0 / duration.as_secs_f64();
 
-    println!("Telemetry performance: {:.0} events/second", events_per_second);
+    println!(
+        "Telemetry performance: {:.0} events/second",
+        events_per_second
+    );
 
     // Should handle at least 100 events/second
-    assert!(events_per_second > 100.0, "Telemetry should handle >100 events/second");
+    assert!(
+        events_per_second > 100.0,
+        "Telemetry should handle >100 events/second"
+    );
 
     Ok(())
 }
@@ -360,8 +415,12 @@ pub async fn test_telemetry_compression(env: Arc<Mutex<TestEnvironment>>) -> Res
     let stats = bundle_store.get_storage_stats()?;
 
     // Compression should achieve reasonable ratios
-    let avg_compression_ratio = stats.total_uncompressed_bytes as f64 / stats.total_compressed_bytes as f64;
-    assert!(avg_compression_ratio > 2.0, "Should achieve >2:1 compression ratio");
+    let avg_compression_ratio =
+        stats.total_uncompressed_bytes as f64 / stats.total_compressed_bytes as f64;
+    assert!(
+        avg_compression_ratio > 2.0,
+        "Should achieve >2:1 compression ratio"
+    );
 
     Ok(())
 }

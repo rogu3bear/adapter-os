@@ -1,9 +1,9 @@
 //! Build plan from manifest
 
 use crate::output::OutputWriter;
-use anyhow::{Context, Result};
 use adapteros_db::Db;
 use adapteros_manifest::ManifestV3;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;

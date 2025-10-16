@@ -57,14 +57,14 @@ pub struct RouterWeights {
 impl Default for RouterWeights {
     fn default() -> Self {
         Self {
-            language_weight: 0.3,
-            framework_weight: 0.25,
-            symbol_hits_weight: 0.2,
-            path_tokens_weight: 0.15,
-            prompt_verb_weight: 0.1,
-            orthogonal_weight: 0.05,
-            diversity_weight: 0.03,
-            similarity_penalty: 0.02,
+            language_weight: 0.27272728,
+            framework_weight: 0.22727273,
+            symbol_hits_weight: 0.18181819,
+            path_tokens_weight: 0.13636364,
+            prompt_verb_weight: 0.09090909,
+            orthogonal_weight: 0.04545455,
+            diversity_weight: 0.02727273,
+            similarity_penalty: 0.01818182,
         }
     }
 }
@@ -78,9 +78,9 @@ impl RouterWeights {
             symbol_hits_weight: symbols,
             path_tokens_weight: paths,
             prompt_verb_weight: verb,
-            orthogonal_weight: 0.05,
-            diversity_weight: 0.03,
-            similarity_penalty: 0.02,
+            orthogonal_weight: 0.04545455,
+            diversity_weight: 0.02727273,
+            similarity_penalty: 0.01818182,
         }
     }
 

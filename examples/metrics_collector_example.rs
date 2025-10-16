@@ -47,7 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Simulate kernel latency
             let kernel_latency_ms = 10.0 + (counter % 20) as f64; // 10-30ms
-            collector_clone.record_kernel_latency("attention", "tenant1", kernel_latency_ms / 1000.0);
+            collector_clone.record_kernel_latency(
+                "attention",
+                "tenant1",
+                kernel_latency_ms / 1000.0,
+            );
 
             // Simulate queue depth
             let queue_depth = (counter % 20) as f64;
@@ -102,8 +106,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     println!("Metrics collection started");
-    println!("Prometheus endpoint: http://localhost:{}/metrics", server_port);
-    println!("JSON endpoint: http://localhost:{}/metrics/json", server_port);
+    println!(
+        "Prometheus endpoint: http://localhost:{}/metrics",
+        server_port
+    );
+    println!(
+        "JSON endpoint: http://localhost:{}/metrics/json",
+        server_port
+    );
     println!("Health endpoint: http://localhost:{}/health", server_port);
 
     // Wait for either task to complete
@@ -126,18 +136,20 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_collector_example() {
         let collector = MetricsCollector::new().expect("Should create metrics collector");
-        
+
         // Test basic metrics recording
         collector.record_inference_latency("test_tenant", "test_adapter", 0.025);
         collector.update_queue_depth("request", "test_tenant", 5.0);
         collector.record_tokens_generated("test_tenant", "test_adapter", 100);
-        
+
         // Test snapshot generation
         let snapshot = collector.get_metrics_snapshot().await;
         assert!(snapshot.timestamp > 0);
-        
+
         // Test Prometheus rendering
-        let prometheus_output = collector.render_prometheus().expect("Should render Prometheus metrics");
+        let prometheus_output = collector
+            .render_prometheus()
+            .expect("Should render Prometheus metrics");
         let output_str = String::from_utf8(prometheus_output).expect("Should be valid UTF-8");
         assert!(output_str.contains("adapteros_inference_latency_seconds"));
         assert!(output_str.contains("adapteros_queue_depth"));

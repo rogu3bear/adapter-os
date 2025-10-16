@@ -79,25 +79,21 @@ mod tests {
     fn test_scoring() {
         let scorer = AdapterScorer::default();
 
-        let high_activation = AdapterMetrics {
-            adapter_id: "test".to_string(),
-            activation_count: 80,
-            total_tokens: 100,
-            activation_pct: 80.0,
-            avg_latency_us: 100.0,
-            memory_bytes: 1000,
-            quality_delta: 0.8,
-        };
+        let mut high_activation = AdapterMetrics::new("test".to_string());
+        high_activation.activation_count = 80;
+        high_activation.total_tokens = 100;
+        high_activation.activation_pct = 80.0;
+        high_activation.avg_latency_us = 100.0;
+        high_activation.memory_bytes = 1000;
+        high_activation.quality_delta = 0.8;
 
-        let low_activation = AdapterMetrics {
-            adapter_id: "test".to_string(),
-            activation_count: 5,
-            total_tokens: 100,
-            activation_pct: 5.0,
-            avg_latency_us: 200.0,
-            memory_bytes: 1000,
-            quality_delta: 0.3,
-        };
+        let mut low_activation = AdapterMetrics::new("test".to_string());
+        low_activation.activation_count = 5;
+        low_activation.total_tokens = 100;
+        low_activation.activation_pct = 5.0;
+        low_activation.avg_latency_us = 200.0;
+        low_activation.memory_bytes = 1000;
+        low_activation.quality_delta = 0.3;
 
         let high_score = scorer.score(&high_activation);
         let low_score = scorer.score(&low_activation);
@@ -112,32 +108,35 @@ mod tests {
         let scorer = AdapterScorer::default();
 
         let metrics = vec![
-            AdapterMetrics {
-                adapter_id: "a".to_string(),
-                activation_count: 50,
-                total_tokens: 100,
-                activation_pct: 50.0,
-                avg_latency_us: 100.0,
-                memory_bytes: 1000,
-                quality_delta: 0.5,
+            {
+                let mut metrics = AdapterMetrics::new("a".to_string());
+                metrics.activation_count = 50;
+                metrics.total_tokens = 100;
+                metrics.activation_pct = 50.0;
+                metrics.avg_latency_us = 100.0;
+                metrics.memory_bytes = 1000;
+                metrics.quality_delta = 0.5;
+                metrics
             },
-            AdapterMetrics {
-                adapter_id: "b".to_string(),
-                activation_count: 80,
-                total_tokens: 100,
-                activation_pct: 80.0,
-                avg_latency_us: 100.0,
-                memory_bytes: 1000,
-                quality_delta: 0.8,
+            {
+                let mut metrics = AdapterMetrics::new("b".to_string());
+                metrics.activation_count = 80;
+                metrics.total_tokens = 100;
+                metrics.activation_pct = 80.0;
+                metrics.avg_latency_us = 100.0;
+                metrics.memory_bytes = 1000;
+                metrics.quality_delta = 0.8;
+                metrics
             },
-            AdapterMetrics {
-                adapter_id: "c".to_string(),
-                activation_count: 10,
-                total_tokens: 100,
-                activation_pct: 10.0,
-                avg_latency_us: 200.0,
-                memory_bytes: 1000,
-                quality_delta: 0.2,
+            {
+                let mut metrics = AdapterMetrics::new("c".to_string());
+                metrics.activation_count = 10;
+                metrics.total_tokens = 100;
+                metrics.activation_pct = 10.0;
+                metrics.avg_latency_us = 200.0;
+                metrics.memory_bytes = 1000;
+                metrics.quality_delta = 0.2;
+                metrics
             },
         ];
 

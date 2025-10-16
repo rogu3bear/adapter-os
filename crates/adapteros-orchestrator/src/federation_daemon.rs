@@ -13,7 +13,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use adapteros_federation::FederationManager;
 use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
-use adapteros_telemetry::{TelemetryWriter, TelemetryEventBuilder, LogLevel};
+use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -119,7 +119,7 @@ impl FederationDaemon {
                 }
                 Err(e) => {
                     error!(error = %e, "Federation verification sweep failed");
-                    
+
                     // Log telemetry event
                     if let Err(te) = self.log_verification_error(&e) {
                         error!(error = %te, "Failed to log verification error");
@@ -132,7 +132,7 @@ impl FederationDaemon {
     /// Verify all federation hosts
     async fn verify_all_hosts(&self) -> Result<FederationVerificationReport> {
         let start = std::time::Instant::now();
-        
+
         // Get all host chains from database
         let hosts = self.get_all_host_ids().await?;
         let mut errors = Vec::new();
@@ -174,7 +174,7 @@ impl FederationDaemon {
     async fn verify_host_chain(&self, host_id: &str) -> Result<()> {
         // Get the last 10 signatures for this host
         let chain = self.federation.get_host_chain(host_id, 10).await?;
-        
+
         if chain.is_empty() {
             debug!(host_id = %host_id, "No signatures found for host");
             return Ok(());
@@ -189,13 +189,13 @@ impl FederationDaemon {
     /// Get all unique host IDs from federation signatures
     async fn get_all_host_ids(&self) -> Result<Vec<String>> {
         let pool = self.db.pool();
-        
+
         let rows = sqlx::query_scalar::<_, String>(
             r#"
             SELECT DISTINCT host_id
             FROM federation_bundle_signatures
             ORDER BY host_id ASC
-            "#
+            "#,
         )
         .fetch_all(pool)
         .await
@@ -217,7 +217,7 @@ impl FederationDaemon {
                 "Federation verification failed: {} error(s) detected",
                 report.errors.len()
             );
-            
+
             warn!(
                 errors = report.errors.len(),
                 "Triggering quarantine due to federation verification failure"
@@ -252,12 +252,12 @@ impl FederationDaemon {
     async fn trigger_policy_quarantine(&self, reason: &str) -> Result<()> {
         // Insert into policy_quarantine table
         let pool = self.db.pool();
-        
+
         sqlx::query(
             r#"
             INSERT INTO policy_quarantine (reason, created_at, released)
             VALUES (?, CURRENT_TIMESTAMP, FALSE)
-            "#
+            "#,
         )
         .bind(reason)
         .execute(pool)
@@ -271,10 +271,16 @@ impl FederationDaemon {
     fn log_verification_report(&self, report: &FederationVerificationReport) -> Result<()> {
         let event = TelemetryEventBuilder::new(
             adapteros_telemetry::EventType::Custom("federation.periodic_verification".to_string()),
-            if report.ok { LogLevel::Info } else { LogLevel::Error },
-            format!("Federation periodic verification: {}/{} hosts verified", 
-                    report.hosts_verified, 
-                    report.hosts_verified + report.errors.len()),
+            if report.ok {
+                LogLevel::Info
+            } else {
+                LogLevel::Error
+            },
+            format!(
+                "Federation periodic verification: {}/{} hosts verified",
+                report.hosts_verified,
+                report.hosts_verified + report.errors.len()
+            ),
         )
         .component("adapteros-orchestrator".to_string())
         .metadata(json!({
@@ -349,15 +355,15 @@ impl FederationDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_crypto::Keypair;
     use adapteros_core::B3Hash;
+    use adapteros_crypto::Keypair;
     use tempfile::TempDir;
 
     async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db_url = format!("sqlite://{}", db_path.display());
-        
+
         let db = Db::connect(&db_url).await.unwrap();
         db.migrate().await.unwrap();
 
@@ -441,4 +447,3 @@ mod tests {
         assert!(!daemon.is_quarantined());
     }
 }
-

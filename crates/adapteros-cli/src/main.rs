@@ -13,8 +13,8 @@ mod error_codes;
 mod logging;
 mod output;
 
-use commands::*;
 use commands::golden::GoldenCmd;
+use commands::*;
 use logging::init_logging;
 use output::{OutputMode, OutputWriter};
 
@@ -1283,7 +1283,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             verify_telemetry::verify_telemetry_chain(&bundle_dir, &output).await?;
         }
 
-        Commands::FederationVerify { bundle_dir, database } => {
+        Commands::FederationVerify {
+            bundle_dir,
+            database,
+        } => {
             verify_federation::run(&bundle_dir, &database, &output).await?;
         }
 
@@ -1293,12 +1296,15 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             save_current,
             save_baseline,
         } => {
-            std::process::exit(commands::drift_check::drift_check(
-                db.clone(),
-                baseline.clone(),
-                *save_current,
-                *save_baseline,
-            ).await?);
+            std::process::exit(
+                commands::drift_check::drift_check(
+                    db.clone(),
+                    baseline.clone(),
+                    *save_current,
+                    *save_baseline,
+                )
+                .await?,
+            );
         }
 
         // CodeGraph & Call Graph (temporarily disabled due to mplora-codegraph dependency)
@@ -1335,12 +1341,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Verify { bundle } => {
             verify::run(&bundle, &output).await?;
         }
-        
+
         // Policy Management
         Commands::Policy(cmd) => {
             cmd.clone().run()?;
         }
-        
+
         Commands::Serve {
             tenant,
             plan,

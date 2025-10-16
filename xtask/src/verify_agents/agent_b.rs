@@ -63,9 +63,7 @@ fn check_migrations() -> Check {
     let agent_b_migrations: Vec<_> = entries
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("01") // 0100-0199
+            e.file_name().to_string_lossy().starts_with("01") // 0100-0199
         })
         .collect();
 
@@ -184,9 +182,10 @@ fn check_meta_endpoint(url: &str) -> Check {
                 if has_version && has_build_hash && has_build_date {
                     Check::pass(
                         "/v1/meta endpoint",
-                        vec![
-                            format!("Response: {}", serde_json::to_string_pretty(&json).unwrap_or_default()),
-                        ],
+                        vec![format!(
+                            "Response: {}",
+                            serde_json::to_string_pretty(&json).unwrap_or_default()
+                        )],
                     )
                 } else {
                     Check::fail(
@@ -196,11 +195,7 @@ fn check_meta_endpoint(url: &str) -> Check {
                     )
                 }
             } else {
-                Check::fail(
-                    "/v1/meta endpoint",
-                    vec![],
-                    "Response is not valid JSON",
-                )
+                Check::fail("/v1/meta endpoint", vec![], "Response is not valid JSON")
             }
         }
         Ok(response) => Check::fail(
@@ -208,7 +203,11 @@ fn check_meta_endpoint(url: &str) -> Check {
             vec![format!("Status: {}", response.status())],
             "Non-success status code",
         ),
-        Err(e) => Check::fail("/v1/meta endpoint", vec![], format!("Request failed: {}", e)),
+        Err(e) => Check::fail(
+            "/v1/meta endpoint",
+            vec![],
+            format!("Request failed: {}", e),
+        ),
     }
 }
 
@@ -217,18 +216,14 @@ fn check_routing_decisions(url: &str) -> Check {
     let endpoint = format!("{}/v1/routing/decisions", url);
 
     match client.get(&endpoint).send() {
-        Ok(response) if response.status().is_success() => {
-            Check::pass(
-                "/v1/routing/decisions endpoint",
-                vec![format!("Status: {}", response.status())],
-            )
-        }
-        Ok(response) if response.status() == 404 => {
-            Check::skip(
-                "/v1/routing/decisions endpoint",
-                "Endpoint returns 404 (UI should fall back to telemetry)",
-            )
-        }
+        Ok(response) if response.status().is_success() => Check::pass(
+            "/v1/routing/decisions endpoint",
+            vec![format!("Status: {}", response.status())],
+        ),
+        Ok(response) if response.status() == 404 => Check::skip(
+            "/v1/routing/decisions endpoint",
+            "Endpoint returns 404 (UI should fall back to telemetry)",
+        ),
         Ok(response) => Check::fail(
             "/v1/routing/decisions endpoint",
             vec![format!("Status: {}", response.status())],
@@ -247,12 +242,10 @@ fn check_audits_endpoint(url: &str) -> Check {
     let endpoint = format!("{}/v1/audits", url);
 
     match client.get(&endpoint).send() {
-        Ok(response) if response.status().is_success() => {
-            Check::pass(
-                "/v1/audits endpoint",
-                vec![format!("Status: {}", response.status())],
-            )
-        }
+        Ok(response) if response.status().is_success() => Check::pass(
+            "/v1/audits endpoint",
+            vec![format!("Status: {}", response.status())],
+        ),
         Ok(response) if response.status() == 404 => {
             Check::skip("/v1/audits endpoint", "Endpoint not yet implemented (404)")
         }
@@ -261,7 +254,11 @@ fn check_audits_endpoint(url: &str) -> Check {
             vec![format!("Status: {}", response.status())],
             "Unexpected status code",
         ),
-        Err(e) => Check::fail("/v1/audits endpoint", vec![], format!("Request failed: {}", e)),
+        Err(e) => Check::fail(
+            "/v1/audits endpoint",
+            vec![],
+            format!("Request failed: {}", e),
+        ),
     }
 }
 
@@ -352,7 +349,10 @@ fn check_pid_lock(port: u16, pid_file: &Path) -> Check {
             if stderr.contains("already running") || stderr.contains("PID") {
                 Check::pass(
                     "PID lock",
-                    vec![format!("Second instance prevented: {}", stderr.lines().next().unwrap_or(""))],
+                    vec![format!(
+                        "Second instance prevented: {}",
+                        stderr.lines().next().unwrap_or("")
+                    )],
                 )
             } else {
                 Check::fail(

@@ -23,6 +23,7 @@ pub mod manifest;
 pub mod metal3x;
 pub mod mplora;
 pub mod noise_tracker;
+pub mod optimization;
 pub mod recovery;
 pub mod ring_buffer;
 pub mod vision_kernels;
@@ -35,6 +36,7 @@ pub use layout::LayoutValidator;
 pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use mplora::MploraKernel;
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
+pub use optimization::{KernelOptimizationPlan, KernelOptimizer, KernelPerformanceMetrics};
 pub use recovery::RecoveryWrapper;
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
 pub use vision_kernels::{

@@ -1,9 +1,9 @@
 //! Register LoRA adapter command
 
 use crate::output::OutputWriter;
-use anyhow::Result;
 use adapteros_core::B3Hash;
 use adapteros_db::Db;
+use anyhow::Result;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;

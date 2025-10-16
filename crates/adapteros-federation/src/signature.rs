@@ -5,7 +5,7 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{PublicKey, Signature};
 use adapteros_db::Db;
-use adapteros_telemetry::{TelemetryWriter, TelemetryEventBuilder, LogLevel};
+use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::Row;
@@ -145,7 +145,7 @@ impl QuorumManager {
             SET collected_signatures = collected_signatures + 1
             WHERE bundle_hash = ?
             RETURNING required_signatures, collected_signatures
-            "#
+            "#,
         )
         .bind(&bundle_hash_hex)
         .fetch_one(pool)
@@ -164,7 +164,7 @@ impl QuorumManager {
                 SET quorum_reached = 1,
                     quorum_reached_at = datetime('now')
                 WHERE bundle_hash = ?
-                "#
+                "#,
             )
             .bind(&bundle_hash_hex)
             .execute(pool)
@@ -210,7 +210,7 @@ impl QuorumManager {
             SELECT quorum_reached
             FROM federation_bundle_quorum
             WHERE bundle_hash = ?
-            "#
+            "#,
         )
         .bind(&bundle_hash_hex)
         .fetch_optional(pool)
@@ -275,7 +275,7 @@ impl QuorumManager {
             SELECT host_id, signature
             FROM federation_bundle_signatures
             WHERE bundle_hash = ?
-            "#
+            "#,
         )
         .bind(&bundle_hash_hex)
         .fetch_all(pool)
@@ -289,7 +289,7 @@ impl QuorumManager {
             let signature_hex: String = row.try_get("signature")?;
             let signature_bytes = hex::decode(&signature_hex)
                 .map_err(|e| AosError::Crypto(format!("Invalid signature hex: {}", e)))?;
-            
+
             if signature_bytes.len() == 64 {
                 let mut sig_array = [0u8; 64];
                 sig_array.copy_from_slice(&signature_bytes);
@@ -405,11 +405,15 @@ mod tests {
         let sig2 = keypair2.sign(message);
 
         // First signature
-        let reached = manager.record_signature(&bundle_hash, "host1", &sig1).await?;
+        let reached = manager
+            .record_signature(&bundle_hash, "host1", &sig1)
+            .await?;
         assert!(!reached);
 
         // Second signature - reaches quorum
-        let reached = manager.record_signature(&bundle_hash, "host2", &sig2).await?;
+        let reached = manager
+            .record_signature(&bundle_hash, "host2", &sig2)
+            .await?;
         assert!(reached);
 
         let is_reached = manager.is_quorum_reached(&bundle_hash).await?;
@@ -439,4 +443,3 @@ mod tests {
         assert!(exchange.is_quorum_reached());
     }
 }
-

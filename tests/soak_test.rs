@@ -7,10 +7,10 @@
 //! - SOAK_QPS: Queries per second (default: 10)
 //! - SOAK_MAX_MEMORY_MB: Maximum memory growth allowed (default: 100)
 
+use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig, spawn_deterministic};
 
 #[tokio::test]
 async fn soak_test_memory_stability() {
@@ -25,7 +25,11 @@ async fn soak_test_memory_stability() {
         .unwrap_or(10);
 
     println!("\n[FIRE] Starting soak test");
-    println!("   Duration: {} seconds ({} minutes)", duration, duration / 60);
+    println!(
+        "   Duration: {} seconds ({} minutes)",
+        duration,
+        duration / 60
+    );
     println!("   Target QPS: {}", qps);
     println!("");
 
@@ -106,10 +110,7 @@ async fn soak_test_memory_stability() {
     println!("   Memory growth: {} MB", final_memory - baseline_memory);
     println!("");
 
-    assert!(
-        total_requests > 0,
-        "No requests completed during soak test"
-    );
+    assert!(total_requests > 0, "No requests completed during soak test");
     assert!(
         total_errors as f64 / total_requests as f64 < 0.01,
         "Error rate too high: {} errors out of {} requests",
@@ -136,11 +137,11 @@ async fn simulate_inference_request() -> Result<(), Box<dyn std::error::Error>> 
 fn get_process_memory_mb() -> usize {
     // On macOS/Linux, read from /proc/self/status or use system APIs
     // For now, return a stub value
-    
+
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        
+
         if let Ok(output) = Command::new("ps")
             .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
             .output()

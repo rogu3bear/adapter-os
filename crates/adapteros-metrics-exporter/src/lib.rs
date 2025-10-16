@@ -84,8 +84,10 @@ impl MetricsExporter {
         registry.register(Box::new(jobs_active.clone()))?;
 
         // Worker metrics
-        let workers_active =
-            Gauge::new("adapteros_lora_workers_active", "Number of active worker processes")?;
+        let workers_active = Gauge::new(
+            "adapteros_lora_workers_active",
+            "Number of active worker processes",
+        )?;
         registry.register(Box::new(workers_active.clone()))?;
 
         let workers_memory_headroom_pct = GaugeVec::new(

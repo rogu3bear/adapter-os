@@ -5,8 +5,8 @@
 //! - Router overhead ≤ 8%
 //! - Throughput ≥ 40 tokens/s
 
-use anyhow::Result;
 use adapteros_lora_router::{RouterMonitoringMetrics, RouterOverheadMetrics, ThroughputMetrics};
+use anyhow::Result;
 use std::time::{Duration, Instant};
 
 #[test]
@@ -131,7 +131,7 @@ fn test_combined_ruleset_11_compliance() {
 
     // With default/zero metrics, should have no violations
     let violations = metrics.check_ruleset_11_compliance();
-    
+
     // Expect throughput violation (0 tokens/s) and potentially overhead issues
     // This is expected for uninitialized metrics
     assert!(!violations.is_empty() || violations.is_empty());
@@ -142,8 +142,12 @@ fn test_metrics_integration() {
     let mut metrics = RouterMonitoringMetrics::new(16 * 1024 * 1024 * 1024);
 
     // Simulate good performance
-    metrics.overhead.record_decision(Duration::from_micros(50), Duration::from_micros(1000));
-    metrics.throughput.record_tokens(100, Duration::from_secs(2));
+    metrics
+        .overhead
+        .record_decision(Duration::from_micros(50), Duration::from_micros(1000));
+    metrics
+        .throughput
+        .record_tokens(100, Duration::from_secs(2));
 
     let adapter_metrics = metrics.get_or_create_adapter(0);
     for _ in 0..100 {
@@ -164,20 +168,23 @@ fn test_metrics_integration() {
 async fn test_performance_benchmark_baseline() -> Result<()> {
     // This test provides a baseline for performance regression detection
     // It should be expanded with actual inference workloads
-    
+
     let start = Instant::now();
-    
+
     // Simulate minimal routing work
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_micros(10)).await;
     }
-    
+
     let elapsed = start.elapsed();
     let avg_latency = elapsed.as_micros() / 100;
-    
+
     // Baseline should complete in reasonable time (allow for scheduling overhead)
-    assert!(avg_latency < 5000, "Baseline latency too high: {}µs", avg_latency);
-    
+    assert!(
+        avg_latency < 5000,
+        "Baseline latency too high: {}µs",
+        avg_latency
+    );
+
     Ok(())
 }
-

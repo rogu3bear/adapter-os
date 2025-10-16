@@ -1,8 +1,8 @@
 //! Domain adapter types
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use std::collections::HashMap;
+use utoipa::ToSchema;
 
 /// Create domain adapter request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

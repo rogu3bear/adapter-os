@@ -55,9 +55,7 @@ fn check_migrations() -> Check {
     let agent_c_migrations: Vec<_> = entries
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("02") // 0200-0299
+            e.file_name().to_string_lossy().starts_with("02") // 0200-0299
         })
         .collect();
 
@@ -70,17 +68,13 @@ fn check_migrations() -> Check {
     }
 
     // Check for pinned_adapters and dependencies
-    let has_pinned = agent_c_migrations.iter().any(|e| {
-        e.file_name()
-            .to_string_lossy()
-            .contains("pinned_adapters")
-    });
+    let has_pinned = agent_c_migrations
+        .iter()
+        .any(|e| e.file_name().to_string_lossy().contains("pinned_adapters"));
 
-    let has_dependencies = agent_c_migrations.iter().any(|e| {
-        e.file_name()
-            .to_string_lossy()
-            .contains("dependencies")
-    });
+    let has_dependencies = agent_c_migrations
+        .iter()
+        .any(|e| e.file_name().to_string_lossy().contains("dependencies"));
 
     let evidence: Vec<_> = agent_c_migrations
         .iter()
@@ -98,7 +92,10 @@ fn check_migrations() -> Check {
     } else {
         Check::skip(
             "Migration range check",
-            format!("Found migrations in 0200 range but no pinned/dependencies: {}", evidence.join(", ")),
+            format!(
+                "Found migrations in 0200 range but no pinned/dependencies: {}",
+                evidence.join(", ")
+            ),
         )
     }
 }
@@ -182,7 +179,7 @@ fn check_auto_reload() -> Check {
 fn check_pinning() -> Check {
     // Check for pinning in CLI or database
     let cli_src = "crates/mplora-cli/src/commands/adapters.rs";
-    
+
     if let Ok(content) = fs::read_to_string(cli_src) {
         if content.contains("pin") {
             return Check::pass(

@@ -9,13 +9,13 @@
 //! Citation: docs/llm-interface-specification.md §5.1
 
 use crate::{types::*, AdapterOSClient};
+use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json;
 use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use anyhow::Result;
 
 /// Error types for UDS client operations
 #[derive(Debug, thiserror::Error)]
@@ -504,11 +504,15 @@ impl AdapterOSClient for UdsClient {
     }
 
     async fn register_adapter(&self, _req: RegisterAdapterRequest) -> Result<AdapterResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support adapter registration"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support adapter registration"
+        ))
     }
 
     async fn evict_adapter(&self, _adapter_id: &str) -> Result<()> {
-        Err(anyhow::anyhow!("UDS clients don't support adapter eviction"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support adapter eviction"
+        ))
     }
 
     async fn pin_adapter(&self, _adapter_id: &str, _pinned: bool) -> Result<()> {
@@ -517,11 +521,16 @@ impl AdapterOSClient for UdsClient {
 
     // Memory Management
     async fn get_memory_usage(&self) -> Result<MemoryUsageResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support memory management"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support memory management"
+        ))
     }
 
     // Training
-    async fn start_adapter_training(&self, _req: StartTrainingRequest) -> Result<TrainingSessionResponse> {
+    async fn start_adapter_training(
+        &self,
+        _req: StartTrainingRequest,
+    ) -> Result<TrainingSessionResponse> {
         Err(anyhow::anyhow!("UDS clients don't support training"))
     }
 
@@ -534,7 +543,10 @@ impl AdapterOSClient for UdsClient {
     }
 
     // Telemetry
-    async fn get_telemetry_events(&self, _filters: TelemetryFilters) -> Result<Vec<TelemetryEvent>> {
+    async fn get_telemetry_events(
+        &self,
+        _filters: TelemetryFilters,
+    ) -> Result<Vec<TelemetryEvent>> {
         Err(anyhow::anyhow!("UDS clients don't support telemetry"))
     }
 
@@ -544,7 +556,9 @@ impl AdapterOSClient for UdsClient {
     }
 
     async fn register_node(&self, _req: RegisterNodeRequest) -> Result<NodeResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support node registration"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support node registration"
+        ))
     }
 
     // Plans
@@ -558,7 +572,9 @@ impl AdapterOSClient for UdsClient {
 
     // Workers
     async fn list_workers(&self, _tenant_id: Option<String>) -> Result<Vec<WorkerResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support worker management"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support worker management"
+        ))
     }
 
     async fn spawn_worker(&self, _req: SpawnWorkerRequest) -> Result<()> {
@@ -590,62 +606,100 @@ impl AdapterOSClient for UdsClient {
 
     // Policies
     async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support policy management"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support policy management"
+        ))
     }
 
     async fn get_policy(&self, _cpid: String) -> Result<PolicyPackResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support policy management"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support policy management"
+        ))
     }
 
-    async fn validate_policy(&self, _req: ValidatePolicyRequest) -> Result<PolicyValidationResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support policy management"))
+    async fn validate_policy(
+        &self,
+        _req: ValidatePolicyRequest,
+    ) -> Result<PolicyValidationResponse> {
+        Err(anyhow::anyhow!(
+            "UDS clients don't support policy management"
+        ))
     }
 
     async fn apply_policy(&self, _req: ApplyPolicyRequest) -> Result<PolicyPackResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support policy management"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support policy management"
+        ))
     }
 
     // Telemetry Bundles
     async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support telemetry bundles"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support telemetry bundles"
+        ))
     }
 
     // Code Intelligence
     async fn register_repo(&self, _req: RegisterRepoRequest) -> Result<RepoResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
     async fn scan_repo(&self, _req: ScanRepoRequest) -> Result<JobResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
     async fn list_repos(&self) -> Result<Vec<RepoResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
     async fn list_adapters_by_tenant(&self, _tenant_id: String) -> Result<ListAdaptersResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
     async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
     async fn create_commit_delta(&self, _req: CommitDeltaRequest) -> Result<CommitDeltaResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
-    async fn get_commit_details(&self, _repo_id: String, _commit: String) -> Result<CommitDetailsResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support code intelligence"))
+    async fn get_commit_details(
+        &self,
+        _repo_id: String,
+        _commit: String,
+    ) -> Result<CommitDetailsResponse> {
+        Err(anyhow::anyhow!(
+            "UDS clients don't support code intelligence"
+        ))
     }
 
     // Routing Inspector
-    async fn extract_router_features(&self, _req: RouterFeaturesRequest) -> Result<RouterFeaturesResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support routing inspector"))
+    async fn extract_router_features(
+        &self,
+        _req: RouterFeaturesRequest,
+    ) -> Result<RouterFeaturesResponse> {
+        Err(anyhow::anyhow!(
+            "UDS clients don't support routing inspector"
+        ))
     }
 
     async fn score_adapters(&self, _req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support routing inspector"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support routing inspector"
+        ))
     }
 
     // Patch Lab
@@ -672,10 +726,14 @@ impl AdapterOSClient for UdsClient {
 
     // Metrics Dashboard
     async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support metrics dashboard"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support metrics dashboard"
+        ))
     }
 
     async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support metrics dashboard"))
+        Err(anyhow::anyhow!(
+            "UDS clients don't support metrics dashboard"
+        ))
     }
 }

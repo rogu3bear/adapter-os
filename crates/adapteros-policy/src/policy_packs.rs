@@ -9,10 +9,10 @@
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 use adapteros_core::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{info, warn, error, debug};
-use chrono::{DateTime, Utc};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Policy pack identifier
@@ -152,23 +152,23 @@ impl PolicyPackId {
 pub struct PolicyPackConfig {
     /// Policy pack ID
     pub id: PolicyPackId,
-    
+
     /// Configuration data
     pub config: serde_json::Value,
-    
+
     /// Whether the pack is enabled
     pub enabled: bool,
-    
+
     /// Enforcement level
     pub enforcement_level: EnforcementLevel,
-    
+
     /// Last updated timestamp
     pub last_updated: DateTime<Utc>,
 }
 
 impl PolicyPackConfig {
     /// Calculate BLAKE3 hash of the policy pack configuration
-    /// 
+    ///
     /// Uses canonical JSON serialization for deterministic hashing.
     /// Per Determinism Ruleset #2: hash must be stable across runs.
     pub fn calculate_hash(&self) -> adapteros_core::B3Hash {
@@ -178,7 +178,7 @@ impl PolicyPackConfig {
         // For production, consider using jcs (JSON Canonicalization Scheme).
         let json = serde_json::to_string(&self.config)
             .expect("Policy config must be serializable to JSON");
-        
+
         adapteros_core::B3Hash::hash(json.as_bytes())
     }
 }
@@ -188,13 +188,13 @@ impl PolicyPackConfig {
 pub enum EnforcementLevel {
     /// Informational only
     Info,
-    
+
     /// Warning level
     Warning,
-    
+
     /// Error level (blocks operation)
     Error,
-    
+
     /// Critical level (system shutdown)
     Critical,
 }
@@ -203,10 +203,10 @@ pub enum EnforcementLevel {
 pub trait PolicyPackValidator {
     /// Validate a request against this policy pack
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult>;
-    
+
     /// Get policy pack ID
     fn policy_pack_id(&self) -> PolicyPackId;
-    
+
     /// Get policy pack name
     fn policy_pack_name(&self) -> &'static str;
 }
@@ -216,19 +216,19 @@ pub trait PolicyPackValidator {
 pub struct PolicyRequest {
     /// Request identifier
     pub request_id: String,
-    
+
     /// Request type
     pub request_type: RequestType,
-    
+
     /// Tenant ID
     pub tenant_id: Option<String>,
-    
+
     /// User ID
     pub user_id: Option<String>,
-    
+
     /// Request context
     pub context: PolicyContext,
-    
+
     /// Request metadata
     pub metadata: Option<serde_json::Value>,
 }
@@ -238,31 +238,31 @@ pub struct PolicyRequest {
 pub enum RequestType {
     /// Inference request
     Inference,
-    
+
     /// Adapter operation
     AdapterOperation,
-    
+
     /// Memory operation
     MemoryOperation,
-    
+
     /// Training operation
     TrainingOperation,
-    
+
     /// Policy update
     PolicyUpdate,
-    
+
     /// System operation
     SystemOperation,
-    
+
     /// User operation
     UserOperation,
-    
+
     /// Network operation
     NetworkOperation,
-    
+
     /// File operation
     FileOperation,
-    
+
     /// Database operation
     DatabaseOperation,
 }
@@ -272,13 +272,13 @@ pub enum RequestType {
 pub struct PolicyContext {
     /// Component generating the request
     pub component: String,
-    
+
     /// Operation being performed
     pub operation: String,
-    
+
     /// Additional context data
     pub data: Option<serde_json::Value>,
-    
+
     /// Request priority
     pub priority: Priority,
 }
@@ -288,13 +288,13 @@ pub struct PolicyContext {
 pub enum Priority {
     /// Low priority
     Low,
-    
+
     /// Normal priority
     Normal,
-    
+
     /// High priority
     High,
-    
+
     /// Critical priority
     Critical,
 }
@@ -304,16 +304,16 @@ pub enum Priority {
 pub struct PolicyValidationResult {
     /// Whether the request is valid
     pub valid: bool,
-    
+
     /// Policy violations found
     pub violations: Vec<PolicyViolation>,
-    
+
     /// Warnings
     pub warnings: Vec<PolicyWarning>,
-    
+
     /// Validation timestamp
     pub timestamp: DateTime<Utc>,
-    
+
     /// Validation duration
     pub duration_ms: u64,
 }
@@ -323,22 +323,22 @@ pub struct PolicyValidationResult {
 pub struct PolicyViolation {
     /// Violation identifier
     pub violation_id: String,
-    
+
     /// Policy pack that was violated
     pub policy_pack: String,
-    
+
     /// Violation severity
     pub severity: ViolationSeverity,
-    
+
     /// Violation message
     pub message: String,
-    
+
     /// Violation details
     pub details: Option<serde_json::Value>,
-    
+
     /// Remediation steps
     pub remediation: Option<String>,
-    
+
     /// Violation timestamp
     pub timestamp: DateTime<Utc>,
 }
@@ -348,16 +348,16 @@ pub struct PolicyViolation {
 pub enum ViolationSeverity {
     /// Information
     Info,
-    
+
     /// Warning
     Warning,
-    
+
     /// Error
     Error,
-    
+
     /// Critical
     Critical,
-    
+
     /// Blocker
     Blocker,
 }
@@ -367,16 +367,16 @@ pub enum ViolationSeverity {
 pub struct PolicyWarning {
     /// Warning identifier
     pub warning_id: String,
-    
+
     /// Policy pack
     pub policy_pack: String,
-    
+
     /// Warning message
     pub message: String,
-    
+
     /// Warning details
     pub details: Option<serde_json::Value>,
-    
+
     /// Warning timestamp
     pub timestamp: DateTime<Utc>,
 }
@@ -385,7 +385,7 @@ pub struct PolicyWarning {
 pub struct PolicyPackManager {
     /// Active policy packs
     packs: HashMap<PolicyPackId, Box<dyn PolicyPackValidator + Send + Sync>>,
-    
+
     /// Policy pack configurations
     configs: HashMap<PolicyPackId, PolicyPackConfig>,
 }
@@ -397,50 +397,72 @@ impl PolicyPackManager {
             packs: HashMap::new(),
             configs: HashMap::new(),
         };
-        
+
         // Initialize all policy packs
         manager.initialize_policy_packs();
-        
+
         manager
     }
-    
+
     /// Initialize all policy packs
     fn initialize_policy_packs(&mut self) {
         info!("Initializing all 20 policy packs");
-        
+
         // Register all policy pack validators
         self.register_pack(PolicyPackId::Egress, Box::new(EgressValidator::new()));
-        self.register_pack(PolicyPackId::Determinism, Box::new(DeterminismValidator::new()));
+        self.register_pack(
+            PolicyPackId::Determinism,
+            Box::new(DeterminismValidator::new()),
+        );
         self.register_pack(PolicyPackId::Router, Box::new(RouterValidator::new()));
         self.register_pack(PolicyPackId::Evidence, Box::new(EvidenceValidator::new()));
         self.register_pack(PolicyPackId::Refusal, Box::new(RefusalValidator::new()));
-        self.register_pack(PolicyPackId::NumericUnits, Box::new(NumericUnitsValidator::new()));
+        self.register_pack(
+            PolicyPackId::NumericUnits,
+            Box::new(NumericUnitsValidator::new()),
+        );
         self.register_pack(PolicyPackId::RagIndex, Box::new(RagIndexValidator::new()));
         self.register_pack(PolicyPackId::Isolation, Box::new(IsolationValidator::new()));
         self.register_pack(PolicyPackId::Telemetry, Box::new(TelemetryValidator::new()));
         self.register_pack(PolicyPackId::Retention, Box::new(RetentionValidator::new()));
-        self.register_pack(PolicyPackId::Performance, Box::new(PerformanceValidator::new()));
+        self.register_pack(
+            PolicyPackId::Performance,
+            Box::new(PerformanceValidator::new()),
+        );
         self.register_pack(PolicyPackId::Memory, Box::new(MemoryValidator::new()));
         self.register_pack(PolicyPackId::Artifacts, Box::new(ArtifactsValidator::new()));
         self.register_pack(PolicyPackId::Secrets, Box::new(SecretsValidator::new()));
-        self.register_pack(PolicyPackId::BuildRelease, Box::new(BuildReleaseValidator::new()));
-        self.register_pack(PolicyPackId::Compliance, Box::new(ComplianceValidator::new()));
+        self.register_pack(
+            PolicyPackId::BuildRelease,
+            Box::new(BuildReleaseValidator::new()),
+        );
+        self.register_pack(
+            PolicyPackId::Compliance,
+            Box::new(ComplianceValidator::new()),
+        );
         self.register_pack(PolicyPackId::Incident, Box::new(IncidentValidator::new()));
         self.register_pack(PolicyPackId::LlmOutput, Box::new(LlmOutputValidator::new()));
-        self.register_pack(PolicyPackId::AdapterLifecycle, Box::new(AdapterLifecycleValidator::new()));
+        self.register_pack(
+            PolicyPackId::AdapterLifecycle,
+            Box::new(AdapterLifecycleValidator::new()),
+        );
         self.register_pack(PolicyPackId::FullPack, Box::new(FullPackValidator::new()));
-        
+
         // Set default configurations
         self.set_default_configurations();
-        
+
         info!("All 20 policy packs initialized successfully");
     }
-    
+
     /// Register a policy pack validator
-    fn register_pack(&mut self, id: PolicyPackId, validator: Box<dyn PolicyPackValidator + Send + Sync>) {
+    fn register_pack(
+        &mut self,
+        id: PolicyPackId,
+        validator: Box<dyn PolicyPackValidator + Send + Sync>,
+    ) {
         self.packs.insert(id, validator);
     }
-    
+
     /// Set default configurations for all policy packs
     fn set_default_configurations(&mut self) {
         for id in PolicyPackId::all() {
@@ -454,7 +476,7 @@ impl PolicyPackManager {
             self.configs.insert(id, config);
         }
     }
-    
+
     /// Get default configuration for a policy pack
     fn get_default_config(&self, id: &PolicyPackId) -> serde_json::Value {
         match id {
@@ -593,26 +615,26 @@ impl PolicyPackManager {
             }),
         }
     }
-    
+
     /// Validate a request against all active policy packs
     pub fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let start_time = std::time::Instant::now();
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         debug!(
             request_id = %request.request_id,
             request_type = ?request.request_type,
             "Validating request against all policy packs"
         );
-        
+
         // Validate against each active policy pack
         for (pack_id, validator) in &self.packs {
             if let Some(config) = self.configs.get(pack_id) {
                 if !config.enabled {
                     continue;
                 }
-                
+
                 match validator.validate(request) {
                     Ok(result) => {
                         violations.extend(result.violations);
@@ -624,7 +646,7 @@ impl PolicyPackManager {
                             error = %e,
                             "Policy pack validation failed"
                         );
-                        
+
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: pack_id.name().to_string(),
@@ -638,43 +660,53 @@ impl PolicyPackManager {
                 }
             }
         }
-        
+
         let duration = start_time.elapsed();
-        
+
         // Determine validity based on enforcement levels
         let mut valid = true;
         for violation in &violations {
             if let Some(pack_id) = PolicyPackId::from_name(&violation.policy_pack) {
                 if let Some(config) = self.configs.get(&pack_id) {
-                match config.enforcement_level {
-                    EnforcementLevel::Info => {
-                        // Info level violations don't block operations
-                        continue;
-                    }
-                    EnforcementLevel::Warning => {
-                        // Warning level violations don't block operations unless they're Error severity
-                        if matches!(violation.severity, ViolationSeverity::Error | ViolationSeverity::Critical | ViolationSeverity::Blocker) {
+                    match config.enforcement_level {
+                        EnforcementLevel::Info => {
+                            // Info level violations don't block operations
+                            continue;
+                        }
+                        EnforcementLevel::Warning => {
+                            // Warning level violations don't block operations unless they're Error severity
+                            if matches!(
+                                violation.severity,
+                                ViolationSeverity::Error
+                                    | ViolationSeverity::Critical
+                                    | ViolationSeverity::Blocker
+                            ) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                        EnforcementLevel::Error => {
+                            // Error level violations block operations only for Error, Critical, or Blocker severity
+                            if matches!(
+                                violation.severity,
+                                ViolationSeverity::Error
+                                    | ViolationSeverity::Critical
+                                    | ViolationSeverity::Blocker
+                            ) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                        EnforcementLevel::Critical => {
+                            // Critical level violations always block operations
                             valid = false;
                             break;
                         }
                     }
-                    EnforcementLevel::Error => {
-                        // Error level violations block operations only for Error, Critical, or Blocker severity
-                        if matches!(violation.severity, ViolationSeverity::Error | ViolationSeverity::Critical | ViolationSeverity::Blocker) {
-                            valid = false;
-                            break;
-                        }
-                    }
-                    EnforcementLevel::Critical => {
-                        // Critical level violations always block operations
-                        valid = false;
-                        break;
-                    }
-                }
                 }
             }
         }
-        
+
         let result = PolicyValidationResult {
             valid,
             violations,
@@ -682,7 +714,7 @@ impl PolicyPackManager {
             timestamp: Utc::now(),
             duration_ms: duration.as_millis() as u64,
         };
-        
+
         if !result.valid {
             warn!(
                 request_id = %request.request_id,
@@ -699,44 +731,48 @@ impl PolicyPackManager {
                 "Request validation passed"
             );
         }
-        
+
         Ok(result)
     }
-    
+
     /// Get policy pack configuration
     pub fn get_pack_config(&self, pack_id: &PolicyPackId) -> Option<&PolicyPackConfig> {
         self.configs.get(pack_id)
     }
-    
+
     /// Update policy pack configuration
-    pub fn update_pack_config(&mut self, pack_id: PolicyPackId, config: PolicyPackConfig) -> Result<()> {
+    pub fn update_pack_config(
+        &mut self,
+        pack_id: PolicyPackId,
+        config: PolicyPackConfig,
+    ) -> Result<()> {
         info!(
             policy_pack = %pack_id.name(),
             "Updating policy pack configuration"
         );
-        
+
         self.configs.insert(pack_id, config);
         Ok(())
     }
-    
+
     /// Get all policy pack configurations
     pub fn get_all_configs(&self) -> &HashMap<PolicyPackId, PolicyPackConfig> {
         &self.configs
     }
-    
+
     /// Enable or disable a policy pack
     pub fn set_pack_enabled(&mut self, pack_id: PolicyPackId, enabled: bool) -> Result<()> {
         if let Some(config) = self.configs.get_mut(&pack_id) {
             config.enabled = enabled;
             config.last_updated = Utc::now();
-            
+
             info!(
                 policy_pack = %pack_id.name(),
                 enabled = enabled,
                 "Policy pack enabled/disabled"
             );
         }
-        
+
         Ok(())
     }
 }
@@ -767,10 +803,11 @@ impl PolicyPackValidator for EgressValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for network operations and protocol violations
-        if matches!(request.request_type, RequestType::NetworkOperation) || 
-           matches!(request.request_type, RequestType::Inference) {
+        if matches!(request.request_type, RequestType::NetworkOperation)
+            || matches!(request.request_type, RequestType::Inference)
+        {
             // Check for DNS resolution attempts
             if request.context.operation == "dns_resolution" {
                 violations.push(PolicyViolation {
@@ -783,7 +820,7 @@ impl PolicyPackValidator for EgressValidator {
                     timestamp: Utc::now(),
                 });
             }
-            
+
             if let Some(data) = &request.context.data {
                 if let Some(protocol) = data.get("protocol") {
                     if protocol == "tcp" || protocol == "udp" {
@@ -800,7 +837,7 @@ impl PolicyPackValidator for EgressValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -809,11 +846,11 @@ impl PolicyPackValidator for EgressValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Egress
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Egress Ruleset"
     }
@@ -841,7 +878,7 @@ impl PolicyPackValidator for DeterminismValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for runtime kernel compilation
         if request.context.operation == "kernel_compile" {
             violations.push(PolicyViolation {
@@ -854,7 +891,7 @@ impl PolicyPackValidator for DeterminismValidator {
                 timestamp: Utc::now(),
             });
         }
-        
+
         // Check for non-HKDF RNG usage
         if let Some(data) = &request.context.data {
             if let Some(rng_type) = data.get("rng_type") {
@@ -871,7 +908,7 @@ impl PolicyPackValidator for DeterminismValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -880,11 +917,11 @@ impl PolicyPackValidator for DeterminismValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Determinism
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Determinism Ruleset"
     }
@@ -912,7 +949,7 @@ impl PolicyPackValidator for RouterValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check K-sparse configuration
         if let Some(data) = &request.context.data {
             if let Some(k_value) = data.get("k_sparse") {
@@ -931,7 +968,7 @@ impl PolicyPackValidator for RouterValidator {
                 }
             }
         }
-        
+
         // Check gate quantization
         if let Some(data) = &request.context.data {
             if let Some(quant_type) = data.get("gate_quant") {
@@ -948,7 +985,7 @@ impl PolicyPackValidator for RouterValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -957,11 +994,11 @@ impl PolicyPackValidator for RouterValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Router
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Router Ruleset"
     }
@@ -989,7 +1026,7 @@ impl PolicyPackValidator for EvidenceValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for evidence requirements
         if matches!(request.request_type, RequestType::Inference) {
             if let Some(data) = &request.context.data {
@@ -1010,7 +1047,7 @@ impl PolicyPackValidator for EvidenceValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1019,11 +1056,11 @@ impl PolicyPackValidator for EvidenceValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Evidence
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Evidence Ruleset"
     }
@@ -1051,7 +1088,7 @@ impl PolicyPackValidator for RefusalValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check confidence thresholds
         if let Some(data) = &request.context.data {
             if let Some(confidence) = data.get("confidence") {
@@ -1070,7 +1107,7 @@ impl PolicyPackValidator for RefusalValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1079,11 +1116,11 @@ impl PolicyPackValidator for RefusalValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Refusal
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Refusal Ruleset"
     }
@@ -1110,7 +1147,7 @@ impl PolicyPackValidator for NumericUnitsValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for unit requirements
         if let Some(data) = &request.context.data {
             if let Some(numeric_values) = data.get("numeric_values") {
@@ -1124,7 +1161,9 @@ impl PolicyPackValidator for NumericUnitsValidator {
                                     severity: ViolationSeverity::Error,
                                     message: "Units are required for numeric values".to_string(),
                                     details: Some(serde_json::json!({"value": value})),
-                                    remediation: Some("Include units for all numeric values".to_string()),
+                                    remediation: Some(
+                                        "Include units for all numeric values".to_string(),
+                                    ),
                                     timestamp: Utc::now(),
                                 });
                             }
@@ -1133,7 +1172,7 @@ impl PolicyPackValidator for NumericUnitsValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1142,11 +1181,11 @@ impl PolicyPackValidator for NumericUnitsValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::NumericUnits
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Numeric & Units Ruleset"
     }
@@ -1175,7 +1214,7 @@ impl PolicyPackValidator for RagIndexValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check tenant isolation
         if let Some(data) = &request.context.data {
             if let Some(tenant_id) = data.get("tenant_id") {
@@ -1194,7 +1233,7 @@ impl PolicyPackValidator for RagIndexValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1203,11 +1242,11 @@ impl PolicyPackValidator for RagIndexValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::RagIndex
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "RAG Index Ruleset"
     }
@@ -1235,7 +1274,7 @@ impl PolicyPackValidator for IsolationValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for shared memory usage
         if let Some(data) = &request.context.data {
             if let Some(use_shm) = data.get("use_shared_memory") {
@@ -1252,7 +1291,7 @@ impl PolicyPackValidator for IsolationValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1261,11 +1300,11 @@ impl PolicyPackValidator for IsolationValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Isolation
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Isolation Ruleset"
     }
@@ -1293,7 +1332,7 @@ impl PolicyPackValidator for TelemetryValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check telemetry sampling rates
         if let Some(data) = &request.context.data {
             if let Some(sampling_rate) = data.get("sampling_rate") {
@@ -1312,7 +1351,7 @@ impl PolicyPackValidator for TelemetryValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1321,11 +1360,11 @@ impl PolicyPackValidator for TelemetryValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Telemetry
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Telemetry Ruleset"
     }
@@ -1353,7 +1392,7 @@ impl PolicyPackValidator for RetentionValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check bundle retention limits
         if let Some(data) = &request.context.data {
             if let Some(bundle_count) = data.get("bundle_count") {
@@ -1370,7 +1409,7 @@ impl PolicyPackValidator for RetentionValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1379,11 +1418,11 @@ impl PolicyPackValidator for RetentionValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Retention
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Retention Ruleset"
     }
@@ -1410,7 +1449,7 @@ impl PolicyPackValidator for PerformanceValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check latency requirements
         if let Some(data) = &request.context.data {
             if let Some(latency_p95) = data.get("latency_p95_ms") {
@@ -1422,14 +1461,16 @@ impl PolicyPackValidator for PerformanceValidator {
                             severity: ViolationSeverity::Error,
                             message: "Latency exceeds p95 budget".to_string(),
                             details: Some(serde_json::json!({"latency_p95_ms": latency})),
-                            remediation: Some("Optimize performance to meet latency budget".to_string()),
+                            remediation: Some(
+                                "Optimize performance to meet latency budget".to_string(),
+                            ),
                             timestamp: Utc::now(),
                         });
                     }
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1438,11 +1479,11 @@ impl PolicyPackValidator for PerformanceValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Performance
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Performance Ruleset"
     }
@@ -1469,7 +1510,7 @@ impl PolicyPackValidator for MemoryValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check memory headroom
         if let Some(data) = &request.context.data {
             if let Some(headroom_pct) = data.get("headroom_pct") {
@@ -1481,14 +1522,16 @@ impl PolicyPackValidator for MemoryValidator {
                             severity: ViolationSeverity::Error,
                             message: "Memory headroom below minimum threshold".to_string(),
                             details: Some(serde_json::json!({"headroom_pct": headroom})),
-                            remediation: Some("Increase memory headroom to at least 15%".to_string()),
+                            remediation: Some(
+                                "Increase memory headroom to at least 15%".to_string(),
+                            ),
                             timestamp: Utc::now(),
                         });
                     }
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1497,11 +1540,11 @@ impl PolicyPackValidator for MemoryValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Memory
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Memory Ruleset"
     }
@@ -1528,7 +1571,7 @@ impl PolicyPackValidator for ArtifactsValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check artifact signature requirements
         if let Some(data) = &request.context.data {
             if let Some(artifact) = data.get("artifact") {
@@ -1547,7 +1590,7 @@ impl PolicyPackValidator for ArtifactsValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1556,11 +1599,11 @@ impl PolicyPackValidator for ArtifactsValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Artifacts
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Artifacts Ruleset"
     }
@@ -1587,7 +1630,7 @@ impl PolicyPackValidator for SecretsValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check for plaintext secrets
         if let Some(data) = &request.context.data {
             if let Some(secrets) = data.get("secrets") {
@@ -1601,7 +1644,9 @@ impl PolicyPackValidator for SecretsValidator {
                                     severity: ViolationSeverity::Blocker,
                                     message: "Plaintext secrets are not allowed".to_string(),
                                     details: Some(serde_json::json!({"secret": secret})),
-                                    remediation: Some("Use Secure Enclave for secret storage".to_string()),
+                                    remediation: Some(
+                                        "Use Secure Enclave for secret storage".to_string(),
+                                    ),
                                     timestamp: Utc::now(),
                                 });
                             }
@@ -1610,7 +1655,7 @@ impl PolicyPackValidator for SecretsValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1619,11 +1664,11 @@ impl PolicyPackValidator for SecretsValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Secrets
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Secrets Ruleset"
     }
@@ -1651,7 +1696,7 @@ impl PolicyPackValidator for BuildReleaseValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check replay determinism
         if let Some(data) = &request.context.data {
             if let Some(replay_diff) = data.get("replay_diff") {
@@ -1670,7 +1715,7 @@ impl PolicyPackValidator for BuildReleaseValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1679,11 +1724,11 @@ impl PolicyPackValidator for BuildReleaseValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::BuildRelease
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Build & Release Ruleset"
     }
@@ -1710,7 +1755,7 @@ impl PolicyPackValidator for ComplianceValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check compliance evidence
         if let Some(data) = &request.context.data {
             if let Some(compliance) = data.get("compliance") {
@@ -1729,7 +1774,7 @@ impl PolicyPackValidator for ComplianceValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1738,11 +1783,11 @@ impl PolicyPackValidator for ComplianceValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Compliance
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Compliance Ruleset"
     }
@@ -1770,7 +1815,7 @@ impl PolicyPackValidator for IncidentValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check incident response procedures
         if let Some(data) = &request.context.data {
             if let Some(incident_type) = data.get("incident_type") {
@@ -1782,14 +1827,16 @@ impl PolicyPackValidator for IncidentValidator {
                             severity: ViolationSeverity::Error,
                             message: "Incident response procedures are required".to_string(),
                             details: Some(serde_json::json!({"incident_type": incident_type})),
-                            remediation: Some("Follow documented incident response procedures".to_string()),
+                            remediation: Some(
+                                "Follow documented incident response procedures".to_string(),
+                            ),
                             timestamp: Utc::now(),
                         });
                     }
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1798,11 +1845,11 @@ impl PolicyPackValidator for IncidentValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::Incident
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Incident Ruleset"
     }
@@ -1829,7 +1876,7 @@ impl PolicyPackValidator for LlmOutputValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check output format requirements
         if let Some(data) = &request.context.data {
             if let Some(output_format) = data.get("output_format") {
@@ -1846,7 +1893,7 @@ impl PolicyPackValidator for LlmOutputValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1855,11 +1902,11 @@ impl PolicyPackValidator for LlmOutputValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::LlmOutput
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "LLM Output Ruleset"
     }
@@ -1886,7 +1933,7 @@ impl PolicyPackValidator for AdapterLifecycleValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Check adapter activation thresholds
         if let Some(data) = &request.context.data {
             if let Some(activation_pct) = data.get("activation_pct") {
@@ -1903,7 +1950,7 @@ impl PolicyPackValidator for AdapterLifecycleValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1912,11 +1959,11 @@ impl PolicyPackValidator for AdapterLifecycleValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::AdapterLifecycle
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Adapter Lifecycle Ruleset"
     }
@@ -1962,7 +2009,7 @@ impl PolicyPackValidator for FullPackValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        
+
         // Full pack validation - check schema compliance
         if let Some(data) = &request.context.data {
             if let Some(schema) = data.get("schema") {
@@ -1979,7 +2026,7 @@ impl PolicyPackValidator for FullPackValidator {
                 }
             }
         }
-        
+
         Ok(PolicyValidationResult {
             valid: violations.is_empty(),
             violations,
@@ -1988,11 +2035,11 @@ impl PolicyPackValidator for FullPackValidator {
             duration_ms: 0,
         })
     }
-    
+
     fn policy_pack_id(&self) -> PolicyPackId {
         PolicyPackId::FullPack
     }
-    
+
     fn policy_pack_name(&self) -> &'static str {
         "Full Pack Example"
     }
@@ -2012,7 +2059,7 @@ mod tests {
     #[test]
     fn test_policy_pack_validation() {
         let manager = PolicyPackManager::new();
-        
+
         let request = PolicyRequest {
             request_id: "test-request".to_string(),
             request_type: RequestType::Inference,
@@ -2029,7 +2076,7 @@ mod tests {
             },
             metadata: None,
         };
-        
+
         let result = manager.validate_request(&request).unwrap();
         assert!(!result.valid);
         assert!(!result.violations.is_empty());
@@ -2038,7 +2085,7 @@ mod tests {
     #[test]
     fn test_policy_pack_configuration() {
         let mut manager = PolicyPackManager::new();
-        
+
         let config = PolicyPackConfig {
             id: PolicyPackId::Egress,
             config: serde_json::json!({"mode": "deny_all"}),
@@ -2046,11 +2093,12 @@ mod tests {
             enforcement_level: EnforcementLevel::Warning,
             last_updated: Utc::now(),
         };
-        
-        manager.update_pack_config(PolicyPackId::Egress, config).unwrap();
-        
+
+        manager
+            .update_pack_config(PolicyPackId::Egress, config)
+            .unwrap();
+
         let retrieved_config = manager.get_pack_config(&PolicyPackId::Egress).unwrap();
         assert!(!retrieved_config.enabled);
     }
 }
-

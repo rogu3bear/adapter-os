@@ -4,8 +4,8 @@
 //! trace of kernel dispatches, seed derivations, and router decisions
 //! without leaking sensitive tensor data.
 
-use anyhow::{Context, Result};
 use adapteros_core::B3Hash;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 /// Run kernel trace on a request

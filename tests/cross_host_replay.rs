@@ -18,10 +18,7 @@ async fn setup_test_db() -> Result<Db> {
     Ok(db)
 }
 
-fn create_bundle_metadata(
-    bundle_id: u64,
-    prev_hash: Option<B3Hash>,
-) -> StoredBundleMetadata {
+fn create_bundle_metadata(bundle_id: u64, prev_hash: Option<B3Hash>) -> StoredBundleMetadata {
     let bundle_data = format!("bundle_{}", bundle_id);
     StoredBundleMetadata {
         bundle_hash: B3Hash::hash(bundle_data.as_bytes()),
@@ -45,25 +42,16 @@ async fn test_cross_host_replay_simple() -> Result<()> {
 
     // Create three hosts
     let host1_keypair = Keypair::generate();
-    let host1 = FederationManager::with_host_id(
-        db.clone(),
-        host1_keypair,
-        "replay-host-1".to_string(),
-    )?;
+    let host1 =
+        FederationManager::with_host_id(db.clone(), host1_keypair, "replay-host-1".to_string())?;
 
     let host2_keypair = Keypair::generate();
-    let host2 = FederationManager::with_host_id(
-        db.clone(),
-        host2_keypair,
-        "replay-host-2".to_string(),
-    )?;
+    let host2 =
+        FederationManager::with_host_id(db.clone(), host2_keypair, "replay-host-2".to_string())?;
 
     let host3_keypair = Keypair::generate();
-    let host3 = FederationManager::with_host_id(
-        db.clone(),
-        host3_keypair,
-        "replay-host-3".to_string(),
-    )?;
+    let host3 =
+        FederationManager::with_host_id(db.clone(), host3_keypair, "replay-host-3".to_string())?;
 
     // Host 1 processes bundle 1
     let bundle1 = create_bundle_metadata(1, None);
@@ -91,18 +79,12 @@ async fn test_cross_host_replay_with_gap() -> Result<()> {
     let db = setup_test_db().await?;
 
     let host1_keypair = Keypair::generate();
-    let host1 = FederationManager::with_host_id(
-        db.clone(),
-        host1_keypair,
-        "replay-host-1".to_string(),
-    )?;
+    let host1 =
+        FederationManager::with_host_id(db.clone(), host1_keypair, "replay-host-1".to_string())?;
 
     let host2_keypair = Keypair::generate();
-    let host2 = FederationManager::with_host_id(
-        db.clone(),
-        host2_keypair,
-        "replay-host-2".to_string(),
-    )?;
+    let host2 =
+        FederationManager::with_host_id(db.clone(), host2_keypair, "replay-host-2".to_string())?;
 
     // Host 1 processes bundle 1
     let bundle1 = create_bundle_metadata(1, None);
@@ -126,25 +108,16 @@ async fn test_cross_host_replay_parallel_branches() -> Result<()> {
     let db = setup_test_db().await?;
 
     let host1_keypair = Keypair::generate();
-    let host1 = FederationManager::with_host_id(
-        db.clone(),
-        host1_keypair,
-        "replay-host-1".to_string(),
-    )?;
+    let host1 =
+        FederationManager::with_host_id(db.clone(), host1_keypair, "replay-host-1".to_string())?;
 
     let host2_keypair = Keypair::generate();
-    let host2 = FederationManager::with_host_id(
-        db.clone(),
-        host2_keypair,
-        "replay-host-2".to_string(),
-    )?;
+    let host2 =
+        FederationManager::with_host_id(db.clone(), host2_keypair, "replay-host-2".to_string())?;
 
     let host3_keypair = Keypair::generate();
-    let host3 = FederationManager::with_host_id(
-        db.clone(),
-        host3_keypair,
-        "replay-host-3".to_string(),
-    )?;
+    let host3 =
+        FederationManager::with_host_id(db.clone(), host3_keypair, "replay-host-3".to_string())?;
 
     // Root bundle
     let bundle1 = create_bundle_metadata(1, None);
@@ -178,11 +151,8 @@ async fn test_cross_host_replay_long_chain() -> Result<()> {
     let mut hosts = Vec::new();
     for i in 0..10 {
         let keypair = Keypair::generate();
-        let host = FederationManager::with_host_id(
-            db.clone(),
-            keypair,
-            format!("replay-host-{}", i),
-        )?;
+        let host =
+            FederationManager::with_host_id(db.clone(), keypair, format!("replay-host-{}", i))?;
         hosts.push(host);
     }
 
@@ -209,11 +179,8 @@ async fn test_cross_host_replay_retrieve_chain() -> Result<()> {
     let db = setup_test_db().await?;
 
     let host1_keypair = Keypair::generate();
-    let host1 = FederationManager::with_host_id(
-        db.clone(),
-        host1_keypair,
-        "replay-host-1".to_string(),
-    )?;
+    let host1 =
+        FederationManager::with_host_id(db.clone(), host1_keypair, "replay-host-1".to_string())?;
 
     // Host 1 signs multiple bundles
     let bundle1 = create_bundle_metadata(1, None);
@@ -227,7 +194,7 @@ async fn test_cross_host_replay_retrieve_chain() -> Result<()> {
 
     // Retrieve host chain
     let chain = host1.get_host_chain("replay-host-1", 10).await?;
-    
+
     // Should have 3 signatures (returned in reverse chronological order)
     assert_eq!(chain.len(), 3, "Should have 3 signatures");
 
@@ -239,18 +206,12 @@ async fn test_cross_host_replay_with_incident_bundle() -> Result<()> {
     let db = setup_test_db().await?;
 
     let host1_keypair = Keypair::generate();
-    let host1 = FederationManager::with_host_id(
-        db.clone(),
-        host1_keypair,
-        "replay-host-1".to_string(),
-    )?;
+    let host1 =
+        FederationManager::with_host_id(db.clone(), host1_keypair, "replay-host-1".to_string())?;
 
     let host2_keypair = Keypair::generate();
-    let host2 = FederationManager::with_host_id(
-        db.clone(),
-        host2_keypair,
-        "replay-host-2".to_string(),
-    )?;
+    let host2 =
+        FederationManager::with_host_id(db.clone(), host2_keypair, "replay-host-2".to_string())?;
 
     // Normal bundle
     let mut bundle1 = create_bundle_metadata(1, None);
@@ -269,4 +230,3 @@ async fn test_cross_host_replay_with_incident_bundle() -> Result<()> {
 
     Ok(())
 }
-

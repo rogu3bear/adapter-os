@@ -62,8 +62,10 @@ fn check_metallib_hash(args: &VerifyAgentsArgs) -> Check {
 
     match hash_line {
         Some(line) => {
-            let evidence = ["metal/ci_build.sh exists".to_string(),
-                format!("Found hash constant: {}", line.trim())];
+            let evidence = [
+                "metal/ci_build.sh exists".to_string(),
+                format!("Found hash constant: {}", line.trim()),
+            ];
 
             // Check if metallib exists
             if Path::new("metal/aos_kernels.metallib").exists() {
@@ -116,7 +118,10 @@ fn run_determinism_tests() -> Check {
                     "Determinism tests",
                     vec![
                         "tests/determinism.rs exists".to_string(),
-                        format!("Test output: {}", combined.lines().take(10).collect::<Vec<_>>().join("\n")),
+                        format!(
+                            "Test output: {}",
+                            combined.lines().take(10).collect::<Vec<_>>().join("\n")
+                        ),
                     ],
                 )
             } else {
@@ -186,12 +191,7 @@ fn check_profiling_events(args: &VerifyAgentsArgs) -> Check {
     // Check for AOS_KERNEL_PROFILE environment variable handling
     let lib_rs = match fs::read_to_string("crates/mplora-kernel-prof/src/lib.rs") {
         Ok(content) => content,
-        Err(_) => {
-            return Check::skip(
-                "Profiling events",
-                "Could not read kernel-prof source",
-            )
-        }
+        Err(_) => return Check::skip("Profiling events", "Could not read kernel-prof source"),
     };
 
     let has_env_check = lib_rs.contains("AOS_KERNEL_PROFILE");
@@ -282,7 +282,10 @@ fn check_multi_gpu_selector() -> Check {
 
         let evidence = vec![
             "Found AOS_GPU_INDEX parsing".to_string(),
-            format!("Location: crates/mplora-kernel-mtl/src/lib.rs:{}", line_num.unwrap_or(0)),
+            format!(
+                "Location: crates/mplora-kernel-mtl/src/lib.rs:{}",
+                line_num.unwrap_or(0)
+            ),
         ];
         Check::pass("Multi-GPU selector", evidence)
     } else {

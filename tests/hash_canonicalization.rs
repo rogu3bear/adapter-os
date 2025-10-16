@@ -4,12 +4,12 @@
 //! identical hash outputs across multiple dtype/shape combinations
 //! and ensures cross-run stability.
 
+use adapteros_core::B3Hash;
 use adapteros_graph::{
     canonical::{canonical_tensor_repr, CanonicalTensor, HASH_VERSION},
     hash::{hash_tensor_with_metadata, hash_tensors, HashGraph},
     tensor::{DataType, DeviceFamily, MemoryLayout, QuantizationParams, Tensor},
 };
-use adapteros_core::B3Hash;
 use std::collections::HashMap;
 
 /// Create a test tensor with specified parameters

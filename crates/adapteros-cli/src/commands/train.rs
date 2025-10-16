@@ -92,9 +92,12 @@ impl TrainArgs {
         if let Some(plan_path) = &self.plan {
             let plan_bytes = std::fs::read(plan_path)
                 .map_err(|e| AosError::Io(format!("Failed to read plan file: {}", e)))?;
-            
+
             trainer.init_kernels(&plan_bytes)?;
-            info!("Initialized Metal kernels from plan: {}", plan_path.display());
+            info!(
+                "Initialized Metal kernels from plan: {}",
+                plan_path.display()
+            );
         } else {
             warn!("No plan file provided, training will use CPU-only mode");
         }
@@ -118,11 +121,14 @@ impl TrainArgs {
         if let Some(config_path) = &self.config {
             let config_str = std::fs::read_to_string(config_path)
                 .map_err(|e| AosError::Io(format!("Failed to read config file: {}", e)))?;
-            
+
             let config: TrainingConfig = serde_json::from_str(&config_str)
                 .map_err(|e| AosError::Parse(format!("Failed to parse config: {}", e)))?;
-            
-            info!("Loaded training configuration from: {}", config_path.display());
+
+            info!(
+                "Loaded training configuration from: {}",
+                config_path.display()
+            );
             Ok(config)
         } else {
             // Use command-line arguments
@@ -134,7 +140,7 @@ impl TrainArgs {
                 epochs: self.epochs,
                 hidden_dim: self.hidden_dim,
             };
-            
+
             info!("Using command-line training configuration");
             Ok(config)
         }
@@ -144,23 +150,25 @@ impl TrainArgs {
     fn load_training_data(&self) -> Result<Vec<TrainingExample>> {
         let data_str = std::fs::read_to_string(&self.data)
             .map_err(|e| AosError::Io(format!("Failed to read training data: {}", e)))?;
-        
+
         let training_data: TrainingData = serde_json::from_str(&data_str)
             .map_err(|e| AosError::Parse(format!("Failed to parse training data: {}", e)))?;
-        
+
         let examples: Vec<TrainingExample> = training_data
             .examples
             .into_iter()
             .map(|ex| TrainingExample {
                 input: ex.input,
                 target: ex.target,
-                metadata: ex.metadata.unwrap_or_default()
+                metadata: ex
+                    .metadata
+                    .unwrap_or_default()
                     .into_iter()
                     .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
                     .collect(),
             })
             .collect();
-        
+
         Ok(examples)
     }
 
@@ -169,7 +177,7 @@ impl TrainArgs {
         // Create output directory if it doesn't exist
         std::fs::create_dir_all(&self.output)
             .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
-        
+
         // Save adapter metadata
         let metadata_path = self.output.join("adapter_metadata.json");
         let metadata = serde_json::json!({
@@ -181,22 +189,22 @@ impl TrainArgs {
                 "hidden_dim": result.weights.lora_a[0].len(),
             }
         });
-        
+
         std::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?)
             .map_err(|e| AosError::Io(format!("Failed to write metadata: {}", e)))?;
-        
+
         // Save LoRA weights
         let weights_path = self.output.join("lora_weights.json");
         let weights_json = serde_json::to_string_pretty(&result.weights)
             .map_err(|e| AosError::Serialization(e))?;
-        
+
         std::fs::write(&weights_path, weights_json)
             .map_err(|e| AosError::Io(format!("Failed to write weights: {}", e)))?;
-        
+
         info!("Saved trained adapter to: {}", self.output.display());
         info!("  Metadata: {}", metadata_path.display());
         info!("  Weights: {}", weights_path.display());
-        
+
         Ok(())
     }
 }
@@ -210,7 +218,7 @@ mod tests {
     fn test_training_config_loading() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.json");
-        
+
         let config = TrainingConfig {
             rank: 8,
             alpha: 32.0,
@@ -219,9 +227,9 @@ mod tests {
             epochs: 5,
             hidden_dim: 1024,
         };
-        
+
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-        
+
         let args = TrainArgs {
             config: Some(config_path),
             data: PathBuf::from("dummy"),
@@ -236,7 +244,7 @@ mod tests {
             deterministic: false,
             seed: None,
         };
-        
+
         let loaded_config = args.load_config().unwrap();
         assert_eq!(loaded_config.rank, 8);
         assert_eq!(loaded_config.alpha, 32.0);
@@ -247,7 +255,7 @@ mod tests {
     fn test_training_data_loading() {
         let temp_dir = TempDir::new().unwrap();
         let data_path = temp_dir.path().join("data.json");
-        
+
         let training_data = TrainingData {
             examples: vec![
                 TrainingExampleData {
@@ -262,9 +270,9 @@ mod tests {
                 },
             ],
         };
-        
+
         std::fs::write(&data_path, serde_json::to_string(&training_data).unwrap()).unwrap();
-        
+
         let args = TrainArgs {
             config: None,
             data: data_path,
@@ -279,7 +287,7 @@ mod tests {
             deterministic: false,
             seed: None,
         };
-        
+
         let examples = args.load_training_data().unwrap();
         assert_eq!(examples.len(), 2);
         assert_eq!(examples[0].input, vec![1, 2, 3]);

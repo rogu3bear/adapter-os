@@ -4,12 +4,12 @@
 //! including CPID consistency, evidence ordering, adapter routing determinism,
 //! and temporal consistency.
 
+use crate::orchestration::TestEnvironment;
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_telemetry::{BundleStore, TelemetryWriter};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use adapteros_core::{AosError, Result, B3Hash};
-use adapteros_telemetry::{TelemetryWriter, BundleStore};
-use crate::orchestration::TestEnvironment;
 
 /// Determinism workflow validation test suite
 pub struct DeterminismWorkflowTest {
@@ -135,7 +135,9 @@ impl DeterminismWorkflowTest {
         let first_hash = &ordering_hashes[0];
         for hash in &ordering_hashes[1..] {
             if hash != first_hash {
-                return Err(AosError::Determinism("Evidence ordering not deterministic".to_string()));
+                return Err(AosError::Determinism(
+                    "Evidence ordering not deterministic".to_string(),
+                ));
             }
         }
 
@@ -213,7 +215,10 @@ impl DeterminismWorkflowTest {
             let first_hash = &execution_hashes[0];
             for hash in &execution_hashes[1..] {
                 if hash != first_hash {
-                    return Err(AosError::Determinism(format!("Kernel {} execution not deterministic", kernel_name)));
+                    return Err(AosError::Determinism(format!(
+                        "Kernel {} execution not deterministic",
+                        kernel_name
+                    )));
                 }
             }
         }
@@ -246,7 +251,8 @@ impl DeterminismWorkflowTest {
                 "deterministic_generation": true,
                 "evidence_citations": ["AMM-737-100:5.1", "IPC-737-LG:2.3"]
             });
-            env.telemetry().log("generation_determinism", &generation_event)?;
+            env.telemetry()
+                .log("generation_determinism", &generation_event)?;
 
             response_hashes.push(B3Hash::hash(response_text.as_bytes()));
         }
@@ -255,7 +261,9 @@ impl DeterminismWorkflowTest {
         let first_hash = &response_hashes[0];
         for hash in &response_hashes[1..] {
             if hash != first_hash {
-                return Err(AosError::Determinism("Response generation not deterministic".to_string()));
+                return Err(AosError::Determinism(
+                    "Response generation not deterministic".to_string(),
+                ));
             }
         }
 
@@ -266,8 +274,14 @@ impl DeterminismWorkflowTest {
     async fn test_telemetry_determinism(&self, env: &TestEnvironment) -> Result<()> {
         // Test that telemetry events are logged deterministically
         let test_events = vec![
-            ("inference_start", serde_json::json!({"request_id": "req_123"})),
-            ("adapter_activation", serde_json::json!({"adapter_id": "test_adapter"})),
+            (
+                "inference_start",
+                serde_json::json!({"request_id": "req_123"}),
+            ),
+            (
+                "adapter_activation",
+                serde_json::json!({"adapter_id": "test_adapter"}),
+            ),
             ("evidence_retrieval", serde_json::json!({"spans_found": 3})),
             ("inference_complete", serde_json::json!({"tokens": 150})),
         ];
@@ -296,7 +310,8 @@ impl DeterminismWorkflowTest {
                 "canonical_formatting": "JCS_RFC8785",
                 "deterministic_hashes": true
             });
-            env.telemetry().log("telemetry_determinism", &telemetry_event)?;
+            env.telemetry()
+                .log("telemetry_determinism", &telemetry_event)?;
         }
 
         Ok(())
@@ -328,15 +343,18 @@ impl DeterminismWorkflowTest {
                     "cpid": env.config.cpid,
                     "temporal_consistency": true
                 });
-                env.telemetry().log("temporal_consistency", &temporal_event)?;
+                env.telemetry()
+                    .log("temporal_consistency", &temporal_event)?;
 
                 operation_times.push(*operation_time);
             }
 
             // Verify temporal ordering
             for i in 1..operation_times.len() {
-                if operation_times[i] <= operation_times[i-1] {
-                    return Err(AosError::Determinism("Temporal ordering violated".to_string()));
+                if operation_times[i] <= operation_times[i - 1] {
+                    return Err(AosError::Determinism(
+                        "Temporal ordering violated".to_string(),
+                    ));
                 }
             }
         }
@@ -366,7 +384,8 @@ impl DeterminismWorkflowTest {
                 "end_time": chrono::Utc::now().timestamp(),
                 "final_state_hash": format!("workflow_hash_run_{}", run)
             });
-            env.telemetry().log("workflow_complete", &completion_event)?;
+            env.telemetry()
+                .log("workflow_complete", &completion_event)?;
         }
 
         // Verify cross-run consistency
@@ -375,7 +394,9 @@ impl DeterminismWorkflowTest {
 
         for bundle_id in bundles {
             let replay = bundle_store.replay_bundle(&bundle_id)?;
-            let workflow_events: Vec<_> = replay.events.iter()
+            let workflow_events: Vec<_> = replay
+                .events
+                .iter()
                 .filter(|e| e.event_type == "workflow_complete")
                 .collect();
 
@@ -391,7 +412,9 @@ impl DeterminismWorkflowTest {
             let first_hash = &workflow_hashes[0];
             for hash in &workflow_hashes[1..] {
                 if hash != first_hash {
-                    return Err(AosError::Determinism("Cross-run workflow inconsistency detected".to_string()));
+                    return Err(AosError::Determinism(
+                        "Cross-run workflow inconsistency detected".to_string(),
+                    ));
                 }
             }
         }
@@ -406,8 +429,16 @@ pub async fn test_concurrent_determinism(env: Arc<Mutex<TestEnvironment>>) -> Re
 
     // Simulate concurrent deterministic operations
     let concurrent_scenarios = vec![
-        ("parallel_inference", 5, "Identical prompts processed in parallel"),
-        ("concurrent_routing", 8, "Multiple routing decisions simultaneously"),
+        (
+            "parallel_inference",
+            5,
+            "Identical prompts processed in parallel",
+        ),
+        (
+            "concurrent_routing",
+            8,
+            "Multiple routing decisions simultaneously",
+        ),
         ("simultaneous_evidence", 3, "Concurrent evidence retrieval"),
     ];
 
@@ -421,7 +452,8 @@ pub async fn test_concurrent_determinism(env: Arc<Mutex<TestEnvironment>>) -> Re
             "race_condition_free": true,
             "results_consistent": true
         });
-        env.telemetry().log("concurrent_determinism", &concurrent_event)?;
+        env.telemetry()
+            .log("concurrent_determinism", &concurrent_event)?;
     }
 
     Ok(())
@@ -431,11 +463,7 @@ pub async fn test_concurrent_determinism(env: Arc<Mutex<TestEnvironment>>) -> Re
 pub async fn test_cpid_isolation(env: Arc<Mutex<TestEnvironment>>) -> Result<()> {
     let env = env.lock().await;
 
-    let test_cpids = vec![
-        "cpid_test_001",
-        "cpid_test_002",
-        "cpid_different_003",
-    ];
+    let test_cpids = vec!["cpid_test_001", "cpid_test_002", "cpid_different_003"];
 
     for cpid in test_cpids {
         let isolation_event = serde_json::json!({

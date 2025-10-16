@@ -2,19 +2,20 @@
 
 pub mod adapter;
 pub mod adapter_info;
-pub mod code;
 pub mod adapter_swap;
 pub mod audit;
 pub mod audit_determinism;
 pub mod bootstrap;
 pub mod build_plan;
 pub mod cdp_list;
+pub mod code;
 pub mod completions;
 pub mod diag;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
 pub mod drift_check;
 pub mod explain;
 // pub mod export_callgraph;  // Temporarily disabled due to mplora-codegraph dependency
+pub mod golden;
 pub mod import;
 pub mod import_model;
 pub mod init_tenant;
@@ -41,6 +42,5 @@ pub mod trace;
 pub mod train;
 pub mod tutorial;
 pub mod verify;
-pub mod verify_telemetry;
 pub mod verify_federation;
-pub mod golden;
+pub mod verify_telemetry;

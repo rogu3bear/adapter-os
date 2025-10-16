@@ -26,15 +26,15 @@ fn detect_architecture() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        
+
         let output = Command::new("sysctl")
             .arg("-n")
             .arg("machdep.cpu.brand_string")
             .output()
             .ok()?;
-        
+
         let brand = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse architecture from brand string
         if brand.contains("M1") {
             Some("m1".to_string())
@@ -48,7 +48,7 @@ fn detect_architecture() -> Option<String> {
             None
         }
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     None
 }
@@ -80,17 +80,17 @@ fn should_update_baselines() -> bool {
 #[cfg(target_os = "macos")]
 fn bench_mlp_kernel() -> f64 {
     use metal::Device;
-    
+
     let device = match Device::system_default() {
         Some(d) => d,
         None => return 0.0,
     };
-    
+
     // Warmup
     for _ in 0..10 {
         let _queue = device.new_command_queue();
     }
-    
+
     // Benchmark: 1000 iterations
     let start = Instant::now();
     for _ in 0..1000 {
@@ -98,7 +98,7 @@ fn bench_mlp_kernel() -> f64 {
         // In real implementation, would dispatch actual MLP kernel
     }
     let elapsed = start.elapsed();
-    
+
     elapsed.as_secs_f64() * 1000.0 / 1000.0 // Average ms per iteration
 }
 
@@ -111,19 +111,19 @@ fn bench_mlp_kernel() -> f64 {
 #[cfg(target_os = "macos")]
 fn bench_qkv_kernel() -> f64 {
     use metal::Device;
-    
+
     let device = match Device::system_default() {
         Some(d) => d,
         None => return 0.0,
     };
-    
+
     // Simplified benchmark (real implementation would run actual kernel)
     let start = Instant::now();
     for _ in 0..1000 {
         let _queue = device.new_command_queue();
     }
     let elapsed = start.elapsed();
-    
+
     elapsed.as_secs_f64() * 1000.0 / 1000.0
 }
 
@@ -136,18 +136,18 @@ fn bench_qkv_kernel() -> f64 {
 #[cfg(target_os = "macos")]
 fn bench_flash_attention() -> f64 {
     use metal::Device;
-    
+
     let device = match Device::system_default() {
         Some(d) => d,
         None => return 0.0,
     };
-    
+
     let start = Instant::now();
     for _ in 0..1000 {
         let _queue = device.new_command_queue();
     }
     let elapsed = start.elapsed();
-    
+
     elapsed.as_secs_f64() * 1000.0 / 1000.0
 }
 
@@ -160,7 +160,7 @@ fn bench_flash_attention() -> f64 {
 fn test_kernel_regression() {
     println!("\n🔍 Kernel Regression Test Suite");
     println!("================================\n");
-    
+
     // Detect architecture
     let arch = match detect_architecture() {
         Some(a) => {
@@ -173,13 +173,13 @@ fn test_kernel_regression() {
             return;
         }
     };
-    
+
     // Run benchmarks
     println!("\n📊 Running benchmarks...");
     let mlp_ms = bench_mlp_kernel();
     let qkv_ms = bench_qkv_kernel();
     let flash_ms = bench_flash_attention();
-    
+
     // Estimate tokens/sec (simplified calculation)
     let total_kernel_ms = mlp_ms + qkv_ms + flash_ms;
     let tokens_per_sec = if total_kernel_ms > 0.0 {
@@ -187,12 +187,12 @@ fn test_kernel_regression() {
     } else {
         0.0
     };
-    
+
     println!("  MLP kernel:        {:.2} ms", mlp_ms);
     println!("  QKV kernel:        {:.2} ms", qkv_ms);
     println!("  Flash Attention:   {:.2} ms", flash_ms);
     println!("  Tokens/sec:        {:.1}", tokens_per_sec);
-    
+
     let current = Baseline {
         arch: arch.clone(),
         tokens_per_sec,
@@ -200,7 +200,7 @@ fn test_kernel_regression() {
         qkv_kernel_ms: qkv_ms,
         flash_attention_ms: flash_ms,
     };
-    
+
     // Check if we should update baselines
     if should_update_baselines() {
         println!("\n✏️  UPDATE_BASELINES=1 detected");
@@ -208,7 +208,7 @@ fn test_kernel_regression() {
         println!("\n✅ Baselines updated successfully");
         return;
     }
-    
+
     // Load baseline
     let baseline = match load_baseline(&arch) {
         Some(b) => b,
@@ -218,41 +218,45 @@ fn test_kernel_regression() {
             return;
         }
     };
-    
+
     println!("\n📈 Comparison vs Baseline:");
-    
+
     // Compare with 8% regression threshold
     let threshold = 0.08;
     let mut regressions = Vec::new();
-    
+
     // Check MLP kernel
     let mlp_diff = (current.mlp_kernel_ms - baseline.mlp_kernel_ms) / baseline.mlp_kernel_ms;
     println!("  MLP kernel:        {:+.1}%", mlp_diff * 100.0);
     if mlp_diff > threshold {
         regressions.push(format!("MLP kernel regressed {:.1}%", mlp_diff * 100.0));
     }
-    
+
     // Check QKV kernel
     let qkv_diff = (current.qkv_kernel_ms - baseline.qkv_kernel_ms) / baseline.qkv_kernel_ms;
     println!("  QKV kernel:        {:+.1}%", qkv_diff * 100.0);
     if qkv_diff > threshold {
         regressions.push(format!("QKV kernel regressed {:.1}%", qkv_diff * 100.0));
     }
-    
+
     // Check Flash Attention
-    let flash_diff = (current.flash_attention_ms - baseline.flash_attention_ms) / baseline.flash_attention_ms;
+    let flash_diff =
+        (current.flash_attention_ms - baseline.flash_attention_ms) / baseline.flash_attention_ms;
     println!("  Flash Attention:   {:+.1}%", flash_diff * 100.0);
     if flash_diff > threshold {
-        regressions.push(format!("Flash Attention regressed {:.1}%", flash_diff * 100.0));
+        regressions.push(format!(
+            "Flash Attention regressed {:.1}%",
+            flash_diff * 100.0
+        ));
     }
-    
+
     // Check tokens/sec (inverted - lower is worse)
     let tps_diff = (baseline.tokens_per_sec - current.tokens_per_sec) / baseline.tokens_per_sec;
     println!("  Tokens/sec:        {:+.1}%", -tps_diff * 100.0);
     if tps_diff > threshold {
         regressions.push(format!("Tokens/sec regressed {:.1}%", tps_diff * 100.0));
     }
-    
+
     if !regressions.is_empty() {
         println!("\n❌ Performance regressions detected:");
         for regression in &regressions {
@@ -262,6 +266,6 @@ fn test_kernel_regression() {
         println!("   Run with UPDATE_BASELINES=1 if this is expected");
         panic!("Performance regression test failed");
     }
-    
+
     println!("\n✅ All kernels within 8% of baseline");
 }

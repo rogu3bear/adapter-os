@@ -5,21 +5,21 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub mod code_jobs;
+pub mod federation_daemon;
 pub mod gates;
 pub mod report;
-pub mod training;
-pub mod federation_daemon;
 pub mod supervisor;
-pub mod code_jobs;
+pub mod training;
 
+pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
+pub use federation_daemon::{
+    FederationDaemon, FederationDaemonConfig, FederationVerificationReport,
+};
 pub use gates::*;
 pub use report::{GateReport, GateResult, ReportFormat};
 pub use training::{
     TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
-};
-pub use federation_daemon::{FederationDaemon, FederationDaemonConfig, FederationVerificationReport};
-pub use code_jobs::{
-    CodeJobManager, ScanRepositoryJob, CommitDeltaJob, UpdateIndicesJob,
 };
 
 /// Gate runner configuration

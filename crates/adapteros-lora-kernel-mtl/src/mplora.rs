@@ -109,18 +109,21 @@ impl FusedKernels for MploraKernel {
     }
 
     /// Attest to determinism guarantees
-    fn attest_determinism(&self) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
+    fn attest_determinism(
+        &self,
+    ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
         // MploraKernel is built on top of MetalKernels, so it inherits determinism
         use adapteros_core::B3Hash;
         use adapteros_lora_kernel_api::attestation;
-        
+
         // Get metallib hash from embedded constant
-        let metallib_hash = B3Hash::from_hex(crate::METALLIB_HASH.trim())
-            .map_err(|e| adapteros_core::AosError::Kernel(format!("Invalid metallib hash: {}", e)))?;
+        let metallib_hash = B3Hash::from_hex(crate::METALLIB_HASH.trim()).map_err(|e| {
+            adapteros_core::AosError::Kernel(format!("Invalid metallib hash: {}", e))
+        })?;
 
         // Get manifest from verification
         let manifest_result = crate::verify_embedded_manifest(crate::METALLIB_BYTES, None);
-        
+
         let manifest = manifest_result.ok().map(|m| attestation::KernelManifest {
             kernel_hash: m.kernel_hash,
             xcrun_version: m.xcrun_version,
