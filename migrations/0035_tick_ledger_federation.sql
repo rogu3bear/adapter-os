@@ -6,15 +6,15 @@
 -- Per Determinism Ruleset #2 and Federation integration
 
 -- Add federation metadata columns
-ALTER TABLE tick_ledger ADD COLUMN bundle_hash TEXT;
-ALTER TABLE tick_ledger ADD COLUMN prev_host_hash TEXT;
-ALTER TABLE tick_ledger ADD COLUMN federation_signature TEXT;
+ALTER TABLE tick_ledger_entries ADD COLUMN bundle_hash TEXT;
+ALTER TABLE tick_ledger_entries ADD COLUMN prev_host_hash TEXT;
+ALTER TABLE tick_ledger_entries ADD COLUMN federation_signature TEXT;
 
 -- Create indexes for federation queries
-CREATE INDEX IF NOT EXISTS idx_tick_ledger_bundle_hash ON tick_ledger(bundle_hash) 
+CREATE INDEX IF NOT EXISTS idx_tick_ledger_bundle_hash ON tick_ledger_entries(bundle_hash) 
     WHERE bundle_hash IS NOT NULL;
     
-CREATE INDEX IF NOT EXISTS idx_tick_ledger_prev_host_hash ON tick_ledger(prev_host_hash) 
+CREATE INDEX IF NOT EXISTS idx_tick_ledger_prev_host_hash ON tick_ledger_entries(prev_host_hash) 
     WHERE prev_host_hash IS NOT NULL;
 
 -- View for federation-linked tick entries
@@ -31,7 +31,7 @@ SELECT
     tl.federation_signature,
     fbs.signature as federation_bundle_signature,
     fbs.verified as federation_verified
-FROM tick_ledger tl
+FROM tick_ledger_entries tl
 LEFT JOIN federation_bundle_signatures fbs ON tl.bundle_hash = fbs.bundle_hash
 WHERE tl.bundle_hash IS NOT NULL
 ORDER BY tl.recorded_at DESC;

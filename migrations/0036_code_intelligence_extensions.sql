@@ -2,11 +2,13 @@
 -- Adds missing fields to repositories table and creates CodeGraph metadata and scan job tables
 
 -- Add missing fields to repositories table
-ALTER TABLE repositories ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE repositories ADD COLUMN IF NOT EXISTS latest_scan_commit TEXT;
-ALTER TABLE repositories ADD COLUMN IF NOT EXISTS latest_scan_at TEXT;
-ALTER TABLE repositories ADD COLUMN IF NOT EXISTS latest_graph_hash TEXT;
-ALTER TABLE repositories ADD COLUMN IF NOT EXISTS languages_json TEXT; -- Migrate from languages
+-- Note: SQLite doesn't support IF NOT EXISTS in ALTER TABLE ADD COLUMN
+-- These may already exist from earlier migrations
+ALTER TABLE repositories ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE repositories ADD COLUMN latest_scan_commit TEXT;
+ALTER TABLE repositories ADD COLUMN latest_scan_at TEXT;
+ALTER TABLE repositories ADD COLUMN latest_graph_hash TEXT;
+ALTER TABLE repositories ADD COLUMN languages_json TEXT; -- Migrate from languages
 
 -- Update repositories table to use languages_json
 UPDATE repositories SET languages_json = languages WHERE languages_json IS NULL;

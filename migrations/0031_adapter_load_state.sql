@@ -10,6 +10,5 @@ CREATE INDEX IF NOT EXISTS idx_adapters_load_state ON adapters(load_state);
 -- Add last_loaded_at timestamp
 ALTER TABLE adapters ADD COLUMN last_loaded_at TEXT;
 
--- Add memory_bytes column to track actual memory usage
-ALTER TABLE adapters ADD COLUMN memory_bytes INTEGER;
+-- Note: memory_bytes column already added in migration 0012
 
