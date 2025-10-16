@@ -399,7 +399,7 @@ impl CallGraphBuilder {
         }
 
         // Build import edges from patterns
-        for (_file_path, imports) in &self.import_patterns {
+        for imports in self.import_patterns.values() {
             for (importer_id, import_statement, target_language) in imports {
                 // Find the source language from the symbol
                 let source_language = self

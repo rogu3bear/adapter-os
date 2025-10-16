@@ -153,7 +153,7 @@ pub fn load_vision_lora(
     let weight = extract_tensor(&tensors, "vision_lora.weight")?;
     let bias = extract_tensor(&tensors, "vision_lora.bias")?;
 
-    let rank = weight.shape().get(0).copied().unwrap_or(1) as usize;
+    let rank = weight.shape().first().copied().unwrap_or(1) as usize;
     let weights: Vec<f32> = weight
         .data()
         .chunks_exact(std::mem::size_of::<f32>())

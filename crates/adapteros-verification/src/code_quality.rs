@@ -355,7 +355,7 @@ impl CodeQualityVerifier {
         debug!("Running clippy checks");
 
         let output = Command::new("cargo")
-            .args(&["clippy", "--workspace", "--", "-D", "warnings"])
+            .args(["clippy", "--workspace", "--", "-D", "warnings"])
             .current_dir(&self.workspace_root)
             .output()?;
 
@@ -370,7 +370,7 @@ impl CodeQualityVerifier {
 
         // Get clippy version
         let version_output = Command::new("cargo")
-            .args(&["clippy", "--version"])
+            .args(["clippy", "--version"])
             .current_dir(&self.workspace_root)
             .output()?;
         let version = String::from_utf8_lossy(&version_output.stdout).to_string();
@@ -389,7 +389,7 @@ impl CodeQualityVerifier {
         debug!("Running format checks");
 
         let output = Command::new("cargo")
-            .args(&["fmt", "--all", "--", "--check"])
+            .args(["fmt", "--all", "--", "--check"])
             .current_dir(&self.workspace_root)
             .output()?;
 
@@ -417,7 +417,7 @@ impl CodeQualityVerifier {
 
         // Try to use tarpaulin for coverage
         let output = Command::new("cargo")
-            .args(&[
+            .args([
                 "tarpaulin",
                 "--workspace",
                 "--out",

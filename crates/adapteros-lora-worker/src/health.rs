@@ -219,7 +219,7 @@ fn get_process_memory() -> Result<u64> {
     use std::process::Command;
 
     let output = Command::new("ps")
-        .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
         .output()
         .map_err(|e| AosError::Worker(format!("Failed to get memory info: {}", e)))?;
 

@@ -639,12 +639,12 @@ fn analyze_code_structure(
                 if ext_str == "py" && entry.path().to_string_lossy().contains("django") {
                     framework_hints
                         .entry("Django".to_string())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(entry.path().to_string_lossy().to_string());
                 } else if ext_str == "js" && entry.path().to_string_lossy().contains("react") {
                     framework_hints
                         .entry("React".to_string())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(entry.path().to_string_lossy().to_string());
                 }
             }

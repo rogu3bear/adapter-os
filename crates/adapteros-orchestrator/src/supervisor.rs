@@ -336,11 +336,10 @@ impl SupervisorDaemon {
             debug!("Validating policy hashes");
 
             // Check if system is quarantined
-            if watcher.is_quarantined() {
-                if self.config.auto_quarantine_enabled {
+            if watcher.is_quarantined()
+                && self.config.auto_quarantine_enabled {
                     self.enforce_quarantine().await?;
                 }
-            }
         }
 
         Ok(())
@@ -443,7 +442,7 @@ impl SupervisorDaemon {
         let mut restart_states = self.restart_states.lock().unwrap();
         let restart_state = restart_states
             .entry(tenant_id.to_string())
-            .or_insert_with(WorkerRestartState::default);
+            .or_default();
 
         restart_state.attempts += 1;
         restart_state.last_crash = Some(std::time::SystemTime::now());

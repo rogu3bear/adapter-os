@@ -52,7 +52,7 @@ impl PerformanceMonitoringService {
         let entry = self
             .latency_samples
             .entry(component.clone())
-            .or_insert_with(VecDeque::new);
+            .or_default();
         if entry.len() == self.sample_window {
             entry.pop_front();
         }
@@ -68,7 +68,7 @@ impl PerformanceMonitoringService {
         let entry = self
             .throughput_samples
             .entry(component.clone())
-            .or_insert_with(VecDeque::new);
+            .or_default();
         if entry.len() == self.sample_window {
             entry.pop_front();
         }

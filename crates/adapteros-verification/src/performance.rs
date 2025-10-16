@@ -366,7 +366,7 @@ impl PerformanceVerifier {
 
         // Try to run cargo bench
         let output = Command::new("cargo")
-            .args(&["bench", "--workspace"])
+            .args(["bench", "--workspace"])
             .current_dir(&self.workspace_root)
             .output();
 

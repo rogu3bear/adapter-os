@@ -49,7 +49,7 @@ impl MemoryMonitor {
         use std::process::Command;
 
         let output = Command::new("sysctl")
-            .args(&["-n", "hw.memsize"])
+            .args(["-n", "hw.memsize"])
             .output()
             .ok()?;
 

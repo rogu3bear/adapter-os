@@ -306,7 +306,7 @@ impl CABWorkflow {
         .bind(&promotion_record.status)
         .bind(&promotion_record.approval_signature)
         .bind(&promotion_record.before_cpid)
-        .bind(&promotion_record.promoted_at)
+        .bind(promotion_record.promoted_at)
         .execute(&self.pool)
         .await?;
 
@@ -365,7 +365,7 @@ impl CABWorkflow {
         .bind(&rollback_record.status)
         .bind(&rollback_record.approval_signature)
         .bind(&rollback_record.before_cpid)
-        .bind(&rollback_record.promoted_at)
+        .bind(rollback_record.promoted_at)
         .execute(&self.pool)
         .await?;
 

@@ -265,8 +265,8 @@ impl ConvPipeline {
     #[cfg(target_os = "macos")]
     fn try_metal(&self, batch: &ImageBatch) -> Option<Result<ImageBatch>> {
         use adapteros_lora_kernel_mtl::vision_kernels::{
-            MetalImageTensor, MetalVisionActivation, MetalVisionArchitecture,
-            MetalVisionKernelConfig, MetalVisionPooling, VisionKernelBundle,
+            MetalImageTensor,
+            MetalVisionKernelConfig, VisionKernelBundle,
         };
 
         let tensor = match MetalImageTensor::new(

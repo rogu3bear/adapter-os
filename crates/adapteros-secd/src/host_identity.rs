@@ -3,7 +3,7 @@
 //! Provides hardware-rooted Ed25519 signing keys for host attestation and
 //! telemetry bundle signing (Secrets Ruleset #14).
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 use adapteros_crypto::{Keypair, PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

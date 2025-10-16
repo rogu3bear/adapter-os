@@ -39,7 +39,7 @@ pub enum BackendChoice {
 /// ```
 pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
     // Create backend based on choice
-    let mut backend = create_backend_internal(choice)?;
+    let backend = create_backend_internal(choice)?;
 
     // Validate determinism attestation (runtime guard)
     let report = backend.attest_determinism()?;

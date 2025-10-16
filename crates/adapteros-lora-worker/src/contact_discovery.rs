@@ -175,7 +175,7 @@ impl ContactDiscoveryHandler {
             let metadata_json = contact
                 .metadata
                 .as_ref()
-                .map(|m| serde_json::to_string(m))
+                .map(serde_json::to_string)
                 .transpose()
                 .map_err(|e| AosError::Worker(format!("Failed to serialize metadata: {}", e)))?;
 

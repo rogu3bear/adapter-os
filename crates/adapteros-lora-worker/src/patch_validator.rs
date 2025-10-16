@@ -808,26 +808,23 @@ impl PatchValidator {
     /// Check if patch requires manual review
     fn requires_review(&self, patch: &FilePatch) -> Result<bool> {
         // Database migrations
-        if self.policy.require_review.database_migrations {
-            if self.is_migration_file(&patch.file_path) {
+        if self.policy.require_review.database_migrations
+            && self.is_migration_file(&patch.file_path) {
                 return Ok(true);
             }
-        }
 
         // Security changes
-        if self.policy.require_review.security_changes {
-            if self.is_security_file(&patch.file_path) {
+        if self.policy.require_review.security_changes
+            && self.is_security_file(&patch.file_path) {
                 return Ok(true);
             }
-        }
 
         // Config changes
-        if self.policy.require_review.config_changes {
-            if self.is_config_file(&patch.file_path) && self.is_production_config(&patch.file_path)
+        if self.policy.require_review.config_changes
+            && self.is_config_file(&patch.file_path) && self.is_production_config(&patch.file_path)
             {
                 return Ok(true);
             }
-        }
 
         Ok(false)
     }
@@ -1039,11 +1036,7 @@ impl DependencyChecker {
     fn extract_dependency(&self, line: &str) -> Option<String> {
         if let Some(start) = line.find("use ") {
             let after_use = &line[start + 4..];
-            if let Some(end) = after_use.find("::") {
-                Some(after_use[..end].trim().to_string())
-            } else {
-                None
-            }
+            after_use.find("::").map(|end| after_use[..end].trim().to_string())
         } else {
             None
         }
@@ -1053,11 +1046,7 @@ impl DependencyChecker {
     fn extract_python_dependency(&self, line: &str) -> Option<String> {
         if let Some(start) = line.find("from ") {
             let after_from = &line[start + 5..];
-            if let Some(end) = after_from.find(" import") {
-                Some(after_from[..end].trim().to_string())
-            } else {
-                None
-            }
+            after_from.find(" import").map(|end| after_from[..end].trim().to_string())
         } else {
             None
         }
@@ -1384,7 +1373,7 @@ impl PatchValidator {
         let source_attribution_complete = evidence_spans.iter().all(|span| {
             span.file_path
                 .as_ref()
-                .map_or(false, |path| !path.is_empty())
+                .is_some_and(|path| !path.is_empty())
         });
         if !source_attribution_complete {
             violations.push(EvidenceViolation {

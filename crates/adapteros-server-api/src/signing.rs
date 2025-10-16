@@ -41,7 +41,7 @@ pub fn sign_promotion(
     let public_key = signing_key.verifying_key();
     let key_id = format!(
         "key-{}",
-        hex::encode(public_key.as_bytes())[..8].to_string()
+        &hex::encode(public_key.as_bytes())[..8]
     );
 
     Ok((signature_b64, key_id))

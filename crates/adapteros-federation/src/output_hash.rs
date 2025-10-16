@@ -165,7 +165,7 @@ impl OutputHashManager {
         for record in records {
             by_input
                 .entry(record.input_hash.to_hex())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(record);
         }
 
