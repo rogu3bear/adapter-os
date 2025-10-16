@@ -52,10 +52,10 @@ impl VisionLoraWeights {
         biases: Vec<f32>,
     ) -> Result<Self> {
         if weights.is_empty() {
-            return Err(AosError::InvalidInput("empty LoRA weight matrix".into()));
+            return Err(AosError::Validation("empty LoRA weight matrix".into()));
         }
         if biases.len() != channels {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "expected {} bias values, found {}",
                 channels,
                 biases.len()
@@ -74,7 +74,7 @@ impl VisionLoraWeights {
     /// Merge this LoRA update into the base convolution weights.
     pub fn merge_into(&self, base: &mut [f32], alpha: f32) -> Result<()> {
         if base.len() != self.weights.len() {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "base weight buffer has {} elements but {} expected",
                 base.len(),
                 self.weights.len()
@@ -91,7 +91,7 @@ impl VisionLoraWeights {
     /// Apply LoRA bias updates to the provided buffer.
     pub fn apply_bias(&self, base: &mut [f32], alpha: f32) -> Result<()> {
         if base.len() != self.channels {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "expected {} bias entries, found {}",
                 self.channels,
                 base.len()
@@ -148,12 +148,12 @@ pub fn load_vision_lora(
     channels: usize,
 ) -> Result<VisionLoraWeights> {
     let tensors = SafeTensors::deserialize(bytes)
-        .map_err(|e| AosError::InvalidInput(format!("invalid safetensors: {e}")))?;
+        .map_err(|e| AosError::Validation(format!("invalid safetensors: {e}")))?;
 
     let weight = extract_tensor(&tensors, "vision_lora.weight")?;
     let bias = extract_tensor(&tensors, "vision_lora.bias")?;
 
-    let rank = weight.dims().get(0).copied().unwrap_or(1) as usize;
+    let rank = weight.shape().get(0).copied().unwrap_or(1) as usize;
     let weights: Vec<f32> = weight
         .data()
         .chunks_exact(std::mem::size_of::<f32>())
@@ -172,7 +172,7 @@ pub fn load_vision_lora(
 fn extract_tensor<'a>(tensors: &'a SafeTensors<'a>, name: &str) -> Result<TensorView<'a>> {
     tensors
         .tensor(name)
-        .map_err(|_| AosError::InvalidInput(format!("tensor '{name}' missing from LoRA weights")))
+        .map_err(|_| AosError::Validation(format!("tensor '{name}' missing from LoRA weights")))
 }
 
 /// Merge plan describing how a LoRA adapter should be applied.
@@ -190,7 +190,7 @@ impl VisionMergePlan {
         base_bias: &mut [f32],
     ) -> Result<()> {
         let weights = registry.get(self.task).ok_or_else(|| {
-            AosError::InvalidInput(format!(
+            AosError::Validation(format!(
                 "no vision LoRA registered for {}",
                 self.task.as_str()
             ))

@@ -55,13 +55,13 @@ pub struct AnomalyDetector {
 impl AnomalyDetector {
     pub fn new(config: AnomalyDetectionConfig) -> Result<Self> {
         if config.window_size == 0 {
-            return Err(AosError::InvalidInput(
+            return Err(AosError::Validation(
                 "window size must be greater than zero".into(),
             ));
         }
 
         Ok(Self {
-            config,
+            config: config.clone(),
             history: VecDeque::with_capacity(config.window_size),
             sum: 0.0,
             sum_sq: 0.0,

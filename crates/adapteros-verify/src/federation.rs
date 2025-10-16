@@ -137,7 +137,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn test_verify_cross_host_empty_dir() -> Result<()> {
+    async fn test_verify_cross_host_empty_dir() -> VerifyResult<()> {
         let temp_dir = TempDir::new().unwrap();
         let bundle_dir = temp_dir.path();
         

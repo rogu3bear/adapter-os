@@ -36,7 +36,7 @@ pub struct TelemetryLoraWeights {
 impl TelemetryLoraWeights {
     pub fn new(task: TelemetryTask, weights: Vec<f32>, bias: Vec<f32>) -> Result<Self> {
         if weights.is_empty() {
-            return Err(AosError::InvalidInput(
+            return Err(AosError::Validation(
                 "telemetry LoRA requires weights".into(),
             ));
         }
@@ -50,7 +50,7 @@ impl TelemetryLoraWeights {
 
     pub fn merge_into(&self, base: &mut [f32], alpha: f32) -> Result<()> {
         if base.len() != Arc::as_ref(&self.weights).len() {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "base buffer length {} does not match telemetry LoRA {}",
                 base.len(),
                 Arc::as_ref(&self.weights).len()
@@ -66,7 +66,7 @@ impl TelemetryLoraWeights {
 
     pub fn apply_bias(&self, base: &mut [f32], alpha: f32) -> Result<()> {
         if base.len() != Arc::as_ref(&self.bias).len() {
-            return Err(AosError::InvalidInput(format!(
+            return Err(AosError::Validation(format!(
                 "bias buffer length {} does not match telemetry LoRA {}",
                 base.len(),
                 Arc::as_ref(&self.bias).len()
@@ -104,7 +104,7 @@ impl TelemetryLoraRegistry {
 /// Load telemetry LoRA weights from safetensors bytes.
 pub fn load_telemetry_lora(bytes: &[u8], task: TelemetryTask) -> Result<TelemetryLoraWeights> {
     let tensors = SafeTensors::deserialize(bytes)
-        .map_err(|e| AosError::InvalidInput(format!("invalid safetensors: {e}")))?;
+        .map_err(|e| AosError::Validation(format!("invalid safetensors: {e}")))?;
 
     let weight = extract_tensor(&tensors, "telemetry_lora.weight")?;
     let bias = extract_tensor(&tensors, "telemetry_lora.bias")?;
@@ -118,7 +118,7 @@ pub fn load_telemetry_lora(bytes: &[u8], task: TelemetryTask) -> Result<Telemetr
 fn extract_tensor<'a>(tensors: &'a SafeTensors<'a>, name: &str) -> Result<TensorView<'a>> {
     tensors
         .tensor(name)
-        .map_err(|_| AosError::InvalidInput(format!("tensor '{name}' missing from telemetry LoRA")))
+        .map_err(|_| AosError::Validation(format!("tensor '{name}' missing from telemetry LoRA")))
 }
 
 fn convert_tensor(view: TensorView<'_>) -> Vec<f32> {
@@ -143,7 +143,7 @@ impl TelemetryMergePlan {
         bias: &mut [f32],
     ) -> Result<()> {
         let adapter = registry.get(self.task).ok_or_else(|| {
-            AosError::InvalidInput(format!("no telemetry LoRA for {}", self.task.as_str()))
+            AosError::Validation(format!("no telemetry LoRA for {}", self.task.as_str()))
         })?;
         adapter.merge_into(weights, self.alpha)?;
         adapter.apply_bias(bias, self.alpha)
