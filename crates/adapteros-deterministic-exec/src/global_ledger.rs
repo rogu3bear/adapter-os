@@ -592,6 +592,12 @@ impl GlobalTickLedger {
         
         Ok(())
     }
+
+    /// Get the latest entry hash for Merkle chain linkage
+    pub fn get_latest_entry_hash(&self) -> Option<B3Hash> {
+        let lock = self.last_entry_hash.read().unwrap();
+        *lock
+    }
 }
 
 #[cfg(test)]

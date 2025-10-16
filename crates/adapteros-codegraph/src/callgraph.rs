@@ -5,10 +5,11 @@
 
 use crate::types::{Language, SymbolId, SymbolKind, SymbolNode};
 use adapteros_core::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A call edge in the graph
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CallEdge {
     /// Calling symbol
     pub caller: SymbolId,
@@ -25,7 +26,7 @@ pub struct CallEdge {
 }
 
 /// An import edge representing cross-language dependencies
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ImportEdge {
     /// Importing symbol
     pub importer: SymbolId,
@@ -40,7 +41,7 @@ pub struct ImportEdge {
 }
 
 /// Call graph structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallGraph {
     /// All call edges
     pub edges: Vec<CallEdge>,

@@ -1,0 +1,9 @@
+{
+  "test_name": "multi_host_determinism",
+  "created_at": "2025-10-15T19:05:32.092642+00:00",
+  "expected_outputs": {
+    "router_output": "b176f4300d5d1bc387d477c68b6760221c252c4d27f958011d8693b4a9670cb4",
+    "memory_state": "f638a1f52b8da26c216be655a40cf292f8a337cb775587a3a71a3c50be8bdbee",
+    "inference_output": "842f5c294737df7237d1966be2a210a3358506e4046f46d9bbd958e4f23e8354"
+  }
+}

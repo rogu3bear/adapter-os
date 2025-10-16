@@ -4083,7 +4083,7 @@ pub async fn list_repositories(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> Result<Json<Vec<RepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let repos = state.db.list_repositories().await.map_err(|e| {
+    let repos = state.db.list_repositories("default", 100, 0).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -4097,12 +4097,11 @@ pub async fn list_repositories(
     let responses: Vec<RepositoryResponse> = repos
         .into_iter()
         .map(|r| {
-            let languages: Vec<String> = serde_json::from_str(&r.languages).unwrap_or_default();
-            let frameworks: Vec<String> = r
-                .frameworks_json
+            let languages: Vec<String> = r.languages_json
                 .as_ref()
-                .and_then(|f| serde_json::from_str(f).ok())
+                .and_then(|l| serde_json::from_str(l).ok())
                 .unwrap_or_default();
+            let frameworks: Vec<String> = Vec::new(); // TODO: Add frameworks field to Repository
 
             RepositoryResponse {
                 id: r.id,
@@ -4112,8 +4111,8 @@ pub async fn list_repositories(
                 default_branch: r.default_branch,
                 status: r.status,
                 frameworks,
-                file_count: r.file_count,
-                symbol_count: r.symbol_count,
+                file_count: Some(0), // TODO: Get from CodeGraphMetadata
+                symbol_count: Some(0), // TODO: Get from CodeGraphMetadata
                 created_at: r.created_at,
                 updated_at: r.updated_at,
             }
@@ -4121,226 +4120,6 @@ pub async fn list_repositories(
         .collect();
 
     Ok(Json(responses))
-}
-
-/// Register repository
-#[utoipa::path(
-    post,
-    path = "/v1/repositories/register",
-    request_body = RegisterRepositoryRequest,
-    responses(
-        (status = 201, description = "Repository registered", body = RepositoryResponse)
-    )
-)]
-pub async fn register_repository(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<RegisterRepositoryRequest>,
-) -> Result<(StatusCode, Json<RepositoryResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // Require admin or operator role
-    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
-
-    // Validate repository ID format
-    validate_repo_id(&req.repo_id)?;
-
-    // Validate file path for security
-    validate_file_paths(&[req.path.clone()])?;
-
-    let languages_json = serde_json::to_string(&req.languages).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid languages array")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let id = state
-        .db
-        .register_repository(
-            &req.repo_id,
-            &req.path,
-            &languages_json,
-            &req.default_branch,
-        )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to register repository")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(RepositoryResponse {
-            id,
-            repo_id: req.repo_id,
-            path: req.path,
-            languages: req.languages,
-            default_branch: req.default_branch,
-            status: "registered".to_string(),
-            frameworks: vec![],
-            file_count: None,
-            symbol_count: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-        }),
-    ))
-}
-
-/// Trigger repository scan
-#[utoipa::path(
-    post,
-    path = "/v1/repositories/{repo_id}/scan",
-    params(
-        ("repo_id" = String, Path, description = "Repository ID")
-    ),
-    responses(
-        (status = 202, description = "Scan triggered", body = ScanStatusResponse)
-    )
-)]
-pub async fn trigger_repository_scan(
-    State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path(repo_id): Path<String>,
-) -> Result<(StatusCode, Json<ScanStatusResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // Update status to scanning
-    state
-        .db
-        .update_repository_status(&repo_id, "scanning")
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update status")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // In a real implementation, this would trigger a background job
-    // For now, just return accepted status
-
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(ScanStatusResponse {
-            repo_id,
-            status: "scanning".to_string(),
-            progress: Some(0.0),
-            message: Some("Scan initiated".to_string()),
-        }),
-    ))
-}
-
-/// Get repository scan status
-#[utoipa::path(
-    get,
-    path = "/v1/repositories/{repo_id}/status",
-    params(
-        ("repo_id" = String, Path, description = "Repository ID")
-    ),
-    responses(
-        (status = 200, description = "Scan status", body = ScanStatusResponse)
-    )
-)]
-pub async fn get_repository_status(
-    State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path(repo_id): Path<String>,
-) -> Result<Json<ScanStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let repo = state
-        .db
-        .get_repository(&repo_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    Ok(Json(ScanStatusResponse {
-        repo_id: repo.repo_id,
-        status: repo.status,
-        progress: None,
-        message: None,
-    }))
-}
-
-/// Get repository code intelligence report
-pub async fn get_repository_report(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path(repo_id): Path<String>,
-) -> Result<Json<RepositoryReportResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would aggregate code intelligence metrics
-    Ok(Json(RepositoryReportResponse {
-        repo_id,
-        total_lines: 125_000,
-        total_files: 450,
-        complexity_score: 42.5,
-        risk_level: "medium".to_string(),
-        languages: vec![
-            LanguageStats {
-                language: "rust".to_string(),
-                line_count: 85_000,
-                file_count: 280,
-                percentage: 68.0,
-            },
-            LanguageStats {
-                language: "typescript".to_string(),
-                line_count: 30_000,
-                file_count: 120,
-                percentage: 24.0,
-            },
-            LanguageStats {
-                language: "python".to_string(),
-                line_count: 10_000,
-                file_count: 50,
-                percentage: 8.0,
-            },
-        ],
-        generated_at: chrono::Utc::now().to_rfc3339(),
-    }))
-}
-
-/// Unregister repository from code intelligence
-pub async fn unregister_repository(
-    State(_state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(repo_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    // Stub - would mark repo as inactive (keep historical data)
-    // In real implementation:
-    // sqlx::query("UPDATE repositories SET active = 0 WHERE repo_id = ?")
-    //     .bind(&repo_id)
-    //     .execute(state.db.pool())
-    //     .await
-    //     .map_err(...)?;
-
-    tracing::info!("Repository {} unregistered by {}", repo_id, claims.email);
-    Ok(StatusCode::NO_CONTENT)
 }
 
 // ===== Metrics Endpoints =====

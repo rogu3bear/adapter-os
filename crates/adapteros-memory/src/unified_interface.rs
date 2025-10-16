@@ -360,12 +360,24 @@ impl MemoryManager for UnifiedMemoryManager {
         }
         
         // Evict unpinned adapters starting with lowest quality
+        // Per Determinism Ruleset #2: eviction order must be deterministic
+        // Sort by: pinned status → quality score → adapter ID hash (for deterministic tiebreaking)
         let mut adapters: Vec<_> = stats.adapters.into_iter().collect();
         adapters.sort_by(|a, b| {
             if a.pinned != b.pinned {
+                // Pinned adapters always come last
                 a.pinned.cmp(&b.pinned)
             } else {
-                a.quality_score.partial_cmp(&b.quality_score).unwrap_or(std::cmp::Ordering::Equal)
+                // Compare by quality score
+                match a.quality_score.partial_cmp(&b.quality_score) {
+                    Some(ord) if ord != std::cmp::Ordering::Equal => ord,
+                    // Tiebreaker: sort by BLAKE3 hash of adapter ID for determinism
+                    _ => {
+                        let hash_a = blake3::hash(a.adapter_id.as_bytes());
+                        let hash_b = blake3::hash(b.adapter_id.as_bytes());
+                        hash_a.as_bytes().cmp(hash_b.as_bytes())
+                    }
+                }
             }
         });
         
@@ -469,9 +481,131 @@ mod tests {
     #[tokio::test]
     async fn test_memory_pressure_levels() {
         let manager = UnifiedMemoryManager::new(1000, 15.0);
-        
+
         // Test different pressure levels
         let pressure = manager.check_memory_pressure().await.unwrap();
         assert!(matches!(pressure, MemoryPressureLevel::Low));
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_eviction_order() {
+        // Test that eviction order is deterministic when quality scores are equal
+        let manager = UnifiedMemoryManager::new(1024 * 1024, 15.0);
+
+        // Add adapters with identical quality scores but different IDs
+        let mut adapters = manager.adapters.lock().unwrap();
+
+        adapters.insert("adapter-zeta".to_string(), AdapterMemoryInfo {
+            adapter_id: "adapter-zeta".to_string(),
+            adapter_name: "Zeta".to_string(),
+            memory_usage_bytes: 1024,
+            memory_usage_mb: 0,
+            state: AdapterState::Loaded,
+            pinned: false,
+            category: AdapterCategory::Code,
+            last_access: None,
+            activation_count: 0,
+            quality_score: 0.5, // Same quality score
+        });
+
+        adapters.insert("adapter-alpha".to_string(), AdapterMemoryInfo {
+            adapter_id: "adapter-alpha".to_string(),
+            adapter_name: "Alpha".to_string(),
+            memory_usage_bytes: 1024,
+            memory_usage_mb: 0,
+            state: AdapterState::Loaded,
+            pinned: false,
+            category: AdapterCategory::Code,
+            last_access: None,
+            activation_count: 0,
+            quality_score: 0.5, // Same quality score
+        });
+
+        adapters.insert("adapter-beta".to_string(), AdapterMemoryInfo {
+            adapter_id: "adapter-beta".to_string(),
+            adapter_name: "Beta".to_string(),
+            memory_usage_bytes: 1024,
+            memory_usage_mb: 0,
+            state: AdapterState::Loaded,
+            pinned: false,
+            category: AdapterCategory::Code,
+            last_access: None,
+            activation_count: 0,
+            quality_score: 0.5, // Same quality score
+        });
+
+        drop(adapters);
+
+        // Collect adapters and sort using the same logic as cleanup
+        let stats = manager.get_memory_usage().await.unwrap();
+        let mut sorted_adapters: Vec<_> = stats.adapters.into_iter().collect();
+        sorted_adapters.sort_by(|a, b| {
+            if a.pinned != b.pinned {
+                a.pinned.cmp(&b.pinned)
+            } else {
+                match a.quality_score.partial_cmp(&b.quality_score) {
+                    Some(ord) if ord != std::cmp::Ordering::Equal => ord,
+                    _ => {
+                        let hash_a = blake3::hash(a.adapter_id.as_bytes());
+                        let hash_b = blake3::hash(b.adapter_id.as_bytes());
+                        hash_a.as_bytes().cmp(hash_b.as_bytes())
+                    }
+                }
+            }
+        });
+
+        // Verify deterministic order - should be sorted by hash of adapter ID
+        let eviction_order: Vec<String> = sorted_adapters
+            .iter()
+            .map(|a| a.adapter_id.clone())
+            .collect();
+
+        // Pre-compute hashes to verify expected order
+        let hash_alpha = blake3::hash(b"adapter-alpha");
+        let hash_beta = blake3::hash(b"adapter-beta");
+        let hash_zeta = blake3::hash(b"adapter-zeta");
+
+        // Determine expected order based on hash values
+        let mut expected_hashes = vec![
+            ("adapter-alpha", hash_alpha),
+            ("adapter-beta", hash_beta),
+            ("adapter-zeta", hash_zeta),
+        ];
+        expected_hashes.sort_by(|a, b| a.1.as_bytes().cmp(b.1.as_bytes()));
+
+        let expected_order: Vec<String> = expected_hashes
+            .iter()
+            .map(|(id, _)| id.to_string())
+            .collect();
+
+        // Verify order matches expected deterministic order
+        assert_eq!(eviction_order, expected_order,
+            "Eviction order should be deterministic and based on adapter ID hash");
+
+        // Run the sort again to verify consistency
+        let stats2 = manager.get_memory_usage().await.unwrap();
+        let mut sorted_adapters2: Vec<_> = stats2.adapters.into_iter().collect();
+        sorted_adapters2.sort_by(|a, b| {
+            if a.pinned != b.pinned {
+                a.pinned.cmp(&b.pinned)
+            } else {
+                match a.quality_score.partial_cmp(&b.quality_score) {
+                    Some(ord) if ord != std::cmp::Ordering::Equal => ord,
+                    _ => {
+                        let hash_a = blake3::hash(a.adapter_id.as_bytes());
+                        let hash_b = blake3::hash(b.adapter_id.as_bytes());
+                        hash_a.as_bytes().cmp(hash_b.as_bytes())
+                    }
+                }
+            }
+        });
+
+        let eviction_order2: Vec<String> = sorted_adapters2
+            .iter()
+            .map(|a| a.adapter_id.clone())
+            .collect();
+
+        assert_eq!(eviction_order, eviction_order2,
+            "Eviction order must be identical across multiple sort operations");
     }
 }

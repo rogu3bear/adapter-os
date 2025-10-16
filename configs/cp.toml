@@ -16,8 +16,8 @@ mtls_required = false
 jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
 
 [paths]
-artifacts_root = "/srv/aos/artifacts"
-bundles_root = "/srv/aos/bundles"
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
 plan_dir = "plan"
 
 [worker.safety]

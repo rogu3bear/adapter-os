@@ -9,9 +9,10 @@
 //! Per Determinism Ruleset #2: "refuse to serve if policy hashes don't match"
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_db::{Db, PolicyHashRecord};
+use adapteros_db::Db;
 use adapteros_telemetry::{PolicyHashValidationEvent, TelemetryWriter, ValidationStatus};
 use serde::{Deserialize, Serialize};
+use sqlx::Executor;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -317,6 +318,51 @@ impl PolicyHashWatcher {
 
         info!(count = cache.len(), "Policy hash cache loaded");
 
+        Ok(())
+    }
+
+    /// Trigger quarantine for a policy violation
+    ///
+    /// Inserts a quarantine record into the database.
+    /// Per Incident Ruleset #17: isolate → export audit → rotate keys → open incident
+    pub async fn trigger_quarantine(&self, reason: &str) -> Result<()> {
+        warn!(reason = %reason, "Triggering policy quarantine");
+
+        // Insert quarantine record
+        self.db
+            .pool()
+            .execute(
+                sqlx::query(
+                    r#"
+                    INSERT INTO policy_quarantine (reason, created_at, released, cpid, violation_type)
+                    VALUES (?, CURRENT_TIMESTAMP, FALSE, ?, 'policy_hash_mismatch')
+                    "#
+                )
+                .bind(reason)
+                .bind(self.cpid.as_deref())
+            )
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
+
+        // Log telemetry event (100% sampling)
+        if let Err(e) = self.telemetry.log_event(
+            adapteros_telemetry::TelemetryEventBuilder::new(
+                adapteros_telemetry::EventType::Custom("policy.quarantine_triggered".to_string()),
+                adapteros_telemetry::LogLevel::Warn,
+                format!("Policy quarantine triggered: {}", reason),
+            )
+            .component("adapteros-policy".to_string())
+            .metadata(serde_json::json!({
+                "reason": reason,
+                "cpid": self.cpid,
+                "violation_type": "policy_hash_mismatch",
+            }))
+            .build()
+        ) {
+            error!(error = %e, "Failed to log quarantine event");
+        }
+
+        info!(reason = %reason, "Policy quarantine triggered");
         Ok(())
     }
 

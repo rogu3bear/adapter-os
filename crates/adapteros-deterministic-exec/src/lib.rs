@@ -488,12 +488,15 @@ impl DeterministicExecutor {
             let event_hash = Self::compute_event_hash(&task_id, &description, current_tick);
             let event = ExecutorEvent::TaskSpawned {
                 task_id,
-                description,
+                description: description.clone(),
                 tick: current_tick,
                 agent_id: self.config.agent_id.clone(),
                 hash: event_hash,
             };
-            self.event_log.lock().push(event);
+            self.event_log.lock().push(event.clone());
+
+            // Record to global ledger if available (spawn happens synchronously, but we'll handle async)
+            // Note: In production, spawn should be async or use a background task for ledger recording
         }
 
         debug!(
@@ -607,7 +610,12 @@ impl DeterministicExecutor {
                             agent_id: self.config.agent_id.clone(),
                             hash: event_hash,
                         };
-                        self.event_log.lock().push(event);
+                        self.event_log.lock().push(event.clone());
+
+                        // Record to global ledger if available
+                        if let Some(ref ledger) = self.global_ledger {
+                            let _ = ledger.record_tick(task.id, &event).await;
+                        }
                     }
                 }
                 Poll::Pending => {
@@ -633,7 +641,14 @@ impl DeterministicExecutor {
                             agent_id: self.config.agent_id.clone(),
                             hash: event_hash,
                         };
-                        self.event_log.lock().push(event);
+                        self.event_log.lock().push(event.clone());
+
+                        // Record to global ledger if available (use dummy task ID for tick advances)
+                        if let Some(ref ledger) = self.global_ledger {
+                            let dummy_task_id = TaskId::from_bytes([0u8; 32]);
+                            let _ = ledger.record_tick(dummy_task_id, &event).await;
+                            let _ = ledger.increment_tick();
+                        }
                     }
                 }
             }

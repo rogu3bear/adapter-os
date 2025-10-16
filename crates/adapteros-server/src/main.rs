@@ -348,6 +348,144 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Initialize policy hash watcher (continuous monitoring)
+    {
+        info!("Initializing policy hash watcher");
+
+        // Create telemetry writer
+        let bundles_path = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .paths
+            .bundles_root
+            .clone();
+
+        std::fs::create_dir_all(&bundles_path).map_err(|e| {
+            AosError::Io(format!("Failed to create bundles directory: {}", e))
+        })?;
+
+        let telemetry = Arc::new(
+            adapteros_telemetry::TelemetryWriter::new(
+                &bundles_path,
+                10000,           // max_events_per_bundle
+                50 * 1024 * 1024, // max_bundle_size (50MB)
+            )?
+        );
+
+        // Create policy hash watcher
+        let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(
+            Arc::new(db.clone()),
+            telemetry,
+            None, // cpid - will be set per-tenant
+        ));
+
+        // Load baseline hashes from database
+        if let Err(e) = policy_watcher.load_cache().await {
+            warn!("Failed to load policy hash cache: {}", e);
+        }
+
+        // Start background watcher (60 second interval)
+        let policy_hashes = Arc::new(RwLock::new(std::collections::HashMap::new()));
+        let _watcher_handle = policy_watcher.clone().start_background_watcher(
+            Duration::from_secs(60),
+            policy_hashes.clone(),
+        );
+
+        info!("Policy hash watcher started (60s interval)");
+    }
+
+    // Initialize UDS metrics exporter (zero-network metrics per Egress Ruleset #1)
+    {
+        info!("Initializing UDS metrics exporter");
+
+        let socket_path = PathBuf::from("var/run/metrics.sock");
+
+        // Ensure directory exists
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AosError::Io(format!("Failed to create metrics socket directory: {}", e))
+            })?;
+        }
+
+        let mut uds_exporter = adapteros_telemetry::UdsMetricsExporter::new(socket_path.clone())?;
+
+        // Register default metrics
+        uds_exporter.register_metric(adapteros_telemetry::MetricMetadata {
+            name: "adapteros_inference_requests_total".to_string(),
+            help: "Total inference requests".to_string(),
+            metric_type: "counter".to_string(),
+            labels: std::collections::HashMap::new(),
+            value: adapteros_telemetry::MetricValue::Counter(0.0),
+        });
+
+        uds_exporter.register_metric(adapteros_telemetry::MetricMetadata {
+            name: "adapteros_memory_usage_bytes".to_string(),
+            help: "Current memory usage".to_string(),
+            metric_type: "gauge".to_string(),
+            labels: std::collections::HashMap::new(),
+            value: adapteros_telemetry::MetricValue::Gauge(0.0),
+        });
+
+        uds_exporter.register_metric(adapteros_telemetry::MetricMetadata {
+            name: "adapteros_quarantine_active".to_string(),
+            help: "System quarantine status (1 = active, 0 = not active)".to_string(),
+            metric_type: "gauge".to_string(),
+            labels: std::collections::HashMap::new(),
+            value: adapteros_telemetry::MetricValue::Gauge(0.0),
+        });
+
+        // Bind and start serving in background
+        uds_exporter.bind().await?;
+
+        let exporter_socket_path = socket_path.clone();
+        tokio::spawn(async move {
+            if let Err(e) = uds_exporter.serve().await {
+                error!("UDS metrics exporter error: {}", e);
+            }
+        });
+
+        info!(
+            "UDS metrics exporter started on {}",
+            exporter_socket_path.display()
+        );
+        info!("Test with: socat - UNIX-CONNECT:{}", exporter_socket_path.display());
+    }
+
+    // TODO: Start Federation Daemon once dependencies are fixed
+    // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
+    // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
+    //
+    // Once fixed, uncomment this block:
+    // {
+    //     info!("Initializing federation daemon");
+    //
+    //     // Reuse telemetry and policy_watcher from above (would need to move out of scope)
+    //     // Create federation manager
+    //     let federation_keypair = adapteros_crypto::Keypair::generate();
+    //     let federation_manager = Arc::new(
+    //         adapteros_federation::FederationManager::new(db.clone(), federation_keypair)?
+    //     );
+    //
+    //     // Create federation daemon config (5 minute interval per spec)
+    //     let federation_config = adapteros_orchestrator::FederationDaemonConfig {
+    //         interval_secs: 300, // 5 minutes
+    //         max_hosts_per_sweep: 10,
+    //         enable_quarantine: true,
+    //     };
+    //
+    //     // Create and start daemon
+    //     let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
+    //         federation_manager,
+    //         policy_watcher.clone(),
+    //         telemetry.clone(),
+    //         Arc::new(db.clone()),
+    //         federation_config,
+    //     ));
+    //
+    //     let _federation_handle = federation_daemon.start();
+    //     info!("Federation daemon started (300s interval)");
+    // }
+
     // Create metrics exporter
     let metrics_exporter = {
         let cfg = config
