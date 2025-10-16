@@ -213,12 +213,11 @@ impl BaseModelState {
             self.memory_usage_mb = status_record.memory_usage_mb.map(|mb| mb as u32);
 
             // Restore loaded_at if model is currently loaded
-            if self.status.is_loaded() {
-                if status_record.loaded_at.is_some() {
+            if self.status.is_loaded()
+                && status_record.loaded_at.is_some() {
                     // Parse the timestamp (simplified - in production would use proper parsing)
                     self.loaded_at = Some(Instant::now()); // Simplified for now
                 }
-            }
 
             debug!("Loaded base model status from database: {:?}", self.status);
         }

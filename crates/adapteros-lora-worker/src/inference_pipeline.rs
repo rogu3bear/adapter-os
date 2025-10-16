@@ -129,7 +129,7 @@ impl InferencePipeline {
     pub fn new(
         tokenizer_path: &Path,
         router: Router,
-        mut kernels: Box<dyn FusedKernels>,
+        kernels: Box<dyn FusedKernels>,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
@@ -170,7 +170,7 @@ impl InferencePipeline {
     pub fn with_quarantine(
         tokenizer_path: &Path,
         router: Router,
-        mut kernels: Box<dyn FusedKernels>,
+        kernels: Box<dyn FusedKernels>,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,

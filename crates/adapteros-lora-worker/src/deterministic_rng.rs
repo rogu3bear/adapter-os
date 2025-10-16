@@ -288,7 +288,7 @@ impl RngFactory {
             &seed,
             &format!(
                 "router:{}:{}:{}",
-                self.manifest_hash.to_hex()[..8].to_string(),
+                &self.manifest_hash.to_hex()[..8],
                 self.worker_id,
                 n
             ),
@@ -311,7 +311,7 @@ impl RngFactory {
             &seed,
             &format!(
                 "dropout:{}:{}:{}",
-                self.manifest_hash.to_hex()[..8].to_string(),
+                &self.manifest_hash.to_hex()[..8],
                 self.worker_id,
                 n
             ),
@@ -334,7 +334,7 @@ impl RngFactory {
             &seed,
             &format!(
                 "sampling:{}:{}:{}",
-                self.manifest_hash.to_hex()[..8].to_string(),
+                &self.manifest_hash.to_hex()[..8],
                 self.worker_id,
                 n
             ),
@@ -358,7 +358,7 @@ impl RngFactory {
             &format!(
                 "{}:{}:{}:{}",
                 label,
-                self.manifest_hash.to_hex()[..8].to_string(),
+                &self.manifest_hash.to_hex()[..8],
                 self.worker_id,
                 n
             ),

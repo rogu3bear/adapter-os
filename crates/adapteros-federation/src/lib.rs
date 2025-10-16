@@ -440,7 +440,7 @@ impl FederationManager {
 
     /// Serialize bundle metadata for signing
     fn serialize_bundle_metadata(&self, metadata: &StoredBundleMetadata) -> Result<Vec<u8>> {
-        serde_json::to_vec(metadata).map_err(|e| AosError::Serialization(e))
+        serde_json::to_vec(metadata).map_err(AosError::Serialization)
     }
 
     /// Store signature in database

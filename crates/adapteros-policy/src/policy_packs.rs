@@ -390,6 +390,12 @@ pub struct PolicyPackManager {
     configs: HashMap<PolicyPackId, PolicyPackConfig>,
 }
 
+impl Default for PolicyPackManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PolicyPackManager {
     /// Create a new policy pack manager
     pub fn new() -> Self {
@@ -784,6 +790,12 @@ pub struct EgressValidator {
     config: serde_json::Value,
 }
 
+impl Default for EgressValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EgressValidator {
     pub fn new() -> Self {
         Self {
@@ -802,7 +814,7 @@ impl EgressValidator {
 impl PolicyPackValidator for EgressValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check for network operations and protocol violations
         if matches!(request.request_type, RequestType::NetworkOperation)
@@ -861,6 +873,12 @@ pub struct DeterminismValidator {
     config: serde_json::Value,
 }
 
+impl Default for DeterminismValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeterminismValidator {
     pub fn new() -> Self {
         Self {
@@ -877,7 +895,7 @@ impl DeterminismValidator {
 impl PolicyPackValidator for DeterminismValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check for runtime kernel compilation
         if request.context.operation == "kernel_compile" {
@@ -932,6 +950,12 @@ pub struct RouterValidator {
     config: serde_json::Value,
 }
 
+impl Default for RouterValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RouterValidator {
     pub fn new() -> Self {
         Self {
@@ -948,7 +972,7 @@ impl RouterValidator {
 impl PolicyPackValidator for RouterValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check K-sparse configuration
         if let Some(data) = &request.context.data {
@@ -1009,6 +1033,12 @@ pub struct EvidenceValidator {
     config: serde_json::Value,
 }
 
+impl Default for EvidenceValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EvidenceValidator {
     pub fn new() -> Self {
         Self {
@@ -1025,7 +1055,7 @@ impl EvidenceValidator {
 impl PolicyPackValidator for EvidenceValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check for evidence requirements
         if matches!(request.request_type, RequestType::Inference) {
@@ -1071,6 +1101,12 @@ pub struct RefusalValidator {
     config: serde_json::Value,
 }
 
+impl Default for RefusalValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RefusalValidator {
     pub fn new() -> Self {
         Self {
@@ -1087,7 +1123,7 @@ impl RefusalValidator {
 impl PolicyPackValidator for RefusalValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check confidence thresholds
         if let Some(data) = &request.context.data {
@@ -1131,6 +1167,12 @@ pub struct NumericUnitsValidator {
     config: serde_json::Value,
 }
 
+impl Default for NumericUnitsValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NumericUnitsValidator {
     pub fn new() -> Self {
         Self {
@@ -1146,7 +1188,7 @@ impl NumericUnitsValidator {
 impl PolicyPackValidator for NumericUnitsValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check for unit requirements
         if let Some(data) = &request.context.data {
@@ -1196,6 +1238,12 @@ pub struct RagIndexValidator {
     config: serde_json::Value,
 }
 
+impl Default for RagIndexValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RagIndexValidator {
     pub fn new() -> Self {
         Self {
@@ -1213,7 +1261,7 @@ impl RagIndexValidator {
 impl PolicyPackValidator for RagIndexValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check tenant isolation
         if let Some(data) = &request.context.data {
@@ -1257,6 +1305,12 @@ pub struct IsolationValidator {
     config: serde_json::Value,
 }
 
+impl Default for IsolationValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IsolationValidator {
     pub fn new() -> Self {
         Self {
@@ -1273,7 +1327,7 @@ impl IsolationValidator {
 impl PolicyPackValidator for IsolationValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check for shared memory usage
         if let Some(data) = &request.context.data {
@@ -1315,6 +1369,12 @@ pub struct TelemetryValidator {
     config: serde_json::Value,
 }
 
+impl Default for TelemetryValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelemetryValidator {
     pub fn new() -> Self {
         Self {
@@ -1331,7 +1391,7 @@ impl TelemetryValidator {
 impl PolicyPackValidator for TelemetryValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check telemetry sampling rates
         if let Some(data) = &request.context.data {
@@ -1375,6 +1435,12 @@ pub struct RetentionValidator {
     config: serde_json::Value,
 }
 
+impl Default for RetentionValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RetentionValidator {
     pub fn new() -> Self {
         Self {
@@ -1390,7 +1456,7 @@ impl RetentionValidator {
 
 impl PolicyPackValidator for RetentionValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
-        let mut violations = Vec::new();
+        let violations = Vec::new();
         let mut warnings = Vec::new();
 
         // Check bundle retention limits
@@ -1433,6 +1499,12 @@ pub struct PerformanceValidator {
     config: serde_json::Value,
 }
 
+impl Default for PerformanceValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PerformanceValidator {
     pub fn new() -> Self {
         Self {
@@ -1448,7 +1520,7 @@ impl PerformanceValidator {
 impl PolicyPackValidator for PerformanceValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check latency requirements
         if let Some(data) = &request.context.data {
@@ -1494,6 +1566,12 @@ pub struct MemoryValidator {
     config: serde_json::Value,
 }
 
+impl Default for MemoryValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryValidator {
     pub fn new() -> Self {
         Self {
@@ -1509,7 +1587,7 @@ impl MemoryValidator {
 impl PolicyPackValidator for MemoryValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check memory headroom
         if let Some(data) = &request.context.data {
@@ -1555,6 +1633,12 @@ pub struct ArtifactsValidator {
     config: serde_json::Value,
 }
 
+impl Default for ArtifactsValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArtifactsValidator {
     pub fn new() -> Self {
         Self {
@@ -1570,7 +1654,7 @@ impl ArtifactsValidator {
 impl PolicyPackValidator for ArtifactsValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check artifact signature requirements
         if let Some(data) = &request.context.data {
@@ -1614,6 +1698,12 @@ pub struct SecretsValidator {
     config: serde_json::Value,
 }
 
+impl Default for SecretsValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecretsValidator {
     pub fn new() -> Self {
         Self {
@@ -1629,7 +1719,7 @@ impl SecretsValidator {
 impl PolicyPackValidator for SecretsValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check for plaintext secrets
         if let Some(data) = &request.context.data {
@@ -1679,6 +1769,12 @@ pub struct BuildReleaseValidator {
     config: serde_json::Value,
 }
 
+impl Default for BuildReleaseValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BuildReleaseValidator {
     pub fn new() -> Self {
         Self {
@@ -1695,7 +1791,7 @@ impl BuildReleaseValidator {
 impl PolicyPackValidator for BuildReleaseValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check replay determinism
         if let Some(data) = &request.context.data {
@@ -1739,6 +1835,12 @@ pub struct ComplianceValidator {
     config: serde_json::Value,
 }
 
+impl Default for ComplianceValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ComplianceValidator {
     pub fn new() -> Self {
         Self {
@@ -1754,7 +1856,7 @@ impl ComplianceValidator {
 impl PolicyPackValidator for ComplianceValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check compliance evidence
         if let Some(data) = &request.context.data {
@@ -1798,6 +1900,12 @@ pub struct IncidentValidator {
     config: serde_json::Value,
 }
 
+impl Default for IncidentValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IncidentValidator {
     pub fn new() -> Self {
         Self {
@@ -1814,7 +1922,7 @@ impl IncidentValidator {
 impl PolicyPackValidator for IncidentValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check incident response procedures
         if let Some(data) = &request.context.data {
@@ -1860,6 +1968,12 @@ pub struct LlmOutputValidator {
     config: serde_json::Value,
 }
 
+impl Default for LlmOutputValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LlmOutputValidator {
     pub fn new() -> Self {
         Self {
@@ -1875,7 +1989,7 @@ impl LlmOutputValidator {
 impl PolicyPackValidator for LlmOutputValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check output format requirements
         if let Some(data) = &request.context.data {
@@ -1917,6 +2031,12 @@ pub struct AdapterLifecycleValidator {
     config: serde_json::Value,
 }
 
+impl Default for AdapterLifecycleValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AdapterLifecycleValidator {
     pub fn new() -> Self {
         Self {
@@ -1931,7 +2051,7 @@ impl AdapterLifecycleValidator {
 
 impl PolicyPackValidator for AdapterLifecycleValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
-        let mut violations = Vec::new();
+        let violations = Vec::new();
         let mut warnings = Vec::new();
 
         // Check adapter activation thresholds
@@ -1974,6 +2094,12 @@ pub struct FullPackValidator {
     config: serde_json::Value,
 }
 
+impl Default for FullPackValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FullPackValidator {
     pub fn new() -> Self {
         Self {
@@ -2008,7 +2134,7 @@ impl FullPackValidator {
 impl PolicyPackValidator for FullPackValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Full pack validation - check schema compliance
         if let Some(data) = &request.context.data {

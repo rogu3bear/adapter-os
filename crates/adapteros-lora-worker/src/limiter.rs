@@ -133,8 +133,8 @@ impl TokenRateLimiter {
         let last_reset = self.last_reset.load(Ordering::Relaxed);
 
         // Reset tokens if a second has passed
-        if now > last_reset {
-            if self
+        if now > last_reset
+            && self
                 .last_reset
                 .compare_exchange(last_reset, now, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
@@ -142,7 +142,6 @@ impl TokenRateLimiter {
                 self.tokens
                     .store(self.max_tokens_per_second, Ordering::Relaxed);
             }
-        }
 
         // Try to consume a token
         let current_tokens = self.tokens.load(Ordering::Relaxed);
@@ -176,8 +175,8 @@ impl RequestRateLimiter {
         let last_reset = self.last_reset.load(Ordering::Relaxed);
 
         // Reset requests if a minute has passed
-        if now_minutes > last_reset {
-            if self
+        if now_minutes > last_reset
+            && self
                 .last_reset
                 .compare_exchange(
                     last_reset,
@@ -190,7 +189,6 @@ impl RequestRateLimiter {
                 self.requests
                     .store(self.max_requests_per_minute, Ordering::Relaxed);
             }
-        }
 
         // Try to consume a request
         let current_requests = self.requests.load(Ordering::Relaxed);

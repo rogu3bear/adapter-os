@@ -117,6 +117,12 @@ pub struct PatchTelemetry {
     telemetry_writer: Option<TelemetryWriter>,
 }
 
+impl Default for PatchTelemetry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatchTelemetry {
     pub fn new() -> Self {
         Self {
@@ -516,7 +522,7 @@ impl PatchTelemetry {
 
                 operation_durations
                     .entry(operation.to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(duration_ms);
             }
         }

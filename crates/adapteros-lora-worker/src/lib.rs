@@ -433,7 +433,7 @@ impl<K: FusedKernels> Worker<K> {
                     .map(|s| EvidenceRef {
                         doc_id: s.doc_id.clone(),
                         rev: s.rev.clone(),
-                        span_hash: s.span_hash.clone(),
+                        span_hash: s.span_hash,
                         score: s.score,
                     })
                     .collect();

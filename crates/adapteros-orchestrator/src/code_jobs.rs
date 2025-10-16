@@ -42,7 +42,7 @@ impl ArtifactStore {
         let artifact_path = self.base_path.join(format!("{}.codegraph", artifact_id));
 
         // Serialize and store (simplified - in production would use CAS)
-        let serialized = serde_json::to_vec(&graph).map_err(|e| AosError::Serialization(e))?;
+        let serialized = serde_json::to_vec(&graph).map_err(AosError::Serialization)?;
 
         tokio::fs::write(&artifact_path, serialized)
             .await
@@ -61,7 +61,7 @@ impl ArtifactStore {
             .map_err(|e| AosError::Io(format!("Failed to load CodeGraph: {}", e)))?;
 
         let graph: CodeGraph =
-            serde_json::from_slice(&serialized).map_err(|e| AosError::Serialization(e))?;
+            serde_json::from_slice(&serialized).map_err(AosError::Serialization)?;
 
         Ok(graph)
     }
@@ -130,7 +130,7 @@ impl CodeJobManager {
                         Some(&format!("Repository not found: {}", e)),
                     )
                     .await?;
-                return Err(AosError::NotFound(format!("Repository: {}", job.repo_id)).into());
+                return Err(AosError::NotFound(format!("Repository: {}", job.repo_id)));
             }
         };
 

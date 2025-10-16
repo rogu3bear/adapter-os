@@ -89,7 +89,7 @@ pub fn analyze_directory(root: &Path, relative: &Path) -> Result<DirectoryAnalys
         hasher.update(rel_path.to_string_lossy().as_bytes());
         hasher.update(blake3::hash(contents.as_bytes()).as_bytes());
 
-        extract_symbols(&contents, &rel_path, &language, &mut symbols);
+        extract_symbols(&contents, &rel_path, language, &mut symbols);
         track_patterns(
             &contents,
             &rel_path,

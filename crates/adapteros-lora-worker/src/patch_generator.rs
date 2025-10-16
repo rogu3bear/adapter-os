@@ -3,7 +3,7 @@
 //! Implements patch generation with evidence citations and structured output.
 //! Aligns with Code Policy requirements and evidence-first philosophy.
 
-use crate::evidence::{EvidenceCitation, EvidenceSpan, EvidenceType};
+use crate::evidence::{EvidenceCitation, EvidenceSpan};
 use adapteros_core::{AosError, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -242,6 +242,12 @@ pub struct PatchParser {
     hunk_parser: HunkParser,
 }
 
+impl Default for PatchParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatchParser {
     pub fn new() -> Self {
         Self {
@@ -314,6 +320,12 @@ impl PatchParser {
 /// Hunk parser for unified diff format
 pub struct HunkParser;
 
+impl Default for HunkParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HunkParser {
     pub fn new() -> Self {
         Self
@@ -343,6 +355,12 @@ impl HunkParser {
 
 /// Citation extractor for evidence
 pub struct CitationExtractor;
+
+impl Default for CitationExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CitationExtractor {
     pub fn new() -> Self {

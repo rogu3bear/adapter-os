@@ -310,7 +310,7 @@ impl SecurityVerifier {
     ) -> Result<SecurityResult> {
         info!("Starting security verification");
 
-        let mut issues = Vec::new();
+        let issues = Vec::new();
         let mut recommendations = Vec::new();
 
         // Run vulnerability scanning
@@ -408,7 +408,7 @@ impl SecurityVerifier {
 
         // Try to use cargo-audit for vulnerability scanning
         let output = Command::new("cargo")
-            .args(&["audit", "--json"])
+            .args(["audit", "--json"])
             .current_dir(&self.workspace_root)
             .output();
 

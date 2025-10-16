@@ -1741,7 +1741,7 @@ pub async fn rebuild_plan(
                 .await,
             ) {
                 (Ok(Some(old_hash)), Ok(Some(new_hash))) if old_hash != new_hash => {
-                    format!("Metal kernels updated (hash changed)")
+                    "Metal kernels updated (hash changed)".to_string()
                 }
                 _ => "Plan rebuilt with current Metal kernels".to_string(),
             };
@@ -2061,7 +2061,7 @@ pub async fn sign_policy(
 
     // Sign the CPID
     let signing_key = signing_key_hex.as_deref().unwrap_or("");
-    let signature = match adapteros_crypto::signature::sign_data(&cpid.as_bytes(), signing_key) {
+    let signature = match adapteros_crypto::signature::sign_data(cpid.as_bytes(), signing_key) {
         Ok(sig) => format!("ed25519:{}", hex::encode(sig)),
         Err(e) => {
             tracing::error!("Failed to sign CPID: {}", e);
@@ -2505,7 +2505,7 @@ pub async fn propose_patch(
                 .bind(&proposal_id)
                 .bind(&req.repo_id)
                 .bind(&req.commit_sha)
-                .bind(&status)
+                .bind(status)
                 .bind(&proposal_json)
                 .bind(&claims.email)
                 .execute(state.db.pool())
@@ -4749,7 +4749,7 @@ pub async fn system_metrics_stream(
                 return Some((
                     Ok(Event::default()
                         .event("error")
-                        .data(format!("{{\"error\": \"serialization failed\"}}"))),
+                        .data("{\"error\": \"serialization failed\"}".to_string())),
                     state,
                 ));
             }
@@ -4808,7 +4808,7 @@ pub async fn adapter_state_stream(
                 return Some((
                     Ok(Event::default()
                         .event("error")
-                        .data(format!("{{\"error\": \"serialization failed\"}}"))),
+                        .data("{\"error\": \"serialization failed\"}".to_string())),
                     state,
                 ));
             }
@@ -7018,7 +7018,7 @@ pub async fn get_federation_audit(
 
         host_chains
             .entry(host_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(bundle_hash);
     }
 

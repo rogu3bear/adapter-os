@@ -371,6 +371,12 @@ pub struct UnifiedPolicyEnforcer {
     violation_history: Vec<PolicyViolation>,
 }
 
+impl Default for UnifiedPolicyEnforcer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UnifiedPolicyEnforcer {
     /// Create a new unified policy enforcer
     pub fn new() -> Self {
@@ -558,7 +564,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
         let mut total_violations = 0;
 
         // Calculate compliance for each policy pack
-        for (pack_name, _policy_pack) in &self.policy_packs {
+        for pack_name in self.policy_packs.keys() {
             let violations: Vec<_> = self
                 .violation_history
                 .iter()

@@ -124,7 +124,7 @@ impl ProjectMetadata {
                         continue;
                     }
                     let (name, version) = line
-                        .split_once(|c: char| c == '=' || c == '>' || c == '<')
+                        .split_once(['=', '>', '<'])
                         .map(|(n, rest)| (n.trim(), Some(rest.trim().trim_start_matches('='))))
                         .unwrap_or((line, None));
                     self.python_dependencies
@@ -143,7 +143,7 @@ impl ProjectMetadata {
                         for dep in deps {
                             if let Some(entry) = dep.as_str() {
                                 let (name, version) = entry
-                                    .split_once(|c: char| c == '=' || c == '>' || c == '<')
+                                    .split_once(['=', '>', '<'])
                                     .map(|(n, rest)| {
                                         (n.trim(), Some(rest.trim().trim_start_matches('=')))
                                     })
@@ -216,7 +216,7 @@ impl ProjectMetadata {
                     .split(',')
                     .map(|s| s.trim_matches(|c: char| c == '\'' || c == '"' || c.is_whitespace()))
                     .collect();
-                if let Some(name) = tokens.get(0) {
+                if let Some(name) = tokens.first() {
                     let version = tokens
                         .get(1)
                         .map(|s| s.to_string())

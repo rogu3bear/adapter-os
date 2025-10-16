@@ -63,7 +63,7 @@ impl AccessControlManager {
         let entry = self
             .assignments
             .entry((user, tenant))
-            .or_insert_with(HashSet::new);
+            .or_default();
         entry.insert(role.to_string());
     }
 

@@ -327,7 +327,7 @@ impl SignalDispatcher {
         if let Some(first_type) = signal_types.first() {
             self.handlers
                 .entry(first_type.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(boxed_handler);
         }
     }
