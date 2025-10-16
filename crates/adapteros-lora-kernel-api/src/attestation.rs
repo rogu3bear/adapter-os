@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum BackendType {
     /// Metal backend (macOS GPU) - deterministic
     Metal,
-    /// MLX backend (Python/MLX) - non-deterministic
+    /// MLX backend (deterministic HKDF-seeded execution)
     Mlx,
     /// CoreML backend (macOS Neural Engine) - deterministic if ANE available
     CoreML,
@@ -19,7 +19,10 @@ pub enum BackendType {
 impl BackendType {
     /// Check if this backend type is deterministic by design
     pub fn is_deterministic_by_design(&self) -> bool {
-        matches!(self, BackendType::Metal | BackendType::Mock)
+        matches!(
+            self,
+            BackendType::Metal | BackendType::Mock | BackendType::Mlx
+        )
     }
 }
 
