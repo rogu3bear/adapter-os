@@ -4,12 +4,16 @@
 //! It implements the same interface as the PyO3-based MLX crate but uses direct C++ calls.
 
 use adapteros_core::{AosError, Result};
+use generation::{run_generation_loop, SimpleTokenizer};
+use std::collections::HashMap;
+use std::ffi::{CStr, CString};
 use std::path::Path;
 
 // Include the generated bindings
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 pub mod backend;
+mod generation;
 pub mod lora;
 pub mod routing;
 pub mod tensor;
@@ -70,7 +74,7 @@ impl MLXFFIModel {
         let path_str = model_path
             .to_str()
             .ok_or_else(|| AosError::Internal("Invalid model path".to_string()))?;
-        let path_cstr = std::ffi::CString::new(path_str)
+        let path_cstr = CString::new(path_str)
             .map_err(|e| AosError::Internal(format!("Invalid path string: {}", e)))?;
 
         // Clear any previous errors
@@ -112,34 +116,7 @@ impl MLXFFIModel {
     /// Logits for next token prediction
     pub fn forward(&self, token_ids: &[u32], _position: usize) -> Result<Vec<f32>> {
         // Convert token_ids to C array
-        let token_ints: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
-
-        // Create MLX array from token IDs
-        let input_array =
-            unsafe { mlx_array_from_ints(token_ints.as_ptr(), token_ints.len() as i32) };
-        if input_array.is_null() {
-            return Err(AosError::Mlx("Failed to create input array".to_string()));
-        }
-
-        // Run forward pass
-        let output_array = unsafe { mlx_model_forward(self.model, input_array) };
-        if output_array.is_null() {
-            unsafe { mlx_array_free(input_array) };
-            return Err(AosError::Mlx("Failed to run model forward".to_string()));
-        }
-
-        // Extract output data
-        let output_size = unsafe { mlx_array_size(output_array) };
-        let output_data = unsafe { mlx_array_data(output_array) };
-
-        let result: Vec<f32> =
-            unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
-
-        // Clean up
-        unsafe {
-            mlx_array_free(input_array);
-            mlx_array_free(output_array);
-        }
+        let result = unsafe { self.forward_raw(token_ids)? };
 
         tracing::debug!(
             "MLX FFI forward pass complete: {} tokens -> {} logits",
@@ -158,11 +135,59 @@ impl MLXFFIModel {
     ///
     /// # Returns
     /// Generated text
-    pub fn generate(&self, prompt: &str, _max_tokens: usize) -> Result<String> {
-        // For now, return a placeholder implementation
-        // Full implementation would require tokenization and generation loop
-        tracing::warn!("MLX FFI generate() not yet implemented, returning placeholder");
-        Ok(format!("[MLX FFI placeholder for: {}]", prompt))
+    pub fn generate(&self, prompt: &str, max_tokens: usize) -> Result<String> {
+        if max_tokens == 0 {
+            return Err(AosError::Validation(
+                "max_tokens must be greater than zero".to_string(),
+            ));
+        }
+
+        let tokenizer = SimpleTokenizer::new(self.config.vocab_size);
+        let mut tokens = tokenizer.encode(prompt)?;
+        if tokens.is_empty() {
+            return Err(AosError::Validation(
+                "Prompt did not produce any tokens".to_string(),
+            ));
+        }
+
+        if tokens.len() >= self.config.max_position_embeddings {
+            return Err(AosError::Validation(format!(
+                "Prompt exceeds maximum context window ({} >= {})",
+                tokens.len(),
+                self.config.max_position_embeddings
+            )));
+        }
+
+        let prompt_len = tokens.len();
+        let vocab_size = self.config.vocab_size;
+        let max_context = self.config.max_position_embeddings;
+
+        let generated_ids = run_generation_loop(
+            &tokenizer,
+            tokens,
+            max_tokens,
+            vocab_size,
+            max_context,
+            |current_tokens| {
+                let (logits, hidden_states) = self.forward_with_hidden_states(current_tokens)?;
+                tracing::trace!(
+                    "generation_step",
+                    tokens = current_tokens.len(),
+                    logits = logits.len(),
+                    hidden_modules = hidden_states.len()
+                );
+                Ok((logits, hidden_states.len()))
+            },
+        )?;
+
+        let text = tokenizer.decode(&generated_ids)?;
+        tracing::info!(
+            "MLX FFI generation finished: {} prompt tokens -> {} generated tokens",
+            prompt_len,
+            generated_ids.len()
+        );
+
+        Ok(text)
     }
 
     /// Run forward pass with hidden states using FFI
@@ -175,20 +200,112 @@ impl MLXFFIModel {
     pub fn forward_with_hidden_states(
         &self,
         token_ids: &[u32],
-    ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
-        // For now, just run forward pass and return empty hidden states
-        // Full implementation would require model modifications to expose intermediate activations
-        let logits = self.forward(token_ids, 0)?;
-        let hidden_states = std::collections::HashMap::new();
+    ) -> Result<(Vec<f32>, HashMap<String, Vec<f32>>)> {
+        if token_ids.is_empty() {
+            return Err(AosError::Validation(
+                "forward_with_hidden_states requires at least one token".to_string(),
+            ));
+        }
 
-        tracing::debug!(
-            "MLX FFI forward with hidden states: {} tokens -> {} logits, {} hidden state modules",
-            token_ids.len(),
-            logits.len(),
-            hidden_states.len()
-        );
+        let mut hidden_states = HashMap::new();
 
-        Ok((logits, hidden_states))
+        unsafe {
+            mlx_clear_error();
+            let token_ints: Vec<i32> = token_ids.iter().map(|&id| id as i32).collect();
+            let input_array = mlx_array_from_ints(token_ints.as_ptr(), token_ints.len() as i32);
+            if input_array.is_null() {
+                return Err(AosError::Mlx(last_mlx_error(
+                    "Failed to create input array",
+                )));
+            }
+
+            let mut hidden_ptr: *mut *mut mlx_array_t = std::ptr::null_mut();
+            let mut hidden_len: i32 = 0;
+            let logits_array = mlx_model_forward_with_hidden_states(
+                self.model,
+                input_array,
+                &mut hidden_ptr,
+                &mut hidden_len,
+            );
+
+            if logits_array.is_null() {
+                mlx_array_free(input_array);
+                return Err(AosError::Mlx(last_mlx_error(
+                    "Failed to run model forward with hidden states",
+                )));
+            }
+
+            let logits_result = extract_array(logits_array);
+
+            if !hidden_ptr.is_null() && hidden_len > 0 {
+                let modules = module_names();
+                let hidden_slices = std::slice::from_raw_parts(hidden_ptr, hidden_len as usize);
+                for (idx, &array_ptr) in hidden_slices.iter().enumerate() {
+                    if array_ptr.is_null() {
+                        continue;
+                    }
+
+                    match extract_array(array_ptr) {
+                        Ok(values) => {
+                            let name = modules
+                                .get(idx)
+                                .cloned()
+                                .unwrap_or_else(|| format!("hidden_{}", idx));
+                            hidden_states.insert(name, values);
+                        }
+                        Err(err) => {
+                            tracing::warn!("Failed to extract hidden state {}: {}", idx, err);
+                        }
+                    }
+                }
+
+                libc::free(hidden_ptr as *mut libc::c_void);
+            }
+
+            mlx_array_free(input_array);
+
+            let logits = match logits_result {
+                Ok(values) => values,
+                Err(err) => return Err(err),
+            };
+
+            tracing::debug!(
+                "MLX FFI forward with hidden states: {} tokens -> {} logits, {} hidden state modules",
+                token_ids.len(),
+                logits.len(),
+                hidden_states.len()
+            );
+
+            return Ok((logits, hidden_states));
+        }
+    }
+
+    unsafe fn forward_raw(&self, token_ids: &[u32]) -> Result<Vec<f32>> {
+        mlx_clear_error();
+        let token_ints: Vec<i32> = token_ids.iter().map(|&id| id as i32).collect();
+        let input_array = mlx_array_from_ints(token_ints.as_ptr(), token_ints.len() as i32);
+        if input_array.is_null() {
+            return Err(AosError::Mlx(last_mlx_error(
+                "Failed to create input array",
+            )));
+        }
+
+        let output_array = mlx_model_forward(self.model, input_array);
+        if output_array.is_null() {
+            mlx_array_free(input_array);
+            return Err(AosError::Mlx(last_mlx_error("Failed to run model forward")));
+        }
+
+        let result = match extract_array(output_array) {
+            Ok(values) => values,
+            Err(err) => {
+                mlx_array_free(input_array);
+                return Err(err);
+            }
+        };
+
+        mlx_array_free(input_array);
+        Ok(result)
     }
 
     /// Get model configuration
@@ -211,35 +328,51 @@ impl Drop for MLXFFIModel {
 unsafe impl Send for MLXFFIModel {}
 unsafe impl Sync for MLXFFIModel {}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_model_config_parsing() {
-        let config_json = r#"
-        {
-            "hidden_size": 4096,
-            "num_hidden_layers": 32,
-            "num_attention_heads": 32,
-            "num_key_value_heads": 8,
-            "intermediate_size": 11008,
-            "vocab_size": 32000,
-            "max_position_embeddings": 32768,
-            "rope_theta": 10000.0
+fn last_mlx_error(default: &str) -> String {
+    unsafe {
+        let error_msg = mlx_get_last_error();
+        if error_msg.is_null() {
+            default.to_string()
+        } else {
+            CStr::from_ptr(error_msg).to_string_lossy().into_owned()
         }
-        "#;
-
-        let config: ModelConfig = serde_json::from_str(config_json).unwrap();
-        assert_eq!(config.hidden_size, 4096);
-        assert_eq!(config.num_hidden_layers, 32);
-        assert_eq!(config.rope_theta, 10000.0);
-    }
-
-    #[test]
-    #[ignore] // Requires MLX model
-    fn test_model_loading() {
-        // This test would require a real MLX model
-        // Skipped for now
     }
 }
+
+unsafe fn extract_array(array: *mut mlx_array_t) -> Result<Vec<f32>> {
+    if array.is_null() {
+        return Err(AosError::Mlx("MLX array pointer is null".to_string()));
+    }
+
+    let size = mlx_array_size(array);
+    if size <= 0 {
+        mlx_array_free(array);
+        return Err(AosError::Mlx("MLX array has non-positive size".to_string()));
+    }
+
+    let data = mlx_array_data(array);
+    if data.is_null() {
+        mlx_array_free(array);
+        return Err(AosError::Mlx("MLX array data pointer is null".to_string()));
+    }
+
+    let slice = std::slice::from_raw_parts(data, size as usize);
+    let result = slice.to_vec();
+    mlx_array_free(array);
+    Ok(result)
+}
+
+fn module_names() -> &'static [&'static str] {
+    &[
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    ]
+}
+
+#[cfg(test)]
+mod tests;
