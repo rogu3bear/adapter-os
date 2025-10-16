@@ -42,6 +42,7 @@ pub mod adapter_hotswap;
 pub mod backend_factory;
 pub mod base_model_state;
 pub mod contact_discovery;
+pub mod coreml_converter;
 pub mod deadlock;
 pub mod deterministic_rng;
 pub mod embeddings;
@@ -49,6 +50,7 @@ pub mod evidence;
 pub mod generation;
 pub mod health;
 pub mod inference_pipeline;
+pub mod ios_deployment;
 pub mod kvcache;
 pub mod launcher;
 pub mod limiter;
@@ -56,6 +58,7 @@ pub mod linter_runner;
 pub mod llm_backend;
 pub mod memory;
 pub mod metrics;
+pub mod mlx_converter;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
@@ -70,10 +73,18 @@ pub use adapteros_lora_rag::DocIndexImpl;
 pub use adapteros_lora_rag::SymbolIndexImpl;
 pub use adapteros_lora_rag::TestIndexImpl;
 pub use backend_factory::{create_backend, BackendChoice};
+pub use coreml_converter::{
+    convert_to_coreml, ComputeUnits, CoremlConversionConfig, CoremlConversionManifest,
+    CoremlConversionReport, QuantizationPrecision,
+};
 pub use deadlock::{DeadlockConfig, DeadlockDetector};
 pub use deterministic_rng::{DeterministicRng, RngFactory};
 pub use generation::Generator;
 pub use health::{HealthConfig, HealthMonitor, HealthStatus};
+pub use ios_deployment::{
+    generate_deployment_manifest, prepare_offline_bundle, validate_app_store_compliance,
+    DeploymentManifest, IosDeploymentConfig,
+};
 pub use kvcache::KvCache;
 pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits};
 pub use linter_runner::{
@@ -81,6 +92,10 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::MemoryMonitor;
+pub use mlx_converter::{
+    convert_to_mlx, MlxConversionConfig, MlxConversionManifest, MlxConversionReport,
+    QuantizationConfig as MlxQuantizationConfig, QuantizationScheme, SourceFormat,
+};
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
 pub use timeout::{CircuitBreaker, CircuitState, TimeoutConfig, TimeoutWrapper};
 pub use training::{

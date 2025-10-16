@@ -6,6 +6,11 @@
 //! - Improved threadgroup memory usage
 //! - Enhanced compute shader features
 
+use crate::compute_shaders::{
+    ComputeShaderDescriptor, ComputeShaderRegistry, ShaderExecutionStats,
+};
+use crate::memory_barriers::{BarrierAction, MemoryBarrierPlanner, ResourceStats};
+use crate::threadgroup::{ThreadgroupAllocation, ThreadgroupMemoryPlanner};
 use adapteros_core::Result;
 use metal::foreign_types::ForeignType;
 use metal::*;
@@ -143,6 +148,14 @@ pub struct Metal3xCommandBuffer {
     features: Metal3xFeatures,
     /// Performance counters
     performance_counters: PerformanceCounters,
+    /// Memory barrier planner for advanced synchronization
+    barrier_planner: MemoryBarrierPlanner,
+    /// Pending barrier actions to apply before dispatch
+    pending_barriers: Vec<BarrierAction>,
+    /// Threadgroup memory planner for deterministic offsets
+    threadgroup_planner: ThreadgroupMemoryPlanner,
+    /// Registry of compute shaders dispatched through this command buffer
+    shader_registry: ComputeShaderRegistry,
 }
 
 /// Performance counters for Metal 3.x operations
@@ -165,6 +178,10 @@ impl Metal3xCommandBuffer {
             command_buffer,
             features,
             performance_counters: PerformanceCounters::default(),
+            barrier_planner: MemoryBarrierPlanner::new(),
+            pending_barriers: Vec::new(),
+            threadgroup_planner: ThreadgroupMemoryPlanner::new(128 * 1024),
+            shader_registry: ComputeShaderRegistry::new(),
         }
     }
 
@@ -202,6 +219,11 @@ impl Metal3xCommandBuffer {
     pub fn commit(&mut self) {
         let start_time = std::time::Instant::now();
 
+        // Drain any remaining barriers so counters stay consistent.
+        let drained = self.barrier_planner.take_pending_actions();
+        self.performance_counters.memory_barriers += drained.len() as u64;
+        self.pending_barriers.extend(drained);
+
         self.command_buffer.commit();
 
         let execution_time = start_time.elapsed();
@@ -218,6 +240,70 @@ impl Metal3xCommandBuffer {
     /// Get performance counters
     pub fn performance_counters(&self) -> &PerformanceCounters {
         &self.performance_counters
+    }
+
+    /// Record a buffer read, computing any necessary barriers.
+    pub fn record_buffer_read(&mut self, resource_id: &str) {
+        self.barrier_planner.record_read(resource_id.to_string());
+        self.enqueue_pending_barriers();
+    }
+
+    /// Record a buffer write access.
+    pub fn record_buffer_write(&mut self, resource_id: &str) {
+        self.barrier_planner.record_write(resource_id.to_string());
+        self.enqueue_pending_barriers();
+    }
+
+    fn enqueue_pending_barriers(&mut self) {
+        let pending = self.barrier_planner.take_pending_actions();
+        self.performance_counters.memory_barriers += pending.len() as u64;
+        self.pending_barriers.extend(pending);
+    }
+
+    /// Retrieve pending barriers for application by the caller.
+    pub fn take_pending_barriers(&mut self) -> Vec<BarrierAction> {
+        std::mem::take(&mut self.pending_barriers)
+    }
+
+    /// Inspect resource statistics accumulated by the planner.
+    pub fn resource_stats(&self, resource_id: &str) -> Option<ResourceStats> {
+        self.barrier_planner.stats(resource_id)
+    }
+
+    /// Allocate threadgroup memory for an upcoming kernel.
+    pub fn allocate_threadgroup_memory(
+        &mut self,
+        label: impl Into<String>,
+        size: usize,
+        alignment: usize,
+    ) -> Result<ThreadgroupAllocation> {
+        self.threadgroup_planner.allocate(label, size, alignment)
+    }
+
+    /// Reset threadgroup planner to reuse memory layout across dispatches.
+    pub fn reset_threadgroup_planner(&mut self) {
+        self.threadgroup_planner.reset();
+    }
+
+    /// Register a compute shader descriptor with the registry.
+    pub fn register_shader(&mut self, descriptor: ComputeShaderDescriptor) -> Result<()> {
+        self.shader_registry.register(descriptor)
+    }
+
+    /// Record a compute dispatch and update telemetry.
+    pub fn record_compute_dispatch(
+        &mut self,
+        shader_name: &str,
+        workgroups: (u32, u32, u32),
+    ) -> Result<()> {
+        self.performance_counters.compute_commands += 1;
+        self.shader_registry
+            .record_dispatch(shader_name, workgroups)
+    }
+
+    /// Retrieve shader statistics.
+    pub fn shader_stats(&self, shader_name: &str) -> Option<&ShaderExecutionStats> {
+        self.shader_registry.stats(shader_name)
     }
 }
 

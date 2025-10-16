@@ -19,23 +19,31 @@ pub mod fused_mlp;
 pub mod fused_qkv;
 pub mod keys;
 pub mod layout;
+pub mod compute_shaders;
 pub mod manifest;
 pub mod metal3x;
+pub mod memory_barriers;
 pub mod mplora;
 pub mod noise_tracker;
 pub mod recovery;
 pub mod ring_buffer;
+pub mod threadgroup;
 pub mod vram;
 
+pub use compute_shaders::{
+    ComputeShaderDescriptor, ComputeShaderRegistry, ResourceBinding, ShaderExecutionStats,
+};
 pub use debug::{KernelDebugger, KernelParams};
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
 pub use layout::LayoutValidator;
 pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use mplora::MploraKernel;
+pub use memory_barriers::{AccessType as BarrierAccessType, BarrierAction, BarrierScope, MemoryBarrierPlanner};
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
 pub use recovery::RecoveryWrapper;
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
+pub use threadgroup::{ThreadgroupAllocation, ThreadgroupMemoryPlanner};
 pub use vram::VramTracker;
 
 /// Embedding dimensions for Metal inference
