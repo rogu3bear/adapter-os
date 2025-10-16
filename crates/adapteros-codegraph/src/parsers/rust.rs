@@ -6,8 +6,21 @@
 use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
+use std::ffi::c_void;
+use std::mem;
 use std::path::Path;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
+
+fn language_from_ptr(ptr: *const c_void) -> TSLanguage {
+    assert!(!ptr.is_null(), "tree_sitter_rust returned null language");
+    unsafe { mem::transmute::<*const c_void, TSLanguage>(ptr) }
+}
+
+fn rust_language() -> TSLanguage {
+    let lang = tree_sitter_rust::language();
+    let raw = unsafe { mem::transmute::<_, *const c_void>(lang) };
+    language_from_ptr(raw)
+}
 
 /// Rust-specific parser implementation
 pub struct RustParser {
@@ -41,7 +54,7 @@ impl RustParser {
     /// Create a new Rust parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let rust_lang = tree_sitter_rust::language();
+        let rust_lang = rust_language();
 
         parser
             .set_language(rust_lang)

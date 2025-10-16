@@ -3,8 +3,10 @@
 pub mod calibration;
 pub mod code_features;
 pub mod features;
+pub mod framework_routing;
 pub mod metrics;
 pub mod orthogonal;
+pub mod path_routing;
 pub mod scoring;
 
 use adapteros_core::Result;
@@ -17,11 +19,15 @@ pub use calibration::{
 };
 pub use code_features::{CodeFeatureExtractor, CodeFeatures as CodeFeaturesExt};
 pub use features::{extract_attn_entropy, CodeFeatures, PromptVerb};
+pub use framework_routing::{
+    compute_framework_scores, FrameworkRoutingContext, FrameworkRoutingScore,
+};
 pub use metrics::{
     AdapterMetrics, MemoryMetrics, MemoryPressure, RouterMonitoringMetrics, RouterOverheadMetrics,
     ThroughputMetrics,
 };
 pub use orthogonal::OrthogonalConstraints;
+pub use path_routing::{compute_path_scores, DirectoryRoutingContext, PathRoutingScore};
 pub use scoring::{create_scorer, EntropyFloorScorer, ScoringFunction, WeightedScorer};
 
 /// Router weights for feature importance
@@ -200,6 +206,28 @@ impl Router {
     /// Set full log token count
     pub fn set_full_log_tokens(&mut self, count: usize) {
         self.full_log_tokens = count;
+    }
+
+    /// Score framework adapters using the configured framework weight.
+    pub fn score_frameworks(
+        &self,
+        query: &str,
+        contexts: &[framework_routing::FrameworkRoutingContext],
+    ) -> Vec<framework_routing::FrameworkRoutingScore> {
+        framework_routing::compute_framework_scores(
+            query,
+            contexts,
+            self.feature_weights.framework_weight,
+        )
+    }
+
+    /// Score directory adapters using the configured path weight.
+    pub fn score_paths(
+        &self,
+        query: &str,
+        contexts: &[path_routing::DirectoryRoutingContext],
+    ) -> Vec<path_routing::PathRoutingScore> {
+        path_routing::compute_path_scores(query, contexts, self.feature_weights.path_tokens_weight)
     }
 
     /// Enable orthogonal constraints for MPLoRA

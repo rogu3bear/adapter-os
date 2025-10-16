@@ -6,13 +6,22 @@
 use crate::types::{Span, SymbolKind, SymbolNode, SymbolId, Visibility};
 use adapteros_core::{AosError, Result};
 use std::collections::BTreeMap;
+use std::ffi::c_void;
+use std::mem;
 use std::path::{Path, PathBuf};
 use tree_sitter::{Language, Parser, Query, QueryCursor};
 use walkdir::WalkDir;
 
 /// Rust language definition
-extern "C" {
-    fn tree_sitter_rust() -> Language;
+fn language_from_ptr(ptr: *const c_void) -> Language {
+    assert!(!ptr.is_null(), "tree_sitter_rust returned null language");
+    unsafe { mem::transmute::<*const c_void, Language>(ptr) }
+}
+
+fn rust_language() -> Language {
+    let lang = tree_sitter_rust::language();
+    let raw = unsafe { mem::transmute::<_, *const c_void>(lang) };
+    language_from_ptr(raw)
 }
 
 /// Result of parsing a source file
@@ -48,7 +57,7 @@ impl CodeParser {
     /// Create a new code parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let rust_lang = unsafe { tree_sitter_rust() };
+        let rust_lang = rust_language();
         
         parser.set_language(rust_lang)
             .map_err(|e| AosError::Parsing(format!("Failed to set Rust language: {}", e)))?;
