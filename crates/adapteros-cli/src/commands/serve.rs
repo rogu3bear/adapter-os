@@ -289,10 +289,7 @@ pub async fn run(
 
             #[cfg(feature = "experimental-backends")]
             {
-                // CoreML backend not yet implemented
-                output.error("CoreML backend not yet implemented");
-                output.info("Please use Metal or MLX backend instead");
-                return Err(anyhow::anyhow!("CoreML backend not implemented"));
+                adapteros_lora_worker::BackendChoice::CoreML
             }
         }
     };

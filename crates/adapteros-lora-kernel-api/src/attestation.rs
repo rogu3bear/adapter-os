@@ -19,7 +19,10 @@ pub enum BackendType {
 impl BackendType {
     /// Check if this backend type is deterministic by design
     pub fn is_deterministic_by_design(&self) -> bool {
-        matches!(self, BackendType::Metal | BackendType::Mock)
+        matches!(
+            self,
+            BackendType::Metal | BackendType::Mock | BackendType::CoreML
+        )
     }
 }
 

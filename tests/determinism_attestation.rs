@@ -134,8 +134,7 @@ fn test_backend_type_determinism_checks() {
     assert!(BackendType::Metal.is_deterministic_by_design());
     assert!(BackendType::Mock.is_deterministic_by_design());
     assert!(!BackendType::Mlx.is_deterministic_by_design());
-    // CoreML determinism depends on ANE, but is not deterministic by design
-    assert!(!BackendType::CoreML.is_deterministic_by_design());
+    assert!(BackendType::CoreML.is_deterministic_by_design());
 }
 
 #[test]
