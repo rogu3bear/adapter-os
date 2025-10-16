@@ -14,3 +14,9 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+regex = "1"
+
+[dev-dependencies]
+tempfile = { workspace = true }
