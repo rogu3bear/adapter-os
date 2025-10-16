@@ -1,24 +1,18 @@
-//! Output formatting utilities with CI detection
-//!
-//! Provides consistent output formatting across all CLI commands,
-//! with automatic quiet mode when running in CI environments.
-
-use std::env;
-
-/// Output mode for CLI commands
+use crate::cli_telemetry;
+use std::{
+    env, fmt,
+    io::{self, Write},
+    sync::{Arc, Mutex},
+};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
-    /// Standard text output
     Text,
-    /// JSON formatted output
     Json,
-    /// Quiet mode - minimal output
     Quiet,
 }
 
 impl OutputMode {
-    /// Detect output mode from environment
-    #[allow(dead_code)] // TODO: Implement environment detection in future iteration
+    #[allow(dead_code)]
     pub fn from_env() -> Self {
         if is_ci() {
             Self::Quiet
@@ -27,7 +21,6 @@ impl OutputMode {
         }
     }
 
-    /// Create output mode from flags
     pub fn from_flags(json: bool, quiet: bool) -> Self {
         if json {
             Self::Json
@@ -38,201 +31,278 @@ impl OutputMode {
         }
     }
 
-    /// Check if mode is text (verbose)
-    pub fn is_verbose(&self) -> bool {
+    pub fn is_verbose(self) -> bool {
         matches!(self, Self::Text)
     }
-
-    /// Check if mode is quiet
-    pub fn is_quiet(&self) -> bool {
+    pub fn is_quiet(self) -> bool {
         matches!(self, Self::Quiet)
     }
-
-    /// Check if mode is JSON
-    pub fn is_json(&self) -> bool {
+    pub fn is_json(self) -> bool {
         matches!(self, Self::Json)
     }
 }
 
-/// Output writer that handles different output formats
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusLine {
+    InProgress,
+    Success,
+    Failure,
+    Skipped,
+}
+
+impl StatusLine {
+    fn icon(self) -> &'static str {
+        match self {
+            Self::InProgress => "…",
+            Self::Success => "✓",
+            Self::Failure => "✗",
+            Self::Skipped => "⏭",
+        }
+    }
+}
+
 pub struct OutputWriter {
     mode: OutputMode,
     verbose: bool,
+    command: Option<String>,
+    tenant: Option<String>,
+    stdout: Arc<Mutex<Box<dyn Write + Send>>>,
+    stderr: Arc<Mutex<Box<dyn Write + Send>>>,
+}
+
+impl fmt::Debug for OutputWriter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OutputWriter")
+            .field("mode", &self.mode)
+            .field("verbose", &self.verbose)
+            .field("command", &self.command)
+            .field("tenant", &self.tenant)
+            .finish()
+    }
+}
+
+impl Clone for OutputWriter {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode,
+            verbose: self.verbose,
+            command: self.command.clone(),
+            tenant: self.tenant.clone(),
+            stdout: Arc::clone(&self.stdout),
+            stderr: Arc::clone(&self.stderr),
+        }
+    }
 }
 
 impl OutputWriter {
-    /// Create a new output writer
     pub fn new(mode: OutputMode, verbose: bool) -> Self {
-        Self { mode, verbose }
+        Self::with_streams(mode, verbose, io::stdout(), io::stderr())
     }
-
-    /// Get the output mode
+    pub fn with_streams<O, E>(mode: OutputMode, verbose: bool, stdout: O, stderr: E) -> Self
+    where
+        O: Write + Send + 'static,
+        E: Write + Send + 'static,
+    {
+        Self {
+            mode,
+            verbose,
+            command: None,
+            tenant: None,
+            stdout: Arc::new(Mutex::new(Box::new(stdout))),
+            stderr: Arc::new(Mutex::new(Box::new(stderr))),
+        }
+    }
+    pub fn set_command(&mut self, command: impl Into<String>) {
+        self.command = Some(command.into());
+    }
+    pub fn set_tenant(&mut self, tenant: Option<impl Into<String>>) {
+        self.tenant = tenant.map(Into::into);
+    }
     pub fn mode(&self) -> OutputMode {
         self.mode
     }
-
-    /// Check if verbose flag is set
     pub fn is_verbose(&self) -> bool {
         self.verbose || self.mode.is_verbose()
     }
-
-    /// Check if quiet mode
     pub fn is_quiet(&self) -> bool {
         self.mode.is_quiet()
     }
-
-    /// Print a progress message (suppressed in quiet/json mode)
+    pub fn is_json(&self) -> bool {
+        self.mode.is_json()
+    }
     pub fn progress(&self, msg: impl AsRef<str>) {
-        if self.is_verbose() && !self.mode.is_json() {
-            println!("  {}", msg.as_ref());
-        }
+        self.emit_verbose(format!("  {}", msg.as_ref()));
     }
 
-    /// Print a progress completion message
     pub fn progress_done(&self, success: bool) {
-        if self.is_verbose() && !self.mode.is_json() {
-            if success {
-                println!("  ✓ Done");
-            } else {
-                println!("  ✗ Failed");
-            }
-        }
+        self.emit_verbose(if success {
+            "  ✓ Done"
+        } else {
+            "  ✗ Failed"
+        });
     }
 
-    /// Print verbose message (only in verbose mode)
     pub fn verbose(&self, msg: impl AsRef<str>) {
-        if self.is_verbose() && !self.mode.is_json() {
-            println!("  {}", msg.as_ref());
-        }
+        self.emit_verbose(format!("  {}", msg.as_ref()));
     }
 
-    /// Print a blank line
     pub fn blank(&self) {
-        if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!();
-        }
+        self.emit_text("");
     }
 
-    /// Print a success message (suppressed in quiet/json mode)
     pub fn success(&self, msg: impl AsRef<str>) {
-        if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("✓ {}", msg.as_ref());
-        }
+        self.emit_text(format!("✓ {}", msg.as_ref()));
     }
-
-    /// Print a result message (always shown unless JSON)
     pub fn result(&self, msg: impl AsRef<str>) {
-        if !self.mode.is_json() {
-            println!("{}", msg.as_ref());
+        if !self.is_json() {
+            self.write_stdout(msg);
         }
     }
 
-    /// Print an error message (always shown)
     pub fn error(&self, msg: impl AsRef<str>) {
-        eprintln!("❌ {}", msg.as_ref());
+        self.write_stderr(format!("❌ {}", msg.as_ref()));
     }
 
-    /// Print a warning message (always shown unless quiet)
     pub fn warning(&self, msg: impl AsRef<str>) {
-        if !self.mode.is_quiet() {
-            eprintln!("⚠️  {}", msg.as_ref());
+        if !self.is_quiet() {
+            self.write_stderr(format!("⚠️  {}", msg.as_ref()));
         }
     }
-
-    /// Print a fatal error with code and exit
     pub fn fatal_with_code(&mut self, code: &str, msg: &str) -> ! {
         let event_id = self.emit_cli_error(code, msg);
-        self.error(&format!(
+        self.error(format!(
             "{} – see: aosctl explain {} (event: {})",
             msg, code, event_id
         ));
         std::process::exit(20);
     }
 
-    /// Emit CLI error event and return event ID
-    fn emit_cli_error(&self, _code: &str, _msg: &str) -> String {
-        // Call into mplora-telemetry if linked; else return "-"
-        // For now, return placeholder since we can't do async here
-        // In a real implementation, this would be handled differently
-        "-".to_string()
+    fn emit_cli_error(&self, code: &str, msg: &str) -> String {
+        let command = self.command.as_deref().unwrap_or("unknown");
+        let tenant = self.tenant.as_deref();
+        let fut = cli_telemetry::emit_cli_error(Some(code), command, tenant, msg);
+
+        let handle_result = |res: anyhow::Result<String>| {
+            res.unwrap_or_else(|err| {
+                tracing::error!(error = %err, "failed to emit telemetry");
+                "-".to_string()
+            })
+        };
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(async { handle_result(fut.await) }),
+            Err(_) => tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map(|rt| rt.block_on(async { handle_result(fut.await) }))
+                .unwrap_or_else(|err| {
+                    tracing::error!(error = %err, "failed to create telemetry runtime");
+                    "-".to_string()
+                }),
+        }
     }
 
-    /// Print a section header
     pub fn section(&self, title: impl AsRef<str>) {
-        let title = title.as_ref();
         if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("\n🔧 {}", title);
-            println!("{}", "─".repeat(title.len() + 3));
+            let title = title.as_ref();
+            self.write_stdout("");
+            self.write_stdout(format!("🔧 {}", title));
+            self.write_stdout("─".repeat(title.len() + 3));
         }
     }
-
-    /// Print an info message
     pub fn info(&self, msg: impl AsRef<str>) {
-        if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("ℹ️  {}", msg.as_ref());
-        }
+        self.emit_text(format!("ℹ️  {}", msg.as_ref()));
     }
-
-    /// Print key-value pair
     pub fn kv(&self, key: &str, value: &str) {
-        if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("  {}: {}", key, value);
-        }
+        self.emit_text(format!("  {}: {}", key, value));
     }
-
-    /// Check if output mode is JSON
-    pub fn is_json(&self) -> bool {
-        self.mode.is_json()
-    }
-
-    /// Output JSON data
     pub fn json<T: serde::Serialize>(&self, data: &T) -> Result<(), serde_json::Error> {
-        if self.mode.is_json() {
-            println!("{}", serde_json::to_string_pretty(data)?);
+        if self.is_json() {
+            self.write_stdout(serde_json::to_string_pretty(data)?);
         }
         Ok(())
     }
-
-    /// Print a simple message
     pub fn print(&self, msg: impl AsRef<str>) {
-        if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("{}", msg.as_ref());
-        }
+        self.emit_text(msg);
     }
 
-    /// Print a table (simplified implementation)
     pub fn table<T: serde::Serialize>(
         &self,
-        _table: &dyn std::fmt::Display,
+        table: &dyn fmt::Display,
         json_data: Option<&T>,
     ) -> Result<(), serde_json::Error> {
         if let Some(data) = json_data {
             self.json(data)?;
         } else if !self.mode.is_quiet() && !self.mode.is_json() {
-            // For now, just print a placeholder message
-            println!("Table output not yet implemented");
+            self.write_stdout(table.to_string());
         }
         Ok(())
     }
+
+    pub fn status(&self, label: impl AsRef<str>, state: StatusLine) {
+        self.emit_text(format!("{} {}", state.icon(), label.as_ref()));
+    }
+
+    pub fn progress_with_status(&self, current: usize, total: usize, label: impl AsRef<str>) {
+        if self.is_verbose() && !self.mode.is_json() && total > 0 {
+            let pct = ((current * 100) / total).min(100);
+            self.emit_verbose(format!("  [{:>3}%] {}", pct, label.as_ref()));
+        }
+    }
+
+    pub fn bullet_list<I, S>(&self, items: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        if !self.mode.is_quiet() && !self.mode.is_json() {
+            for item in items {
+                self.write_stdout(format!("  • {}", item.as_ref()));
+            }
+        }
+    }
+
+    fn emit_text<S: AsRef<str>>(&self, msg: S) {
+        if !self.mode.is_quiet() && !self.mode.is_json() {
+            self.write_stdout(msg);
+        }
+    }
+
+    fn emit_verbose<S: AsRef<str>>(&self, msg: S) {
+        if self.is_verbose() && !self.mode.is_json() {
+            self.write_stdout(msg);
+        }
+    }
+
+    fn write_stdout<S: AsRef<str>>(&self, msg: S) {
+        if let Ok(mut guard) = self.stdout.lock() {
+            let _ = writeln!(guard, "{}", msg.as_ref());
+        }
+    }
+    fn write_stderr<S: AsRef<str>>(&self, msg: S) {
+        if let Ok(mut guard) = self.stderr.lock() {
+            let _ = writeln!(guard, "{}", msg.as_ref());
+        }
+    }
 }
 
-/// Detect if running in CI environment
-#[allow(dead_code)] // TODO: Implement CI detection in future iteration
+#[allow(dead_code)]
 pub fn is_ci() -> bool {
-    // Check common CI environment variables
     env::var("CI")
-        .map(|v| v == "true" || v == "1")
+        .map(|v| matches!(v.as_str(), "true" | "1"))
         .unwrap_or(false)
-        || env::var("GITHUB_ACTIONS").is_ok()
-        || env::var("JENKINS_URL").is_ok()
-        || env::var("CIRCLECI").is_ok()
-        || env::var("TRAVIS").is_ok()
-        || env::var("GITLAB_CI").is_ok()
-        || env::var("BUILDKITE").is_ok()
+        || [
+            "GITHUB_ACTIONS",
+            "JENKINS_URL",
+            "CIRCLECI",
+            "TRAVIS",
+            "GITLAB_CI",
+            "BUILDKITE",
+        ]
+        .into_iter()
+        .any(|key| env::var(key).is_ok())
 }
 
-/// Print a command header (convenience function for legacy code)
 pub fn command_header(mode: &OutputMode, title: &str) {
     if !mode.is_quiet() && !mode.is_json() {
         println!("\n🔧 {}", title);
@@ -240,7 +310,6 @@ pub fn command_header(mode: &OutputMode, title: &str) {
     }
 }
 
-/// Print a progress message (convenience function for legacy code)
 pub fn progress(mode: &OutputMode, msg: &str) {
     if mode.is_verbose() && !mode.is_json() {
         println!("  {}", msg);
@@ -248,37 +317,4 @@ pub fn progress(mode: &OutputMode, msg: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ci_detection() {
-        // This will vary based on test environment
-        // Just ensure it doesn't panic
-        let _ = is_ci();
-    }
-
-    #[test]
-    fn test_output_mode_text() {
-        let mode = OutputMode::Text;
-        assert!(mode.is_verbose());
-        assert!(!mode.is_quiet());
-        assert!(!mode.is_json());
-    }
-
-    #[test]
-    fn test_output_mode_quiet() {
-        let mode = OutputMode::Quiet;
-        assert!(!mode.is_verbose());
-        assert!(mode.is_quiet());
-        assert!(!mode.is_json());
-    }
-
-    #[test]
-    fn test_output_mode_json() {
-        let mode = OutputMode::Json;
-        assert!(!mode.is_verbose());
-        assert!(!mode.is_quiet());
-        assert!(mode.is_json());
-    }
-}
+mod tests;

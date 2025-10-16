@@ -6,18 +6,23 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 struct PinInfo {
+    id: String,
     adapter_id: String,
     tenant_id: String,
     pinned_until: Option<String>,
     reason: String,
+    pinned_by: Option<String>,
 }
 
 #[derive(Serialize)]
 struct PinnedAdapter {
+    id: String,
     adapter_id: String,
-    pinned_until: String,
+    tenant_id: String,
+    pinned_until: Option<String>,
     reason: String,
     pinned_at: String,
+    pinned_by: Option<String>,
 }
 
 /// Pin an adapter to prevent eviction
@@ -34,7 +39,8 @@ pub async fn pin_adapter(
         dt.format("%Y-%m-%d %H:%M:%S").to_string()
     });
 
-    db.pin_adapter(tenant_id, adapter_id, pinned_until.as_deref(), reason, None)
+    let pin_id = db
+        .pin_adapter(tenant_id, adapter_id, pinned_until.as_deref(), reason, None)
         .await?;
 
     if let Some(ttl) = ttl_hours {
@@ -51,10 +57,12 @@ pub async fn pin_adapter(
 
     if output.is_json() {
         let info = PinInfo {
+            id: pin_id,
             adapter_id: adapter_id.to_string(),
             tenant_id: tenant_id.to_string(),
             pinned_until,
             reason: reason.to_string(),
+            pinned_by: None,
         };
         output.json(&info)?;
     }
@@ -100,24 +108,40 @@ pub async fn list_pinned(db: &Db, tenant_id: &str, output: &OutputWriter) -> Res
     let json_data: Vec<PinnedAdapter> = pinned
         .iter()
         .map(|pin| PinnedAdapter {
+            id: pin.id.clone(),
             adapter_id: pin.adapter_id.clone(),
-            pinned_until: pin
-                .pinned_until
-                .clone()
-                .unwrap_or_else(|| "forever".to_string()),
+            tenant_id: pin.tenant_id.clone(),
+            pinned_until: pin.pinned_until.clone(),
             reason: pin.reason.clone(),
             pinned_at: pin.pinned_at.clone(),
+            pinned_by: pin.pinned_by.clone(),
         })
         .collect();
 
     // Prepare table
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
-    table.set_header(vec!["Adapter ID", "Pinned Until", "Reason", "Pinned At"]);
+    table.set_header(vec![
+        "Adapter ID",
+        "Pinned Until",
+        "Reason",
+        "Pinned At",
+        "Pinned By",
+    ]);
 
-    for pin in pinned {
-        let until = pin.pinned_until.unwrap_or_else(|| "forever".to_string());
-        table.add_row(vec![pin.adapter_id, until, pin.reason, pin.pinned_at]);
+    for pin in &pinned {
+        let until = pin
+            .pinned_until
+            .clone()
+            .unwrap_or_else(|| "forever".to_string());
+        let pinned_by = pin.pinned_by.clone().unwrap_or_else(|| "-".to_string());
+        table.add_row(vec![
+            pin.adapter_id.clone(),
+            until,
+            pin.reason.clone(),
+            pin.pinned_at.clone(),
+            pinned_by,
+        ]);
     }
 
     output.section(format!("Pinned adapters for tenant {}", tenant_id));
