@@ -39,15 +39,18 @@ use std::time::Instant;
 use tracing::info;
 
 pub mod adapter_hotswap;
+pub mod anomaly_detection;
 pub mod backend_factory;
 pub mod base_model_state;
 pub mod contact_discovery;
+pub mod conv_pipeline;
 pub mod deadlock;
 pub mod deterministic_rng;
 pub mod directory_adapters;
 pub mod embeddings;
 pub mod ephemeral_adapters;
 pub mod evidence;
+pub mod filter_engine;
 pub mod framework_adapters;
 pub mod generation;
 pub mod health;
@@ -63,20 +66,32 @@ pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
 pub mod signal;
+pub mod telemetry_adapter;
+pub mod telemetry_lora;
 pub mod test_executor;
 pub mod timeout;
 pub mod tokenizer;
 pub mod training;
+pub mod vision_adapter;
+pub mod vision_lora;
 
 pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult, HotSwapManager};
 pub use adapteros_lora_rag::DocIndexImpl;
 pub use adapteros_lora_rag::SymbolIndexImpl;
 pub use adapteros_lora_rag::TestIndexImpl;
+pub use anomaly_detection::{
+    AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
+};
 pub use backend_factory::{create_backend, BackendChoice};
+pub use conv_pipeline::{
+    ActivationKind, ConvPipeline, ConvPipelineConfig, ImageBatch, PoolingStrategy,
+    VisionArchitecture,
+};
 pub use deadlock::{DeadlockConfig, DeadlockDetector};
 pub use deterministic_rng::{DeterministicRng, RngFactory};
 pub use directory_adapters::{DirectoryAdapterManager, DirectoryAdapterSpec, PathActivationRule};
 pub use ephemeral_adapters::{EphemeralAdapterManager, EphemeralAdapterSpec};
+pub use filter_engine::{FilterConfig, FilterEngine, FilterKind};
 pub use framework_adapters::{FrameworkAdapterManager, FrameworkAdapterSpec};
 pub use generation::Generator;
 pub use health::{HealthConfig, HealthMonitor, HealthStatus};
@@ -87,12 +102,26 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::MemoryMonitor;
+pub use telemetry_adapter::{
+    SignalChannel, SignalSample, TelemetryAdapter, TelemetryAdapterConfig, TelemetryAdapterMetrics,
+    TelemetryOutput,
+};
+pub use telemetry_lora::{
+    load_telemetry_lora, TelemetryLoraRegistry, TelemetryLoraWeights, TelemetryMergePlan,
+    TelemetryTask,
+};
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
 pub use timeout::{CircuitBreaker, CircuitState, TimeoutConfig, TimeoutWrapper};
 pub use training::{
     AdapterManifest, AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights,
     MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingConfig, TrainingExample,
     TrainingResult,
+};
+pub use vision_adapter::{
+    ColorSpace, VisionAdapter, VisionAdapterConfig, VisionAdapterMetrics, VisionBatch,
+};
+pub use vision_lora::{
+    load_vision_lora, VisionLoraRegistry, VisionLoraWeights, VisionMergePlan, VisionTask,
 };
 
 /// Inference request
