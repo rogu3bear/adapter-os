@@ -252,9 +252,10 @@ async fn test_serve_integration() -> Result<()> {
 
     let result = run_aosctl_command(args).await;
     assert!(result.is_err(), "Should fail with missing plan");
+    let error_msg = result.unwrap_err().to_string();
     assert!(
-        result.unwrap_err().to_string().contains("not found")
-            || result.unwrap_err().to_string().contains("directory")
+        error_msg.contains("not found")
+            || error_msg.contains("directory")
     );
 
     println!("   ✓ Missing plan correctly rejected");
