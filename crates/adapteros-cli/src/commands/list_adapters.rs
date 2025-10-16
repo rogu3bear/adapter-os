@@ -12,7 +12,8 @@ struct AdapterInfo {
     hash: String,
     tier: String,
     rank: u32,
-    activation_pct: f64,
+    activation_pct: f32,
+    registered_at: String,
 }
 
 pub async fn run(tier: Option<&str>, output: &OutputWriter) -> Result<()> {
@@ -38,14 +39,22 @@ pub async fn run(tier: Option<&str>, output: &OutputWriter) -> Result<()> {
             hash: adapter.hash.to_string(),
             tier: adapter.tier.clone(),
             rank: adapter.rank,
-            activation_pct: adapter.activation_pct as f64,
+            activation_pct: adapter.activation_pct,
+            registered_at: adapter.registered_at.clone(),
         })
         .collect();
 
     // Prepare table
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
-    table.set_header(vec!["ID", "Hash", "Tier", "Rank", "Activation %"]);
+    table.set_header(vec![
+        "ID",
+        "Hash",
+        "Tier",
+        "Rank",
+        "Activation %",
+        "Registered",
+    ]);
 
     for adapter in &filtered {
         table.add_row(vec![
@@ -53,7 +62,8 @@ pub async fn run(tier: Option<&str>, output: &OutputWriter) -> Result<()> {
             adapter.hash.to_string(),
             adapter.tier.clone(),
             adapter.rank.to_string(),
-            format!("{:.2}", adapter.activation_pct),
+            format!("{:.2}%", adapter.activation_pct),
+            adapter.registered_at.clone(),
         ]);
     }
 
