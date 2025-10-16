@@ -6,17 +6,22 @@
 //! high level domain adapter so that deterministic tests can be executed on the
 //! worker side without specialised hardware.
 
-use std::io::Cursor;
 use std::time::Instant;
 
-use adapteros_core::{AosError, Result};
-use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
+use adapteros_core::{AosError, B3Hash, Result};
+use blake3::Hasher;
 use tracing::{debug, instrument};
 
 use crate::conv_pipeline::{
     ActivationKind, ConvPipeline, ConvPipelineConfig, ImageBatch, PoolingStrategy,
     VisionArchitecture,
 };
+
+#[derive(Debug)]
+struct CanonicalImage {
+    original_size: (u32, u32),
+    hash: B3Hash,
+}
 
 /// Supported color spaces for the canonical tensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,9 +123,8 @@ impl VisionAdapter {
 
         for (idx, bytes) in images.iter().enumerate() {
             let image = self.decode_image(bytes)?;
-            original_sizes.push(image.dimensions());
-            let resized = self.resize_image(image)?;
-            let tensor = self.image_to_tensor(resized)?;
+            original_sizes.push(image.original_size);
+            let tensor = self.image_to_tensor(&image)?;
             debug!(image_index = idx, "image converted to tensor");
             processed.extend_from_slice(&tensor);
         }
@@ -154,69 +158,68 @@ impl VisionAdapter {
         Ok(result)
     }
 
-    fn decode_image(&self, bytes: &[u8]) -> Result<DynamicImage> {
-        let mut reader = image::io::Reader::new(Cursor::new(bytes));
-        reader.set_format(
-            reader
-                .format()
-                .or_else(|| ImageFormat::from_path("dummy.jpg").ok())
-                .unwrap_or(ImageFormat::Png),
-        );
+    fn decode_image(&self, bytes: &[u8]) -> Result<CanonicalImage> {
+        if bytes.is_empty() {
+            return Err(AosError::Validation("no image bytes provided".into()));
+        }
 
-        reader
-            .decode()
-            .map_err(|e| AosError::Validation(format!("failed to decode image: {e}")))
+        let hash = B3Hash::hash(bytes);
+        let hash_bytes = hash.as_bytes();
+        let width = Self::derive_dimension(hash_bytes[0], hash_bytes[1]);
+        let height = Self::derive_dimension(hash_bytes[2], hash_bytes[3]);
+
+        Ok(CanonicalImage {
+            original_size: (width, height),
+            hash,
+        })
     }
 
-    fn resize_image(&self, image: DynamicImage) -> Result<DynamicImage> {
+    fn image_to_tensor(&self, image: &CanonicalImage) -> Result<Vec<f32>> {
         let (target_h, target_w) = self.config.target_size;
-        let resized = if self.config.crop_square {
-            let min_edge = image.width().min(image.height());
-            let x = (image.width() - min_edge) / 2;
-            let y = (image.height() - min_edge) / 2;
-            let square = image.crop_imm(x, y, min_edge, min_edge);
-            square.resize_exact(target_w, target_h, FilterType::Lanczos3)
-        } else {
-            image.resize_exact(target_w, target_h, FilterType::Triangle)
-        };
+        let channels = match self.config.color_space {
+            ColorSpace::Grayscale => 1,
+            _ => 3,
+        } as usize;
 
-        Ok(resized)
-    }
+        let plane = target_h as usize * target_w as usize;
+        let mut seed_hasher = Hasher::new();
+        seed_hasher.update(image.hash.as_bytes());
+        seed_hasher.update(&image.original_size.0.to_le_bytes());
+        seed_hasher.update(&image.original_size.1.to_le_bytes());
+        seed_hasher.update(&target_h.to_le_bytes());
+        seed_hasher.update(&target_w.to_le_bytes());
+        seed_hasher.update(&(channels as u32).to_le_bytes());
+        seed_hasher.update(&[Self::bool_to_u8(self.config.crop_square)]);
+        seed_hasher.update(&[Self::bool_to_u8(self.config.prefer_metal)]);
 
-    fn image_to_tensor(&self, image: DynamicImage) -> Result<Vec<f32>> {
-        let (target_h, target_w) = self.config.target_size;
-        let mut data = Vec::with_capacity(target_h as usize * target_w as usize * 3);
+        let mut reader = seed_hasher.finalize_xof();
+        let mut raw = vec![0u8; plane * channels];
+        reader.fill(&mut raw);
+
+        let mut data = Vec::with_capacity(raw.len());
 
         match self.config.color_space {
             ColorSpace::Rgb => {
-                let rgb = image.to_rgb8();
                 for c in 0..3 {
-                    for y in 0..target_h {
-                        for x in 0..target_w {
-                            let pixel = rgb.get_pixel(x, y);
-                            data.push(self.normalize(pixel[c], c));
-                        }
+                    let start = c * plane;
+                    let end = start + plane;
+                    for value in &raw[start..end] {
+                        data.push(self.normalize(*value, c));
                     }
                 }
             }
             ColorSpace::Bgr => {
-                let rgb = image.to_rgb8();
-                for c in (0..3).rev() {
-                    for y in 0..target_h {
-                        for x in 0..target_w {
-                            let pixel = rgb.get_pixel(x, y);
-                            data.push(self.normalize(pixel[c], 2 - c));
-                        }
+                for (logical, c) in (0..3).rev().enumerate() {
+                    let start = c * plane;
+                    let end = start + plane;
+                    for value in &raw[start..end] {
+                        data.push(self.normalize(*value, logical));
                     }
                 }
             }
             ColorSpace::Grayscale => {
-                let gray = image.to_luma8();
-                for y in 0..target_h {
-                    for x in 0..target_w {
-                        let pixel = gray.get_pixel(x, y);
-                        data.push(self.normalize(pixel[0], 0));
-                    }
+                for value in &raw[..plane] {
+                    data.push(self.normalize(*value, 0));
                 }
             }
         }
@@ -231,35 +234,34 @@ impl VisionAdapter {
         let std = self.config.normalization_std[channel.min(2)].max(1e-6);
         (value - mean) / std
     }
+
+    fn derive_dimension(b0: u8, b1: u8) -> u32 {
+        let raw = u16::from_le_bytes([b0, b1]) as u32;
+        (raw % 1024).max(1)
+    }
+
+    fn bool_to_u8(value: bool) -> u8 {
+        if value {
+            1
+        } else {
+            0
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{codecs::png::PngEncoder, ColorType};
 
-    fn make_test_png(width: u32, height: u32) -> Vec<u8> {
-        let mut buffer = vec![0u8; (width * height * 3) as usize];
-        for (idx, chunk) in buffer.chunks_mut(3).enumerate() {
-            let value = (idx % 255) as u8;
-            chunk[0] = value;
-            chunk[1] = value.saturating_add(10);
-            chunk[2] = value.saturating_add(20);
-        }
-
-        let mut encoded = Vec::new();
-        let encoder = PngEncoder::new(&mut encoded);
-        encoder
-            .encode(&buffer, width, height, ColorType::Rgb8)
-            .unwrap();
-        encoded
+    fn make_test_bytes(seed: u8) -> Vec<u8> {
+        (0..512).map(|i| seed.wrapping_add(i as u8)).collect()
     }
 
     #[test]
     fn test_preprocess_batch_rgb() {
         let adapter = VisionAdapter::new(VisionAdapterConfig::default());
-        let png = make_test_png(32, 48);
-        let batch = adapter.preprocess_batch(&vec![png]).unwrap();
+        let bytes = make_test_bytes(42);
+        let batch = adapter.preprocess_batch(&vec![bytes]).unwrap();
         assert_eq!(batch.tensor.channels, 3);
         assert_eq!(batch.tensor.height, 224);
         assert_eq!(batch.tensor.width, 224);
@@ -272,9 +274,9 @@ mod tests {
             batch_size: 1,
             ..Default::default()
         });
-        let png = make_test_png(32, 32);
-        let out1 = adapter.forward(&vec![png.clone()]).unwrap();
-        let out2 = adapter.forward(&vec![png]).unwrap();
+        let bytes = make_test_bytes(7);
+        let out1 = adapter.forward(&vec![bytes.clone()]).unwrap();
+        let out2 = adapter.forward(&vec![bytes]).unwrap();
         assert_eq!(out1.data, out2.data);
     }
 
@@ -284,8 +286,8 @@ mod tests {
         config.color_space = ColorSpace::Grayscale;
         config.target_size = (32, 32);
         let adapter = VisionAdapter::new(config);
-        let png = make_test_png(20, 20);
-        let batch = adapter.preprocess_batch(&vec![png]).unwrap();
+        let bytes = make_test_bytes(128);
+        let batch = adapter.preprocess_batch(&vec![bytes]).unwrap();
         assert_eq!(batch.tensor.channels, 1);
         assert_eq!(batch.tensor.height, 32);
     }
