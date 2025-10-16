@@ -239,10 +239,10 @@ pub fn validate_description(description: &str) -> ValidationResult<()> {
         "DELETE FROM",
         "INSERT INTO",
         "UPDATE SET",
-        "<script",
-        "javascript:",
-        "eval(",
-        "exec(",
+        "<SCRIPT",
+        "JAVASCRIPT:",
+        "EVAL(",
+        "EXEC(",
     ];
 
     let desc_upper = description.to_uppercase();
@@ -321,10 +321,10 @@ pub fn validate_name(name: &str) -> ValidationResult<()> {
         "DELETE FROM",
         "INSERT INTO",
         "UPDATE SET",
-        "<script",
-        "javascript:",
-        "eval(",
-        "exec(",
+        "<SCRIPT",
+        "JAVASCRIPT:",
+        "EVAL(",
+        "EXEC(",
     ];
 
     for pattern in &suspicious_patterns {
