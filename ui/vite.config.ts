@@ -62,11 +62,31 @@
       },
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom'],
-            ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
-            charts: ['recharts'],
-            icons: ['lucide-react'],
+          manualChunks: (id) => {
+            // Split react vendor bundle
+            if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+              return 'react-vendor';
+            }
+            // Split radix UI components
+            if (id.includes('@radix-ui')) {
+              return 'radix-ui';
+            }
+            // Split charts library
+            if (id.includes('recharts') || id.includes('d3-')) {
+              return 'charts';
+            }
+            // Split icons
+            if (id.includes('lucide-react')) {
+              return 'icons';
+            }
+            // Split react query
+            if (id.includes('@tanstack/react-query')) {
+              return 'react-query';
+            }
+            // Keep other node_modules as general vendor
+            if (id.includes('node_modules')) {
+              return 'vendor';
+            }
           },
         },
       },
