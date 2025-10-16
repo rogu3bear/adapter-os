@@ -19,6 +19,7 @@ pub mod domain_adapters;
 pub mod federation;
 pub mod git;
 pub mod git_repository;
+pub mod openai;
 pub mod replay;
 
 // Re-export domain adapter handlers
@@ -7016,10 +7017,7 @@ pub async fn get_federation_audit(
             verified_signatures += 1;
         }
 
-        host_chains
-            .entry(host_id)
-            .or_default()
-            .push(bundle_hash);
+        host_chains.entry(host_id).or_default().push(bundle_hash);
     }
 
     // Check quarantine status
