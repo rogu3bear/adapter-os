@@ -203,7 +203,7 @@ impl VisionMergePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use safetensors::serialize::serialize;
+    use safetensors::serialize;
     use safetensors::tensor::TensorView;
 
     #[test]
@@ -242,14 +242,14 @@ mod tests {
         let tensors = [
             (
                 "vision_lora.weight".to_string(),
-                TensorView::new(&weights, &[2, 2]).unwrap(),
+                TensorView::new(safetensors::Dtype::F32, vec![2, 2], unsafe { std::slice::from_raw_parts(weights.as_ptr() as *const u8, weights.len() * 4) }).unwrap(),
             ),
             (
                 "vision_lora.bias".to_string(),
-                TensorView::new(&bias, &[4]).unwrap(),
+                TensorView::new(safetensors::Dtype::F32, vec![4], unsafe { std::slice::from_raw_parts(bias.as_ptr() as *const u8, bias.len() * 4) }).unwrap(),
             ),
         ];
-        let serialized = serialize(&tensors, &Default::default()).unwrap();
+        let serialized = serialize(tensors, &Default::default()).unwrap();
 
         let weights = load_vision_lora(&serialized, VisionTask::Detection, 4).unwrap();
         assert_eq!(Arc::as_ref(&weights.weights)[0], 1.0);
