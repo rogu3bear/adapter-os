@@ -1,10 +1,11 @@
 use crate::auth::Claims;
 use crate::state::AppState;
-use crate::types::{
-    ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ChatUsage,
-    ErrorResponse, InferRequest, ModelInfo, ModelsListResponse, WorkerInferRequest,
-};
+use crate::types::{ErrorResponse, InferRequest, WorkerInferRequest};
 use crate::uds_client::UdsClient;
+use adapteros_api_types::openai::{
+    ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ChatUsage, ModelInfo,
+    ModelsListResponse,
+};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
 use uuid::Uuid;
