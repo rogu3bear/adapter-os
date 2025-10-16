@@ -8,10 +8,24 @@
 //! - CLAUDE.md L50-55: "Verification and validation with deterministic execution"
 
 use adapteros_core::Result;
+use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
-use tracing::info;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
+use tracing::{info, warn};
+
+use blake3::Hasher;
+use md5;
+use sha2::{Digest, Sha256, Sha512};
+
+use crate::code_quality::{CodeQualityResult, CodeQualityVerifier};
+use crate::performance::{PerformanceResult, PerformanceVerifier};
+use crate::security::{SecurityResult, SecurityVerifier};
 
 /// Unified verification and validation framework interface
 #[async_trait]
@@ -1380,33 +1394,413 @@ pub struct UnifiedVerificationFramework {
 
     /// Verification history
     verification_history: Vec<ComprehensiveReport>,
+
+    /// Workspace root used for tool execution
+    workspace_root: PathBuf,
+
+    /// Optional telemetry writer for verification events
+    telemetry: Option<Arc<TelemetryWriter>>,
 }
 
 impl UnifiedVerificationFramework {
     /// Create a new unified verification framework
     pub fn new(config: VerificationConfig) -> Self {
+        let workspace_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        Self::with_workspace(config, workspace_root)
+    }
+
+    /// Create a new framework bound to a specific workspace root
+    pub fn with_workspace(config: VerificationConfig, workspace_root: impl AsRef<Path>) -> Self {
         Self {
             config,
             verification_history: Vec::new(),
+            workspace_root: workspace_root.as_ref().to_path_buf(),
+            telemetry: None,
         }
+    }
+
+    /// Attach a telemetry writer for verification events
+    pub fn with_telemetry(mut self, telemetry: TelemetryWriter) -> Self {
+        self.telemetry = Some(Arc::new(telemetry));
+        self
+    }
+
+    fn emit_telemetry(&self, event_type: &str, message: &str, payload: serde_json::Value) {
+        if let Some(writer) = &self.telemetry {
+            let event = TelemetryEventBuilder::new(
+                EventType::Custom(event_type.to_string()),
+                LogLevel::Info,
+                message.to_string(),
+            )
+            .metadata(payload)
+            .build();
+
+            if let Err(err) = writer.log_event(event) {
+                warn!("Failed to emit verification telemetry: {}", err);
+            }
+        }
+    }
+
+    fn compliance_severity(check_type: &ComplianceCheckType) -> ComplianceSeverity {
+        match check_type {
+            ComplianceCheckType::Security | ComplianceCheckType::License => {
+                ComplianceSeverity::High
+            }
+            ComplianceCheckType::CodeQuality | ComplianceCheckType::Performance => {
+                ComplianceSeverity::Medium
+            }
+            ComplianceCheckType::Dependency => ComplianceSeverity::Medium,
+            ComplianceCheckType::Documentation => ComplianceSeverity::Low,
+        }
+    }
+
+    fn evaluate_compliance_check(
+        &self,
+        check: &ComplianceCheck,
+    ) -> Result<(bool, Option<ComplianceViolation>, serde_json::Value)> {
+        let mut details = serde_json::Map::new();
+        let mut violation = None;
+        let mut passed = true;
+
+        if let Some(path_value) = check.parameters.get("path").and_then(|v| v.as_str()) {
+            let resolved_path = self.workspace_root.join(path_value);
+            details.insert("path".to_string(), json!(resolved_path));
+
+            if !resolved_path.exists() {
+                passed = false;
+                violation = Some(ComplianceViolation {
+                    id: format!("{}-missing-path", check.id),
+                    violation_type: format!("{:?}", check.check_type),
+                    severity: Self::compliance_severity(&check.check_type),
+                    message: format!("Required path '{}' not found", path_value),
+                    location: Some(IssueLocation {
+                        file_path: path_value.to_string(),
+                        line_number: None,
+                        column_number: None,
+                        function_name: None,
+                    }),
+                    details: Some(json!({ "expected_path": path_value })),
+                });
+            } else if let Some(pattern) = check.parameters.get("pattern").and_then(|v| v.as_str()) {
+                if resolved_path.is_file() {
+                    let content = fs::read_to_string(&resolved_path)?;
+                    if !content.contains(pattern) {
+                        passed = false;
+                        violation = Some(ComplianceViolation {
+                            id: format!("{}-pattern", check.id),
+                            violation_type: format!("{:?}", check.check_type),
+                            severity: Self::compliance_severity(&check.check_type),
+                            message: format!(
+                                "Pattern '{}' not present in '{}'",
+                                pattern, path_value
+                            ),
+                            location: Some(IssueLocation {
+                                file_path: path_value.to_string(),
+                                line_number: None,
+                                column_number: None,
+                                function_name: None,
+                            }),
+                            details: Some(json!({
+                                "pattern": pattern,
+                                "path": path_value,
+                            })),
+                        });
+                    }
+                } else {
+                    passed = false;
+                    violation = Some(ComplianceViolation {
+                        id: format!("{}-not-file", check.id),
+                        violation_type: format!("{:?}", check.check_type),
+                        severity: Self::compliance_severity(&check.check_type),
+                        message: format!("Expected '{}' to be a file", path_value),
+                        location: Some(IssueLocation {
+                            file_path: path_value.to_string(),
+                            line_number: None,
+                            column_number: None,
+                            function_name: None,
+                        }),
+                        details: Some(json!({ "path": path_value })),
+                    });
+                }
+            }
+        }
+
+        if passed {
+            if let Some(command) = check.parameters.get("command").and_then(|v| v.as_str()) {
+                let status = Command::new("sh")
+                    .arg("-c")
+                    .arg(command)
+                    .current_dir(&self.workspace_root)
+                    .status()?;
+                details.insert("command".to_string(), json!(command));
+                if !status.success() {
+                    passed = false;
+                    violation = Some(ComplianceViolation {
+                        id: format!("{}-command", check.id),
+                        violation_type: format!("{:?}", check.check_type),
+                        severity: Self::compliance_severity(&check.check_type),
+                        message: format!(
+                            "Compliance command '{}' exited with status {:?}",
+                            command,
+                            status.code()
+                        ),
+                        location: None,
+                        details: Some(json!({ "command": command, "exit_code": status.code() })),
+                    });
+                }
+            }
+        }
+
+        Ok((passed, violation, serde_json::Value::Object(details)))
+    }
+
+    fn collect_directory_bytes(path: &Path) -> Result<Vec<u8>> {
+        let mut entries: Vec<PathBuf> = fs::read_dir(path)?
+            .map(|entry| entry.map(|e| e.path()))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        entries.sort();
+
+        let mut buffer = Vec::new();
+        for entry in entries {
+            if entry.is_dir() {
+                buffer.extend(Self::collect_directory_bytes(&entry)?);
+            } else {
+                buffer.extend(entry.to_string_lossy().as_bytes());
+                buffer.extend(fs::read(&entry)?);
+            }
+        }
+
+        Ok(buffer)
+    }
+
+    fn compute_path_digest(path: &Path, algorithm: &IntegrityAlgorithm) -> Result<String> {
+        let data = if path.is_dir() {
+            Self::collect_directory_bytes(path)?
+        } else {
+            fs::read(path)?
+        };
+
+        let digest = match algorithm {
+            IntegrityAlgorithm::Sha256 => {
+                let mut hasher = Sha256::new();
+                hasher.update(&data);
+                format!("{:x}", hasher.finalize())
+            }
+            IntegrityAlgorithm::Sha512 => {
+                let mut hasher = Sha512::new();
+                hasher.update(&data);
+                format!("{:x}", hasher.finalize())
+            }
+            IntegrityAlgorithm::Blake3 => {
+                let mut hasher = Hasher::new();
+                hasher.update(&data);
+                hasher.finalize().to_hex().to_string()
+            }
+            IntegrityAlgorithm::Md5 => format!("{:x}", md5::compute(&data)),
+        };
+
+        Ok(digest)
     }
 }
 
 #[async_trait]
 impl VerificationFramework for UnifiedVerificationFramework {
-    async fn verify_code_quality(&self, _config: &CodeQualityConfig) -> Result<CodeQualityReport> {
+    async fn verify_code_quality(&self, config: &CodeQualityConfig) -> Result<CodeQualityReport> {
         info!("Starting code quality verification");
 
-        // TODO: Implement actual code quality verification
-        // This would integrate with tools like clippy, rustfmt, tarpaulin, etc.
+        let verifier = CodeQualityVerifier::new(&self.workspace_root);
+        let result = verifier.verify(config).await?;
+
+        let mut metrics = HashMap::new();
+        metrics.insert(
+            "clippy.errors".to_string(),
+            QualityMetric {
+                name: "Clippy errors".to_string(),
+                value: result.clippy_results.errors as f64,
+                unit: "count".to_string(),
+                threshold: Some(0.0),
+                status: if config.enable_clippy {
+                    if result.clippy_results.errors == 0 {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Fail
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+        metrics.insert(
+            "clippy.warnings".to_string(),
+            QualityMetric {
+                name: "Clippy warnings".to_string(),
+                value: result.clippy_results.warnings as f64,
+                unit: "count".to_string(),
+                threshold: Some(0.0),
+                status: if config.enable_clippy {
+                    if result.clippy_results.warnings == 0 {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Warning
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+        metrics.insert(
+            "formatting.status".to_string(),
+            QualityMetric {
+                name: "Formatting compliance".to_string(),
+                value: if result.format_results.passed {
+                    1.0
+                } else {
+                    0.0
+                },
+                unit: "binary".to_string(),
+                threshold: Some(1.0),
+                status: if config.enable_format {
+                    if result.format_results.passed {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Fail
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+        metrics.insert(
+            "coverage.overall".to_string(),
+            QualityMetric {
+                name: "Overall coverage".to_string(),
+                value: result.coverage_results.overall_coverage,
+                unit: "percent".to_string(),
+                threshold: Some(config.min_coverage_percentage),
+                status: if config.enable_coverage {
+                    if result.coverage_results.overall_coverage >= config.min_coverage_percentage {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Fail
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+        metrics.insert(
+            "complexity.max".to_string(),
+            QualityMetric {
+                name: "Max cyclomatic complexity".to_string(),
+                value: result.complexity_results.max_cyclomatic_complexity as f64,
+                unit: "score".to_string(),
+                threshold: Some(config.max_cyclomatic_complexity as f64),
+                status: if config.enable_complexity {
+                    if result.complexity_results.max_cyclomatic_complexity
+                        <= config.max_cyclomatic_complexity
+                    {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Warning
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+        metrics.insert(
+            "documentation.coverage".to_string(),
+            QualityMetric {
+                name: "Documentation coverage".to_string(),
+                value: result.documentation_results.coverage,
+                unit: "percent".to_string(),
+                threshold: Some(90.0),
+                status: if config.enable_documentation {
+                    if result.documentation_results.coverage >= 90.0 {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Warning
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+        metrics.insert(
+            "dead_code.percentage".to_string(),
+            QualityMetric {
+                name: "Dead code percentage".to_string(),
+                value: result.dead_code_results.percentage,
+                unit: "percent".to_string(),
+                threshold: Some(5.0),
+                status: if config.enable_dead_code {
+                    if result.dead_code_results.percentage <= 5.0 {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Warning
+                    }
+                } else {
+                    MetricStatus::Unknown
+                },
+            },
+        );
+
+        let issues = result
+            .issues
+            .into_iter()
+            .enumerate()
+            .map(|(idx, issue)| QualityIssue {
+                id: format!("issue-{}", idx),
+                issue_type: issue.issue_type,
+                severity: IssueSeverity::from_str(&issue.severity).unwrap_or(IssueSeverity::Medium),
+                message: issue.description,
+                location: Some(IssueLocation {
+                    file_path: issue.file,
+                    line_number: Some(issue.line),
+                    column_number: Some(issue.column),
+                    function_name: None,
+                }),
+                details: issue
+                    .suggestion
+                    .map(|suggestion| json!({ "suggestion": suggestion })),
+            })
+            .collect();
+
+        let recommendations = result
+            .recommendations
+            .iter()
+            .enumerate()
+            .map(|(idx, message)| QualityRecommendation {
+                id: format!("rec-{}", idx),
+                recommendation_type: "quality".to_string(),
+                message: message.clone(),
+                priority: RecommendationPriority::Medium,
+                details: None,
+            })
+            .collect();
 
         let report = CodeQualityReport {
-            overall_score: 85.0,
-            metrics: HashMap::new(),
-            issues: Vec::new(),
-            recommendations: Vec::new(),
-            timestamp: chrono::Utc::now(),
+            overall_score: result.score,
+            metrics,
+            issues,
+            recommendations,
+            timestamp: result.timestamp,
         };
+
+        self.emit_telemetry(
+            "verification.code_quality",
+            "Code quality verification completed",
+            json!({
+                "score": report.overall_score,
+                "clippy": {
+                    "warnings": result.clippy_results.warnings,
+                    "errors": result.clippy_results.errors,
+                    "suggestions": result.clippy_results.suggestions,
+                },
+                "format_passed": result.format_results.passed,
+                "coverage": result.coverage_results.overall_coverage,
+            }),
+        );
 
         info!(
             "Code quality verification completed with score: {}",
@@ -1415,19 +1809,135 @@ impl VerificationFramework for UnifiedVerificationFramework {
         Ok(report)
     }
 
-    async fn verify_security(&self, _config: &SecurityConfig) -> Result<SecurityReport> {
+    async fn verify_security(&self, config: &SecurityConfig) -> Result<SecurityReport> {
         info!("Starting security verification");
 
-        // TODO: Implement actual security verification
-        // This would integrate with security scanning tools
+        let verifier = SecurityVerifier::new(&self.workspace_root);
+        let result = verifier.verify(config).await?;
+
+        let vulnerabilities = result
+            .vulnerability_results
+            .vulnerabilities
+            .iter()
+            .enumerate()
+            .map(|(idx, vulnerability)| SecurityVulnerability {
+                id: vulnerability.id.clone(),
+                name: vulnerability.title.clone(),
+                description: Some(vulnerability.description.clone()),
+                severity: SecuritySeverity::from_str(&vulnerability.severity)
+                    .unwrap_or(SecuritySeverity::Medium),
+                vulnerability_type: vulnerability.package.clone(),
+                location: Some(IssueLocation {
+                    file_path: vulnerability.package.clone(),
+                    line_number: None,
+                    column_number: None,
+                    function_name: None,
+                }),
+                details: Some(json!({
+                    "version": vulnerability.version,
+                    "fixed_version": vulnerability.fixed_version,
+                    "references": vulnerability.references,
+                    "index": idx,
+                })),
+            })
+            .collect();
+
+        let mut metrics = HashMap::new();
+        metrics.insert(
+            "vulnerabilities.total".to_string(),
+            SecurityMetric {
+                name: "Total vulnerabilities".to_string(),
+                value: result.vulnerability_results.total as f64,
+                unit: "count".to_string(),
+                threshold: config.severity_thresholds.get("total").map(|s| match s {
+                    SecuritySeverity::Critical => 0.0,
+                    SecuritySeverity::High => 1.0,
+                    SecuritySeverity::Medium => 5.0,
+                    SecuritySeverity::Low => 10.0,
+                    SecuritySeverity::Info => 15.0,
+                }),
+                status: if result.vulnerability_results.total == 0 {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+        metrics.insert(
+            "dependencies.vulnerable".to_string(),
+            SecurityMetric {
+                name: "Vulnerable dependencies".to_string(),
+                value: result.dependency_results.vulnerable_dependencies as f64,
+                unit: "count".to_string(),
+                threshold: Some(0.0),
+                status: if result.dependency_results.vulnerable_dependencies == 0 {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+        metrics.insert(
+            "code_security.unsafe_blocks".to_string(),
+            SecurityMetric {
+                name: "Unsafe code blocks".to_string(),
+                value: result.code_security_results.unsafe_code_count as f64,
+                unit: "count".to_string(),
+                threshold: Some(0.0),
+                status: if result.code_security_results.unsafe_code_count == 0 {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+        metrics.insert(
+            "compliance.score".to_string(),
+            SecurityMetric {
+                name: format!("{} compliance score", result.compliance_results.standard),
+                value: result.compliance_results.score,
+                unit: "score".to_string(),
+                threshold: Some(90.0),
+                status: if result.compliance_results.score >= 90.0 {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+
+        let recommendations = result
+            .recommendations
+            .iter()
+            .enumerate()
+            .map(|(idx, message)| SecurityRecommendation {
+                id: format!("rec-{}", idx),
+                recommendation_type: "security".to_string(),
+                message: message.clone(),
+                priority: RecommendationPriority::High,
+                details: None,
+            })
+            .collect();
 
         let report = SecurityReport {
-            overall_score: 90.0,
-            vulnerabilities: Vec::new(),
-            recommendations: Vec::new(),
-            metrics: HashMap::new(),
-            timestamp: chrono::Utc::now(),
+            overall_score: result.score,
+            vulnerabilities,
+            recommendations,
+            metrics,
+            timestamp: result.timestamp,
         };
+
+        self.emit_telemetry(
+            "verification.security",
+            "Security verification completed",
+            json!({
+                "score": report.overall_score,
+                "vulnerabilities": result.vulnerability_results.total,
+                "critical": result.vulnerability_results.critical,
+                "high": result.vulnerability_results.high,
+                "dependency_vulnerabilities": result.dependency_results.vulnerable_dependencies,
+            }),
+        );
 
         info!(
             "Security verification completed with score: {}",
@@ -1436,19 +1946,144 @@ impl VerificationFramework for UnifiedVerificationFramework {
         Ok(report)
     }
 
-    async fn verify_performance(&self, _config: &PerformanceConfig) -> Result<PerformanceReport> {
+    async fn verify_performance(&self, config: &PerformanceConfig) -> Result<PerformanceReport> {
         info!("Starting performance verification");
 
-        // TODO: Implement actual performance verification
-        // This would integrate with performance testing tools
+        let verifier = PerformanceVerifier::new(&self.workspace_root);
+        let result = verifier.verify(config).await?;
+
+        let mut metrics = HashMap::new();
+        metrics.insert(
+            "benchmarks.average_time_ms".to_string(),
+            PerformanceMetric {
+                name: "Average benchmark time".to_string(),
+                value: result.benchmark_results.avg_execution_time_ms,
+                unit: "ms".to_string(),
+                threshold: None,
+                status: if result.benchmark_results.regression_detected {
+                    MetricStatus::Warning
+                } else {
+                    MetricStatus::Pass
+                },
+            },
+        );
+        metrics.insert(
+            "memory.peak_bytes".to_string(),
+            PerformanceMetric {
+                name: "Peak memory usage".to_string(),
+                value: result.memory_results.peak_memory_bytes as f64,
+                unit: "bytes".to_string(),
+                threshold: None,
+                status: if result.memory_results.memory_leak_detected {
+                    MetricStatus::Warning
+                } else {
+                    MetricStatus::Pass
+                },
+            },
+        );
+        metrics.insert(
+            "latency.p95_ms".to_string(),
+            PerformanceMetric {
+                name: "Latency p95".to_string(),
+                value: result.latency_results.p95_latency_ms,
+                unit: "ms".to_string(),
+                threshold: Some(
+                    config
+                        .performance_thresholds
+                        .get("latency_p95")
+                        .map(|t| t.value)
+                        .unwrap_or(250.0),
+                ),
+                status: if result.latency_results.targets_met {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+        metrics.insert(
+            "throughput.ops_per_second".to_string(),
+            PerformanceMetric {
+                name: "Operations per second".to_string(),
+                value: result.throughput_results.ops_per_second,
+                unit: "ops/s".to_string(),
+                threshold: None,
+                status: if result.throughput_results.targets_met {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+        metrics.insert(
+            "resource.cpu_utilization".to_string(),
+            PerformanceMetric {
+                name: "CPU utilization".to_string(),
+                value: result.resource_results.cpu_utilization_percent,
+                unit: "percent".to_string(),
+                threshold: Some(85.0),
+                status: if result.resource_results.cpu_utilization_percent <= 85.0 {
+                    MetricStatus::Pass
+                } else {
+                    MetricStatus::Warning
+                },
+            },
+        );
+
+        let issues = result
+            .issues
+            .into_iter()
+            .enumerate()
+            .map(|(idx, issue)| PerformanceIssue {
+                id: format!("issue-{}", idx),
+                issue_type: issue.issue_type,
+                severity: IssueSeverity::from_str(&issue.severity).unwrap_or(IssueSeverity::Medium),
+                message: issue.description.clone(),
+                location: Some(IssueLocation {
+                    file_path: issue.component.clone(),
+                    line_number: None,
+                    column_number: None,
+                    function_name: None,
+                }),
+                details: Some(json!({
+                    "component": issue.component,
+                    "impact": issue.performance_impact,
+                    "suggestion": issue.suggestion,
+                })),
+            })
+            .collect();
+
+        let recommendations = result
+            .recommendations
+            .iter()
+            .enumerate()
+            .map(|(idx, message)| PerformanceRecommendation {
+                id: format!("rec-{}", idx),
+                recommendation_type: "performance".to_string(),
+                message: message.clone(),
+                priority: RecommendationPriority::Medium,
+                details: None,
+            })
+            .collect();
 
         let report = PerformanceReport {
-            overall_score: 88.0,
-            metrics: HashMap::new(),
-            issues: Vec::new(),
-            recommendations: Vec::new(),
-            timestamp: chrono::Utc::now(),
+            overall_score: result.score,
+            metrics,
+            issues,
+            recommendations,
+            timestamp: result.timestamp,
         };
+
+        self.emit_telemetry(
+            "verification.performance",
+            "Performance verification completed",
+            json!({
+                "score": report.overall_score,
+                "avg_benchmark_ms": result.benchmark_results.avg_execution_time_ms,
+                "latency_p95_ms": result.latency_results.p95_latency_ms,
+                "throughput_ops_per_second": result.throughput_results.ops_per_second,
+            }),
+        );
 
         info!(
             "Performance verification completed with score: {}",
@@ -1457,38 +2092,314 @@ impl VerificationFramework for UnifiedVerificationFramework {
         Ok(report)
     }
 
-    async fn verify_compliance(&self, _config: &ComplianceConfig) -> Result<ComplianceReport> {
+    async fn verify_compliance(&self, config: &ComplianceConfig) -> Result<ComplianceReport> {
         info!("Starting compliance verification");
 
-        // TODO: Implement actual compliance verification
-        // This would integrate with compliance checking tools
+        let mut metrics = HashMap::new();
+        let mut violations = Vec::new();
+        let mut recommendations = Vec::new();
+        let mut passed_checks = 0usize;
+
+        for check in &config.compliance_checks {
+            let (passed, violation, details) = self.evaluate_compliance_check(check)?;
+            if passed {
+                passed_checks += 1;
+            }
+            if let Some(violation) = violation {
+                recommendations.push(ComplianceRecommendation {
+                    id: format!("rec-{}", violation.id),
+                    recommendation_type: format!("{:?}", check.check_type),
+                    message: format!("Address compliance issue: {}", violation.message),
+                    priority: RecommendationPriority::High,
+                    details: violation.details.clone(),
+                });
+                violations.push(violation);
+            }
+
+            metrics.insert(
+                format!("check.{}", check.id),
+                ComplianceMetric {
+                    name: check.name.clone(),
+                    value: if passed { 1.0 } else { 0.0 },
+                    unit: "binary".to_string(),
+                    threshold: Some(1.0),
+                    status: if passed {
+                        MetricStatus::Pass
+                    } else {
+                        MetricStatus::Fail
+                    },
+                },
+            );
+
+            if !details.is_null() {
+                metrics.insert(
+                    format!("check.{}.details", check.id),
+                    ComplianceMetric {
+                        name: format!("{} details", check.name),
+                        value: 1.0,
+                        unit: "info".to_string(),
+                        threshold: None,
+                        status: MetricStatus::Unknown,
+                    },
+                );
+            }
+        }
+
+        for (name, threshold) in &config.compliance_thresholds {
+            metrics.insert(
+                format!("threshold.{}", name),
+                ComplianceMetric {
+                    name: format!("Compliance threshold {}", name),
+                    value: *threshold,
+                    unit: "score".to_string(),
+                    threshold: Some(*threshold),
+                    status: MetricStatus::Pass,
+                },
+            );
+        }
+
+        let total_checks = config.compliance_checks.len().max(1);
+        let overall_score = (passed_checks as f64 / total_checks as f64) * 100.0;
+
+        let compliance_status = if overall_score >= 95.0 {
+            ComplianceStatus::Compliant
+        } else if overall_score >= 80.0 {
+            ComplianceStatus::PartiallyCompliant
+        } else if overall_score > 0.0 {
+            ComplianceStatus::NonCompliant
+        } else {
+            ComplianceStatus::Unknown
+        };
+
+        if compliance_status != ComplianceStatus::Compliant {
+            recommendations.push(ComplianceRecommendation {
+                id: "overall".to_string(),
+                recommendation_type: "Compliance".to_string(),
+                message: "Review and resolve outstanding compliance violations".to_string(),
+                priority: RecommendationPriority::High,
+                details: Some(
+                    json!({ "passed_checks": passed_checks, "total_checks": total_checks }),
+                ),
+            });
+        }
 
         let report = ComplianceReport {
-            overall_score: 92.0,
-            compliance_status: ComplianceStatus::Compliant,
-            violations: Vec::new(),
-            recommendations: Vec::new(),
-            metrics: HashMap::new(),
+            overall_score,
+            compliance_status,
+            violations,
+            recommendations,
+            metrics,
             timestamp: chrono::Utc::now(),
         };
+
+        self.emit_telemetry(
+            "verification.compliance",
+            "Compliance verification completed",
+            json!({
+                "score": report.overall_score,
+                "status": format!("{:?}", report.compliance_status),
+                "standards": config.compliance_standards.len(),
+                "policies": config.compliance_policies.len(),
+                "violations": report.violations.len(),
+            }),
+        );
 
         info!("Compliance verification completed");
         Ok(report)
     }
 
-    async fn verify_system_integrity(&self, _config: &IntegrityConfig) -> Result<IntegrityReport> {
+    async fn verify_system_integrity(&self, config: &IntegrityConfig) -> Result<IntegrityReport> {
         info!("Starting system integrity verification");
 
-        // TODO: Implement actual system integrity verification
-        // This would integrate with integrity checking tools
+        let mut integrity_checks = Vec::new();
+        let mut violations = Vec::new();
+        let mut recommendations = Vec::new();
+        let mut score = 100.0;
+
+        for path_str in &config.integrity_paths {
+            let resolved_path = self.workspace_root.join(path_str);
+            let mut path_missing = false;
+
+            if config.enable_file_integrity {
+                if resolved_path.exists() {
+                    integrity_checks.push(IntegrityCheck {
+                        id: format!("file-exists-{}", path_str),
+                        name: format!("File exists: {}", path_str),
+                        status: CheckStatus::Pass,
+                        result: Some("exists".to_string()),
+                        details: None,
+                    });
+                } else {
+                    path_missing = true;
+                    score -= 15.0;
+                    integrity_checks.push(IntegrityCheck {
+                        id: format!("file-exists-{}", path_str),
+                        name: format!("File exists: {}", path_str),
+                        status: CheckStatus::Fail,
+                        result: Some("missing".to_string()),
+                        details: None,
+                    });
+                    violations.push(IntegrityViolation {
+                        id: format!("missing-{}", path_str),
+                        violation_type: "file_integrity".to_string(),
+                        severity: IssueSeverity::High,
+                        message: format!("Required path '{}' is missing", path_str),
+                        location: Some(IssueLocation {
+                            file_path: path_str.to_string(),
+                            line_number: None,
+                            column_number: None,
+                            function_name: None,
+                        }),
+                        details: None,
+                    });
+                }
+            }
+
+            if !path_missing && config.enable_checksum_verification {
+                for algorithm in &config.integrity_algorithms {
+                    match Self::compute_path_digest(&resolved_path, algorithm) {
+                        Ok(digest) => {
+                            integrity_checks.push(IntegrityCheck {
+                                id: format!("checksum-{}-{:?}", path_str, algorithm),
+                                name: format!("Checksum {:?} for {}", algorithm, path_str),
+                                status: CheckStatus::Pass,
+                                result: Some(digest),
+                                details: None,
+                            });
+                        }
+                        Err(err) => {
+                            score -= 5.0;
+                            integrity_checks.push(IntegrityCheck {
+                                id: format!("checksum-{}-{:?}", path_str, algorithm),
+                                name: format!("Checksum {:?} for {}", algorithm, path_str),
+                                status: CheckStatus::Fail,
+                                result: Some("error".to_string()),
+                                details: Some(json!({ "error": err.to_string() })),
+                            });
+                            violations.push(IntegrityViolation {
+                                id: format!("checksum-{}-{:?}", path_str, algorithm),
+                                violation_type: "checksum".to_string(),
+                                severity: IssueSeverity::Medium,
+                                message: format!(
+                                    "Failed to compute {:?} checksum for '{}'",
+                                    algorithm, path_str
+                                ),
+                                location: Some(IssueLocation {
+                                    file_path: path_str.to_string(),
+                                    line_number: None,
+                                    column_number: None,
+                                    function_name: None,
+                                }),
+                                details: Some(json!({ "error": err.to_string() })),
+                            });
+                        }
+                    }
+                }
+            }
+
+            if !path_missing && config.enable_signature_verification && resolved_path.is_file() {
+                let mut signature_os = resolved_path.as_os_str().to_os_string();
+                signature_os.push(".sig");
+                let signature_path = PathBuf::from(signature_os);
+                if signature_path.exists() {
+                    integrity_checks.push(IntegrityCheck {
+                        id: format!("signature-{}", path_str),
+                        name: format!("Signature present for {}", path_str),
+                        status: CheckStatus::Pass,
+                        result: Some(signature_path.display().to_string()),
+                        details: None,
+                    });
+                } else {
+                    score -= 5.0;
+                    integrity_checks.push(IntegrityCheck {
+                        id: format!("signature-{}", path_str),
+                        name: format!("Signature present for {}", path_str),
+                        status: CheckStatus::Warning,
+                        result: Some("missing signature".to_string()),
+                        details: None,
+                    });
+                    violations.push(IntegrityViolation {
+                        id: format!("missing-signature-{}", path_str),
+                        violation_type: "signature".to_string(),
+                        severity: IssueSeverity::Medium,
+                        message: format!("Signature file missing for '{}'", path_str),
+                        location: Some(IssueLocation {
+                            file_path: path_str.to_string(),
+                            line_number: None,
+                            column_number: None,
+                            function_name: None,
+                        }),
+                        details: None,
+                    });
+                }
+            }
+        }
+
+        if config.enable_dependency_integrity {
+            let lock_path = self.workspace_root.join("Cargo.lock");
+            if lock_path.exists() {
+                integrity_checks.push(IntegrityCheck {
+                    id: "dependency-lock".to_string(),
+                    name: "Cargo.lock present".to_string(),
+                    status: CheckStatus::Pass,
+                    result: Some("exists".to_string()),
+                    details: None,
+                });
+            } else {
+                score -= 10.0;
+                integrity_checks.push(IntegrityCheck {
+                    id: "dependency-lock".to_string(),
+                    name: "Cargo.lock present".to_string(),
+                    status: CheckStatus::Fail,
+                    result: Some("missing".to_string()),
+                    details: None,
+                });
+                violations.push(IntegrityViolation {
+                    id: "missing-cargo-lock".to_string(),
+                    violation_type: "dependency".to_string(),
+                    severity: IssueSeverity::High,
+                    message: "Cargo.lock is missing; dependency integrity cannot be verified"
+                        .to_string(),
+                    location: Some(IssueLocation {
+                        file_path: "Cargo.lock".to_string(),
+                        line_number: None,
+                        column_number: None,
+                        function_name: None,
+                    }),
+                    details: None,
+                });
+            }
+        }
+
+        if !violations.is_empty() {
+            recommendations.push(IntegrityRecommendation {
+                id: "resolve-integrity-violations".to_string(),
+                recommendation_type: "integrity".to_string(),
+                message: "Resolve integrity violations and rerun verification".to_string(),
+                priority: RecommendationPriority::High,
+                details: Some(json!({ "violation_count": violations.len() })),
+            });
+        }
+
+        let overall_score = score.clamp(0.0, 100.0);
 
         let report = IntegrityReport {
-            overall_score: 95.0,
-            integrity_checks: Vec::new(),
-            violations: Vec::new(),
-            recommendations: Vec::new(),
+            overall_score,
+            integrity_checks,
+            violations,
+            recommendations,
             timestamp: chrono::Utc::now(),
         };
+
+        self.emit_telemetry(
+            "verification.integrity",
+            "System integrity verification completed",
+            json!({
+                "score": report.overall_score,
+                "checks": report.integrity_checks.len(),
+                "violations": report.violations.len(),
+            }),
+        );
 
         info!("System integrity verification completed");
         Ok(report)
@@ -1602,46 +2513,46 @@ impl VerificationFramework for UnifiedVerificationFramework {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
-    #[tokio::test]
-    async fn test_verification_framework_creation() {
-        let config = VerificationConfig {
+    fn base_verification_config() -> VerificationConfig {
+        VerificationConfig {
             code_quality: CodeQualityConfig {
-                enable_clippy: true,
-                enable_format: true,
-                enable_coverage: true,
+                enable_clippy: false,
+                enable_format: false,
+                enable_coverage: false,
                 min_coverage_percentage: 80.0,
-                enable_complexity: true,
+                enable_complexity: false,
                 max_cyclomatic_complexity: 10,
-                enable_documentation: true,
-                enable_dead_code: true,
+                enable_documentation: false,
+                enable_dead_code: false,
                 additional_checks: Vec::new(),
             },
             security: SecurityConfig {
-                enable_vulnerability_scanning: true,
-                enable_dependency_scanning: true,
-                enable_secret_detection: true,
-                enable_sast: true,
+                enable_vulnerability_scanning: false,
+                enable_dependency_scanning: false,
+                enable_secret_detection: false,
+                enable_sast: false,
                 enable_dast: false,
-                enable_container_scanning: true,
+                enable_container_scanning: false,
                 severity_thresholds: HashMap::new(),
                 security_policies: Vec::new(),
             },
             performance: PerformanceConfig {
-                enable_performance_testing: true,
+                enable_performance_testing: false,
                 test_scenarios: Vec::new(),
                 performance_thresholds: HashMap::new(),
-                enable_load_testing: true,
-                enable_stress_testing: true,
-                enable_memory_profiling: true,
-                enable_cpu_profiling: true,
+                enable_load_testing: false,
+                enable_stress_testing: false,
+                enable_memory_profiling: false,
+                enable_cpu_profiling: false,
             },
             compliance: ComplianceConfig {
                 compliance_standards: Vec::new(),
                 compliance_policies: Vec::new(),
                 compliance_checks: Vec::new(),
                 compliance_reporting: ComplianceReporting {
-                    enable_reporting: true,
+                    enable_reporting: false,
                     report_format: OutputFormat::Json,
                     report_output_path: None,
                     report_templates: Vec::new(),
@@ -1652,17 +2563,17 @@ mod tests {
             integrity: IntegrityConfig {
                 enable_file_integrity: true,
                 enable_checksum_verification: true,
-                enable_signature_verification: true,
-                enable_dependency_integrity: true,
-                integrity_algorithms: vec![IntegrityAlgorithm::Sha256],
+                enable_signature_verification: false,
+                enable_dependency_integrity: false,
+                integrity_algorithms: vec![IntegrityAlgorithm::Blake3],
                 integrity_paths: Vec::new(),
             },
             deployment: DeploymentConfig {
-                enable_readiness_checks: true,
-                enable_health_checks: true,
-                enable_config_validation: true,
-                enable_resource_validation: true,
-                enable_dependency_validation: true,
+                enable_readiness_checks: false,
+                enable_health_checks: false,
+                enable_config_validation: false,
+                enable_resource_validation: false,
+                enable_dependency_validation: false,
                 deployment_environment: DeploymentEnvironment::Development,
                 deployment_targets: Vec::new(),
             },
@@ -1670,86 +2581,105 @@ mod tests {
             enable_parallel: true,
             output_format: OutputFormat::Json,
             additional_config: HashMap::new(),
-        };
+        }
+    }
 
+    #[tokio::test]
+    async fn test_verification_framework_creation() {
+        let config = base_verification_config();
         let framework = UnifiedVerificationFramework::new(config);
         assert!(framework.verification_history.is_empty());
     }
 
     #[tokio::test]
     async fn test_code_quality_verification() {
-        let config = VerificationConfig {
-            code_quality: CodeQualityConfig {
-                enable_clippy: true,
-                enable_format: true,
-                enable_coverage: true,
-                min_coverage_percentage: 80.0,
-                enable_complexity: true,
-                max_cyclomatic_complexity: 10,
-                enable_documentation: true,
-                enable_dead_code: true,
-                additional_checks: Vec::new(),
-            },
-            security: SecurityConfig {
-                enable_vulnerability_scanning: true,
-                enable_dependency_scanning: true,
-                enable_secret_detection: true,
-                enable_sast: true,
-                enable_dast: false,
-                enable_container_scanning: true,
-                severity_thresholds: HashMap::new(),
-                security_policies: Vec::new(),
-            },
-            performance: PerformanceConfig {
-                enable_performance_testing: true,
-                test_scenarios: Vec::new(),
-                performance_thresholds: HashMap::new(),
-                enable_load_testing: true,
-                enable_stress_testing: true,
-                enable_memory_profiling: true,
-                enable_cpu_profiling: true,
-            },
-            compliance: ComplianceConfig {
-                compliance_standards: Vec::new(),
-                compliance_policies: Vec::new(),
-                compliance_checks: Vec::new(),
-                compliance_reporting: ComplianceReporting {
-                    enable_reporting: true,
-                    report_format: OutputFormat::Json,
-                    report_output_path: None,
-                    report_templates: Vec::new(),
-                    report_scheduling: None,
-                },
-                compliance_thresholds: HashMap::new(),
-            },
-            integrity: IntegrityConfig {
-                enable_file_integrity: true,
-                enable_checksum_verification: true,
-                enable_signature_verification: true,
-                enable_dependency_integrity: true,
-                integrity_algorithms: vec![IntegrityAlgorithm::Sha256],
-                integrity_paths: Vec::new(),
-            },
-            deployment: DeploymentConfig {
-                enable_readiness_checks: true,
-                enable_health_checks: true,
-                enable_config_validation: true,
-                enable_resource_validation: true,
-                enable_dependency_validation: true,
-                deployment_environment: DeploymentEnvironment::Development,
-                deployment_targets: Vec::new(),
-            },
-            timeout_seconds: 300,
-            enable_parallel: true,
-            output_format: OutputFormat::Json,
-            additional_config: HashMap::new(),
-        };
-
+        let config = base_verification_config();
         let framework = UnifiedVerificationFramework::new(config);
         let report = framework
             .verify_code_quality(&framework.config.code_quality)
             .await
             .unwrap();
         assert!(report.overall_score > 0.0);
+        assert!(report.metrics.contains_key("clippy.errors"));
+    }
+
+    #[tokio::test]
+    async fn test_security_verification_metrics() {
+        let config = base_verification_config();
+        let framework = UnifiedVerificationFramework::new(config);
+        let report = framework
+            .verify_security(&framework.config.security)
+            .await
+            .unwrap();
+        assert!(report.metrics.contains_key("vulnerabilities.total"));
+        assert!(report.overall_score >= 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_performance_verification_metrics() {
+        let config = base_verification_config();
+        let framework = UnifiedVerificationFramework::new(config);
+        let report = framework
+            .verify_performance(&framework.config.performance)
+            .await
+            .unwrap();
+        assert!(report.metrics.contains_key("benchmarks.average_time_ms"));
+    }
+
+    #[tokio::test]
+    async fn test_compliance_verification_pass() {
+        let temp_dir = tempdir().unwrap();
+        let policy_path = temp_dir.path().join("POLICY.md");
+        fs::write(&policy_path, "All systems compliant").unwrap();
+
+        let mut config = base_verification_config();
+        config.compliance.compliance_checks.push(ComplianceCheck {
+            id: "policy-doc".to_string(),
+            name: "Policy documentation".to_string(),
+            description: Some("Ensure policy documentation exists".to_string()),
+            check_type: ComplianceCheckType::Documentation,
+            parameters: HashMap::from([
+                ("path".to_string(), json!("POLICY.md")),
+                ("pattern".to_string(), json!("compliant")),
+            ]),
+        });
+
+        let framework = UnifiedVerificationFramework::with_workspace(config, temp_dir.path());
+        let report = framework
+            .verify_compliance(&framework.config.compliance)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            report.compliance_status,
+            ComplianceStatus::Compliant
+        ));
+        assert!(report.overall_score >= 99.0);
+    }
+
+    #[tokio::test]
+    async fn test_integrity_verification_success() {
+        let temp_dir = tempdir().unwrap();
+        let target_path = temp_dir.path().join("artifact.bin");
+        fs::write(&target_path, b"artifact-bytes").unwrap();
+        fs::write(target_path.with_extension("bin.sig"), b"signature").unwrap();
+        fs::write(temp_dir.path().join("Cargo.lock"), "# lock file").unwrap();
+
+        let mut config = base_verification_config();
+        config.integrity.enable_dependency_integrity = true;
+        config.integrity.enable_signature_verification = true;
+        config.integrity.integrity_algorithms =
+            vec![IntegrityAlgorithm::Sha256, IntegrityAlgorithm::Blake3];
+        config.integrity.integrity_paths = vec!["artifact.bin".to_string()];
+
+        let framework = UnifiedVerificationFramework::with_workspace(config, temp_dir.path());
+        let report = framework
+            .verify_system_integrity(&framework.config.integrity)
+            .await
+            .unwrap();
+
+        assert!(report.overall_score > 90.0);
+        assert!(report.violations.is_empty());
+        assert!(!report.integrity_checks.is_empty());
     }
 }
