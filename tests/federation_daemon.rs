@@ -19,7 +19,7 @@ async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let db_url = format!("sqlite://{}", db_path.display());
-    
+
     let db = Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
 
@@ -91,8 +91,12 @@ async fn test_quarantine_trigger_on_failure() -> Result<()> {
     assert!(daemon.is_quarantined());
 
     // Operations should be denied
-    assert!(daemon.check_operation(QuarantineOperation::Inference).is_err());
-    assert!(daemon.check_operation(QuarantineOperation::AdapterLoad).is_err());
+    assert!(daemon
+        .check_operation(QuarantineOperation::Inference)
+        .is_err());
+    assert!(daemon
+        .check_operation(QuarantineOperation::AdapterLoad)
+        .is_err());
 
     // Audit operations should be allowed
     assert!(daemon.check_operation(QuarantineOperation::Audit).is_ok());
@@ -203,11 +207,12 @@ async fn test_multiple_verification_errors() -> Result<()> {
         verified_at: Utc::now().to_rfc3339(),
     };
 
-    daemon.handle_verification_report(failed_report.clone()).await;
+    daemon
+        .handle_verification_report(failed_report.clone())
+        .await;
 
     assert!(daemon.is_quarantined());
     assert_eq!(failed_report.errors.len(), 3);
 
     Ok(())
 }
-

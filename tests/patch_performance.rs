@@ -10,10 +10,13 @@
 //! Aligns with performance targets from code intelligence requirements.
 
 use adapteros_lora_worker::{
-    evidence::{EvidenceRequest, EvidenceRetriever, MockSymbolIndex, MockTestIndex, MockDocIndex, MockCodeIndex, MockFrameworkIndex},
-    patch_generator::{PatchGenerator, PatchGenerationRequest, MockLlmBackend},
-    patch_validator::{PatchValidator, CodePolicy},
-    patch_generator::{FilePatch, PatchHunk, HunkType},
+    evidence::{
+        EvidenceRequest, EvidenceRetriever, MockCodeIndex, MockDocIndex, MockFrameworkIndex,
+        MockSymbolIndex, MockTestIndex,
+    },
+    patch_generator::{FilePatch, HunkType, PatchHunk},
+    patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
+    patch_validator::{CodePolicy, PatchValidator},
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -54,14 +57,14 @@ async fn test_evidence_retrieval_performance() {
     let futures: Vec<_> = (0..10)
         .map(|_| retriever.retrieve_patch_evidence(&request))
         .collect();
-    
+
     let results = futures::future::join_all(futures).await;
     let duration = start.elapsed();
 
     // All retrievals should complete within 500ms
     assert!(duration.as_millis() < 500);
     assert_eq!(results.len(), 10);
-    
+
     for result in results {
         assert!(result.is_ok());
         let evidence_result = result.unwrap();
@@ -112,14 +115,14 @@ async fn test_patch_generation_performance() {
             generator.generate_patch(req)
         })
         .collect();
-    
+
     let results = futures::future::join_all(futures).await;
     let duration = start.elapsed();
 
     // All generations should complete within 10s
     assert!(duration.as_secs() < 10);
     assert_eq!(results.len(), 5);
-    
+
     for result in results {
         assert!(result.is_ok());
         let proposal = result.unwrap();
@@ -161,14 +164,14 @@ async fn test_policy_validation_performance() {
     let futures: Vec<_> = (0..20)
         .map(|_| validator.validate(&[large_patch.clone()]))
         .collect();
-    
+
     let results = futures::future::join_all(futures).await;
     let duration = start.elapsed();
 
     // All validations should complete within 1s
     assert!(duration.as_millis() < 1000);
     assert_eq!(results.len(), 20);
-    
+
     for result in results {
         assert!(result.is_ok());
         let validation_result = result.unwrap();
@@ -338,7 +341,10 @@ async fn test_evidence_quality_performance() {
     };
 
     let start = Instant::now();
-    let high_quality_proposal = generator.generate_patch(high_quality_request).await.unwrap();
+    let high_quality_proposal = generator
+        .generate_patch(high_quality_request)
+        .await
+        .unwrap();
     let high_quality_duration = start.elapsed();
 
     // Both should complete within performance limits
@@ -389,14 +395,14 @@ async fn test_error_handling_performance() {
     let futures: Vec<_> = (0..10)
         .map(|_| validator.validate(&[violation_patch.clone()]))
         .collect();
-    
+
     let results = futures::future::join_all(futures).await;
     let duration = start.elapsed();
 
     // All validations should complete within 500ms
     assert!(duration.as_millis() < 500);
     assert_eq!(results.len(), 10);
-    
+
     for result in results {
         assert!(result.is_ok());
         let validation_result = result.unwrap();
@@ -432,7 +438,7 @@ async fn test_performance_under_load() {
             let retriever = &retriever;
             let generator = &generator;
             let validator = &validator;
-            
+
             async move {
                 // 1. Retrieve evidence
                 let evidence_request = EvidenceRequest {
@@ -443,7 +449,10 @@ async fn test_performance_under_load() {
                     max_results: 5,
                     min_score: 0.5,
                 };
-                let evidence_result = retriever.retrieve_patch_evidence(&evidence_request).await.unwrap();
+                let evidence_result = retriever
+                    .retrieve_patch_evidence(&evidence_request)
+                    .await
+                    .unwrap();
 
                 // 2. Generate patch
                 let patch_request = PatchGenerationRequest {
@@ -478,5 +487,8 @@ async fn test_performance_under_load() {
         assert!(proposal.confidence > 0.0);
     }
 
-    println!("Load test completed: {} operations in {:?}", load_count, duration);
+    println!(
+        "Load test completed: {} operations in {:?}",
+        load_count, duration
+    );
 }

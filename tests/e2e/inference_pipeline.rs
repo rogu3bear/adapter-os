@@ -4,14 +4,14 @@
 //! including adapter routing, evidence retrieval, policy enforcement,
 //! and deterministic execution guarantees.
 
+use crate::orchestration::{TestConfig, TestEnvironment};
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_policy::PolicyEngine;
+use adapteros_server_api::handlers::ApiHandler;
+use adapteros_telemetry::{BundleStore, TelemetryWriter};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use adapteros_core::{AosError, Result, B3Hash};
-use adapteros_telemetry::{TelemetryWriter, BundleStore};
-use adapteros_policy::PolicyEngine;
-use adapteros_server_api::handlers::ApiHandler;
-use crate::orchestration::{TestEnvironment, TestConfig};
 
 /// Complete inference pipeline test
 pub struct InferencePipelineTest {
@@ -72,15 +72,18 @@ impl InferencePipelineTest {
 
         std::fs::write(
             model_path.join("config.json"),
-            serde_json::to_string_pretty(&model_config)?
+            serde_json::to_string_pretty(&model_config)?,
         )?;
 
         // Validate model import
-        env.telemetry().log("model_import", serde_json::json!({
-            "model_path": model_path,
-            "config": model_config,
-            "timestamp": chrono::Utc::now().timestamp()
-        }))?;
+        env.telemetry().log(
+            "model_import",
+            serde_json::json!({
+                "model_path": model_path,
+                "config": model_config,
+                "timestamp": chrono::Utc::now().timestamp()
+            }),
+        )?;
 
         Ok(())
     }
@@ -105,11 +108,14 @@ impl InferencePipelineTest {
                 "alpha": 0.5
             });
 
-            let adapter_path = env.config.model_registry.join(format!("adapter_{}", adapter_id));
+            let adapter_path = env
+                .config
+                .model_registry
+                .join(format!("adapter_{}", adapter_id));
             std::fs::create_dir_all(&adapter_path)?;
             std::fs::write(
                 adapter_path.join("adapter.json"),
-                serde_json::to_string_pretty(&adapter_meta)?
+                serde_json::to_string_pretty(&adapter_meta)?,
             )?;
 
             // Log adapter registration
@@ -122,8 +128,14 @@ impl InferencePipelineTest {
     /// Test evidence database setup
     async fn test_evidence_setup(&self, env: &TestEnvironment) -> Result<()> {
         let evidence_docs = vec![
-            ("AMM-737-100", "Aircraft Maintenance Manual - Boeing 737-100 series"),
-            ("IPC-737-ENG", "Illustrated Parts Catalog - Engine components"),
+            (
+                "AMM-737-100",
+                "Aircraft Maintenance Manual - Boeing 737-100 series",
+            ),
+            (
+                "IPC-737-ENG",
+                "Illustrated Parts Catalog - Engine components",
+            ),
             ("SOP-MAIN", "Standard Operating Procedures - Maintenance"),
         ];
 
@@ -139,7 +151,8 @@ impl InferencePipelineTest {
             });
 
             // Log evidence registration
-            env.telemetry().log("evidence_registration", evidence_meta)?;
+            env.telemetry()
+                .log("evidence_registration", evidence_meta)?;
         }
 
         Ok(())
@@ -159,15 +172,19 @@ impl InferencePipelineTest {
         });
 
         // Log request
-        env.telemetry().log("inference_request", &inference_request)?;
+        env.telemetry()
+            .log("inference_request", &inference_request)?;
 
         // Simulate policy check
         let policy_result = env.policy_engine().check_request(&inference_request)?;
-        env.telemetry().log("policy_check", serde_json::json!({
-            "request": inference_request,
-            "policy_result": policy_result,
-            "timestamp": chrono::Utc::now().timestamp()
-        }))?;
+        env.telemetry().log(
+            "policy_check",
+            serde_json::json!({
+                "request": inference_request,
+                "policy_result": policy_result,
+                "timestamp": chrono::Utc::now().timestamp()
+            }),
+        )?;
 
         // Simulate adapter routing
         let routing_decision = serde_json::json!({
@@ -200,7 +217,8 @@ impl InferencePipelineTest {
             ],
             "retrieval_time_ms": 45
         });
-        env.telemetry().log("evidence_retrieval", &evidence_results)?;
+        env.telemetry()
+            .log("evidence_retrieval", &evidence_results)?;
 
         // Simulate inference execution
         let inference_result = serde_json::json!({
@@ -227,14 +245,20 @@ impl InferencePipelineTest {
             "content_safety": "passed",
             "deterministic_hash": "result_hash_789"
         });
-        env.telemetry().log("results_validation", &citation_validation)?;
+        env.telemetry()
+            .log("results_validation", &citation_validation)?;
 
         // Validate output policy compliance
-        let policy_validation = env.policy_engine().validate_response(&citation_validation)?;
-        env.telemetry().log("policy_validation", serde_json::json!({
-            "validation_result": policy_validation,
-            "timestamp": chrono::Utc::now().timestamp()
-        }))?;
+        let policy_validation = env
+            .policy_engine()
+            .validate_response(&citation_validation)?;
+        env.telemetry().log(
+            "policy_validation",
+            serde_json::json!({
+                "validation_result": policy_validation,
+                "timestamp": chrono::Utc::now().timestamp()
+            }),
+        )?;
 
         Ok(())
     }
@@ -263,16 +287,21 @@ impl InferencePipelineTest {
         let first_hash = &run_hashes[0];
         for hash in &run_hashes[1..] {
             if hash != first_hash {
-                return Err(AosError::Determinism("Non-deterministic results detected".to_string()));
+                return Err(AosError::Determinism(
+                    "Non-deterministic results detected".to_string(),
+                ));
             }
         }
 
-        env.telemetry().log("determinism_validation", serde_json::json!({
-            "runs": run_hashes.len(),
-            "all_identical": true,
-            "common_hash": first_hash,
-            "validation_timestamp": chrono::Utc::now().timestamp()
-        }))?;
+        env.telemetry().log(
+            "determinism_validation",
+            serde_json::json!({
+                "runs": run_hashes.len(),
+                "all_identical": true,
+                "common_hash": first_hash,
+                "validation_timestamp": chrono::Utc::now().timestamp()
+            }),
+        )?;
 
         Ok(())
     }
@@ -357,7 +386,8 @@ pub async fn test_evidence_retrieval_pipeline(env: Arc<Mutex<TestEnvironment>>) 
             "quality_check": expected_score > 0.8
         });
 
-        env.telemetry().log("evidence_retrieval_test", &retrieval_event)?;
+        env.telemetry()
+            .log("evidence_retrieval_test", &retrieval_event)?;
     }
 
     Ok(())

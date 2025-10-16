@@ -1,8 +1,8 @@
 //! Rollback to previous checkpoint
 
 use crate::output::OutputWriter;
-use anyhow::{Context, Result};
 use adapteros_db::Db;
+use anyhow::{Context, Result};
 use serde::Serialize;
 
 #[derive(Serialize)]

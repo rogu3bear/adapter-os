@@ -125,7 +125,7 @@ pub async fn get_quarantine_status(
     info!("Fetching quarantine status");
 
     let quarantined = state.daemon.is_quarantined();
-    
+
     let details = if quarantined {
         // Fetch quarantine details from database
         match get_active_quarantine_details(&state.db).await {
@@ -179,7 +179,7 @@ async fn get_host_count(db: &Db) -> adapteros_core::Result<usize> {
         r#"
         SELECT COUNT(DISTINCT host_id)
         FROM federation_bundle_signatures
-        "#
+        "#,
     )
     .fetch_one(db.pool())
     .await
@@ -189,7 +189,9 @@ async fn get_host_count(db: &Db) -> adapteros_core::Result<usize> {
 }
 
 /// Helper: Get active quarantine details
-async fn get_active_quarantine_details(db: &Db) -> adapteros_core::Result<Option<QuarantineDetails>> {
+async fn get_active_quarantine_details(
+    db: &Db,
+) -> adapteros_core::Result<Option<QuarantineDetails>> {
     let row = sqlx::query(
         r#"
         SELECT reason, created_at, violation_type, cpid
@@ -197,7 +199,7 @@ async fn get_active_quarantine_details(db: &Db) -> adapteros_core::Result<Option
         WHERE released = FALSE
         ORDER BY created_at DESC
         LIMIT 1
-        "#
+        "#,
     )
     .fetch_optional(db.pool())
     .await
@@ -222,7 +224,7 @@ async fn release_active_quarantines(db: &Db) -> adapteros_core::Result<()> {
         UPDATE policy_quarantine
         SET released = TRUE, released_at = CURRENT_TIMESTAMP
         WHERE released = FALSE
-        "#
+        "#,
     )
     .execute(db.pool())
     .await
@@ -296,4 +298,3 @@ mod tests {
         assert!(json.contains("Test reason"));
     }
 }
-

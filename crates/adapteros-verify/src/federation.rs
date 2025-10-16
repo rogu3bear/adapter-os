@@ -24,72 +24,80 @@ use tracing::{info, warn};
 ///
 /// `Ok(())` if all chains are valid, error otherwise
 pub async fn verify_cross_host(bundle_dir: &Path, db: &Db) -> VerifyResult<()> {
-    info!("Starting cross-host verification for: {}", bundle_dir.display());
-    
+    info!(
+        "Starting cross-host verification for: {}",
+        bundle_dir.display()
+    );
+
     // Discover bundles
     let bundles = discover_bundles(bundle_dir)?;
-    
+
     if bundles.is_empty() {
         warn!("No bundles found in directory");
         return Ok(());
     }
-    
+
     info!("Found {} bundles to verify", bundles.len());
-    
+
     // Load metadata chain
     let metadata_chain = load_metadata_chain(&bundles)?;
-    
+
     // Get federation manager (requires keypair for signing, but we only verify here)
     // Use a temporary keypair since we're only verifying, not signing
     let keypair = Keypair::generate();
-    
+
     // Import federation manager
     #[allow(unused_imports)]
     use adapteros_federation::FederationManager;
-    
+
     let manager = FederationManager::new(db.clone(), keypair)
         .map_err(|e| VerifyError::Crypto(format!("Failed to create federation manager: {}", e)))?;
-    
+
     // Get all signatures and build host chains
     let mut all_signatures = Vec::new();
     for metadata in &metadata_chain {
-        let sigs = manager.get_signatures_for_bundle(&metadata.merkle_root.to_string())
+        let sigs = manager
+            .get_signatures_for_bundle(&metadata.merkle_root.to_string())
             .await
             .map_err(|e| VerifyError::Crypto(format!("Failed to get signatures: {}", e)))?;
         all_signatures.extend(sigs);
     }
-    
+
     if all_signatures.is_empty() {
         warn!("No federation signatures found");
         return Ok(());
     }
-    
+
     // Verify the cross-host chain
-    manager.verify_cross_host_chain(&all_signatures)
+    manager
+        .verify_cross_host_chain(&all_signatures)
         .await
         .map_err(|e| VerifyError::Crypto(format!("Federation chain verification failed: {}", e)))?;
-    
-    info!("Cross-host verification successful: {} signatures verified", all_signatures.len());
-    
+
+    info!(
+        "Cross-host verification successful: {} signatures verified",
+        all_signatures.len()
+    );
+
     Ok(())
 }
 
 /// Discover bundle files in a directory
 fn discover_bundles(bundle_dir: &Path) -> VerifyResult<Vec<String>> {
     use std::fs;
-    
+
     if !bundle_dir.exists() {
         return Err(VerifyError::GoldenRunNotFound {
             path: bundle_dir.display().to_string(),
         });
     }
-    
+
     let mut bundles = Vec::new();
-    
+
     for entry in fs::read_dir(bundle_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         // Look for .ndjson bundle files
         if path.is_file() {
             if let Some(ext) = path.extension() {
@@ -101,7 +109,7 @@ fn discover_bundles(bundle_dir: &Path) -> VerifyResult<Vec<String>> {
             }
         }
     }
-    
+
     bundles.sort();
     Ok(bundles)
 }
@@ -140,16 +148,16 @@ mod tests {
     async fn test_verify_cross_host_empty_dir() -> Result<()> {
         let temp_dir = TempDir::new().unwrap();
         let bundle_dir = temp_dir.path();
-        
+
         // Create a test database
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
-        
+
         // Should succeed with empty directory (no bundles to verify)
         let result = verify_cross_host(bundle_dir, &db).await;
         assert!(result.is_ok());
-        
+
         Ok(())
     }
 
@@ -159,4 +167,3 @@ mod tests {
         assert!(result.is_err());
     }
 }
-

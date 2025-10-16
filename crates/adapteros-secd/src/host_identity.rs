@@ -66,11 +66,11 @@ impl SecureEnclaveConnection {
     /// Create a new Secure Enclave connection
     pub fn new() -> Result<Self> {
         info!("Initializing Secure Enclave connection");
-        
+
         // In production, this would establish connection to Secure Enclave
         // For now, we use a mock implementation
         let mock_keypair = Keypair::generate();
-        
+
         Ok(Self {
             _mock_keypair: mock_keypair,
         })
@@ -131,11 +131,11 @@ impl HostIdentityManager {
     /// Generate host signing key in Secure Enclave
     pub fn generate_host_key(&self, alias: &str) -> Result<PublicKey> {
         info!("Generating host key in Secure Enclave: {}", alias);
-        
+
         let pubkey = self.connection.generate_keypair(alias)?;
-        
+
         debug!("Generated host key: {}", hex::encode(pubkey.to_bytes()));
-        
+
         Ok(pubkey)
     }
 
@@ -153,12 +153,12 @@ impl HostIdentityManager {
     pub fn attest_host_identity(&self) -> Result<AttestationReport> {
         let pubkey = self.get_host_public_key()?;
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
-        
+
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_micros() as u64;
-        
+
         let attestation_metadata = AttestationMetadata {
             pubkey: pubkey.to_bytes().to_vec(),
             attestation_data,
@@ -166,7 +166,7 @@ impl HostIdentityManager {
             hardware_model: "mock-hardware".to_string(),
             secure_enclave_version: "mock-v1.0".to_string(),
         };
-        
+
         Ok(AttestationReport {
             pubkey: pubkey.to_bytes().to_vec(),
             attestation_metadata,
@@ -178,7 +178,7 @@ impl HostIdentityManager {
     pub fn create_host_identity(&self) -> Result<HostIdentity> {
         let pubkey = self.get_host_public_key()?;
         let host_id = Self::derive_host_id(&pubkey);
-        
+
         Ok(HostIdentity {
             host_id,
             pubkey,
@@ -205,12 +205,12 @@ impl HostIdentity {
     /// Get attestation report
     pub fn attest(&self) -> Result<AttestationReport> {
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
-        
+
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_micros() as u64;
-        
+
         let attestation_metadata = AttestationMetadata {
             pubkey: self.pubkey.to_bytes().to_vec(),
             attestation_data,
@@ -218,7 +218,7 @@ impl HostIdentity {
             hardware_model: "mock-hardware".to_string(),
             secure_enclave_version: "mock-v1.0".to_string(),
         };
-        
+
         Ok(AttestationReport {
             pubkey: self.pubkey.to_bytes().to_vec(),
             attestation_metadata,
@@ -235,7 +235,7 @@ mod tests {
     fn test_host_identity_generation() {
         let manager = HostIdentityManager::new("test-key".to_string()).unwrap();
         let identity = manager.create_host_identity().unwrap();
-        
+
         assert!(!identity.host_id.is_empty());
         assert!(identity.host_id.starts_with("host-"));
     }
@@ -244,10 +244,10 @@ mod tests {
     fn test_signing() {
         let manager = HostIdentityManager::new("test-key".to_string()).unwrap();
         let identity = manager.create_host_identity().unwrap();
-        
+
         let data = b"test message";
         let signature = identity.sign(data).unwrap();
-        
+
         // Verify signature
         assert!(identity.pubkey.verify(data, &signature).is_ok());
     }
@@ -256,11 +256,10 @@ mod tests {
     fn test_attestation() {
         let manager = HostIdentityManager::new("test-key".to_string()).unwrap();
         let identity = manager.create_host_identity().unwrap();
-        
+
         let report = identity.attest().unwrap();
-        
+
         assert!(!report.pubkey.is_empty());
         assert!(report.timestamp_us > 0);
     }
 }
-

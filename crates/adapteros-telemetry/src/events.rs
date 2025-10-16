@@ -499,7 +499,7 @@ impl PerformanceBudgetViolationEvent {
 }
 
 /// Policy hash validation event
-/// 
+///
 /// Logged at 100% sampling (policy violations per Telemetry Ruleset #9).
 /// Tracks runtime policy pack hash validation to detect mutations.
 #[derive(Debug, Clone, Serialize, Deserialize)]

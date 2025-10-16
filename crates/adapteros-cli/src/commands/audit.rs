@@ -1,8 +1,8 @@
 //! Run audit checks
 
-use anyhow::{Context, Result};
 use adapteros_db::Db;
 use adapteros_policy::CodeMetrics;
+use anyhow::{Context, Result};
 use std::path::Path;
 use std::time::Duration;
 

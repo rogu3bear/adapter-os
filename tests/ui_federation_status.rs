@@ -20,7 +20,7 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let db_url = format!("sqlite://{}", db_path.display());
-    
+
     let db = Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
 
@@ -199,7 +199,7 @@ async fn test_json_response_structure() -> Result<()> {
     };
 
     let json = serde_json::to_value(&response).unwrap();
-    
+
     // Verify structure
     assert!(json.get("operational").is_some());
     assert!(json.get("quarantined").is_some());
@@ -209,4 +209,3 @@ async fn test_json_response_structure() -> Result<()> {
 
     Ok(())
 }
-

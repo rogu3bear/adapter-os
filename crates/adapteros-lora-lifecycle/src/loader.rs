@@ -59,7 +59,7 @@ impl AdapterLoader {
         // Perform the blocking load operation in a blocking task
         let base_path = self.base_path.clone();
         let adapter_name = adapter_name.to_string();
-        
+
         let handle = tokio::task::spawn_blocking(move || {
             let adapter_path = base_path.join(format!("{}.safetensors", adapter_name));
 
@@ -72,9 +72,8 @@ impl AdapterLoader {
 
             // Load adapter weights from SafeTensors format
             use std::fs;
-            let weights_data = fs::read(&adapter_path).map_err(|e| {
-                AosError::Lifecycle(format!("Failed to read adapter file: {}", e))
-            })?;
+            let weights_data = fs::read(&adapter_path)
+                .map_err(|e| AosError::Lifecycle(format!("Failed to read adapter file: {}", e)))?;
 
             tracing::info!(
                 "Loaded adapter {} ({}) from {} ({} bytes)",

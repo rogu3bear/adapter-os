@@ -452,12 +452,27 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
         // Code intelligence routes
-        .route("/v1/code/register-repo", post(handlers::code::register_repo))
+        .route(
+            "/v1/code/register-repo",
+            post(handlers::code::register_repo),
+        )
         .route("/v1/code/scan", post(handlers::code::scan_repo))
-        .route("/v1/code/scan/:job_id", get(handlers::code::get_scan_status))
-        .route("/v1/code/repositories", get(handlers::code::list_repositories))
-        .route("/v1/code/repositories/:repo_id", get(handlers::code::get_repository))
-        .route("/v1/code/commit-delta", post(handlers::code::create_commit_delta))
+        .route(
+            "/v1/code/scan/:job_id",
+            get(handlers::code::get_scan_status),
+        )
+        .route(
+            "/v1/code/repositories",
+            get(handlers::code::list_repositories),
+        )
+        .route(
+            "/v1/code/repositories/:repo_id",
+            get(handlers::code::get_repository),
+        )
+        .route(
+            "/v1/code/commit-delta",
+            post(handlers::code::create_commit_delta),
+        )
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
         // Metrics routes

@@ -9,8 +9,8 @@
 //! Run with: cargo test --test policy_gates -- --ignored
 
 use adapteros_core::{AosError, Result};
-use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_lora_rag::EvidenceSpan;
+use adapteros_policy::{PolicyEngine, RefusalResponse};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,7 +204,10 @@ fn test_evidence_requirement_enforcement() {
                 if prompt.expects_refusal {
                     println!("  ✓ Correctly refused: {}", refusal.reason);
                 } else {
-                    panic!("Unexpected refusal for prompt that should pass: {}", refusal.reason);
+                    panic!(
+                        "Unexpected refusal for prompt that should pass: {}",
+                        refusal.reason
+                    );
                 }
             }
             None => {
@@ -416,7 +419,10 @@ fn acceptance_policy_enforcement() {
     };
 
     let refusal = policy.evaluate_response(&no_evidence_response).unwrap();
-    assert!(refusal.is_some(), "Should refuse responses without evidence");
+    assert!(
+        refusal.is_some(),
+        "Should refuse responses without evidence"
+    );
     println!("  ✓ Evidence requirement enforced");
 
     // Test 2: Numeric units
@@ -438,7 +444,10 @@ fn acceptance_policy_enforcement() {
     };
 
     let refusal = policy.evaluate_response(&bad_numeric_response).unwrap();
-    assert!(refusal.is_some(), "Should refuse numeric claims without units");
+    assert!(
+        refusal.is_some(),
+        "Should refuse numeric claims without units"
+    );
     println!("  ✓ Numeric unit requirement enforced");
 
     // Test 3: Router entropy
@@ -466,8 +475,13 @@ fn acceptance_policy_enforcement() {
         numeric_claims: vec![],
     };
 
-    let refusal = policy.evaluate_response(&collapsed_router_response).unwrap();
-    assert!(refusal.is_some(), "Should refuse when router entropy is too low");
+    let refusal = policy
+        .evaluate_response(&collapsed_router_response)
+        .unwrap();
+    assert!(
+        refusal.is_some(),
+        "Should refuse when router entropy is too low"
+    );
     println!("  ✓ Router entropy floor enforced");
 
     // Test 4: Valid response passes all checks

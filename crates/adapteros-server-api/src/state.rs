@@ -1,7 +1,7 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_lora_lifecycle::LifecycleManager;
-use adapteros_orchestrator::{TrainingService, CodeJobManager};
+use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;

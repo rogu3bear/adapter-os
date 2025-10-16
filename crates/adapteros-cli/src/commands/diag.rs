@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 use zip::write::FileOptions;
 use zip::ZipWriter;
 
@@ -87,7 +87,8 @@ impl DiagnosticRunner {
         });
 
         if !self.is_json_mode() {
-            let message = self.results
+            let message = self
+                .results
                 .last()
                 .map(|r| r.message.as_str())
                 .unwrap_or("No results");
@@ -715,7 +716,10 @@ pub async fn run(
             "exit_code": runner.exit_code(),
             "checks": runner.results,
         });
-        info!("Diagnostic results: {}", serde_json::to_string_pretty(&output)?);
+        info!(
+            "Diagnostic results: {}",
+            serde_json::to_string_pretty(&output)?
+        );
     } else {
         info!("════════════════════════════════════════════════════════════════");
         info!("Summary:");
@@ -806,7 +810,10 @@ async fn add_log_files(zip: &mut zip::ZipWriter<std::fs::File>, logs_dir: &str) 
             .to_string_lossy()
             .replace('\\', "/"); // Normalize path separators
 
-        zip.start_file(format!("logs/{}", relative_path), SimpleFileOptions::default())?;
+        zip.start_file(
+            format!("logs/{}", relative_path),
+            SimpleFileOptions::default(),
+        )?;
 
         let mut file = fs::File::open(log_file)?;
         let mut buffer = Vec::new();
@@ -889,7 +896,10 @@ fn add_truncated_log_file(
             .and_then(|n| n.to_str())
             .unwrap_or("unknown.log");
 
-        zip.start_file(format!("logs/{}", relative_path), SimpleFileOptions::default())?;
+        zip.start_file(
+            format!("logs/{}", relative_path),
+            SimpleFileOptions::default(),
+        )?;
         zip.write_all(&content)?;
         return Ok(());
     }
@@ -918,7 +928,10 @@ fn add_truncated_log_file(
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.log");
 
-    zip.start_file(format!("logs/{}", relative_path), zip::write::SimpleFileOptions::default())?;
+    zip.start_file(
+        format!("logs/{}", relative_path),
+        zip::write::SimpleFileOptions::default(),
+    )?;
     zip.write_all(truncated_content.as_bytes())?;
 
     Ok(())

@@ -58,9 +58,10 @@ pub async fn verify_telemetry_chain(bundle_dir: &Path, output: &OutputWriter) ->
 
         // Verify chain link
         if let Some(expected_prev) = &prev_hash {
-            let expected_b3hash = adapteros_core::B3Hash::from_hex(expected_prev)
-                .map_err(|e| AosError::Validation(format!("Invalid expected hash format: {}", e)))?;
-            
+            let expected_b3hash = adapteros_core::B3Hash::from_hex(expected_prev).map_err(|e| {
+                AosError::Validation(format!("Invalid expected hash format: {}", e))
+            })?;
+
             match &metadata.prev_bundle_hash {
                 Some(actual_prev) if *actual_prev == expected_b3hash => {
                     // Chain link valid

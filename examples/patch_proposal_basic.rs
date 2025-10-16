@@ -4,8 +4,6 @@
 //! for generating code patches with evidence citations and policy validation.
 
 use adapteros_lora_kernel_mtl::MetalKernels;
-use adapteros_manifest::Policies;
-use adapteros_policy::PolicyEngine;
 use adapteros_lora_worker::{
     evidence::{EvidenceRequest, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
@@ -13,6 +11,8 @@ use adapteros_lora_worker::{
     patch_validator::{CodePolicy, PatchValidator},
     InferenceRequest, PatchProposalRequest, RequestType, Worker,
 };
+use adapteros_manifest::Policies;
+use adapteros_policy::PolicyEngine;
 use std::collections::HashMap;
 use tokio;
 

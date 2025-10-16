@@ -3,12 +3,14 @@
 //! Comprehensive tests for timeout, circuit breaker, resource limiting, and deadlock detection.
 //! Aligns with existing test patterns and policy enforcement requirements.
 
-use adapteros_lora_worker::{Worker, InferenceRequest, TimeoutConfig, CircuitBreaker, ResourceLimiter, ResourceLimits};
-use adapteros_telemetry::TelemetryWriter;
+use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
+use adapteros_lora_worker::{
+    CircuitBreaker, InferenceRequest, ResourceLimiter, ResourceLimits, TimeoutConfig, Worker,
+};
 use adapteros_manifest::ManifestV3;
+use adapteros_telemetry::TelemetryWriter;
 use std::time::Duration;
 use tokio::time::timeout;
-use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig, spawn_deterministic};
 
 /// Create a test worker for testing
 async fn create_test_worker() -> Worker<adapteros_lora_kernel_api::MockKernels> {
@@ -162,7 +164,15 @@ async fn create_test_worker() -> Worker<adapteros_lora_kernel_api::MockKernels> 
     let telemetry = TelemetryWriter::new("/tmp/test-telemetry", 1000, 1024 * 1024).unwrap();
 
     // Create worker
-    Worker::new(manifest, kernels, None, "test-tokenizer.json", "test-model.bin", telemetry).unwrap()
+    Worker::new(
+        manifest,
+        kernels,
+        None,
+        "test-tokenizer.json",
+        "test-model.bin",
+        telemetry,
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -184,19 +194,21 @@ async fn test_inference_timeout() {
 #[tokio::test]
 async fn test_circuit_breaker() {
     let mut circuit_breaker = CircuitBreaker::new(3, Duration::from_secs(10));
-    
+
     // Simulate failures
     for _ in 0..3 {
-        let result = circuit_breaker.call(async {
-            Err(adapteros_core::AosError::Worker("Simulated failure".to_string()))
-        }).await;
+        let result = circuit_breaker
+            .call(async {
+                Err(adapteros_core::AosError::Worker(
+                    "Simulated failure".to_string(),
+                ))
+            })
+            .await;
         assert!(result.is_err());
     }
-    
+
     // Circuit should now be open
-    let result = circuit_breaker.call(async {
-        Ok("success")
-    }).await;
+    let result = circuit_breaker.call(async { Ok("success") }).await;
     assert!(result.is_err(), "Circuit breaker should be open");
 }
 
@@ -209,22 +221,22 @@ async fn test_resource_limiter() {
         max_cpu_time_per_request: Duration::from_secs(5),
         max_requests_per_minute: 60,
     });
-    
+
     // Test memory limit enforcement
     let guard1 = limiter.acquire_request().await;
     assert!(guard1.is_ok());
-    
+
     let guard2 = limiter.acquire_request().await;
     assert!(guard2.is_ok());
-    
+
     // Third request should fail due to concurrency limit
     let guard3 = limiter.acquire_request().await;
     assert!(guard3.is_err());
-    
+
     // Release guards
     drop(guard1);
     drop(guard2);
-    
+
     // Should be able to acquire again
     let guard4 = limiter.acquire_request().await;
     assert!(guard4.is_ok());
@@ -239,11 +251,11 @@ async fn test_token_rate_limiter() {
         max_cpu_time_per_request: Duration::from_secs(5),
         max_requests_per_minute: 60,
     });
-    
+
     // First two tokens should succeed
     assert!(limiter.check_token_rate().is_ok());
     assert!(limiter.check_token_rate().is_ok());
-    
+
     // Third token should fail
     assert!(limiter.check_token_rate().is_err());
 }
@@ -256,7 +268,7 @@ async fn test_timeout_config() {
         router_timeout: Duration::from_millis(100),
         policy_timeout: Duration::from_millis(50),
     };
-    
+
     assert_eq!(config.inference_timeout, Duration::from_secs(5));
     assert_eq!(config.evidence_timeout, Duration::from_secs(1));
     assert_eq!(config.router_timeout, Duration::from_millis(100));
@@ -266,7 +278,7 @@ async fn test_timeout_config() {
 #[tokio::test]
 async fn test_resource_limits_default() {
     let limits = ResourceLimits::default();
-    
+
     assert_eq!(limits.max_concurrent_requests, 10);
     assert_eq!(limits.max_tokens_per_second, 40);
     assert_eq!(limits.max_memory_per_request, 50 * 1024 * 1024);
@@ -277,9 +289,12 @@ async fn test_resource_limits_default() {
 #[tokio::test]
 async fn test_worker_safety_mechanisms() {
     let worker = create_test_worker().await;
-    
+
     // Verify safety mechanisms are initialized
-    assert_eq!(worker.timeout_config.inference_timeout, Duration::from_secs(30));
+    assert_eq!(
+        worker.timeout_config.inference_timeout,
+        Duration::from_secs(30)
+    );
     assert_eq!(worker.circuit_breaker.failure_count(), 0);
     assert_eq!(worker.resource_limiter.get_concurrent_requests(), 0);
     assert_eq!(worker.deadlock_detector.get_deadlock_count(), 0);
@@ -288,25 +303,29 @@ async fn test_worker_safety_mechanisms() {
 
 #[tokio::test]
 async fn test_health_monitor() {
-    let health_monitor = adapteros_lora_worker::HealthMonitor::new(adapteros_lora_worker::HealthConfig::default()).unwrap();
-    
+    let health_monitor =
+        adapteros_lora_worker::HealthMonitor::new(adapteros_lora_worker::HealthConfig::default())
+            .unwrap();
+
     assert!(!health_monitor.is_shutdown_requested());
     assert!(health_monitor.get_uptime().as_secs() < 1);
-    
+
     health_monitor.record_request();
     // Should not panic
 }
 
 #[tokio::test]
 async fn test_deadlock_detector() {
-    let detector = adapteros_lora_worker::DeadlockDetector::new(adapteros_lora_worker::DeadlockConfig::default());
-    
+    let detector = adapteros_lora_worker::DeadlockDetector::new(
+        adapteros_lora_worker::DeadlockConfig::default(),
+    );
+
     assert_eq!(detector.get_deadlock_count(), 0);
     assert!(!detector.is_recovery_in_progress());
-    
+
     detector.record_lock_acquisition("test_lock".to_string(), 1);
     detector.record_lock_release("test_lock", 1);
-    
+
     // Should not panic
     assert_eq!(detector.get_deadlock_count(), 0);
 }
@@ -324,7 +343,7 @@ async fn test_telemetry_integration() {
 
     // Test that telemetry is logged during inference
     let result = worker.infer(request).await;
-    
+
     // Should complete without error (even if inference fails)
     // The important part is that safety mechanisms are in place
     match result {
@@ -336,11 +355,11 @@ async fn test_telemetry_integration() {
 #[tokio::test]
 async fn test_memory_pressure_handling() {
     let mut worker = create_test_worker().await;
-    
+
     // Test memory pressure detection
     let memory_usage = worker.health_monitor.get_memory_usage();
     assert!(memory_usage.is_ok());
-    
+
     // Test memory monitor
     let headroom = worker.memory_monitor.headroom_pct();
     assert!(headroom > 0.0 && headroom <= 100.0);
@@ -355,10 +374,10 @@ async fn test_concurrent_request_limiting() {
         max_cpu_time_per_request: Duration::from_secs(5),
         max_requests_per_minute: 1000,
     });
-    
+
     // Spawn multiple concurrent requests
     let mut handles = vec![];
-    
+
     for i in 0..5 {
         let limiter = &limiter;
         let handle = spawn_deterministic(format!("Request {}", i), async move {
@@ -373,16 +392,17 @@ async fn test_concurrent_request_limiting() {
         })?;
         handles.push(handle);
     }
-    
-    let results: Vec<String> = futures::future::join_all(handles).await
+
+    let results: Vec<String> = futures::future::join_all(handles)
+        .await
         .into_iter()
         .map(|r| r.unwrap())
         .collect();
-    
+
     // Should have some successes and some failures due to concurrency limit
     let successes = results.iter().filter(|r| r.contains("completed")).count();
     let failures = results.iter().filter(|r| r.contains("failed")).count();
-    
+
     assert_eq!(successes, 3, "Should have exactly 3 successful requests");
     assert_eq!(failures, 2, "Should have exactly 2 failed requests");
 }

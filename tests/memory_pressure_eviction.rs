@@ -19,13 +19,8 @@ fn test_memory_pressure_eviction() {
     policies.memory.min_headroom_pct = 15;
     policies.adapters.min_activation_pct = 2.0;
 
-    let manager = LifecycleManager::new(
-        adapter_names.clone(),
-        &policies,
-        temp_dir.clone(),
-        None,
-        3,
-    );
+    let manager =
+        LifecycleManager::new(adapter_names.clone(), &policies, temp_dir.clone(), None, 3);
 
     let profiler = AdapterProfiler::new(adapter_names, None);
 
@@ -38,7 +33,7 @@ fn test_memory_pressure_eviction() {
     profiler.record_routing_decision(&[1, 2]); // Skip adapter 0
     profiler.record_routing_decision(&[1, 2]);
     profiler.record_routing_decision(&[1, 2]);
-    
+
     // High activation for adapter 1 and 2
     for _ in 0..50 {
         profiler.record_routing_decision(&[1, 2]);
@@ -46,7 +41,7 @@ fn test_memory_pressure_eviction() {
 
     // Trigger memory pressure handling
     let result = manager.handle_memory_pressure(&profiler);
-    
+
     // Should succeed (evict one adapter)
     assert!(result.is_ok());
 
@@ -59,25 +54,17 @@ fn test_pinned_adapter_never_evicted() {
     let temp_dir = std::env::temp_dir().join("mplora_test_pinned_no_evict");
     std::fs::create_dir_all(&temp_dir).unwrap();
 
-    let adapter_names = vec![
-        "adapter_0".to_string(),
-        "adapter_1".to_string(),
-    ];
+    let adapter_names = vec!["adapter_0".to_string(), "adapter_1".to_string()];
 
     let policies = Policies::default();
-    let manager = LifecycleManager::new(
-        adapter_names.clone(),
-        &policies,
-        temp_dir.clone(),
-        None,
-        3,
-    );
+    let manager =
+        LifecycleManager::new(adapter_names.clone(), &policies, temp_dir.clone(), None, 3);
 
     let profiler = AdapterProfiler::new(adapter_names, None);
 
     // Pin adapter 0 (should never be evicted)
     manager.pin_adapter(0).unwrap();
-    
+
     // Promote adapter 1 to cold
     manager.promote_adapter(1).unwrap();
 
@@ -104,7 +91,7 @@ fn test_k_reduction_under_extreme_pressure() {
 
     let adapter_names = vec!["adapter_0".to_string()];
     let policies = Policies::default();
-    
+
     let manager = LifecycleManager::new(
         adapter_names.clone(),
         &policies,
@@ -140,4 +127,3 @@ fn test_k_reduction_under_extreme_pressure() {
     // Cleanup
     std::fs::remove_dir_all(temp_dir).unwrap();
 }
-

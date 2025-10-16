@@ -231,9 +231,11 @@ impl SupervisorDaemon {
     pub async fn new(config: SupervisorConfig) -> Result<Self> {
         info!("Initializing supervisor daemon");
 
-        let db = Arc::new(Db::connect(config.db_path.to_str().unwrap()).await.map_err(
-            |e| AosError::Database(format!("Failed to connect to database: {}", e)),
-        )?);
+        let db = Arc::new(
+            Db::connect(config.db_path.to_str().unwrap())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?,
+        );
 
         let health_checker = Arc::new(HealthChecker::new(Duration::from_secs(
             config.health_check_interval_secs,
@@ -267,18 +269,14 @@ impl SupervisorDaemon {
     pub async fn run(&self) -> Result<()> {
         info!("Starting supervisor daemon");
 
-        let mut health_interval = interval(Duration::from_secs(
-            self.config.health_check_interval_secs,
-        ));
-        let mut policy_interval = interval(Duration::from_secs(
-            self.config.policy_check_interval_secs,
-        ));
-        let mut adapter_interval = interval(Duration::from_secs(
-            self.config.adapter_check_interval_secs,
-        ));
-        let mut memory_interval = interval(Duration::from_secs(
-            self.config.memory_check_interval_secs,
-        ));
+        let mut health_interval =
+            interval(Duration::from_secs(self.config.health_check_interval_secs));
+        let mut policy_interval =
+            interval(Duration::from_secs(self.config.policy_check_interval_secs));
+        let mut adapter_interval =
+            interval(Duration::from_secs(self.config.adapter_check_interval_secs));
+        let mut memory_interval =
+            interval(Duration::from_secs(self.config.memory_check_interval_secs));
 
         loop {
             tokio::select! {
@@ -317,7 +315,10 @@ impl SupervisorDaemon {
             // Check if worker process is still running
             if let Some(pid) = worker.pid {
                 // In production, check if process exists
-                debug!("Worker {} (PID {}) status: {:?}", tenant_id, pid, worker.status);
+                debug!(
+                    "Worker {} (PID {}) status: {:?}",
+                    tenant_id, pid, worker.status
+                );
             }
 
             // Check if worker is quarantined
@@ -493,7 +494,8 @@ impl SupervisorDaemon {
         self.restart_worker(tenant_id).await?;
 
         // Record restart in database
-        self.record_restart(tenant_id, restart_state.attempts).await?;
+        self.record_restart(tenant_id, restart_state.attempts)
+            .await?;
 
         restart_state.last_restart = std::time::SystemTime::now();
 
@@ -543,7 +545,10 @@ impl SupervisorDaemon {
     pub fn reset_restart_attempts(&self, tenant_id: &str) {
         let mut restart_states = self.restart_states.lock().unwrap();
         if let Some(state) = restart_states.get_mut(tenant_id) {
-            info!("Resetting restart attempts for worker {} (was {})", tenant_id, state.attempts);
+            info!(
+                "Resetting restart attempts for worker {} (was {})",
+                tenant_id, state.attempts
+            );
             state.attempts = 0;
         }
     }
@@ -639,4 +644,3 @@ mod tests {
         assert_eq!(restart_state.attempts, 1);
     }
 }
-

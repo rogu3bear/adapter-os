@@ -3,15 +3,15 @@
 //! This example demonstrates advanced usage of the patch proposal system
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
-use adapteros_manifest::Policies;
-use adapteros_policy::PolicyEngine;
-use adapteros_telemetry::TelemetryWriter;
 use adapteros_lora_worker::{
     evidence::{EvidencePolicy, EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics},
     patch_validator::{CodePolicy, PatchValidator, ValidationResult},
 };
+use adapteros_manifest::Policies;
+use adapteros_policy::PolicyEngine;
+use adapteros_telemetry::TelemetryWriter;
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio;
@@ -142,13 +142,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         violations: validation_result
             .violations
             .into_iter()
-            .map(|v| adapteros_lora_worker::patch_telemetry::ViolationMetric {
-                violation_type: format!("{:?}", v.violation_type),
-                severity: format!("{:?}", v.severity),
-                file_path: v.file_path,
-                line_number: v.line_number,
-                description: v.description,
-            })
+            .map(
+                |v| adapteros_lora_worker::patch_telemetry::ViolationMetric {
+                    violation_type: format!("{:?}", v.violation_type),
+                    severity: format!("{:?}", v.severity),
+                    file_path: v.file_path,
+                    line_number: v.line_number,
+                    description: v.description,
+                },
+            )
             .collect(),
     };
     telemetry.log_patch_validation("advanced_tenant", validation_metrics);

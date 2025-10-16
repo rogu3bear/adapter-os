@@ -50,7 +50,8 @@ async fn test_adapter_load_state_transitions() -> Result<()> {
     assert_eq!(adapter.current_state, "warm");
 
     // Test memory update
-    db.update_adapter_memory("test-adapter-001", 16777216).await?;
+    db.update_adapter_memory("test-adapter-001", 16777216)
+        .await?;
 
     let adapter = db.get_adapter("test-adapter-001").await?;
     assert_eq!(adapter.unwrap().memory_bytes, 16777216);
@@ -110,7 +111,7 @@ async fn test_adapter_activation_tracking() -> Result<()> {
     let (total, selected, avg_gate) = db.get_adapter_stats("test-adapter-002").await?;
     assert_eq!(total, 3);
     assert_eq!(selected, 2);
-    
+
     // Average should be (0.85 + 0.92 + 0.78) / 3 = 0.85
     assert!((avg_gate - 0.85).abs() < 0.01);
 
@@ -133,13 +134,7 @@ async fn test_adapter_lifecycle_manager_integration() -> Result<()> {
     // Create lifecycle manager
     let adapter_names = vec!["test_adapter".to_string()];
     let policies = Policies::default();
-    let lifecycle = LifecycleManager::new(
-        adapter_names,
-        &policies,
-        temp_dir.clone(),
-        None,
-        3,
-    );
+    let lifecycle = LifecycleManager::new(adapter_names, &policies, temp_dir.clone(), None, 3);
 
     // Test that adapter starts in unloaded state
     assert_eq!(
@@ -181,7 +176,7 @@ async fn test_adapter_memory_pressure_handling() -> Result<()> {
         // Load them
         db.update_adapter_state(&format!("adapter-{}", i), "warm", "loaded")
             .await?;
-        
+
         // Set memory usage
         db.update_adapter_memory(&format!("adapter-{}", i), 16777216)
             .await?;
@@ -234,12 +229,7 @@ async fn test_concurrent_adapter_operations() -> Result<()> {
         let db_clone = db.clone();
         let handle = tokio::spawn(async move {
             db_clone
-                .record_activation(
-                    "concurrent-adapter",
-                    Some(&format!("req-{}", i)),
-                    0.8,
-                    true,
-                )
+                .record_activation("concurrent-adapter", Some(&format!("req-{}", i)), 0.8, true)
                 .await
         });
         handles.push(handle);
@@ -264,7 +254,7 @@ mod api_tests {
 
     // These tests would require the full server setup
     // Placeholder for actual API integration tests
-    
+
     #[tokio::test]
     #[ignore] // Requires running server
     async fn test_load_adapter_api_endpoint() {
@@ -278,4 +268,3 @@ mod api_tests {
         // This would test the actual POST /v1/adapters/{id}/unload endpoint
     }
 }
-

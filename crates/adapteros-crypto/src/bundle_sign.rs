@@ -4,7 +4,7 @@
 //! Provides cryptographic chain-of-custody for all telemetry data
 
 use crate::{Keypair, PublicKey, Signature};
-use adapteros_core::{AosError, Result, B3Hash};
+use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;

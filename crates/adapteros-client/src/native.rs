@@ -55,7 +55,9 @@ impl AdapterOSClient for NativeClient {
     async fn register_adapter(&self, req: RegisterAdapterRequest) -> Result<AdapterResponse> {
         let url = format!("{}/v1/adapters", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse adapter response")
+        resp.json()
+            .await
+            .context("Failed to parse adapter response")
     }
 
     async fn evict_adapter(&self, adapter_id: &str) -> Result<()> {
@@ -79,29 +81,38 @@ impl AdapterOSClient for NativeClient {
     }
 
     // Training
-    async fn start_adapter_training(&self, req: StartTrainingRequest) -> Result<TrainingSessionResponse> {
+    async fn start_adapter_training(
+        &self,
+        req: StartTrainingRequest,
+    ) -> Result<TrainingSessionResponse> {
         let url = format!("{}/v1/training/sessions", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse training session response")
+        resp.json()
+            .await
+            .context("Failed to parse training session response")
     }
 
     async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse> {
         let url = format!("{}/v1/training/sessions/{}", self.base_url, session_id);
         let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse training session")
+        resp.json()
+            .await
+            .context("Failed to parse training session")
     }
 
     async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>> {
         let url = format!("{}/v1/training/sessions", self.base_url);
         let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse training sessions")
+        resp.json()
+            .await
+            .context("Failed to parse training sessions")
     }
 
     // Telemetry
     async fn get_telemetry_events(&self, filters: TelemetryFilters) -> Result<Vec<TelemetryEvent>> {
         let mut url = format!("{}/v1/telemetry/events", self.base_url);
         let mut params = Vec::new();
-        
+
         if let Some(limit) = filters.limit {
             params.push(format!("limit={}", limit));
         }
@@ -123,14 +134,16 @@ impl AdapterOSClient for NativeClient {
         if let Some(level) = filters.level {
             params.push(format!("level={}", level));
         }
-        
+
         if !params.is_empty() {
             url.push('?');
             url.push_str(&params.join("&"));
         }
-        
+
         let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse telemetry events")
+        resp.json()
+            .await
+            .context("Failed to parse telemetry events")
     }
 
     // Nodes
@@ -159,7 +172,9 @@ impl AdapterOSClient for NativeClient {
     async fn build_plan(&self, req: BuildPlanRequest) -> Result<JobResponse> {
         let url = format!("{}/v1/plans/build", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse build plan response")
+        resp.json()
+            .await
+            .context("Failed to parse build plan response")
     }
 
     // Workers
@@ -182,7 +197,9 @@ impl AdapterOSClient for NativeClient {
     async fn promote_cp(&self, req: PromoteCPRequest) -> Result<PromotionResponse> {
         let url = format!("{}/v1/cp/promote", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse promotion response")
+        resp.json()
+            .await
+            .context("Failed to parse promotion response")
     }
 
     async fn promotion_gates(&self, cpid: String) -> Result<PromotionGatesResponse> {
@@ -194,7 +211,9 @@ impl AdapterOSClient for NativeClient {
     async fn rollback_cp(&self, req: RollbackCPRequest) -> Result<RollbackResponse> {
         let url = format!("{}/v1/cp/rollback", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse rollback response")
+        resp.json()
+            .await
+            .context("Failed to parse rollback response")
     }
 
     // Jobs
@@ -227,30 +246,41 @@ impl AdapterOSClient for NativeClient {
         resp.json().await.context("Failed to parse policy")
     }
 
-    async fn validate_policy(&self, req: ValidatePolicyRequest) -> Result<PolicyValidationResponse> {
+    async fn validate_policy(
+        &self,
+        req: ValidatePolicyRequest,
+    ) -> Result<PolicyValidationResponse> {
         let url = format!("{}/v1/policies/validate", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse policy validation")
+        resp.json()
+            .await
+            .context("Failed to parse policy validation")
     }
 
     async fn apply_policy(&self, req: ApplyPolicyRequest) -> Result<PolicyPackResponse> {
         let url = format!("{}/v1/policies/apply", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse policy application")
+        resp.json()
+            .await
+            .context("Failed to parse policy application")
     }
 
     // Telemetry Bundles
     async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>> {
         let url = format!("{}/v1/telemetry/bundles", self.base_url);
         let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse telemetry bundles")
+        resp.json()
+            .await
+            .context("Failed to parse telemetry bundles")
     }
 
     // Code Intelligence
     async fn register_repo(&self, req: RegisterRepoRequest) -> Result<RepoResponse> {
         let url = format!("{}/v1/repos/register", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse repo registration")
+        resp.json()
+            .await
+            .context("Failed to parse repo registration")
     }
 
     async fn scan_repo(&self, req: ScanRepoRequest) -> Result<JobResponse> {
@@ -274,7 +304,9 @@ impl AdapterOSClient for NativeClient {
     async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>> {
         let url = format!("{}/v1/adapters/activations", self.base_url);
         let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse adapter activations")
+        resp.json()
+            .await
+            .context("Failed to parse adapter activations")
     }
 
     async fn create_commit_delta(&self, req: CommitDeltaRequest) -> Result<CommitDeltaResponse> {
@@ -283,14 +315,21 @@ impl AdapterOSClient for NativeClient {
         resp.json().await.context("Failed to parse commit delta")
     }
 
-    async fn get_commit_details(&self, repo_id: String, commit: String) -> Result<CommitDetailsResponse> {
+    async fn get_commit_details(
+        &self,
+        repo_id: String,
+        commit: String,
+    ) -> Result<CommitDetailsResponse> {
         let url = format!("{}/v1/repos/{}/commits/{}", self.base_url, repo_id, commit);
         let resp = self.client.get(&url).send().await?;
         resp.json().await.context("Failed to parse commit details")
     }
 
     // Routing Inspector
-    async fn extract_router_features(&self, req: RouterFeaturesRequest) -> Result<RouterFeaturesResponse> {
+    async fn extract_router_features(
+        &self,
+        req: RouterFeaturesRequest,
+    ) -> Result<RouterFeaturesResponse> {
         let url = format!("{}/v1/router/features", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json().await.context("Failed to parse router features")
@@ -312,13 +351,17 @@ impl AdapterOSClient for NativeClient {
     async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse> {
         let url = format!("{}/v1/patches/validate", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse patch validation")
+        resp.json()
+            .await
+            .context("Failed to parse patch validation")
     }
 
     async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse> {
         let url = format!("{}/v1/patches/apply", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse patch application")
+        resp.json()
+            .await
+            .context("Failed to parse patch application")
     }
 
     // Code Policy
@@ -344,7 +387,9 @@ impl AdapterOSClient for NativeClient {
     async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
         let url = format!("{}/v1/metrics/compare", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse metrics comparison")
+        resp.json()
+            .await
+            .context("Failed to parse metrics comparison")
     }
 }
 

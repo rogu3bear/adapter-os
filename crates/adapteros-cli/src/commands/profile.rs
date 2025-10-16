@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::path::PathBuf;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 /// Profiling snapshot structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -50,13 +50,15 @@ async fn connect_and_fetch_profiling_snapshot(
             anyhow::anyhow!("Failed to get profiling snapshot: {}", e)
         })?;
 
-    let snapshot: ProfilingSnapshot = serde_json::from_str(&json_response)
-        .map_err(|e| {
-            error!(error = %e, "Failed to parse profiling snapshot");
-            anyhow::anyhow!("Failed to parse profiling snapshot: {}", e)
-        })?;
+    let snapshot: ProfilingSnapshot = serde_json::from_str(&json_response).map_err(|e| {
+        error!(error = %e, "Failed to parse profiling snapshot");
+        anyhow::anyhow!("Failed to parse profiling snapshot: {}", e)
+    })?;
 
-    info!(adapters_count = snapshot.adapters.len(), "Retrieved profiling snapshot");
+    info!(
+        adapters_count = snapshot.adapters.len(),
+        "Retrieved profiling snapshot"
+    );
     Ok(snapshot)
 }
 
@@ -362,9 +364,9 @@ async fn watch_metrics() -> Result<()> {
     println!("🔄 Watching profiler metrics (Ctrl+C to stop)...\n");
     println!("Refreshing every 2 seconds...\n");
 
+    use adapteros_deterministic_exec::select::{select_2, SelectResult2};
     use tokio::signal;
     use tokio::time::{interval, Duration};
-    use adapteros_deterministic_exec::select::{select_2, SelectResult2};
 
     let mut interval = interval(Duration::from_secs(2));
     let mut update_count = 0;

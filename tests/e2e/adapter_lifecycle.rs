@@ -3,12 +3,12 @@
 //! Validates complete adapter workflows including creation, loading, activation,
 //! hot-swapping, eviction, and cleanup with proper telemetry and policy enforcement.
 
+use crate::orchestration::TestEnvironment;
+use adapteros_core::{AosError, Result};
+use adapteros_telemetry::{AdapterPreloadEvent, AdapterSwapEvent, TelemetryWriter};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use adapteros_core::{AosError, Result};
-use adapteros_telemetry::{TelemetryWriter, AdapterSwapEvent, AdapterPreloadEvent};
-use crate::orchestration::TestEnvironment;
 
 /// Adapter lifecycle management test suite
 pub struct AdapterLifecycleTest {
@@ -123,7 +123,8 @@ impl AdapterLifecycleTest {
                 "validation_time_ms": 50,
                 "status": "valid"
             });
-            env.telemetry().log("adapter_validation", &validation_event)?;
+            env.telemetry()
+                .log("adapter_validation", &validation_event)?;
         }
 
         Ok(())
@@ -135,7 +136,11 @@ impl AdapterLifecycleTest {
             ("maintenance_query", vec!["aviation_maint"], vec![0.85]),
             ("medical_diagnosis", vec!["medical_diag"], vec![0.92]),
             ("compliance_check", vec!["finance_compliance"], vec![0.78]),
-            ("multi_domain", vec!["aviation_maint", "finance_compliance"], vec![0.65, 0.55]),
+            (
+                "multi_domain",
+                vec!["aviation_maint", "finance_compliance"],
+                vec![0.65, 0.55],
+            ),
         ];
 
         for (scenario, adapters, scores) in activation_scenarios {
@@ -160,7 +165,8 @@ impl AdapterLifecycleTest {
                     "activation_time_ms": 5,
                     "success": true
                 });
-                env.telemetry().log("adapter_activation", &activation_event)?;
+                env.telemetry()
+                    .log("adapter_activation", &activation_event)?;
             }
         }
 
@@ -228,7 +234,8 @@ impl AdapterLifecycleTest {
                         "duration_ms": duration_ms,
                         "memory_freed_mb": 256
                     });
-                    env.telemetry().log("adapter_hotswap", &deactivation_event)?;
+                    env.telemetry()
+                        .log("adapter_hotswap", &deactivation_event)?;
                 }
                 _ => {}
             }
@@ -311,7 +318,8 @@ impl AdapterLifecycleTest {
                 "resource_leaks": false,
                 "status": "clean"
             });
-            env.telemetry().log("adapter_verification", &verification_event)?;
+            env.telemetry()
+                .log("adapter_verification", &verification_event)?;
         }
 
         Ok(())
@@ -339,7 +347,8 @@ pub async fn test_adapter_concurrent_load(env: Arc<Mutex<TestEnvironment>>) -> R
             "adapter_contention": 0.15,
             "duration_ms": 10000
         });
-        env.telemetry().log("adapter_concurrency", &concurrent_event)?;
+        env.telemetry()
+            .log("adapter_concurrency", &concurrent_event)?;
     }
 
     Ok(())

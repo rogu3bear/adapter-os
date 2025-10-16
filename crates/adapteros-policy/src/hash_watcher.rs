@@ -42,17 +42,17 @@ pub struct ValidationResult {
 pub struct PolicyHashWatcher {
     /// Database handle for persistence
     db: Arc<Db>,
-    
+
     /// Telemetry writer for logging
     telemetry: Arc<TelemetryWriter>,
-    
+
     /// In-memory cache: policy_pack_id -> baseline_hash
     /// Uses RwLock for concurrent reads during hot path
     cache: Arc<RwLock<HashMap<String, B3Hash>>>,
-    
+
     /// Detected violations buffer
     violations: Arc<RwLock<Vec<HashViolation>>>,
-    
+
     /// Control Plane ID (optional)
     cpid: Option<String>,
 }
@@ -124,7 +124,11 @@ impl PolicyHashWatcher {
         let baseline_hash = if let Some(hash) = baseline_hash {
             Some(hash)
         } else {
-            match self.db.get_policy_hash(policy_pack_id, self.cpid.as_deref()).await {
+            match self
+                .db
+                .get_policy_hash(policy_pack_id, self.cpid.as_deref())
+                .await
+            {
                 Ok(Some(record)) => {
                     // Populate cache
                     let mut cache = self.cache.write().unwrap();
@@ -138,7 +142,10 @@ impl PolicyHashWatcher {
                         error = %e,
                         "Failed to load policy hash from database"
                     );
-                    return Err(AosError::Database(format!("Failed to load policy hash: {}", e)));
+                    return Err(AosError::Database(format!(
+                        "Failed to load policy hash: {}",
+                        e
+                    )));
                 }
             }
         };
@@ -156,13 +163,11 @@ impl PolicyHashWatcher {
 
         // Log telemetry event (100% sampling)
         let event = match status {
-            ValidationStatus::Valid => {
-                PolicyHashValidationEvent::valid(
-                    policy_pack_id.to_string(),
-                    current_hash.to_hex(),
-                    self.cpid.clone(),
-                )
-            }
+            ValidationStatus::Valid => PolicyHashValidationEvent::valid(
+                policy_pack_id.to_string(),
+                current_hash.to_hex(),
+                self.cpid.clone(),
+            ),
             ValidationStatus::Mismatch => {
                 let prev_hash = baseline_hash.unwrap().to_hex();
                 warn!(
@@ -173,11 +178,7 @@ impl PolicyHashWatcher {
                 );
 
                 // Record violation
-                self.record_violation(
-                    policy_pack_id,
-                    baseline_hash.unwrap(),
-                    *current_hash,
-                );
+                self.record_violation(policy_pack_id, baseline_hash.unwrap(), *current_hash);
 
                 PolicyHashValidationEvent::mismatch(
                     policy_pack_id.to_string(),
@@ -271,13 +272,19 @@ impl PolicyHashWatcher {
     }
 
     /// Validate all registered policy packs
-    pub async fn validate_all_policies(&self, policy_hashes: &HashMap<String, B3Hash>) -> Result<()> {
+    pub async fn validate_all_policies(
+        &self,
+        policy_hashes: &HashMap<String, B3Hash>,
+    ) -> Result<()> {
         debug!("Validating all policy pack hashes");
 
         let mut any_violations = false;
 
         for (policy_pack_id, current_hash) in policy_hashes {
-            match self.validate_policy_pack(policy_pack_id, current_hash).await {
+            match self
+                .validate_policy_pack(policy_pack_id, current_hash)
+                .await
+            {
                 Ok(result) => {
                     if !result.valid {
                         any_violations = true;
@@ -306,7 +313,8 @@ impl PolicyHashWatcher {
     pub async fn load_cache(&self) -> Result<()> {
         info!(cpid = ?self.cpid, "Loading policy hashes into cache");
 
-        let records = self.db
+        let records = self
+            .db
             .list_policy_hashes(self.cpid.as_deref())
             .await
             .map_err(|e| AosError::Database(format!("Failed to list policy hashes: {}", e)))?;
@@ -357,7 +365,7 @@ impl PolicyHashWatcher {
                 "cpid": self.cpid,
                 "violation_type": "policy_hash_mismatch",
             }))
-            .build()
+            .build(),
         ) {
             error!(error = %e, "Failed to log quarantine event");
         }
@@ -367,7 +375,7 @@ impl PolicyHashWatcher {
     }
 
     /// Start background watcher task
-    /// 
+    ///
     /// Runs periodic validation sweeps at the specified interval.
     /// This is non-deterministic but provides continuous monitoring.
     pub fn start_background_watcher(
@@ -415,7 +423,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db_url = format!("sqlite://{}", db_path.display());
-        
+
         let db = Db::connect(&db_url).await.unwrap();
         db.migrate().await.unwrap();
 
@@ -457,7 +465,10 @@ mod tests {
             .await
             .unwrap();
 
-        let result = watcher.validate_policy_pack("test_policy", &hash).await.unwrap();
+        let result = watcher
+            .validate_policy_pack("test_policy", &hash)
+            .await
+            .unwrap();
         assert!(result.valid);
         assert_eq!(result.status, ValidationStatus::Valid);
     }
@@ -551,4 +562,3 @@ mod tests {
         assert_eq!(cache.get("policy2"), Some(&hash2));
     }
 }
-

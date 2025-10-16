@@ -5,7 +5,7 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
-use adapteros_telemetry::{TelemetryWriter, TelemetryEventBuilder, LogLevel};
+use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::Row;
@@ -116,7 +116,7 @@ impl OutputHashManager {
             FROM federation_output_hashes
             WHERE session_id = ?
             ORDER BY computed_at ASC
-            "#
+            "#,
         )
         .bind(session_id)
         .fetch_all(pool)
@@ -125,12 +125,12 @@ impl OutputHashManager {
 
         let mut records = Vec::new();
         for row in rows {
-            let output_hash_hex: String = row.try_get("output_hash").map_err(|e| {
-                AosError::Database(format!("Failed to get output_hash: {}", e))
-            })?;
-            let input_hash_hex: String = row.try_get("input_hash").map_err(|e| {
-                AosError::Database(format!("Failed to get input_hash: {}", e))
-            })?;
+            let output_hash_hex: String = row
+                .try_get("output_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get output_hash: {}", e)))?;
+            let input_hash_hex: String = row
+                .try_get("input_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get input_hash: {}", e)))?;
 
             let output_hash = B3Hash::from_hex(&output_hash_hex)?;
             let input_hash = B3Hash::from_hex(&input_hash_hex)?;
@@ -185,7 +185,11 @@ impl OutputHashManager {
         // Check consistency
         let unique_hashes: std::collections::HashSet<_> = output_hashes.values().collect();
         let consistent = unique_hashes.len() == 1;
-        let divergence_count = if consistent { 0 } else { unique_hashes.len() - 1 };
+        let divergence_count = if consistent {
+            0
+        } else {
+            unique_hashes.len() - 1
+        };
 
         let result = ComparisonResult {
             session_id: session_id.to_string(),
@@ -206,7 +210,11 @@ impl OutputHashManager {
 
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom(event_type.to_string()),
-                if consistent { LogLevel::Info } else { LogLevel::Warn },
+                if consistent {
+                    LogLevel::Info
+                } else {
+                    LogLevel::Warn
+                },
                 format!(
                     "Output hash comparison: {} (consistent: {})",
                     session_id, consistent
@@ -253,7 +261,7 @@ impl OutputHashManager {
             FROM federation_output_hashes
             WHERE input_hash = ?
             ORDER BY computed_at ASC
-            "#
+            "#,
         )
         .bind(&input_hash_hex)
         .fetch_all(pool)
@@ -262,12 +270,12 @@ impl OutputHashManager {
 
         let mut records = Vec::new();
         for row in rows {
-            let output_hash_hex: String = row.try_get("output_hash").map_err(|e| {
-                AosError::Database(format!("Failed to get output_hash: {}", e))
-            })?;
-            let input_hash_hex: String = row.try_get("input_hash").map_err(|e| {
-                AosError::Database(format!("Failed to get input_hash: {}", e))
-            })?;
+            let output_hash_hex: String = row
+                .try_get("output_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get output_hash: {}", e)))?;
+            let input_hash_hex: String = row
+                .try_get("input_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get input_hash: {}", e)))?;
 
             let output_hash = B3Hash::from_hex(&output_hash_hex)?;
             let input_hash = B3Hash::from_hex(&input_hash_hex)?;
@@ -326,7 +334,13 @@ mod tests {
         let input_hash = B3Hash::hash(b"test input");
 
         manager
-            .record_output_hash(session_id.clone(), host_id.clone(), output_hash, input_hash, true)
+            .record_output_hash(
+                session_id.clone(),
+                host_id.clone(),
+                output_hash,
+                input_hash,
+                true,
+            )
             .await?;
 
         let records = manager.get_session_hashes(&session_id).await?;
@@ -411,4 +425,3 @@ mod tests {
         Ok(())
     }
 }
-

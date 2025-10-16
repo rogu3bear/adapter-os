@@ -1,8 +1,8 @@
 //! Router calibration commands
 
+use adapteros_lora_router::{CalibrationDataset, Calibrator, OptimizationMethod, RouterWeights};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use adapteros_lora_router::{CalibrationDataset, Calibrator, OptimizationMethod, RouterWeights};
 use std::path::PathBuf;
 
 #[derive(Debug, Subcommand, Clone)]

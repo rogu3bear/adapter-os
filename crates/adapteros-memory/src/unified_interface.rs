@@ -17,19 +17,19 @@ use tracing::info;
 pub trait MemoryManager {
     /// Get current memory usage statistics
     async fn get_memory_usage(&self) -> Result<MemoryUsageStats>;
-    
+
     /// Evict an adapter from memory
     async fn evict_adapter(&self, adapter_id: &str) -> Result<()>;
-    
+
     /// Pin an adapter to prevent eviction
     async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()>;
-    
+
     /// Get adapter memory information
     async fn get_adapter_memory_info(&self, adapter_id: &str) -> Result<AdapterMemoryInfo>;
-    
+
     /// Check memory pressure level
     async fn check_memory_pressure(&self) -> Result<MemoryPressureLevel>;
-    
+
     /// Perform memory cleanup
     async fn cleanup_memory(&self) -> Result<MemoryCleanupReport>;
 }
@@ -39,22 +39,22 @@ pub trait MemoryManager {
 pub struct MemoryUsageStats {
     /// Total system memory (bytes)
     pub total_memory: u64,
-    
+
     /// Available memory (bytes)
     pub available_memory: u64,
-    
+
     /// Used memory (bytes)
     pub used_memory: u64,
-    
+
     /// Memory pressure level
     pub pressure_level: MemoryPressureLevel,
-    
+
     /// Adapter memory usage
     pub adapters: Vec<AdapterMemoryInfo>,
-    
+
     /// Memory headroom percentage
     pub headroom_percentage: f64,
-    
+
     /// Timestamp of the stats
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
@@ -64,31 +64,31 @@ pub struct MemoryUsageStats {
 pub struct AdapterMemoryInfo {
     /// Adapter identifier
     pub adapter_id: String,
-    
+
     /// Adapter name
     pub adapter_name: String,
-    
+
     /// Memory usage in bytes
     pub memory_usage_bytes: u64,
-    
+
     /// Memory usage in MB
     pub memory_usage_mb: u64,
-    
+
     /// Adapter state
     pub state: AdapterState,
-    
+
     /// Whether adapter is pinned
     pub pinned: bool,
-    
+
     /// Adapter category
     pub category: AdapterCategory,
-    
+
     /// Last access time
     pub last_access: Option<chrono::DateTime<chrono::Utc>>,
-    
+
     /// Activation count
     pub activation_count: u64,
-    
+
     /// Quality score
     pub quality_score: f64,
 }
@@ -98,19 +98,19 @@ pub struct AdapterMemoryInfo {
 pub enum AdapterState {
     /// Adapter is loaded and ready
     Loaded,
-    
+
     /// Adapter is currently being used
     Active,
-    
+
     /// Adapter is idle but loaded
     Idle,
-    
+
     /// Adapter is being unloaded
     Unloading,
-    
+
     /// Adapter has been evicted
     Evicted,
-    
+
     /// Adapter is in error state
     Error,
 }
@@ -120,19 +120,19 @@ pub enum AdapterState {
 pub enum AdapterCategory {
     /// Base language model
     Base,
-    
+
     /// Code-specific adapter
     Code,
-    
+
     /// Framework-specific adapter
     Framework,
-    
+
     /// Directory-specific adapter
     Directory,
-    
+
     /// Ephemeral adapter
     Ephemeral,
-    
+
     /// Custom adapter
     Custom(String),
 }
@@ -142,13 +142,13 @@ pub enum AdapterCategory {
 pub enum MemoryPressureLevel {
     /// Low pressure - plenty of memory available
     Low,
-    
+
     /// Medium pressure - some memory constraints
     Medium,
-    
+
     /// High pressure - significant memory constraints
     High,
-    
+
     /// Critical pressure - immediate action required
     Critical,
 }
@@ -158,19 +158,19 @@ pub enum MemoryPressureLevel {
 pub struct MemoryCleanupReport {
     /// Number of adapters evicted
     pub adapters_evicted: u32,
-    
+
     /// Number of adapters pinned
     pub adapters_pinned: u32,
-    
+
     /// Memory freed in bytes
     pub memory_freed_bytes: u64,
-    
+
     /// Memory freed in MB
     pub memory_freed_mb: u64,
-    
+
     /// Cleanup duration
     pub duration_ms: u64,
-    
+
     /// Cleanup operations performed
     pub operations: Vec<CleanupOperation>,
 }
@@ -179,14 +179,17 @@ pub struct MemoryCleanupReport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CleanupOperation {
     /// Evicted an adapter
-    EvictAdapter { adapter_id: String, memory_freed: u64 },
-    
+    EvictAdapter {
+        adapter_id: String,
+        memory_freed: u64,
+    },
+
     /// Pinned an adapter
     PinAdapter { adapter_id: String },
-    
+
     /// Reduced K value
     ReduceK { old_k: u32, new_k: u32 },
-    
+
     /// Freed unused memory
     FreeUnusedMemory { memory_freed: u64 },
 }
@@ -196,16 +199,16 @@ pub enum CleanupOperation {
 pub struct UnifiedMemoryManager {
     /// Memory pools by backend
     pools: HashMap<String, Arc<Mutex<MemoryPool>>>,
-    
+
     /// Total allocated memory
     total_allocated: Arc<Mutex<u64>>,
-    
+
     /// Memory limit
     memory_limit: u64,
-    
+
     /// Headroom threshold (percentage)
     headroom_threshold: f64,
-    
+
     /// Adapter registry
     adapters: Arc<Mutex<HashMap<String, AdapterMemoryInfo>>>,
 }
@@ -221,12 +224,12 @@ impl UnifiedMemoryManager {
             adapters: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-    
+
     /// Add a memory pool for a specific backend
     pub fn add_pool(&mut self, backend: String, pool: MemoryPool) {
         self.pools.insert(backend, Arc::new(Mutex::new(pool)));
     }
-    
+
     /// Get memory headroom percentage
     pub fn get_headroom_percentage(&self) -> f64 {
         let total = self.memory_limit as f64;
@@ -234,7 +237,7 @@ impl UnifiedMemoryManager {
         let available = total - allocated;
         (available / total) * 100.0
     }
-    
+
     /// Check if memory headroom is sufficient
     pub fn is_headroom_sufficient(&self) -> bool {
         self.get_headroom_percentage() >= self.headroom_threshold
@@ -246,7 +249,7 @@ impl MemoryManager for UnifiedMemoryManager {
         let total_allocated = *self.total_allocated.lock().unwrap();
         let available_memory = self.memory_limit.saturating_sub(total_allocated);
         let headroom_percentage = self.get_headroom_percentage();
-        
+
         let pressure_level = if headroom_percentage >= 30.0 {
             MemoryPressureLevel::Low
         } else if headroom_percentage >= 20.0 {
@@ -256,9 +259,9 @@ impl MemoryManager for UnifiedMemoryManager {
         } else {
             MemoryPressureLevel::Critical
         };
-        
+
         let adapters = self.adapters.lock().unwrap().values().cloned().collect();
-        
+
         Ok(MemoryUsageStats {
             total_memory: self.memory_limit,
             available_memory,
@@ -269,64 +272,70 @@ impl MemoryManager for UnifiedMemoryManager {
             timestamp: chrono::Utc::now(),
         })
     }
-    
+
     async fn evict_adapter(&self, adapter_id: &str) -> Result<()> {
         let mut adapters = self.adapters.lock().unwrap();
-        
+
         if let Some(adapter) = adapters.get_mut(adapter_id) {
             if adapter.pinned {
                 return Err(AosError::Memory("Cannot evict pinned adapter".to_string()));
             }
-            
+
             let memory_freed = adapter.memory_usage_bytes;
             adapter.state = AdapterState::Evicted;
-            
+
             // Update total allocated memory
             let mut total = self.total_allocated.lock().unwrap();
             *total = total.saturating_sub(memory_freed);
-            
+
             info!(
                 adapter_id = adapter_id,
                 memory_freed = memory_freed,
                 "Adapter evicted from memory"
             );
-            
+
             Ok(())
         } else {
-            Err(AosError::NotFound(format!("Adapter not found: {}", adapter_id)))
+            Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )))
         }
     }
-    
+
     async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()> {
         let mut adapters = self.adapters.lock().unwrap();
-        
+
         if let Some(adapter) = adapters.get_mut(adapter_id) {
             adapter.pinned = pinned;
-            
+
             info!(
                 adapter_id = adapter_id,
                 pinned = pinned,
                 "Adapter pin status updated"
             );
-            
+
             Ok(())
         } else {
-            Err(AosError::NotFound(format!("Adapter not found: {}", adapter_id)))
+            Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )))
         }
     }
-    
+
     async fn get_adapter_memory_info(&self, adapter_id: &str) -> Result<AdapterMemoryInfo> {
         let adapters = self.adapters.lock().unwrap();
-        
+
         adapters
             .get(adapter_id)
             .cloned()
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))
     }
-    
+
     async fn check_memory_pressure(&self) -> Result<MemoryPressureLevel> {
         let headroom_percentage = self.get_headroom_percentage();
-        
+
         Ok(if headroom_percentage >= 30.0 {
             MemoryPressureLevel::Low
         } else if headroom_percentage >= 20.0 {
@@ -337,16 +346,16 @@ impl MemoryManager for UnifiedMemoryManager {
             MemoryPressureLevel::Critical
         })
     }
-    
+
     async fn cleanup_memory(&self) -> Result<MemoryCleanupReport> {
         let start_time = std::time::Instant::now();
         let mut operations = Vec::new();
         let mut adapters_evicted = 0;
         let mut memory_freed = 0;
-        
+
         // Get current memory usage
         let stats = self.get_memory_usage().await?;
-        
+
         // If headroom is sufficient, no cleanup needed
         if stats.headroom_percentage >= self.headroom_threshold {
             return Ok(MemoryCleanupReport {
@@ -358,7 +367,7 @@ impl MemoryManager for UnifiedMemoryManager {
                 operations,
             });
         }
-        
+
         // Evict unpinned adapters starting with lowest quality
         // Per Determinism Ruleset #2: eviction order must be deterministic
         // Sort by: pinned status → quality score → adapter ID hash (for deterministic tiebreaking)
@@ -380,18 +389,18 @@ impl MemoryManager for UnifiedMemoryManager {
                 }
             }
         });
-        
+
         for adapter in adapters {
             if !adapter.pinned && adapter.state != AdapterState::Evicted {
                 if let Ok(_) = self.evict_adapter(&adapter.adapter_id).await {
                     adapters_evicted += 1;
                     memory_freed += adapter.memory_usage_bytes;
-                    
+
                     operations.push(CleanupOperation::EvictAdapter {
                         adapter_id: adapter.adapter_id.clone(),
                         memory_freed: adapter.memory_usage_bytes,
                     });
-                    
+
                     // Check if we have sufficient headroom now
                     let current_stats = self.get_memory_usage().await?;
                     if current_stats.headroom_percentage >= self.headroom_threshold {
@@ -400,16 +409,16 @@ impl MemoryManager for UnifiedMemoryManager {
                 }
             }
         }
-        
+
         let duration = start_time.elapsed();
-        
+
         info!(
             adapters_evicted = adapters_evicted,
             memory_freed_mb = memory_freed / (1024 * 1024),
             duration_ms = duration.as_millis(),
             "Memory cleanup completed"
         );
-        
+
         Ok(MemoryCleanupReport {
             adapters_evicted,
             adapters_pinned: 0, // TODO: Count pinned adapters
@@ -426,13 +435,13 @@ impl MemoryManager for UnifiedMemoryManager {
 pub struct MemoryPool {
     /// Pool identifier
     pub id: String,
-    
+
     /// Allocated blocks
     pub blocks: HashMap<String, MemoryBlock>,
-    
+
     /// Available memory
     pub available: u64,
-    
+
     /// Total pool size
     pub total_size: u64,
 }
@@ -442,16 +451,16 @@ pub struct MemoryPool {
 pub struct MemoryBlock {
     /// Block identifier
     pub id: String,
-    
+
     /// Memory address
     pub ptr: *mut u8,
-    
+
     /// Block size
     pub size: u64,
-    
+
     /// Backend type
     pub backend: String,
-    
+
     /// Allocation timestamp
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
@@ -471,7 +480,7 @@ mod tests {
     async fn test_memory_usage_stats() {
         let manager = UnifiedMemoryManager::new(1024 * 1024 * 1024, 15.0);
         let stats = manager.get_memory_usage().await.unwrap();
-        
+
         assert_eq!(stats.total_memory, 1024 * 1024 * 1024);
         assert_eq!(stats.used_memory, 0);
         assert_eq!(stats.available_memory, 1024 * 1024 * 1024);
@@ -495,44 +504,53 @@ mod tests {
         // Add adapters with identical quality scores but different IDs
         let mut adapters = manager.adapters.lock().unwrap();
 
-        adapters.insert("adapter-zeta".to_string(), AdapterMemoryInfo {
-            adapter_id: "adapter-zeta".to_string(),
-            adapter_name: "Zeta".to_string(),
-            memory_usage_bytes: 1024,
-            memory_usage_mb: 0,
-            state: AdapterState::Loaded,
-            pinned: false,
-            category: AdapterCategory::Code,
-            last_access: None,
-            activation_count: 0,
-            quality_score: 0.5, // Same quality score
-        });
+        adapters.insert(
+            "adapter-zeta".to_string(),
+            AdapterMemoryInfo {
+                adapter_id: "adapter-zeta".to_string(),
+                adapter_name: "Zeta".to_string(),
+                memory_usage_bytes: 1024,
+                memory_usage_mb: 0,
+                state: AdapterState::Loaded,
+                pinned: false,
+                category: AdapterCategory::Code,
+                last_access: None,
+                activation_count: 0,
+                quality_score: 0.5, // Same quality score
+            },
+        );
 
-        adapters.insert("adapter-alpha".to_string(), AdapterMemoryInfo {
-            adapter_id: "adapter-alpha".to_string(),
-            adapter_name: "Alpha".to_string(),
-            memory_usage_bytes: 1024,
-            memory_usage_mb: 0,
-            state: AdapterState::Loaded,
-            pinned: false,
-            category: AdapterCategory::Code,
-            last_access: None,
-            activation_count: 0,
-            quality_score: 0.5, // Same quality score
-        });
+        adapters.insert(
+            "adapter-alpha".to_string(),
+            AdapterMemoryInfo {
+                adapter_id: "adapter-alpha".to_string(),
+                adapter_name: "Alpha".to_string(),
+                memory_usage_bytes: 1024,
+                memory_usage_mb: 0,
+                state: AdapterState::Loaded,
+                pinned: false,
+                category: AdapterCategory::Code,
+                last_access: None,
+                activation_count: 0,
+                quality_score: 0.5, // Same quality score
+            },
+        );
 
-        adapters.insert("adapter-beta".to_string(), AdapterMemoryInfo {
-            adapter_id: "adapter-beta".to_string(),
-            adapter_name: "Beta".to_string(),
-            memory_usage_bytes: 1024,
-            memory_usage_mb: 0,
-            state: AdapterState::Loaded,
-            pinned: false,
-            category: AdapterCategory::Code,
-            last_access: None,
-            activation_count: 0,
-            quality_score: 0.5, // Same quality score
-        });
+        adapters.insert(
+            "adapter-beta".to_string(),
+            AdapterMemoryInfo {
+                adapter_id: "adapter-beta".to_string(),
+                adapter_name: "Beta".to_string(),
+                memory_usage_bytes: 1024,
+                memory_usage_mb: 0,
+                state: AdapterState::Loaded,
+                pinned: false,
+                category: AdapterCategory::Code,
+                last_access: None,
+                activation_count: 0,
+                quality_score: 0.5, // Same quality score
+            },
+        );
 
         drop(adapters);
 
@@ -579,8 +597,10 @@ mod tests {
             .collect();
 
         // Verify order matches expected deterministic order
-        assert_eq!(eviction_order, expected_order,
-            "Eviction order should be deterministic and based on adapter ID hash");
+        assert_eq!(
+            eviction_order, expected_order,
+            "Eviction order should be deterministic and based on adapter ID hash"
+        );
 
         // Run the sort again to verify consistency
         let stats2 = manager.get_memory_usage().await.unwrap();
@@ -605,7 +625,9 @@ mod tests {
             .map(|a| a.adapter_id.clone())
             .collect();
 
-        assert_eq!(eviction_order, eviction_order2,
-            "Eviction order must be identical across multiple sort operations");
+        assert_eq!(
+            eviction_order, eviction_order2,
+            "Eviction order must be identical across multiple sort operations"
+        );
     }
 }

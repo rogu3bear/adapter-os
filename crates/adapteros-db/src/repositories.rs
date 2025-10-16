@@ -164,22 +164,17 @@ impl Db {
 
     /// Count repositories for a tenant
     pub async fn count_repositories(&self, tenant_id: &str) -> Result<i64> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM repositories WHERE tenant_id = ?",
-        )
-        .bind(tenant_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM repositories WHERE tenant_id = ?")
+                .bind(tenant_id)
+                .fetch_one(&self.pool)
+                .await?;
 
         Ok(count)
     }
 
     /// Update repository status
-    pub async fn update_repository_status(
-        &self,
-        id: &str,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_repository_status(&self, id: &str, status: &str) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE repositories
@@ -318,11 +313,7 @@ impl Db {
     }
 
     /// Create scan job
-    pub async fn create_scan_job(
-        &self,
-        repo_id: &str,
-        commit_sha: &str,
-    ) -> Result<String> {
+    pub async fn create_scan_job(&self, repo_id: &str, commit_sha: &str) -> Result<String> {
         let id = generate_id();
 
         sqlx::query(
@@ -390,11 +381,7 @@ impl Db {
     }
 
     /// List scan jobs for a repository
-    pub async fn list_scan_jobs(
-        &self,
-        repo_id: &str,
-        limit: i32,
-    ) -> Result<Vec<ScanJob>> {
+    pub async fn list_scan_jobs(&self, repo_id: &str, limit: i32) -> Result<Vec<ScanJob>> {
         let jobs = sqlx::query_as::<_, ScanJob>(
             r#"
             SELECT id, repo_id, commit_sha, status, current_stage, progress_pct,

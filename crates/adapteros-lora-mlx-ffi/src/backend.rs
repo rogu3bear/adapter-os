@@ -130,10 +130,12 @@ impl MLXFFIBackend {
 }
 
 impl FusedKernels for MLXFFIBackend {
-    fn attest_determinism(&self) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
+    fn attest_determinism(
+        &self,
+    ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
         // MLX backend is experimental and non-deterministic
         use adapteros_lora_kernel_api::attestation::*;
-        
+
         Ok(DeterminismReport {
             backend_type: BackendType::Mlx,
             metallib_hash: None,
@@ -144,7 +146,7 @@ impl FusedKernels for MLXFFIBackend {
             deterministic: false, // MLX is non-deterministic
         })
     }
-    
+
     fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
         // Plan loading not needed for MLX FFI - model already loaded
         tracing::info!(

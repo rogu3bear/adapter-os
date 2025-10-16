@@ -196,9 +196,7 @@ pub enum AosError {
     },
 
     #[error("Invalid response from worker: {reason}")]
-    InvalidResponse {
-        reason: String,
-    },
+    InvalidResponse { reason: String },
 
     #[error("Feature disabled: {feature} - {reason}")]
     FeatureDisabled {
@@ -208,30 +206,19 @@ pub enum AosError {
     },
 
     #[error("Worker not responding at {path}")]
-    WorkerNotResponding {
-        path: std::path::PathBuf,
-    },
+    WorkerNotResponding { path: std::path::PathBuf },
 
     #[error("Timeout waiting for response after {duration:?}")]
-    Timeout {
-        duration: std::time::Duration,
-    },
-
+    Timeout { duration: std::time::Duration },
 
     #[error("Encryption failed: {reason}")]
-    EncryptionFailed {
-        reason: String,
-    },
+    EncryptionFailed { reason: String },
 
     #[error("Decryption failed: {reason}")]
-    DecryptionFailed {
-        reason: String,
-    },
+    DecryptionFailed { reason: String },
 
     #[error("Invalid sealed data: {reason}")]
-    InvalidSealedData {
-        reason: String,
-    },
+    InvalidSealedData { reason: String },
 
     #[error("Database error: {operation}")]
     DatabaseError {

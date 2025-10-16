@@ -360,17 +360,14 @@ async fn main() -> Result<()> {
             .bundles_root
             .clone();
 
-        std::fs::create_dir_all(&bundles_path).map_err(|e| {
-            AosError::Io(format!("Failed to create bundles directory: {}", e))
-        })?;
+        std::fs::create_dir_all(&bundles_path)
+            .map_err(|e| AosError::Io(format!("Failed to create bundles directory: {}", e)))?;
 
-        let telemetry = Arc::new(
-            adapteros_telemetry::TelemetryWriter::new(
-                &bundles_path,
-                10000,           // max_events_per_bundle
-                50 * 1024 * 1024, // max_bundle_size (50MB)
-            )?
-        );
+        let telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new(
+            &bundles_path,
+            10000,            // max_events_per_bundle
+            50 * 1024 * 1024, // max_bundle_size (50MB)
+        )?);
 
         // Create policy hash watcher
         let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(
@@ -386,10 +383,9 @@ async fn main() -> Result<()> {
 
         // Start background watcher (60 second interval)
         let policy_hashes = Arc::new(RwLock::new(std::collections::HashMap::new()));
-        let _watcher_handle = policy_watcher.clone().start_background_watcher(
-            Duration::from_secs(60),
-            policy_hashes.clone(),
-        );
+        let _watcher_handle = policy_watcher
+            .clone()
+            .start_background_watcher(Duration::from_secs(60), policy_hashes.clone());
 
         info!("Policy hash watcher started (60s interval)");
     }
@@ -448,7 +444,10 @@ async fn main() -> Result<()> {
             "UDS metrics exporter started on {}",
             exporter_socket_path.display()
         );
-        info!("Test with: socat - UNIX-CONNECT:{}", exporter_socket_path.display());
+        info!(
+            "Test with: socat - UNIX-CONNECT:{}",
+            exporter_socket_path.display()
+        );
     }
 
     // TODO: Start Federation Daemon once dependencies are fixed

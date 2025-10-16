@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tempfile::TempDir;
+use tokio::sync::Mutex;
 
 /// Configuration for test cluster
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +115,9 @@ impl TestCluster {
 
         // Wait for all tasks to complete
         for handle in handles {
-            handle.await.map_err(|e| AosError::Internal(format!("Task join error: {}", e)))??;
+            handle
+                .await
+                .map_err(|e| AosError::Internal(format!("Task join error: {}", e)))??;
         }
 
         Ok(())
@@ -127,10 +129,12 @@ impl TestCluster {
 
         // Collect results from all hosts
         for host in &self.hosts {
-            let result = host.get_result(result_key).await
-                .ok_or_else(|| AosError::Validation(format!(
-                    "Host {} missing result for key '{}'", host.id, result_key
-                )))?;
+            let result = host.get_result(result_key).await.ok_or_else(|| {
+                AosError::Validation(format!(
+                    "Host {} missing result for key '{}'",
+                    host.id, result_key
+                ))
+            })?;
 
             let hash = hex::encode(blake3::hash(&result).as_bytes());
             host_results.push((host.id, result, hash));
@@ -195,11 +199,16 @@ impl DeterminismReport {
     /// Get a summary string
     pub fn summary(&self) -> String {
         if self.deterministic {
-            format!("✓ '{}': Deterministic across {} hosts",
-                self.result_key, self.host_count)
+            format!(
+                "✓ '{}': Deterministic across {} hosts",
+                self.result_key, self.host_count
+            )
         } else {
-            format!("✗ '{}': {} divergence(s) detected",
-                self.result_key, self.divergences.len())
+            format!(
+                "✗ '{}': {} divergence(s) detected",
+                self.result_key,
+                self.divergences.len()
+            )
         }
     }
 }
@@ -245,8 +254,7 @@ impl GoldenBaseline {
 
     /// Save golden baseline to file
     pub fn save(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(AosError::Serialization)?;
+        let json = serde_json::to_string_pretty(self).map_err(AosError::Serialization)?;
 
         fs::write(path, json)
             .map_err(|e| AosError::Io(format!("Failed to write baseline: {}", e)))?;
@@ -259,8 +267,7 @@ impl GoldenBaseline {
         let json = fs::read_to_string(path)
             .map_err(|e| AosError::Io(format!("Failed to read baseline: {}", e)))?;
 
-        serde_json::from_str(&json)
-            .map_err(AosError::Serialization)
+        serde_json::from_str(&json).map_err(AosError::Serialization)
     }
 
     /// Verify cluster outputs match this golden baseline
@@ -328,10 +335,15 @@ impl BaselineVerification {
 
     pub fn summary(&self) -> String {
         if self.passed {
-            format!("✓ Golden baseline verification passed for '{}'", self.test_name)
+            format!(
+                "✓ Golden baseline verification passed for '{}'",
+                self.test_name
+            )
         } else {
-            format!("✗ Golden baseline verification failed: {} mismatch(es)",
-                self.mismatches.len())
+            format!(
+                "✗ Golden baseline verification failed: {} mismatch(es)",
+                self.mismatches.len()
+            )
         }
     }
 }
@@ -365,7 +377,8 @@ mod tests {
     async fn test_host_result_storage() {
         let host = TestHost::new(0).unwrap();
 
-        host.store_result("test_key".to_string(), vec![1, 2, 3]).await;
+        host.store_result("test_key".to_string(), vec![1, 2, 3])
+            .await;
 
         let result = host.get_result("test_key").await;
         assert_eq!(result, Some(vec![1, 2, 3]));
@@ -385,7 +398,8 @@ mod tests {
         // Store identical results on all hosts
         let data = vec![1, 2, 3, 4, 5];
         for host in &cluster.hosts {
-            host.store_result("test_output".to_string(), data.clone()).await;
+            host.store_result("test_output".to_string(), data.clone())
+                .await;
         }
 
         // Verify determinism
@@ -406,9 +420,15 @@ mod tests {
         let cluster = TestCluster::new(config).await.unwrap();
 
         // Store different results on hosts
-        cluster.hosts[0].store_result("test_output".to_string(), vec![1, 2, 3]).await;
-        cluster.hosts[1].store_result("test_output".to_string(), vec![1, 2, 3]).await;
-        cluster.hosts[2].store_result("test_output".to_string(), vec![4, 5, 6]).await; // Different!
+        cluster.hosts[0]
+            .store_result("test_output".to_string(), vec![1, 2, 3])
+            .await;
+        cluster.hosts[1]
+            .store_result("test_output".to_string(), vec![1, 2, 3])
+            .await;
+        cluster.hosts[2]
+            .store_result("test_output".to_string(), vec![4, 5, 6])
+            .await; // Different!
 
         // Verify determinism
         let report = cluster.verify_determinism("test_output").await.unwrap();

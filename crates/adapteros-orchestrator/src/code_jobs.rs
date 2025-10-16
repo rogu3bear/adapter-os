@@ -5,10 +5,9 @@
 ///! - Commit delta pack (CDP) generation
 ///! - Index updates
 ///! - Integration with CAS artifact storage
-
 use adapteros_codegraph::CodeGraph;
 use adapteros_core::{AosError, Result};
-use adapteros_db::{Db, repositories::ScanJob};
+use adapteros_db::{repositories::ScanJob, Db};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,9 +42,8 @@ impl ArtifactStore {
         let artifact_path = self.base_path.join(format!("{}.codegraph", artifact_id));
 
         // Serialize and store (simplified - in production would use CAS)
-        let serialized = serde_json::to_vec(&graph)
-            .map_err(|e| AosError::Serialization(e))?;
-        
+        let serialized = serde_json::to_vec(&graph).map_err(|e| AosError::Serialization(e))?;
+
         tokio::fs::write(&artifact_path, serialized)
             .await
             .map_err(|e| AosError::Io(e.to_string()))?;
@@ -62,8 +60,8 @@ impl ArtifactStore {
             .await
             .map_err(|e| AosError::Io(format!("Failed to load CodeGraph: {}", e)))?;
 
-        let graph: CodeGraph = serde_json::from_slice(&serialized)
-            .map_err(|e| AosError::Serialization(e))?;
+        let graph: CodeGraph =
+            serde_json::from_slice(&serialized).map_err(|e| AosError::Serialization(e))?;
 
         Ok(graph)
     }
@@ -109,7 +107,10 @@ impl CodeJobManager {
         );
 
         // Create job record
-        let job_id = self.db.create_scan_job(&job.repo_id, &job.commit_sha).await?;
+        let job_id = self
+            .db
+            .create_scan_job(&job.repo_id, &job.commit_sha)
+            .await?;
 
         // Update status to running
         self.db
@@ -265,12 +266,18 @@ impl CodeJobManager {
 
     /// Get scan job status
     pub async fn get_scan_job_status(&self, job_id: &str) -> Result<Option<ScanJob>> {
-        self.db.get_scan_job(job_id).await.map_err(|e| AosError::Database(e.to_string()))
+        self.db
+            .get_scan_job(job_id)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))
     }
 
     /// List scan jobs for repository
     pub async fn list_scan_jobs(&self, repo_id: &str, limit: i32) -> Result<Vec<ScanJob>> {
-        self.db.list_scan_jobs(repo_id, limit).await.map_err(|e| AosError::Database(e.to_string()))
+        self.db
+            .list_scan_jobs(repo_id, limit)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))
     }
 }
 
@@ -299,4 +306,3 @@ mod tests {
         assert_eq!(loaded.content_hash, graph.content_hash);
     }
 }
-
