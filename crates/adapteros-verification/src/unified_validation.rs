@@ -23,9 +23,9 @@ use blake3::Hasher;
 use md5;
 use sha2::{Digest, Sha256, Sha512};
 
-use crate::code_quality::{CodeQualityResult, CodeQualityVerifier};
-use crate::performance::{PerformanceResult, PerformanceVerifier};
-use crate::security::{SecurityResult, SecurityVerifier};
+use crate::code_quality::CodeQualityVerifier;
+use crate::performance::PerformanceVerifier;
+use crate::security::SecurityVerifier;
 
 /// Unified verification and validation framework interface
 #[async_trait]
@@ -999,7 +999,7 @@ pub struct ComplianceReport {
 }
 
 /// Compliance statuses
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ComplianceStatus {
     /// Compliant status
     Compliant,
@@ -2214,7 +2214,7 @@ impl VerificationFramework for UnifiedVerificationFramework {
         let mut integrity_checks = Vec::new();
         let mut violations = Vec::new();
         let mut recommendations = Vec::new();
-        let mut score = 100.0;
+        let mut score: f64 = 100.0;
 
         for path_str in &config.integrity_paths {
             let resolved_path = self.workspace_root.join(path_str);
