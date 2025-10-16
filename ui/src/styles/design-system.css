@@ -60,6 +60,9 @@
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
 
+  /* Legacy font-weight aliases */
+  --font-weight-normal: var(--font-weight-regular);
+
   --font-display: clamp(3rem, 5vw + 1.25rem, 4rem); /* 48–64px */
   --font-h1: clamp(2rem, 3vw + 1rem, 2.5rem); /* 32–40px */
   --font-h2: clamp(1.5rem, 2vw + 0.875rem, 1.75rem); /* 24–28px */
