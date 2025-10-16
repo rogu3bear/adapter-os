@@ -40,6 +40,7 @@ import { Promotion } from './Promotion';
 import { Telemetry } from './Telemetry';
 import { InferencePlayground } from './InferencePlayground';
 import { AlertsPage } from './AlertsPage';
+import { FederationStatus } from './FederationStatus';
 import apiClient from '../api/client';
 import { User } from '../api/types';
 import { toast } from 'sonner';
@@ -65,7 +66,8 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
     { id: 'promotion', label: 'Promotion', icon: ArrowUp, description: 'Control plane promotion gates', advanced: true },
     { id: 'telemetry', label: 'Telemetry', icon: Activity, description: 'Event bundle management', advanced: true },
     { id: 'inference', label: 'Inference', icon: Zap, description: 'Interactive inference testing', advanced: false },
-    { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring', advanced: false }
+    { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring', advanced: false },
+    { id: 'federation', label: 'Federation', icon: Link, description: 'Cross-host federation status', advanced: true }
   ];
 
   // Filter tabs based on advanced visibility
@@ -127,7 +129,7 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
 
       {/* Operations Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className={`grid w-full ${showAdvanced ? 'grid-cols-5' : 'grid-cols-3'}`}>
+        <TabsList className={`grid w-full ${showAdvanced ? 'grid-cols-6' : 'grid-cols-3'}`}>
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -164,6 +166,11 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
         {/* Alerts Tab */}
         <TabsContent value="alerts" className="space-y-4">
           <AlertsPage selectedTenant={selectedTenant} />
+        </TabsContent>
+
+        {/* Federation Tab */}
+        <TabsContent value="federation" className="space-y-4">
+          <FederationStatus />
         </TabsContent>
       </Tabs>
     </div>

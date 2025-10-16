@@ -10,6 +10,7 @@ pub mod adapter_lifecycle;
 pub mod telemetry_validation;
 pub mod failure_scenarios;
 pub mod determinism_workflow;
+pub mod test_cluster;
 
 pub use orchestration::{TestOrchestrator, TestEnvironment, TestConfig};
 pub use inference_pipeline::InferencePipelineTest;
@@ -17,3 +18,9 @@ pub use adapter_lifecycle::AdapterLifecycleTest;
 pub use telemetry_validation::TelemetryValidationTest;
 pub use failure_scenarios::FailureScenarioTest;
 pub use determinism_workflow::DeterminismWorkflowTest;
+
+// Re-export test cluster infrastructure for multi-host determinism tests
+pub use test_cluster::{
+    TestCluster, TestHost, TestClusterConfig, GoldenBaseline,
+    DeterminismReport, DeterminismDivergence, BaselineVerification, BaselineMismatch,
+};

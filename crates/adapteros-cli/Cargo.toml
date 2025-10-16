@@ -53,6 +53,7 @@ nix = { workspace = true }
 owo-colors = "4.0"
 serde_yaml = "0.9"
 tempfile = "3.8"
+walkdir = "2.4"
 chrono = "0.4"
 hex = "0.4"
 zip = "1.0"

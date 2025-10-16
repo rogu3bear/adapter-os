@@ -10,6 +10,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-db = { path = "../adapteros-db" }
+adapteros-secd = { path = "../adapteros-secd" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -24,6 +25,7 @@ hex = { workspace = true }
 base64 = { workspace = true }
 hostname = { workspace = true }
 sqlx = { workspace = true }
+parking_lot = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

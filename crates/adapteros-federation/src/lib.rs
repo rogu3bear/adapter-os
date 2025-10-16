@@ -21,6 +21,7 @@
 pub mod output_hash;
 pub mod peer;
 pub mod signature;
+pub mod attestation;
 
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::{Keypair, PublicKey, Signature};
@@ -121,6 +122,15 @@ impl FederationManager {
             .to_string_lossy()
             .into_owned()
             .pipe(Ok)
+    }
+
+    /// Get latest tick hash from metadata
+    ///
+    /// This retrieves the latest tick hash from the deterministic executor
+    /// if available, for linking to federation signatures.
+    pub fn get_latest_tick_hash(&self) -> Option<String> {
+        // This would be populated from DeterministicExecutor if integrated
+        None
     }
 
     /// Sign a telemetry bundle
@@ -442,6 +452,34 @@ impl FederationManager {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store signature: {}", e)))?;
         
+        // Link to tick ledger if we have the latest tick hash
+        if let Some(tick_hash) = self.get_latest_tick_hash() {
+            let _ = self.link_to_tick_ledger(&signature.bundle_hash, &tick_hash).await;
+        }
+        
+        Ok(())
+    }
+
+    /// Link federation signature to tick ledger
+    async fn link_to_tick_ledger(&self, bundle_hash: &str, tick_hash: &str) -> Result<()> {
+        let pool = self.db.pool();
+        
+        sqlx::query(
+            r#"
+            UPDATE tick_ledger
+            SET bundle_hash = ?, federation_signature = (
+                SELECT signature FROM federation_bundle_signatures WHERE bundle_hash = ? LIMIT 1
+            )
+            WHERE tick_hash = ?
+            "#
+        )
+        .bind(bundle_hash)
+        .bind(bundle_hash)
+        .bind(tick_hash)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to link to tick ledger: {}", e)))?;
+        
         Ok(())
     }
 }
@@ -464,6 +502,7 @@ pub use peer::{AttestationMetadata, PeerInfo, PeerRegistry};
 pub use signature::{
     BundleSignatureExchange, QuorumManager, QuorumStatus, VerificationResult,
 };
+pub use attestation::{attest_bundle, verify_hardware_attestation, AttestationInfo};
 
 #[cfg(test)]
 mod tests {

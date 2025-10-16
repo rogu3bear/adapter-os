@@ -313,9 +313,89 @@ pub enum AosError {
 - `adapteros-telemetry` - Event logging and bundle metadata
 - `adapteros-replay` - Replay verification integration
 
+## Automated Federation Daemon
+
+The federation system includes a continuous verification daemon that runs periodic sweeps:
+
+```rust
+use adapteros_orchestrator::{FederationDaemon, FederationDaemonConfig};
+use adapteros_federation::FederationManager;
+use adapteros_policy::PolicyHashWatcher;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let db = Db::connect("./var/cp.db").await?;
+    let keypair = Keypair::generate();
+    
+    let federation = FederationManager::new(db.clone(), keypair)?;
+    let policy_watcher = PolicyHashWatcher::new(
+        Arc::new(db.clone()),
+        Arc::new(telemetry),
+        Some("cpid-001".to_string()),
+    );
+    
+    let config = FederationDaemonConfig {
+        interval_secs: 300, // 5 minutes
+        max_hosts_per_sweep: 10,
+        enable_quarantine: true,
+    };
+    
+    let daemon = FederationDaemon::new(
+        Arc::new(federation),
+        Arc::new(policy_watcher),
+        Arc::new(telemetry),
+        Arc::new(db),
+        config,
+    );
+    
+    // Start daemon in background
+    let handle = Arc::new(daemon).start();
+    
+    // Daemon will run periodic verification and trigger quarantine on failures
+    handle.await?;
+    
+    Ok(())
+}
+```
+
+## Secure Enclave Integration
+
+Federation bundles can be signed with hardware-backed keys:
+
+```rust
+use adapteros_federation::attestation::{attest_bundle, AttestationInfo};
+
+// Sign with Secure Enclave (macOS only)
+let payload = b"federation bundle data";
+let (signature, attestation) = attest_bundle(payload)?;
+
+assert!(attestation.hardware_backed);
+println!("Signed with enclave: {}", attestation.enclave_id.unwrap());
+```
+
+## Tick Ledger Integration
+
+Federation signatures are linked to the deterministic tick ledger for replay validation:
+
+```rust
+use adapteros_deterministic_exec::global_ledger::{
+    GlobalTickLedger, FederationMetadata
+};
+
+let ledger = GlobalTickLedger::new(db, "tenant-001".to_string(), "host-001".to_string());
+
+// Commit tick with federation metadata
+let metadata = FederationMetadata {
+    bundle_hash: Some("b3:abc123...".to_string()),
+    prev_host_hash: Some("b3:def456...".to_string()),
+    signature: Some("ed25519_sig...".to_string()),
+};
+
+ledger.commit_tick_with_federation_meta(42, metadata).await?;
+```
+
 ## Future Enhancements
 
-- **Secure Enclave Integration**: Hardware-backed signing via `adapteros-secd`
 - **Key Rotation**: Automatic key rotation at CP promotion
 - **Multi-Signature Thresholds**: Require N-of-M signatures for promotion
 - **Cross-Tenant Federation**: Federated verification across tenant boundaries

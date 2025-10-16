@@ -27,9 +27,6 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::unload_adapter,
         handlers::get_adapter_activations,
         handlers::list_repositories,
-        handlers::register_repository,
-        handlers::trigger_repository_scan,
-        handlers::get_repository_status,
         handlers::get_quality_metrics,
         handlers::get_adapter_metrics,
         handlers::get_system_metrics,
@@ -66,7 +63,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::code::register_repo,
         handlers::code::scan_repo,
         handlers::code::get_scan_status,
-        handlers::code::list_repositories as code_list_repositories,
+        handlers::code::list_repositories,
         handlers::code::get_repository,
         handlers::code::create_commit_delta,
         // Federation handlers (TODO: integrate with AppState)
@@ -461,28 +458,8 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/code/repositories", get(handlers::code::list_repositories))
         .route("/v1/code/repositories/:repo_id", get(handlers::code::get_repository))
         .route("/v1/code/commit-delta", post(handlers::code::create_commit_delta))
-        // Repository routes
+        // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
-        .route(
-            "/v1/repositories/register",
-            post(handlers::register_repository),
-        )
-        .route(
-            "/v1/repositories/:repo_id/scan",
-            post(handlers::trigger_repository_scan),
-        )
-        .route(
-            "/v1/repositories/:repo_id/status",
-            get(handlers::get_repository_status),
-        )
-        .route(
-            "/v1/repositories/:repo_id/report",
-            get(handlers::get_repository_report),
-        )
-        .route(
-            "/v1/repositories/:repo_id",
-            axum::routing::delete(handlers::unregister_repository),
-        )
         // Metrics routes
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))

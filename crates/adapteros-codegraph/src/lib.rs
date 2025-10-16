@@ -12,6 +12,7 @@
 //! - Deterministic hashing for reproducible builds
 
 use adapteros_core::{B3Hash, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -26,7 +27,7 @@ pub use sqlite::{CodeGraphDb, DbConfig};
 pub use types::{Language, SymbolId, SymbolKind, SymbolNode, TypeAnnotation, Visibility};
 
 /// Main CodeGraph structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeGraph {
     /// Symbol nodes indexed by ID
     pub symbols: BTreeMap<SymbolId, SymbolNode>,

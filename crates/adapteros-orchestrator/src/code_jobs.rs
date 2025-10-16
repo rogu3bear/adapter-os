@@ -8,7 +8,7 @@
 
 use adapteros_codegraph::CodeGraph;
 use adapteros_core::{AosError, Result};
-use adapteros_db::{CodeGraphMetadata, Db, Repository, ScanJob};
+use adapteros_db::{Db, repositories::ScanJob};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,8 +43,8 @@ impl ArtifactStore {
         let artifact_path = self.base_path.join(format!("{}.codegraph", artifact_id));
 
         // Serialize and store (simplified - in production would use CAS)
-        let serialized = bincode::serialize(&graph)
-            .map_err(|e| AosError::Serialization(e.to_string()))?;
+        let serialized = serde_json::to_vec(&graph)
+            .map_err(|e| AosError::Serialization(e))?;
         
         tokio::fs::write(&artifact_path, serialized)
             .await
@@ -62,8 +62,8 @@ impl ArtifactStore {
             .await
             .map_err(|e| AosError::Io(format!("Failed to load CodeGraph: {}", e)))?;
 
-        let graph: CodeGraph = bincode::deserialize(&serialized)
-            .map_err(|e| AosError::Serialization(e.to_string()))?;
+        let graph: CodeGraph = serde_json::from_slice(&serialized)
+            .map_err(|e| AosError::Serialization(e))?;
 
         Ok(graph)
     }
@@ -265,12 +265,12 @@ impl CodeJobManager {
 
     /// Get scan job status
     pub async fn get_scan_job_status(&self, job_id: &str) -> Result<Option<ScanJob>> {
-        self.db.get_scan_job(job_id).await
+        self.db.get_scan_job(job_id).await.map_err(|e| AosError::Database(e.to_string()))
     }
 
     /// List scan jobs for repository
     pub async fn list_scan_jobs(&self, repo_id: &str, limit: i32) -> Result<Vec<ScanJob>> {
-        self.db.list_scan_jobs(repo_id, limit).await
+        self.db.list_scan_jobs(repo_id, limit).await.map_err(|e| AosError::Database(e.to_string()))
     }
 }
 

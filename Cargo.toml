@@ -274,3 +274,5 @@ tower = "0.4"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
+blake3 = { workspace = true }
+hex = { workspace = true }

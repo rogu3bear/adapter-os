@@ -1,0 +1,19 @@
+# Golden Baselines Directory
+
+This directory contains golden baseline files for determinism verification tests.
+
+Baselines are generated automatically when tests run for the first time.
+Once generated, they should be committed to the repository.
+
+## Files
+
+- `multi_host_determinism.json` - Expected outputs for multi-host determinism test
+- `.gitkeep` - Ensures directory is tracked by git
+
+## Updating Baselines
+
+To update a baseline:
+1. Delete the baseline file
+2. Run the test: `cargo test --test determinism_golden_multi`
+3. Review the newly generated baseline
+4. Commit if correct
