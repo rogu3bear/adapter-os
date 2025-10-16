@@ -14,6 +14,7 @@ use rand::{Rng, SeedableRng};
 use std::sync::Arc;
 
 pub mod ane_acceleration;
+pub mod compute_shaders;
 pub mod debug;
 pub mod fused_mlp;
 pub mod fused_qkv;
@@ -29,6 +30,7 @@ pub mod ring_buffer;
 pub mod vision_kernels;
 pub mod vram;
 
+pub use compute_shaders::{ComputeShaderDescriptor, ComputeShaderRegistry, ShaderExecutionStats};
 pub use debug::{KernelDebugger, KernelParams};
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
