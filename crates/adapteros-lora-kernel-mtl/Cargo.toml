@@ -24,7 +24,11 @@ tracing = { workspace = true }
 base64 = "0.22"
 hex = { workspace = true }
 rand = { workspace = true }
+half = "2.4"
 
 [build-dependencies]
 blake3 = "1.5"
 chrono = "0.4"
+
+[dev-dependencies]
+bytemuck = { workspace = true }
