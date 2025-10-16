@@ -210,9 +210,11 @@ impl ProjectMetadata {
                 if !line.starts_with("gem ") {
                     continue;
                 }
-                let tokens: Vec<_> = line
+                // Parse gem line: "gem 'rails', '7.0'"
+                let gem_part = line.strip_prefix("gem ").unwrap_or(line);
+                let tokens: Vec<_> = gem_part
                     .split(',')
-                    .map(|s| s.trim_matches(|c| c == '\'' || c == '"' || c.is_whitespace()))
+                    .map(|s| s.trim_matches(|c: char| c == '\'' || c == '"' || c.is_whitespace()))
                     .collect();
                 if let Some(name) = tokens.get(0) {
                     let version = tokens
@@ -267,6 +269,7 @@ impl ProjectMetadata {
 
 /// Framework detection rule.  Each rule is deterministic and only depends on
 /// `ProjectMetadata`.
+#[derive(Debug)]
 struct FrameworkRule {
     name: &'static str,
     rank: u8,
@@ -275,6 +278,7 @@ struct FrameworkRule {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 enum Indicator {
     Npm(&'static [&'static str]),
     Python(&'static [&'static str]),
@@ -285,6 +289,7 @@ enum Indicator {
     Maven(&'static [&'static str]),
     Config(&'static [&'static str]),
     Directory(&'static [&'static str]),
+    Keywords(&'static [&'static str]),
 }
 
 /// Detect frameworks present in the project directory.
@@ -382,10 +387,26 @@ pub fn detect_frameworks(root: &Path) -> Result<Vec<DetectedFramework>> {
                         }
                     }
                 }
+                Indicator::Keywords(keywords) => {
+                    // Check for keywords in Java files
+                    for file_path in &metadata.config_files {
+                        if file_path.ends_with(".java") {
+                            if let Ok(content) = std::fs::read_to_string(format!("{}/{}", root.display(), file_path)) {
+                                for keyword in *keywords {
+                                    if content.contains(keyword) {
+                                        evidence.push(format!("keyword:{}", keyword));
+                                        score += 0.1;
+                                        break; // Only count each keyword once per file
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        if score >= 0.4 {
+        if score >= 0.3 {
             let capped = score.min(1.0);
             detections.push(DetectedFramework {
                 name: rule.name.to_string(),
@@ -508,6 +529,7 @@ fn framework_rules() -> Vec<FrameworkRule> {
             indicators: vec![
                 Indicator::Gradle(&["org.springframework.boot"]),
                 Indicator::Maven(&["spring-boot"]),
+                Indicator::Keywords(&["@SpringBootApplication", "RestController"]),
             ],
             keywords: &["@SpringBootApplication", "RestController"],
         },
@@ -574,6 +596,9 @@ mod tests {
         let dir = tempdir().unwrap();
         write_file(dir.path(), "requirements.txt", "django==4.1\n");
         write_file(dir.path(), "manage.py", "#!/usr/bin/env python\n");
+        write_file(dir.path(), "settings.py", "# Django settings\n");
+        std::fs::create_dir_all(dir.path().join("migrations")).unwrap();
+        std::fs::create_dir_all(dir.path().join("templates")).unwrap();
 
         let frameworks = detect_frameworks(dir.path()).unwrap();
         let django = frameworks.iter().find(|f| f.name == "Django").unwrap();
@@ -584,6 +609,9 @@ mod tests {
     fn detects_rails_and_laravel_independently() {
         let dir = tempdir().unwrap();
         write_file(dir.path(), "Gemfile", "gem 'rails', '7.0'\n");
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        write_file(dir.path(), "config/routes.rb", "# Rails routes\n");
+        write_file(dir.path(), "config/application.rb", "# Rails application\n");
         write_file(
             dir.path(),
             "composer.json",
@@ -603,6 +631,8 @@ mod tests {
             "build.gradle",
             "plugins { id 'org.springframework.boot' version '3.1.0' }",
         );
+        std::fs::create_dir_all(dir.path().join("src/main/java")).unwrap();
+        write_file(dir.path(), "src/main/java/Application.java", "package com.example;\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}");
 
         let frameworks = detect_frameworks(dir.path()).unwrap();
         assert!(frameworks.iter().any(|f| f.name == "Spring Boot"));
