@@ -128,23 +128,68 @@ impl LoRAAdapter {
         self.parameter_count() * 4 // f32 = 4 bytes
     }
 
-    /// Load a LoRA adapter from file (mock implementation)
-    pub fn load<P: AsRef<std::path::Path>>(
-        _path: P,
-        id: String,
-        config: LoRAConfig,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        // For now, create a mock adapter with the given config
-        // TODO: Implement actual file loading
-        let mut adapter = Self::new(id, config);
+    /// Load a LoRA adapter from safetensors bytes
+    pub fn from_safetensors_bytes(id: String, bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let tensors = safetensors::SafeTensors::deserialize(bytes)?;
 
-        // Add mock weights for each target module
-        let target_modules = adapter.config().target_modules.clone();
-        for module_name in &target_modules {
-            let rank = adapter.config().rank;
-            let lora_a = vec![vec![1.0; 128]; rank];
-            let lora_b = vec![vec![2.0; rank]; 128];
-            adapter.add_module_weights(module_name, lora_a, lora_b);
+        // Discover module names by scanning keys lora_a.<mod>
+        let mut modules: Vec<String> = Vec::new();
+        for name in tensors.names() {
+            if let Some(rest) = name.strip_prefix("lora_a.") {
+                modules.push(rest.to_string());
+            }
+        }
+        if modules.is_empty() {
+            // Try legacy keys
+            modules = vec!["q_proj".into(), "k_proj".into(), "v_proj".into(), "o_proj".into()];
+        }
+
+        // Infer rank/hidden_dim from first module
+        let first = format!("lora_a.{}", modules[0]);
+        let a_view = tensors.tensor(&first)?;
+        let shape = a_view.shape();
+        if shape.len() != 2 {
+            return Err("invalid shape for lora_a".into());
+        }
+        let rank = shape[0];
+        let hidden_dim = shape[1];
+
+        let mut adapter = Self::new(
+            id,
+            LoRAConfig { rank, alpha: 16.0, target_modules: modules.clone(), dropout: 0.0 },
+        );
+
+        // Helper to convert a f32 slice from tensor bytes
+        fn to_f32_vec(data: &[u8]) -> Vec<f32> {
+            data.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        }
+
+        for m in modules.iter() {
+            let a_key = format!("lora_a.{}", m);
+            let b_key = format!("lora_b.{}", m);
+            let a_t = tensors.tensor(&a_key)?;
+            let b_t = tensors.tensor(&b_key)?;
+            let a_raw = to_f32_vec(a_t.data());
+            let b_raw = to_f32_vec(b_t.data());
+
+            // reshape
+            let mut a_rows: Vec<Vec<f32>> = Vec::with_capacity(rank);
+            for r in 0..rank {
+                let start = r * hidden_dim;
+                let end = start + hidden_dim;
+                a_rows.push(a_raw[start..end].to_vec());
+            }
+
+            let mut b_rows: Vec<Vec<f32>> = Vec::with_capacity(hidden_dim);
+            for h in 0..hidden_dim {
+                let start = h * rank;
+                let end = start + rank;
+                b_rows.push(b_raw[start..end].to_vec());
+            }
+
+            adapter.add_module_weights(m, a_rows, b_rows);
         }
 
         Ok(adapter)
