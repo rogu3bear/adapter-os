@@ -302,43 +302,35 @@ pub async fn run(
 
     output.success(format!("{:?} backend initialized", backend));
 
-    // Load LoRA adapters if using MLX backend
+    // Load LoRA adapters if using MLX backend (or any backend supporting hot-swap)
     if matches!(backend, BackendType::Mlx) {
         output.info("Loading LoRA adapters for MLX backend...");
         let mut adapters_loaded = 0;
 
         for (adapter_id, adapter_spec) in manifest.adapters.iter().enumerate() {
-            let adapter_path = format!("./adapters/{}.safetensors", adapter_spec.id);
+            let adapter_path = if std::path::Path::new(&format!("./adapters/{}/weights.safetensors", adapter_spec.id)).exists() {
+                format!("./adapters/{}/weights.safetensors", adapter_spec.id)
+            } else {
+                format!("./adapters/{}.safetensors", adapter_spec.id)
+            };
             if std::path::Path::new(&adapter_path).exists() {
-                let config = adapteros_lora_mlx_ffi::LoRAConfig {
-                    rank: adapter_spec.rank as usize,
-                    alpha: adapter_spec.alpha,
-                    target_modules: adapter_spec.target_modules.clone(),
-                    dropout: 0.0,
-                };
-
                 output.verbose(format!(
                     "Loading adapter: {} (id={})",
                     adapter_spec.id, adapter_id
                 ));
 
-                match adapteros_lora_mlx_ffi::LoRAAdapter::load(
-                    &adapter_path,
-                    adapter_spec.id.clone(),
-                    config,
-                ) {
-                    Ok(adapter) => {
-                        // Load adapter weights into backend
-                        // For now, we skip this as it requires extending the trait
-                        output.verbose(format!(
-                            "  Loaded adapter: {} (id={})",
-                            adapter_spec.id, adapter_id
-                        ));
-                        adapters_loaded += 1;
+                match std::fs::read(&adapter_path) {
+                    Ok(bytes) => {
+                        if let Err(e) = kernels.load_adapter(adapter_id as u16, &bytes) {
+                            output.warning(format!("  Backend rejected adapter {}: {}", adapter_spec.id, e));
+                        } else {
+                            adapters_loaded += 1;
+                            output.verbose(format!("  Loaded adapter into backend: {}", adapter_spec.id));
+                        }
                     }
                     Err(e) => {
                         output.warning(format!(
-                            "  Failed to load adapter {}: {}",
+                            "  Failed to read adapter {}: {}",
                             adapter_spec.id, e
                         ));
                     }
