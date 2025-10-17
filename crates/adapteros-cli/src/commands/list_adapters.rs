@@ -1,9 +1,9 @@
 //! List adapters
 
-use crate::output::OutputWriter;
+use crate::output::{OutputWriter, TableCell};
 use adapteros_registry::Registry;
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL, Table};
+use comfy_table::CellAlignment;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -42,22 +42,29 @@ pub async fn run(tier: Option<&str>, output: &OutputWriter) -> Result<()> {
         })
         .collect();
 
-    // Prepare table
-    let mut table = Table::new();
-    table.load_preset(UTF8_FULL);
-    table.set_header(vec!["ID", "Hash", "Tier", "Rank", "Activation %"]);
+    let header = vec![
+        "ID",
+        "Hash",
+        "Tier",
+        TableCell::new("Rank").align(CellAlignment::Right),
+        TableCell::new("Activation %").align(CellAlignment::Right),
+    ];
 
-    for adapter in &filtered {
-        table.add_row(vec![
-            adapter.id.clone(),
-            adapter.hash.to_string(),
-            adapter.tier.clone(),
-            adapter.rank.to_string(),
-            format!("{:.2}", adapter.activation_pct),
-        ]);
-    }
+    let rows = filtered
+        .iter()
+        .map(|adapter| {
+            output.table_row(vec![
+                adapter.id.clone(),
+                adapter.hash.to_string(),
+                adapter.tier.clone(),
+                TableCell::new(adapter.rank.to_string()).align(CellAlignment::Right),
+                TableCell::new(format!("{:.2}", adapter.activation_pct))
+                    .align(CellAlignment::Right),
+            ])
+        })
+        .collect::<Vec<_>>();
 
-    output.table(&table as &dyn std::fmt::Display, Some(&json_data))?;
+    output.table(header, rows, None::<Vec<TableCell>>, Some(&json_data))?;
 
     Ok(())
 }
