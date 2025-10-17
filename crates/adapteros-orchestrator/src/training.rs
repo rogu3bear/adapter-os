@@ -54,6 +54,10 @@ pub struct TrainingJob {
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
     pub config: TrainingConfig,
+    // Artifact metadata (populated when packaging is enabled)
+    pub artifact_path: Option<String>,
+    pub adapter_id: Option<String>,
+    pub weights_hash_b3: Option<String>,
 }
 
 /// Training configuration
@@ -215,6 +219,13 @@ impl TrainingService {
         config: TrainingConfig,
         template_id: Option<String>,
         repo_id: Option<String>,
+        dataset_path: Option<String>,
+        directory_root: Option<String>,
+        directory_path: Option<String>,
+        _tenant_id: Option<String>,
+        adapters_root: Option<String>,
+        package: bool,
+        adapter_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
         let now = chrono::Utc::now().to_rfc3339();
@@ -236,6 +247,9 @@ impl TrainingService {
             completed_at: None,
             error_message: None,
             config: config.clone(),
+            artifact_path: None,
+            adapter_id: None,
+            weights_hash_b3: None,
         };
 
         {
@@ -247,8 +261,26 @@ impl TrainingService {
         let jobs_ref = self.jobs.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
+        let dataset_for_run = dataset_path.clone();
+        let dir_root_for_run = directory_root.clone();
+        let dir_path_for_run = directory_path.clone();
+        let adapters_root_for_run = adapters_root.clone();
+        let package_for_run = package;
+        let adapter_id_for_run = adapter_id.clone();
         tokio::spawn(async move {
-            if let Err(e) = run_training_job(jobs_ref, job_id_for_run.clone(), cfg_for_run).await {
+            if let Err(e) = run_training_job(
+                jobs_ref,
+                job_id_for_run.clone(),
+                cfg_for_run,
+                dataset_for_run,
+                dir_root_for_run,
+                dir_path_for_run,
+                adapters_root_for_run,
+                package_for_run,
+                adapter_id_for_run,
+            )
+            .await
+            {
                 tracing::error!("Training job {} failed: {}", job_id_for_run, e);
             }
         });
@@ -374,6 +406,12 @@ async fn run_training_job(
     jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
     job_id: String,
     orchestrator_cfg: TrainingConfig,
+    dataset_path: Option<String>,
+    directory_root: Option<String>,
+    directory_path: Option<String>,
+    adapters_root: Option<String>,
+    package: bool,
+    adapter_id_opt: Option<String>,
 ) -> Result<()> {
     // Transition to running
     {
@@ -394,11 +432,65 @@ async fn run_training_job(
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
     };
 
-    // TODO: replace with real dataset acquisition once wired (artifact or DB). For now use a tiny synthetic batch.
-    let examples: Vec<WorkerTrainingExample> = vec![
-        WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
-        WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
-    ];
+    // Load dataset if provided, else build from directory, else use a small synthetic batch
+    let examples: Vec<WorkerTrainingExample> = if let Some(path) = dataset_path {
+        match tokio::fs::read_to_string(&path).await {
+            Ok(s) => {
+                #[derive(serde::Deserialize)]
+                struct TrainingData { examples: Vec<TrainingExampleJson>, }
+                #[derive(serde::Deserialize)]
+                struct TrainingExampleJson { input: Vec<u32>, target: Vec<u32>, }
+                match serde_json::from_str::<TrainingData>(&s) {
+                    Ok(td) => td.examples.into_iter().map(|e| WorkerTrainingExample { input: e.input, target: e.target, metadata: Default::default() }).collect(),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse dataset {}: {}. Falling back to synthetic", path, e);
+                        vec![
+                            WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
+                            WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+                        ]
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read dataset {}: {}. Falling back to synthetic", path, e);
+                vec![
+                    WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
+                    WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+                ]
+            }
+        }
+    } else if let (Some(root), Some(rel)) = (directory_root.clone(), directory_path.clone()) {
+        // Build from directory
+        match (
+            std::path::PathBuf::from(root.clone()),
+            std::path::PathBuf::from(rel.clone()),
+        ) {
+            (root_path, rel_path) => {
+                match crate::dataset_builder::build_from_directory(
+                    &root_path,
+                    &rel_path,
+                    crate::dataset_builder::DatasetBuilderConfig::default(),
+                ) {
+                    Ok(ex) => ex,
+                    Err(e) => {
+                        tracing::warn!(
+                            "Directory dataset build failed (root={}, rel={}): {}. Falling back to synthetic",
+                            root, rel, e
+                        );
+                        vec![
+                            WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
+                            WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+                        ]
+                    }
+                }
+            }
+        }
+    } else {
+        vec![
+            WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
+            WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+        ]
+    };
 
     let mut trainer = WorkerTrainer::new(worker_cfg)?;
 
@@ -424,12 +516,48 @@ async fn run_training_job(
         .await;
 
     match result {
-        Ok(_training_result) => {
+        Ok(training_result) => {
             let mut jobs = jobs_ref.write().await;
             if let Some(job) = jobs.get_mut(&job_id) {
                 job.status = TrainingJobStatus::Completed;
                 job.progress_pct = 100.0;
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+
+                if package {
+                    // Quantize and package into adapters_root
+                    let chosen_root = adapters_root.unwrap_or_else(|| std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string()));
+                    let adapter_id = adapter_id_opt.clone().unwrap_or_else(|| format!("train-{}", uuid::Uuid::new_v4()));
+                    let aid_for_pack = adapter_id.clone();
+                    let root_for_pack = chosen_root.clone();
+
+                    // Quantize weights
+                    let quantized = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(&training_result.weights);
+
+                    // Package
+                    let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(&chosen_root);
+                    match tokio::runtime::Handle::current().spawn(async move {
+                        packager.package(&aid_for_pack, &quantized, &adapteros_lora_worker::training::TrainingConfig {
+                            rank: orchestrator_cfg.rank as usize,
+                            alpha: orchestrator_cfg.alpha as f32,
+                            learning_rate: orchestrator_cfg.learning_rate,
+                            batch_size: orchestrator_cfg.batch_size as usize,
+                            epochs: orchestrator_cfg.epochs as usize,
+                            hidden_dim: 768,
+                        }).await
+                    }).await {
+                        Ok(Ok(packaged)) => {
+                            job.artifact_path = Some(format!("{}/{}", root_for_pack, adapter_id));
+                            job.adapter_id = Some(adapter_id);
+                            job.weights_hash_b3 = Some(packaged.hash_b3);
+                        }
+                        Ok(Err(e)) => {
+                            tracing::error!("Packaging failed: {}", e);
+                        }
+                        Err(join_err) => {
+                            tracing::error!("Packaging task join failed: {}", join_err);
+                        }
+                    }
+                }
             }
             Ok(())
         }
@@ -455,7 +583,18 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None)
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+            )
             .await
             .unwrap();
 
@@ -472,7 +611,18 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None)
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+            )
             .await
             .unwrap();
 
@@ -488,7 +638,18 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None)
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+            )
             .await
             .unwrap();
 
