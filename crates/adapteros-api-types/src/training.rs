@@ -25,6 +25,20 @@ pub struct StartTrainingRequest {
     pub config: TrainingConfigRequest,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    // Optional dataset path for training examples (JSON as used by CLI)
+    pub dataset_path: Option<String>,
+    // Optional: build dataset directly from a directory
+    // Absolute repository root and relative path under root
+    pub directory_root: Option<String>,
+    pub directory_path: Option<String>,
+    // Optional tenant context for directory analysis and registration
+    pub tenant_id: Option<String>,
+    // Packaging/registration options
+    pub adapters_root: Option<String>,
+    pub package: Option<bool>,
+    pub register: Option<bool>,
+    pub adapter_id: Option<String>,
+    pub tier: Option<i32>,
 }
 
 /// Training job response

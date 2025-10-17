@@ -32,6 +32,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use blake3;
 pub use domain_adapters::*;
 use serde::Deserialize;
 // use serde_json::json; // unused
@@ -2318,8 +2319,37 @@ pub async fn list_telemetry_bundles(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> Result<Json<Vec<TelemetryBundleResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would query telemetry store
-    Ok(Json(vec![]))
+    // M0: list bundles by scanning var/bundles directory
+    let root = std::path::Path::new("var/bundles");
+    let mut results = Vec::new();
+    if root.exists() {
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("ndjson") {
+                    let id = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let meta = std::fs::metadata(&path).ok();
+                    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                    let event_count = std::fs::read_to_string(&path)
+                        .map(|s| s.lines().count() as u64)
+                        .unwrap_or(0);
+                    let created_at = chrono::Utc::now().to_rfc3339();
+                    results.push(TelemetryBundleResponse {
+                        id,
+                        cpid: "global".to_string(),
+                        event_count,
+                        size_bytes: size,
+                        created_at,
+                    });
+                }
+            }
+        }
+    }
+    Ok(Json(results))
 }
 
 /// Export telemetry bundle as NDJSON
@@ -2335,6 +2365,59 @@ pub async fn export_telemetry_bundle(
         size_bytes: 12_582_912,
         download_url: format!("/v1/telemetry/bundles/{}/download", bundle_id),
         expires_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Generate a telemetry bundle (M0 filesystem implementation)
+pub async fn generate_telemetry_bundle(
+    State(_state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<TelemetryBundleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let root = std::path::Path::new("var/bundles");
+    if let Err(e) = std::fs::create_dir_all(root) {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to create bundles directory")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ));
+    }
+
+    let file_path = root.join(format!("{}.ndjson", id));
+    let now = chrono::Utc::now().to_rfc3339();
+    let sample = vec![
+        serde_json::json!({"type":"metrics","timestamp":now,"message":"bundle generated","level":"info"}),
+        serde_json::json!({"type":"audit","timestamp":now,"message":"export readiness","level":"info"}),
+    ];
+    let mut buf = String::new();
+    for line in sample {
+        buf.push_str(&serde_json::to_string(&line).unwrap());
+        buf.push('\n');
+    }
+    if let Err(e) = std::fs::write(&file_path, buf) {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to write bundle")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ));
+    }
+
+    let meta = std::fs::metadata(&file_path).ok();
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    Ok(Json(TelemetryBundleResponse {
+        id,
+        cpid: "global".to_string(),
+        event_count: 2,
+        size_bytes: size,
+        created_at,
     }))
 }
 
@@ -3745,11 +3828,20 @@ pub async fn load_adapter(
         use adapteros_lora_lifecycle::AdapterLoader;
         use std::path::PathBuf;
 
-        let adapters_path = PathBuf::from("./adapters");
-        let mut loader = AdapterLoader::new(adapters_path);
+        let adapters_root = std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
+        let adapters_path = PathBuf::from(&adapters_root);
+        let mut loader = AdapterLoader::new(adapters_path.clone());
+
+        // Choose identifier based on which artifact exists
+        let id_to_use = if let Some(h) = adapter.hash_b3.strip_prefix("b3:") {
+            let candidate = adapters_path.join(format!("{}.safetensors", h));
+            if candidate.exists() { adapter.hash_b3.clone() } else { adapter.adapter_id.clone() }
+        } else {
+            adapter.adapter_id.clone()
+        };
 
         match loader
-            .load_adapter_async(adapter_idx, &adapter.hash_b3)
+            .load_adapter_async(adapter_idx, &id_to_use)
             .await
         {
             Ok(handle) => {
@@ -3936,7 +4028,8 @@ pub async fn unload_adapter(
         use adapteros_lora_lifecycle::AdapterLoader;
         use std::path::PathBuf;
 
-        let adapters_path = PathBuf::from("./adapters");
+        let adapters_root = std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
+        let adapters_path = PathBuf::from(adapters_root);
         let mut loader = AdapterLoader::new(adapters_path);
 
         match loader.unload_adapter(adapter_idx) {
@@ -5698,7 +5791,19 @@ pub async fn start_training(
 
     let job = state
         .training_service
-        .start_training(req.adapter_name, config, req.template_id, req.repo_id)
+        .start_training(
+            req.adapter_name.clone(),
+            config,
+            req.template_id.clone(),
+            req.repo_id.clone(),
+            req.dataset_path.clone(),
+            req.directory_root.clone(),
+            req.directory_path.clone(),
+            req.tenant_id.clone(),
+            req.adapters_root.clone(),
+            req.package.unwrap_or(false),
+            req.adapter_id.clone(),
+        )
         .await
         .map_err(|e| {
             (
@@ -5711,7 +5816,138 @@ pub async fn start_training(
             )
         })?;
 
+    // Optionally spawn a background registrar if register=true
+    if req.register.unwrap_or(false) {
+        let db = state.db.clone();
+        let training_service = state.training_service.clone();
+        let tier = req.tier.unwrap_or(8); // default ephemeral tier
+        let job_id_for_reg = job.id.clone();
+        tokio::spawn(async move {
+            // Poll for completion
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                match training_service.get_job(&job_id_for_reg).await {
+                    Ok(j) => {
+                        if matches!(j.status, adapteros_orchestrator::TrainingJobStatus::Completed) {
+                            if let (Some(adapter_id), Some(hash_b3)) = (j.adapter_id.clone(), j.weights_hash_b3.clone()) {
+                                // Register in DB
+                                let _ = db
+                                    .register_adapter(&adapter_id, &adapter_id, &hash_b3, j.config.rank as i32, tier, None, None)
+                                    .await;
+                            }
+                            break;
+                        } else if matches!(j.status, adapteros_orchestrator::TrainingJobStatus::Failed | adapteros_orchestrator::TrainingJobStatus::Cancelled) {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get training job {}: {}", job_id_for_reg, e);
+                    }
+                }
+                if attempts > 300 { // ~5 minutes at 1s
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        });
+    }
+
     Ok(Json(job.into()))
+}
+
+/// Get training job artifacts and verify packaging/signature
+#[utoipa::path(
+    get,
+    path = "/v1/training/jobs/{job_id}/artifacts",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "Artifacts verification", body = TrainingArtifactsResponse)
+    )
+)]
+pub async fn get_training_artifacts(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<crate::types::TrainingArtifactsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Get job from orchestrator service
+    let job = state
+        .training_service
+        .get_job(&job_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("training job not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let mut artifact_path = None;
+    let mut adapter_id = None;
+    let mut weights_hash_b3 = None;
+    let mut manifest_hash_b3 = None;
+    let mut manifest_hash_matches = false;
+    let mut signature_valid = false;
+    let mut ready = false;
+
+    if let (Some(path), Some(aid)) = (job.artifact_path.clone(), job.adapter_id.clone()) {
+        let dir = std::path::PathBuf::from(path.clone());
+        let weights = dir.join("weights.safetensors");
+        let manifest = dir.join("manifest.json");
+        let sig = dir.join("signature.sig");
+        let pubkey = dir.join("public_key.pem");
+
+        if weights.exists() && manifest.exists() && sig.exists() && pubkey.exists() {
+            if let Ok(weights_bytes) = std::fs::read(&weights) {
+                let w_hash = blake3::hash(&weights_bytes).to_hex().to_string();
+                weights_hash_b3 = Some(w_hash.clone());
+                if let Ok(manifest_bytes) = std::fs::read(&manifest) {
+                    #[derive(serde::Deserialize)]
+                    struct Manifest { weights_hash: String }
+                    if let Ok(m) = serde_json::from_slice::<Manifest>(&manifest_bytes) {
+                        let m_hash = m.weights_hash;
+                        manifest_hash_b3 = Some(m_hash.clone());
+                        manifest_hash_matches = m_hash == w_hash;
+                    }
+
+                    if let (Ok(sig_bytes), Ok(pubkey_hex)) = (std::fs::read(&sig), std::fs::read_to_string(&pubkey)) {
+                        if sig_bytes.len() == 64 {
+                            if let (Ok(sig_array), Ok(pk_bytes)) = (<[u8;64]>::try_from(sig_bytes.as_slice()), hex::decode(pubkey_hex.trim())) {
+                                if let Ok(pk_array) = <[u8;32]>::try_from(pk_bytes.as_slice()) {
+                                    if let (Ok(signature), Ok(public_key)) = (
+                                        adapteros_crypto::Signature::from_bytes(&sig_array),
+                                        adapteros_crypto::PublicKey::from_bytes(&pk_array),
+                                    ) {
+                                        signature_valid = public_key.verify(&manifest_bytes, &signature).is_ok();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        artifact_path = Some(path);
+        adapter_id = Some(aid);
+    }
+
+    ready = manifest_hash_matches && signature_valid;
+    let resp = crate::types::TrainingArtifactsResponse {
+        artifact_path,
+        adapter_id,
+        weights_hash_b3,
+        manifest_hash_b3,
+        manifest_hash_matches,
+        signature_valid,
+        ready,
+    };
+    Ok(Json(resp))
 }
 
 /// Cancel a training job

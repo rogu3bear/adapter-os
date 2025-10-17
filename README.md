@@ -239,6 +239,93 @@ cargo test --workspace
 
 ### Build Documentation
 
+## 🎓 Training Adapters (Micro-LoRA)
+
+Use the CLI to train with a JSON dataset (pre-tokenized). Optionally initialize Metal kernels with a plan. After training, you can package the adapter and register it in the local registry DB for runtime use.
+
+```bash
+# Train only (writes legacy outputs under --output)
+aosctl train \
+  --data data/small.json \
+  --output out/train1 \
+  --plan plan/qwen7b/PLAN_ID \
+  --rank 16 --epochs 1
+
+# Train, then package + register
+export AOS_ADAPTERS_ROOT=$PWD/adapters
+aosctl train \
+  --data data/small.json \
+  --output out/train1 \
+  --plan plan/qwen7b/PLAN_ID \
+  --rank 16 --epochs 1 \
+  --pack --adapters-root "$AOS_ADAPTERS_ROOT" \
+  --register --adapter-id demo_adapter --tier ephemeral --reg-rank 16
+```
+
+Artifacts are placed under `<adapters_root>/<adapter_id>/` (weights.safetensors, manifest.json, signature.sig, public_key.pem). The control plane loads artifacts from the adapters root and stores metadata (ID, B3 hash, rank, tier, etc.) in the registry DB.
+
+Adapters root:
+- Default: `./adapters`
+- Override: set `AOS_ADAPTERS_ROOT=/path/to/adapters`
+
+### Orchestrated Training (Server API)
+
+You can kick off training via the control plane:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/training/start \
+  -H 'Authorization: Bearer adapteros-local' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "adapter_name": "demo_adapter",
+    "config": { "rank": 8, "alpha": 16, "targets": ["q_proj","v_proj"], "epochs": 1, "learning_rate": 0.0003, "batch_size": 4 },
+    "dataset_path": "data/code_to_db_training.json",
+    "adapters_root": "./adapters",
+    "package": true,
+    "register": true,
+    "adapter_id": "demo_adapter",
+    "tier": 8
+  }'
+```
+
+This will train, package, and register the adapter when the job completes.
+
+### Train From a Directory (Server API)
+
+Build a dataset directly from a code directory using the codegraph analyzer (no pre-tokenized JSON required):
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/training/start \
+  -H 'Authorization: Bearer adapteros-local' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "adapter_name": "dir_adapter",
+    "config": { "rank": 8, "alpha": 16, "targets": ["q_proj","v_proj"], "epochs": 1, "learning_rate": 0.0003, "batch_size": 4 },
+    "directory_root": "/absolute/path/to/repo",
+    "directory_path": "src",
+    "adapters_root": "./adapters",
+    "package": true,
+    "register": true,
+    "adapter_id": "dir_adapter",
+    "tier": 8
+  }'
+```
+
+### Dataset Schema
+
+The CLI and orchestrator expect pre-tokenized examples in a simple JSON format:
+
+```json
+{
+  "examples": [
+    { "input": [1,2,3], "target": [4,5,6] },
+    { "input": [7,8,9], "target": [10,11,12] }
+  ]
+}
+```
+
+Ensure your tokenization matches the tokenizer used at inference time (e.g., Qwen tokenizer). Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1) to observe loss decrease.
+
 ```bash
 cargo doc --no-deps --open
 ```

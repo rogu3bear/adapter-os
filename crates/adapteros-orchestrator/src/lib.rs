@@ -11,6 +11,7 @@ pub mod gates;
 pub mod report;
 pub mod supervisor;
 pub mod training;
+pub mod dataset_builder;
 
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
 pub use federation_daemon::{
