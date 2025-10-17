@@ -75,7 +75,10 @@ impl TestConfig {
                     "global": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
                 }
             });
-            fs::write(&manifest_path, serde_json::to_string_pretty(&minimal_manifest)?)?;
+            fs::write(
+                &manifest_path,
+                serde_json::to_string_pretty(&minimal_manifest)?,
+            )?;
             return Ok(Self {
                 temp_dir,
                 manifest_path,
@@ -85,7 +88,7 @@ impl TestConfig {
                 socket_path,
             });
         }
-        
+
         let manifest_path = manifest_path.canonicalize()?;
 
         Ok(Self {
@@ -199,8 +202,8 @@ async fn test_build_plan_integration() -> Result<()> {
 
     // Read manifest and compute hash
     let manifest_content = fs::read_to_string(&config.manifest_path)?;
-    let manifest: ManifestV3 = serde_json::from_str(&manifest_content)
-        .context("Failed to parse manifest")?;
+    let manifest: ManifestV3 =
+        serde_json::from_str(&manifest_content).context("Failed to parse manifest")?;
     let expected_hash = manifest.compute_hash()?;
 
     // Verify manifest validation works (this is what the build-plan command does internally)
@@ -218,7 +221,7 @@ async fn test_build_plan_integration() -> Result<()> {
     let invalid_manifest_str = invalid_manifest.to_string_lossy().to_string();
     let plan_path = config.plan_dir.join("invalid_plan.bin");
     let plan_path_str = plan_path.to_string_lossy().to_string();
-    
+
     let args = &[
         "build-plan",
         &invalid_manifest_str,
@@ -229,10 +232,7 @@ async fn test_build_plan_integration() -> Result<()> {
     let result = run_aosctl_command(args).await;
     assert!(result.is_err(), "Should fail with invalid manifest");
     let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("validation failed")
-            || error_msg.contains("parse")
-    );
+    assert!(error_msg.contains("validation failed") || error_msg.contains("parse"));
 
     println!("   ✓ Invalid manifest correctly rejected");
 
@@ -291,10 +291,7 @@ async fn test_serve_integration() -> Result<()> {
     let result = run_aosctl_command(args).await;
     assert!(result.is_err(), "Should fail with missing plan");
     let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("not found")
-            || error_msg.contains("directory")
-    );
+    assert!(error_msg.contains("not found") || error_msg.contains("directory"));
 
     println!("   ✓ Missing plan correctly rejected");
 

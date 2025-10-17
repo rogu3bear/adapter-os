@@ -58,9 +58,7 @@ pub struct FilterEngine {
 impl FilterEngine {
     pub fn new(config: FilterConfig) -> Result<Self> {
         if config.sample_rate_hz <= 0.0 {
-            return Err(AosError::Validation(
-                "sample rate must be positive".into(),
-            ));
+            return Err(AosError::Validation("sample rate must be positive".into()));
         }
 
         Ok(Self {

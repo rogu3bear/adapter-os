@@ -73,7 +73,7 @@ fn compile_stub_wrapper() {
 }
 
 fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
-    let include = include_dir.display().to_string();
+    let _include = include_dir.display().to_string();
     let lib = lib_dir.display().to_string();
 
     let mut build = cc::Build::new();

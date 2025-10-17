@@ -85,9 +85,7 @@ pub struct TelemetryAdapter {
 impl TelemetryAdapter {
     pub fn new(config: TelemetryAdapterConfig) -> Result<Self> {
         if config.sample_rate_hz <= 0.0 {
-            return Err(AosError::Validation(
-                "sample rate must be positive".into(),
-            ));
+            return Err(AosError::Validation("sample rate must be positive".into()));
         }
 
         Ok(Self {

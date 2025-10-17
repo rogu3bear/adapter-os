@@ -138,10 +138,10 @@ impl TokenRateLimiter {
                 .last_reset
                 .compare_exchange(last_reset, now, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
-            {
-                self.tokens
-                    .store(self.max_tokens_per_second, Ordering::Relaxed);
-            }
+        {
+            self.tokens
+                .store(self.max_tokens_per_second, Ordering::Relaxed);
+        }
 
         // Try to consume a token
         let current_tokens = self.tokens.load(Ordering::Relaxed);
@@ -185,10 +185,10 @@ impl RequestRateLimiter {
                     Ordering::Relaxed,
                 )
                 .is_ok()
-            {
-                self.requests
-                    .store(self.max_requests_per_minute, Ordering::Relaxed);
-            }
+        {
+            self.requests
+                .store(self.max_requests_per_minute, Ordering::Relaxed);
+        }
 
         // Try to consume a request
         let current_requests = self.requests.load(Ordering::Relaxed);

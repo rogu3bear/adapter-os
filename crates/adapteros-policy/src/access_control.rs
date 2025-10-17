@@ -60,10 +60,7 @@ impl AccessControlManager {
     pub fn grant_role(&mut self, user: impl Into<String>, tenant: impl Into<String>, role: &str) {
         let user = user.into();
         let tenant = tenant.into();
-        let entry = self
-            .assignments
-            .entry((user, tenant))
-            .or_default();
+        let entry = self.assignments.entry((user, tenant)).or_default();
         entry.insert(role.to_string());
     }
 

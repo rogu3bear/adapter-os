@@ -809,22 +809,23 @@ impl PatchValidator {
     fn requires_review(&self, patch: &FilePatch) -> Result<bool> {
         // Database migrations
         if self.policy.require_review.database_migrations
-            && self.is_migration_file(&patch.file_path) {
-                return Ok(true);
-            }
+            && self.is_migration_file(&patch.file_path)
+        {
+            return Ok(true);
+        }
 
         // Security changes
-        if self.policy.require_review.security_changes
-            && self.is_security_file(&patch.file_path) {
-                return Ok(true);
-            }
+        if self.policy.require_review.security_changes && self.is_security_file(&patch.file_path) {
+            return Ok(true);
+        }
 
         // Config changes
         if self.policy.require_review.config_changes
-            && self.is_config_file(&patch.file_path) && self.is_production_config(&patch.file_path)
-            {
-                return Ok(true);
-            }
+            && self.is_config_file(&patch.file_path)
+            && self.is_production_config(&patch.file_path)
+        {
+            return Ok(true);
+        }
 
         Ok(false)
     }
@@ -1036,7 +1037,9 @@ impl DependencyChecker {
     fn extract_dependency(&self, line: &str) -> Option<String> {
         if let Some(start) = line.find("use ") {
             let after_use = &line[start + 4..];
-            after_use.find("::").map(|end| after_use[..end].trim().to_string())
+            after_use
+                .find("::")
+                .map(|end| after_use[..end].trim().to_string())
         } else {
             None
         }
@@ -1046,7 +1049,9 @@ impl DependencyChecker {
     fn extract_python_dependency(&self, line: &str) -> Option<String> {
         if let Some(start) = line.find("from ") {
             let after_from = &line[start + 5..];
-            after_from.find(" import").map(|end| after_from[..end].trim().to_string())
+            after_from
+                .find(" import")
+                .map(|end| after_from[..end].trim().to_string())
         } else {
             None
         }
@@ -1370,11 +1375,9 @@ impl PatchValidator {
         }
 
         // Validate source attribution
-        let source_attribution_complete = evidence_spans.iter().all(|span| {
-            span.file_path
-                .as_ref()
-                .is_some_and(|path| !path.is_empty())
-        });
+        let source_attribution_complete = evidence_spans
+            .iter()
+            .all(|span| span.file_path.as_ref().is_some_and(|path| !path.is_empty()));
         if !source_attribution_complete {
             violations.push(EvidenceViolation {
                 violation_type: EvidenceViolationType::MissingSourceAttribution,
