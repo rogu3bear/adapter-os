@@ -79,10 +79,7 @@ async fn directory_upsert(
     output: &OutputWriter,
 ) -> Result<()> {
     let client = reqwest::Client::new();
-    let url = format!(
-        "{}/v1/adapters/directory/upsert",
-        base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/v1/adapters/directory/upsert", base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "tenant_id": tenant,
         "root": root,
@@ -98,19 +95,17 @@ async fn directory_upsert(
         output.kv("Activate", "true");
     }
 
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| adapteros_core::AosError::Io(format!("HTTP request failed: {}", e)))?;
+    let resp = client.post(&url).json(&body).send().await.map_err(|e| {
+        adapteros_core::AosError::Io(format!("HTTP request failed: {}", e))
+    })?;
 
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         return Err(adapteros_core::AosError::Other(format!(
             "Upsert failed: {} {}",
-            status, text
+            status,
+            text
         )));
     }
 

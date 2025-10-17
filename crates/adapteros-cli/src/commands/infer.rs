@@ -60,8 +60,7 @@ pub async fn run(
         .context("Inference request failed")?;
 
     // Parse worker response and print text only
-    let v: serde_json::Value =
-        serde_json::from_str(&resp).context("Failed to parse response JSON")?;
+    let v: serde_json::Value = serde_json::from_str(&resp).context("Failed to parse response JSON")?;
     if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
         println!("{}", text);
     } else {
@@ -70,3 +69,5 @@ pub async fn run(
 
     Ok(())
 }
+
+

@@ -116,11 +116,7 @@ pub async fn upsert_directory_adapter(
 
     // Validate path is safe relative
     let rel = std::path::PathBuf::from(&req.path);
-    if rel.is_absolute()
-        || rel
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
+    if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -165,7 +161,7 @@ pub async fn upsert_directory_adapter(
                             .with_code("INTERNAL_SERVER_ERROR")
                             .with_string_details(e.to_string()),
                     ),
-                ));
+                ))
             }
         }
         if let Err(e) = std::fs::write(&artifact_path, b"synthetic adapter placeholder") {
@@ -193,7 +189,11 @@ pub async fn upsert_directory_adapter(
     })?;
 
     if existing.is_none() {
-        let languages = analysis.language_stats.keys().cloned().collect::<Vec<_>>();
+        let languages = analysis
+            .language_stats
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
         let languages_json = serde_json::to_string(&languages).unwrap_or("[]".to_string());
 
         state
@@ -237,11 +237,7 @@ pub async fn upsert_directory_adapter(
                     let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
                     let adapters_path = PathBuf::from("./adapters");
                     let mut loader = AdapterLoader::new(adapters_path);
-                    if loader
-                        .load_adapter_async(adapter_idx, &hash_hex)
-                        .await
-                        .is_ok()
-                    {
+                    if loader.load_adapter_async(adapter_idx, &hash_hex).await.is_ok() {
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "warm", "loaded_successfully")

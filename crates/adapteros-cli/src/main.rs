@@ -673,7 +673,7 @@ Examples:
 
   # Increase max tokens and timeout
   aosctl infer --prompt 'Test' --max-tokens 256 --timeout 60000
-")]
+"])
     Infer {
         /// Optional adapter to activate before inference
         #[arg(long)]
