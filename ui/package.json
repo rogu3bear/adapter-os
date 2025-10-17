@@ -46,6 +46,7 @@
         "react-error-boundary": "^6.0.0",
         "react-hook-form": "^7.55.0",
         "react-resizable-panels": "^2.1.7",
+        "react-router-dom": "^6",
         "recharts": "^2.15.2",
         "sonner": "^2.0.3",
         "swagger-ui-react": "^5.29.3",
