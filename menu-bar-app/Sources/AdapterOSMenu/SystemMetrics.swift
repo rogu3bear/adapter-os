@@ -11,12 +11,10 @@ class SystemMetricsCollector {
     /// Collect current system metrics
     func collect() -> SystemMetrics {
         let cpu = getCPUUsage()
-        let gpu = getGPUUsage()
         let (memUsed, memTotal) = getMemoryInfo()
         
         return SystemMetrics(
             cpuUsage: cpu,
-            gpuUsage: gpu,
             memoryUsedGB: memUsed,
             memoryTotalGB: memTotal
         )
@@ -63,23 +61,6 @@ class SystemMetricsCollector {
             previousTimestamp = Date()
             return 0.0
         }
-    }
-    
-    // MARK: - GPU Usage
-    
-    private func getGPUUsage() -> Double {
-        // Use Metal to get GPU info
-        guard MTLCreateSystemDefaultDevice() != nil else {
-            return 0.0
-        }
-        
-        // Metal doesn't expose real-time GPU usage directly on macOS
-        // We can check if device is busy, but for simplicity, return a mock value
-        // In production, you'd use IOKit to query GPU metrics
-        
-        // For now, return 0 as placeholder
-        // Real implementation would use IOAccelerator or private APIs
-        return 0.0
     }
     
     // MARK: - Memory Info
