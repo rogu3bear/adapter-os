@@ -360,44 +360,6 @@ curl -X POST http://localhost:8080/v1/infer \
 # }
 ```
 
-## Local Inference via UDS (for Cursor)
-
-1. Start a local worker over UDS:
-
-```bash
-./target/release/aosctl serve \
-  --tenant default \
-  --plan cp_abc123 \
-  --socket /var/run/adapteros.sock
-```
-
-2. Call inference directly (optional adapter activation):
-
-```bash
-# Basic
-./target/release/aosctl infer \
-  --prompt "Explain AdapterOS router" \
-  --socket /var/run/adapteros.sock
-
-# Activate adapter then infer
-./target/release/aosctl infer \
-  --adapter repo_myproject \
-  --prompt "Apply repository-specific context" \
-  --socket /var/run/adapteros.sock
-```
-
-3. Or use the HTTP route proxied by the server/UI:
-
-```bash
-curl -s http://127.0.0.1:8080/api/v1/infer \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"Hello"}'
-```
-
-Notes:
-- The server’s `/api/v1/infer` now falls back to `AOS_WORKER_SOCKET` or `/var/run/adapteros.sock` if no worker is registered.
-- Cursor can point local model calls to `/var/run/adapteros.sock`.
-
 ## Troubleshooting
 
 ### Scan Jobs Failing
