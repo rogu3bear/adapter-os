@@ -662,6 +662,44 @@ Examples:
         args: audit_determinism::AuditDeterminismArgs,
     },
 
+    /// Run a local inference against the worker UDS
+    #[command(after_help = "\
+Examples:
+  # Basic inference
+  aosctl infer --prompt 'Hello world' --socket /var/run/adapteros.sock
+
+  # Inference using a specific adapter (preload+swap)
+  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/adapteros.sock
+
+  # Increase max tokens and timeout
+  aosctl infer --prompt 'Test' --max-tokens 256 --timeout 60000
+")]
+    Infer {
+        /// Optional adapter to activate before inference
+        #[arg(long)]
+        adapter: Option<String>,
+
+        /// Prompt text to infer on
+        #[arg(long)]
+        prompt: String,
+
+        /// UDS socket path
+        #[arg(long, default_value = "/var/run/adapteros.sock")]
+        socket: PathBuf,
+
+        /// Max tokens to generate
+        #[arg(long)]
+        max_tokens: Option<usize>,
+
+        /// Require evidence (RAG/open-book) if enabled in worker
+        #[arg(long, default_value_t = false)]
+        require_evidence: bool,
+
+        /// Timeout in milliseconds
+        #[arg(long, default_value_t = 30000)]
+        timeout: u64,
+    },
+
     /// Replay a bundle
     #[command(after_help = "\
 Examples:
@@ -1363,6 +1401,24 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             let audit_output = audit_determinism::Output;
             let exit_code = audit_determinism::run(args, &audit_output)?;
             std::process::exit(exit_code);
+        }
+        Commands::Infer {
+            adapter,
+            prompt,
+            socket,
+            max_tokens,
+            require_evidence,
+            timeout,
+        } => {
+            commands::infer::run(
+                adapter.clone(),
+                prompt.clone(),
+                *max_tokens,
+                *require_evidence,
+                socket.clone(),
+                *timeout,
+            )
+            .await?;
         }
         Commands::Replay { bundle, verbose } => {
             // Merge command-specific verbose flag with global verbose

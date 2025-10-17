@@ -1,12 +1,12 @@
 //! Adapter lifecycle management commands
 
 use crate::output::OutputWriter;
-use adapteros_client::{native::NativeClient, AdapterOSClient, UdsClient};
+use adapteros_client::{AdapterOSClient, UdsClient};
 use adapteros_core::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// Enhanced adapter state structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -69,6 +69,69 @@ fn get_worker_socket_path(tenant_id: Option<&str>) -> std::path::PathBuf {
     std::path::PathBuf::from(format!("./var/run/aos/{}/worker.sock", tenant))
 }
 
+/// Upsert directory adapter via HTTP API
+async fn directory_upsert(
+    tenant: &str,
+    root: &str,
+    path: &str,
+    activate: bool,
+    base_url: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/adapters/directory/upsert",
+        base_url.trim_end_matches('/')
+    );
+    let body = serde_json::json!({
+        "tenant_id": tenant,
+        "root": root,
+        "path": path,
+        "activate": activate
+    });
+
+    output.info("Upserting directory adapter");
+    output.kv("Tenant", tenant);
+    output.kv("Root", root);
+    output.kv("Path", path);
+    if activate {
+        output.kv("Activate", "true");
+    }
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| adapteros_core::AosError::Io(format!("HTTP request failed: {}", e)))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(adapteros_core::AosError::Other(format!(
+            "Upsert failed: {} {}",
+            status, text
+        )));
+    }
+
+    let value: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?;
+
+    if output.is_json() {
+        output.result(&serde_json::to_string_pretty(&value).unwrap());
+    } else {
+        if let Some(adapter_id) = value.get("adapter_id").and_then(|v| v.as_str()) {
+            output.success(&format!("Adapter upserted: {}", adapter_id));
+        } else {
+            output.success("Adapter upserted");
+        }
+    }
+
+    Ok(())
+}
+
 /// Validate adapter ID format
 fn validate_adapter_id(adapter_id: &str) -> Result<()> {
     if adapter_id.is_empty() {
@@ -125,7 +188,7 @@ async fn connect_and_fetch_adapter_states(
                 info!(count = adapters.len(), "Retrieved adapter states");
                 return Ok(adapters);
             }
-            Err(e) if retries > 1 => {
+            Err(_e) if retries > 1 => {
                 retries -= 1;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
@@ -173,7 +236,7 @@ async fn connect_and_fetch_adapter_profile(
                 info!(adapter_id = %adapter_id, "Retrieved adapter profile");
                 return Ok(profile);
             }
-            Err(e) if retries > 1 => {
+            Err(_e) if retries > 1 => {
                 retries -= 1;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
@@ -344,6 +407,27 @@ pub enum AdapterCommand {
         #[arg(long)]
         tenant: Option<String>,
     },
+    /// Upsert a synthetic directory adapter (optional activate)
+    #[command(
+        after_help = "Examples:\n  aosctl adapter directory-upsert --tenant dev --root /abs/repo --path src/api --activate\n  aosctl adapter directory-upsert --tenant dev --root /abs/repo --path src/api"
+    )]
+    DirectoryUpsert {
+        /// Tenant ID
+        #[arg(long)]
+        tenant: String,
+        /// Absolute repository root path
+        #[arg(long)]
+        root: String,
+        /// Relative path under root
+        #[arg(long)]
+        path: String,
+        /// Activate immediately
+        #[arg(long)]
+        activate: bool,
+        /// Control plane base URL (default: http://127.0.0.1:8080/api)
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        base_url: String,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -355,6 +439,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Demote { .. } => "adapter_demote".to_string(),
         AdapterCommand::Pin { .. } => "adapter_pin".to_string(),
         AdapterCommand::Unpin { .. } => "adapter_unpin".to_string(),
+        AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
     }
 }
 
@@ -367,6 +452,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Demote { tenant, .. } => tenant.clone(),
         AdapterCommand::Pin { tenant, .. } => tenant.clone(),
         AdapterCommand::Unpin { tenant, .. } => tenant.clone(),
+        AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
     }
 }
 
@@ -401,6 +487,13 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
         AdapterCommand::Unpin { adapter_id, tenant } => {
             unpin_adapter(&adapter_id, tenant, output).await
         }
+        AdapterCommand::DirectoryUpsert {
+            tenant,
+            root,
+            path,
+            activate,
+            base_url,
+        } => directory_upsert(&tenant, &root, &path, activate, &base_url, output).await,
     }
 }
 
@@ -1090,7 +1183,6 @@ async fn unpin_adapter(
 mod tests {
     use super::*;
     use crate::output::{OutputMode, OutputWriter};
-    use adapteros_core::Result;
 
     #[test]
     fn test_validate_adapter_id() {
