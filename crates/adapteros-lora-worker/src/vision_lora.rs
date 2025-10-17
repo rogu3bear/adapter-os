@@ -242,11 +242,17 @@ mod tests {
         let tensors = [
             (
                 "vision_lora.weight".to_string(),
-                TensorView::new(safetensors::Dtype::F32, vec![2, 2], unsafe { std::slice::from_raw_parts(weights.as_ptr() as *const u8, weights.len() * 4) }).unwrap(),
+                TensorView::new(safetensors::Dtype::F32, vec![2, 2], unsafe {
+                    std::slice::from_raw_parts(weights.as_ptr() as *const u8, weights.len() * 4)
+                })
+                .unwrap(),
             ),
             (
                 "vision_lora.bias".to_string(),
-                TensorView::new(safetensors::Dtype::F32, vec![4], unsafe { std::slice::from_raw_parts(bias.as_ptr() as *const u8, bias.len() * 4) }).unwrap(),
+                TensorView::new(safetensors::Dtype::F32, vec![4], unsafe {
+                    std::slice::from_raw_parts(bias.as_ptr() as *const u8, bias.len() * 4)
+                })
+                .unwrap(),
             ),
         ];
         let serialized = serialize(tensors, &Default::default()).unwrap();

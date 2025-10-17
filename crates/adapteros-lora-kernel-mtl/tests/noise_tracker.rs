@@ -83,7 +83,10 @@ fn metal_buffer_extraction_handles_formats() {
     );
 
     let half_values: Vec<f16> = f32_values.iter().map(|&v| f16::from_f32(v)).collect();
-    let half_bytes: Vec<u8> = half_values.iter().flat_map(|&v| v.to_bits().to_le_bytes()).collect();
+    let half_bytes: Vec<u8> = half_values
+        .iter()
+        .flat_map(|&v| v.to_bits().to_le_bytes())
+        .collect();
     let buffer16 = device.new_buffer(
         half_bytes.len() as u64,
         MTLResourceOptions::StorageModeShared,

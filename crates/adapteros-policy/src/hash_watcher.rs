@@ -428,7 +428,9 @@ mod tests {
 
         let db = Db::connect(&db_url).await.unwrap();
         // Run migrations - each test has unique database so this should succeed
-        db.migrate().await.expect("Failed to run migrations in test");
+        db.migrate()
+            .await
+            .expect("Failed to run migrations in test");
 
         let telemetry_dir = temp_dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();

@@ -277,8 +277,7 @@ struct FrameworkRule {
     keywords: &'static [&'static str],
 }
 
-#[derive(Clone)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Indicator {
     Npm(&'static [&'static str]),
     Python(&'static [&'static str]),
@@ -391,7 +390,9 @@ pub fn detect_frameworks(root: &Path) -> Result<Vec<DetectedFramework>> {
                     // Check for keywords in Java files
                     for file_path in &metadata.config_files {
                         if file_path.ends_with(".java") {
-                            if let Ok(content) = std::fs::read_to_string(format!("{}/{}", root.display(), file_path)) {
+                            if let Ok(content) =
+                                std::fs::read_to_string(format!("{}/{}", root.display(), file_path))
+                            {
                                 for keyword in *keywords {
                                     if content.contains(keyword) {
                                         evidence.push(format!("keyword:{}", keyword));

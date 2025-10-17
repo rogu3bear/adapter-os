@@ -49,10 +49,7 @@ impl PerformanceMonitoringService {
 
     pub fn record_latency(&mut self, component: impl Into<String>, value: Duration) {
         let component = component.into();
-        let entry = self
-            .latency_samples
-            .entry(component.clone())
-            .or_default();
+        let entry = self.latency_samples.entry(component.clone()).or_default();
         if entry.len() == self.sample_window {
             entry.pop_front();
         }

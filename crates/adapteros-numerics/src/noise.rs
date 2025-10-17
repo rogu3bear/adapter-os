@@ -19,6 +19,10 @@ impl Tensor {
         self.data.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
     pub fn iter(&self) -> std::slice::Iter<'_, f32> {
         self.data.iter()
     }
