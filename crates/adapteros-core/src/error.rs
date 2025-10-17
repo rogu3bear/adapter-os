@@ -229,6 +229,13 @@ pub enum AosError {
 
     #[error("{0}")]
     Other(String),
+
+    #[error("{context}: {source}")]
+    WithContext {
+        context: String,
+        #[source]
+        source: Box<AosError>,
+    },
 }
 
 // Rusqlite conversions removed to avoid conflicts with sqlx
@@ -269,5 +276,66 @@ impl From<sqlx::Error> for AosError {
 impl From<ZipError> for AosError {
     fn from(err: ZipError) -> Self {
         AosError::Io(format!("Zip operation failed: {}", err))
+    }
+}
+
+/// Extension trait to attach context to results without disrupting error types
+pub trait ResultExt<T> {
+    fn context(self, ctx: impl Into<String>) -> Result<T>;
+    fn with_context<F: FnOnce() -> String>(self, f: F) -> Result<T>;
+}
+
+impl<T> ResultExt<T> for Result<T> {
+    fn context(self, ctx: impl Into<String>) -> Result<T> {
+        self.map_err(|e| AosError::WithContext {
+            context: ctx.into(),
+            source: Box::new(e),
+        })
+    }
+
+    fn with_context<F: FnOnce() -> String>(self, f: F) -> Result<T> {
+        self.map_err(|e| AosError::WithContext {
+            context: f(),
+            source: Box::new(e),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_chaining() {
+        let base: Result<()> = Err(AosError::Other("boom".to_string()));
+
+        let err = base
+            .context("while doing A")
+            .with_context(|| "processing request".to_string())
+            .unwrap_err();
+
+        // Ensure nesting structure is present and ordered
+        match &err {
+            AosError::WithContext { context, source } => {
+                assert_eq!(context, "processing request");
+                match source.as_ref() {
+                    AosError::WithContext { context, source } => {
+                        assert_eq!(context, "while doing A");
+                        match source.as_ref() {
+                            AosError::Other(ref s) => assert_eq!(s, "boom"),
+                            _ => panic!("expected innermost Other variant"),
+                        }
+                    }
+                    _ => panic!("expected inner WithContext variant"),
+                }
+            }
+            _ => panic!("expected outer WithContext variant"),
+        }
+
+        // Also validate Display formatting produces a sensible chain
+        let display = format!("{}", err);
+        assert!(display.contains("processing request:"));
+        assert!(display.contains("while doing A:"));
+        assert!(display.contains("boom"));
     }
 }
