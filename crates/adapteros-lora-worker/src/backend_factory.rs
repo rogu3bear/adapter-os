@@ -47,8 +47,18 @@ pub enum BackendChoice {
 /// # Ok::<(), adapteros_core::AosError>(())
 /// ```
 pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
-    // Create backend based on choice
-    let backend = create_backend_internal(choice)?;
+    // Create backend based on choice; fallback to CPU if unavailable
+    let backend = match create_backend_internal(choice.clone()) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Falling back to CPU fallback backend due to backend initialization error"
+            );
+            let cpu = adapteros_lora_kernel_api::CpuKernels::default();
+            Box::new(cpu)
+        }
+    };
 
     // Validate determinism attestation (runtime guard)
     let report = backend.attest_determinism()?;

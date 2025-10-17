@@ -6,6 +6,8 @@ use std::env;
 mod determinism_report;
 mod sbom;
 mod verify_agents;
+mod code2db_dataset;
+mod pack_lora;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,6 +18,30 @@ async fn main() -> Result<()> {
         Some("determinism-report") => determinism_report::generate_determinism_report()?,
         Some("build") => build()?,
         Some("test") => test()?,
+        Some("code2db-dataset") => {
+            use clap::Parser;
+            let args_vec: Vec<String> = env::args().collect();
+            let parsed = if args_vec.len() > 1 {
+                let mut new_args = vec![args_vec[0].clone()];
+                new_args.extend(args_vec[2..].to_vec());
+                code2db_dataset::Code2DbDatasetArgs::parse_from(new_args)
+            } else {
+                code2db_dataset::Code2DbDatasetArgs::parse()
+            };
+            code2db_dataset::run(parsed).await?;
+        }
+        Some("pack-lora") => {
+            use clap::Parser;
+            let args_vec: Vec<String> = env::args().collect();
+            let parsed = if args_vec.len() > 1 {
+                let mut new_args = vec![args_vec[0].clone()];
+                new_args.extend(args_vec[2..].to_vec());
+                pack_lora::PackLoraArgs::parse_from(new_args)
+            } else {
+                pack_lora::PackLoraArgs::parse()
+            };
+            pack_lora::run(parsed).await?;
+        }
         Some("verify-agents") => {
             // Parse args for verify-agents subcommand
             use clap::Parser;
@@ -73,7 +99,13 @@ fn print_help() {
     println!("  build               Custom build workflow");
     println!("  test                Run full test suite");
     println!("  verify-agents       Verify all agent deliverables");
+    println!("  code2db-dataset     Build JSON training dataset for code→DB tasks");
+    println!("  pack-lora           Quantize and package trained LoRA weights");
     println!();
     println!("For verify-agents options, run:");
     println!("  cargo xtask verify-agents --help");
+    println!("For dataset builder options, run:");
+    println!("  cargo xtask code2db-dataset --help");
+    println!("For LoRA packager options, run:");
+    println!("  cargo xtask pack-lora --help");
 }

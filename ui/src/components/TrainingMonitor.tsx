@@ -23,7 +23,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import apiClient from '../api/client';
-import { TrainingJob, TrainingMetrics } from '../api/types';
+import { TrainingJob, TrainingMetrics, TrainingArtifactsResponse } from '../api/types';
 import { logger } from '../utils/logger';
 import { toast } from 'sonner';
 
@@ -36,6 +36,7 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
   const [job, setJob] = useState<TrainingJob | null>(null);
   const [metrics, setMetrics] = useState<TrainingMetrics | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [artifacts, setArtifacts] = useState<TrainingArtifactsResponse | null>(null);
   const [isPolling, setIsPolling] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<number | null>(null);
@@ -44,15 +45,17 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
   useEffect(() => {
     const fetchJobData = async () => {
       try {
-        const [jobData, metricsData, logsData] = await Promise.all([
+        const [jobData, metricsData, logsData, artifactsData] = await Promise.all([
           apiClient.getTrainingJob(jobId),
           apiClient.getTrainingMetrics(jobId),
-          apiClient.getTrainingLogs(jobId)
+          apiClient.getTrainingLogs(jobId),
+          apiClient.getTrainingArtifacts(jobId)
         ]);
         
         setJob(jobData);
         setMetrics(metricsData);
         setLogs(logsData);
+        setArtifacts(artifactsData);
         setError(null);
 
         // Auto-scroll logs to bottom
@@ -383,6 +386,56 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Artifacts & Verification */}
+      {artifacts && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <CheckCircle className="mr-2 h-5 w-5" />
+              Packaged Artifacts
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-muted-foreground">Artifact Path</div>
+                <div className="font-mono break-all">{artifacts.artifact_path || 'n/a'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Adapter ID</div>
+                <div className="font-mono">{artifacts.adapter_id || job.adapter_name}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Weights Hash (B3)</div>
+                <div className="font-mono break-all">{artifacts.weights_hash_b3 || 'n/a'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Manifest Hash (B3)</div>
+                <div className="font-mono break-all">{artifacts.manifest_hash_b3 || 'n/a'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Hash Matches</div>
+                <Badge variant={artifacts.manifest_hash_matches ? 'default' : 'destructive'}>
+                  {artifacts.manifest_hash_matches ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Signature Valid</div>
+                <Badge variant={artifacts.signature_valid ? 'default' : 'destructive'}>
+                  {artifacts.signature_valid ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Ready</div>
+                <Badge variant={artifacts.ready ? 'default' : 'destructive'}>
+                  {artifacts.ready ? 'Ready' : 'Not Ready'}
+                </Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Training Logs */}
       <Card>

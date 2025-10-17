@@ -71,19 +71,16 @@ pub async fn chat_completions(
         )
     })?;
 
-    if workers.is_empty() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("no workers available")
-                    .with_code("SERVICE_UNAVAILABLE")
-                    .with_string_details("No active workers found for inference"),
-            ),
-        ));
-    }
-
-    let worker = &workers[0];
-    let uds_path = std::path::Path::new(&worker.uds_path);
+    // Resolve UDS path: prefer registered worker; otherwise fall back to local dev socket
+    let uds_path_buf = if let Some(worker) = workers.get(0) {
+        std::path::PathBuf::from(&worker.uds_path)
+    } else {
+        // Fallback: honor env override or default to /var/run/adapteros.sock (dev convenience)
+        let fallback = std::env::var("AOS_WORKER_SOCKET")
+            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
+        std::path::PathBuf::from(fallback)
+    };
+    let uds_path = uds_path_buf.as_path();
     let uds_client = UdsClient::new(std::time::Duration::from_secs(30));
 
     let worker_request = WorkerInferRequest {

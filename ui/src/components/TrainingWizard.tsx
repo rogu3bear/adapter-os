@@ -40,6 +40,7 @@ interface WizardState {
   repositoryId?: string;
   templateId?: string;
   customData?: string;
+  datasetPath?: string;
   
   // Step 4: Category-specific config
   // Code adapter
@@ -66,6 +67,13 @@ interface WizardState {
   batchSize: number;
   warmupSteps?: number;
   maxSeqLength?: number;
+
+  // Step 6: Packaging & Registration
+  packageAfter?: boolean;
+  registerAfter?: boolean;
+  adaptersRoot?: string;
+  adapterId?: string;
+  tier?: number;
 }
 
 const CATEGORY_ICONS = {
@@ -110,6 +118,10 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     epochs: 3,
     learningRate: 3e-4,
     batchSize: 4,
+    packageAfter: true,
+    registerAfter: true,
+    adaptersRoot: './adapters',
+    tier: 8,
   });
 
   useEffect(() => {
@@ -322,6 +334,17 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           />
         </div>
       )}
+
+      <div className="space-y-2">
+        <Label htmlFor="datasetPath">Dataset Path (optional)</Label>
+        <Input
+          id="datasetPath"
+          placeholder="e.g., data/code_to_db_training.json"
+          value={state.datasetPath || ''}
+          onChange={(e) => updateState({ datasetPath: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">If provided, the orchestrator will load examples from this JSON file.</p>
+      </div>
     </div>
   );
 
@@ -579,6 +602,61 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     </div>
   );
 
+  // Step 6: Packaging & Registration
+  const PackagingStep = () => (
+    <div className="space-y-4">
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="packageAfter"
+          checked={!!state.packageAfter}
+          onCheckedChange={(checked) => updateState({ packageAfter: !!checked })}
+        />
+        <Label htmlFor="packageAfter">Package adapter after training</Label>
+      </div>
+
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="registerAfter"
+          checked={!!state.registerAfter}
+          onCheckedChange={(checked) => updateState({ registerAfter: !!checked })}
+        />
+        <Label htmlFor="registerAfter">Register adapter after packaging</Label>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="adaptersRoot">Adapters Root</Label>
+          <Input
+            id="adaptersRoot"
+            placeholder="./adapters"
+            value={state.adaptersRoot || ''}
+            onChange={(e) => updateState({ adaptersRoot: e.target.value })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="adapterId">Adapter ID (optional)</Label>
+          <Input
+            id="adapterId"
+            placeholder="my-awesome-adapter"
+            value={state.adapterId || ''}
+            onChange={(e) => updateState({ adapterId: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="tier">Tier</Label>
+        <Input
+          id="tier"
+          type="number"
+          value={state.tier || 8}
+          onChange={(e) => updateState({ tier: parseInt(e.target.value) || 8 })}
+        />
+        <p className="text-xs text-muted-foreground">Tier used for registration (e.g., 8 for ephemeral)</p>
+      </div>
+    </div>
+  );
+
   // Step 6: Review & Confirm
   const ReviewStep = () => (
     <div className="space-y-4">
@@ -675,9 +753,15 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       const job = await apiClient.startTraining({
         adapter_name: state.name,
         config: trainingConfig,
-        template_id: state.templateId,
-        repo_id: state.repositoryId,
-      });
+        template_id: state.dataSourceType === 'template' ? state.templateId : undefined,
+        repo_id: state.dataSourceType === 'repository' ? state.repositoryId : undefined,
+        dataset_path: state.datasetPath || undefined,
+        adapters_root: state.adaptersRoot || undefined,
+        package: !!state.packageAfter,
+        register: !!state.registerAfter,
+        adapter_id: state.adapterId || undefined,
+        tier: state.tier,
+      } as any);
 
       toast.success(`Training job ${job.id} started successfully!`);
       onComplete(job.id);
@@ -757,6 +841,12 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       },
     },
     {
+      id: 'packaging',
+      title: 'Packaging & Registration',
+      description: 'Artifacts and registry',
+      component: <PackagingStep />,
+    },
+    {
       id: 'review',
       title: 'Review',
       description: 'Confirm and start',
@@ -777,5 +867,4 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     />
   );
 }
-
 

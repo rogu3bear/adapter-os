@@ -343,7 +343,10 @@ impl<K: FusedKernels> Worker<K> {
         );
 
         // Initialize lifecycle manager
-        let adapters_path = std::path::PathBuf::from("./adapters");
+        let adapters_path = {
+            let root = std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
+            std::path::PathBuf::from(root)
+        };
         let lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
             adapter_names,
             &manifest.policies,
@@ -628,7 +631,7 @@ impl<K: FusedKernels> Worker<K> {
         };
 
         let patch_generator = PatchGenerator::new(
-            Box::new(MockLlmBackend),
+            Box::new(crate::patch_generator::RuleBasedLlmBackend),
             crate::patch_generator::PatchParser::new(),
             crate::patch_generator::CitationExtractor::new(),
         );

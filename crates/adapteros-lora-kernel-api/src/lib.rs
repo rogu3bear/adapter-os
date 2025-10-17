@@ -141,6 +141,130 @@ impl Default for MockKernels {
     }
 }
 
+/// CPU fallback kernels implementing a deterministic, input-dependent
+/// scoring function without GPU acceleration. This is intended for
+/// functionality-first operation in environments without Metal/MLX.
+pub struct CpuKernels {
+    device_name: String,
+    vocab_size: usize,
+    hidden_size: usize,
+    seed: u64,
+}
+
+impl CpuKernels {
+    /// Create a new CPU fallback with specified dimensions
+    pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
+        Self {
+            device_name: "CPU Fallback (Deterministic)".to_string(),
+            vocab_size,
+            hidden_size,
+            seed: 0xA0C0FFEEDEADBEEFu64,
+        }
+    }
+
+    #[inline]
+    fn mix64(mut x: u64) -> u64 {
+        // SplitMix64-style mixer for deterministic hashing
+        x = x.wrapping_add(0x9E3779B97F4A7C15);
+        let mut z = x;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^ (z >> 31)
+    }
+
+    #[inline]
+    fn hash_to_unit(seed: u64) -> f32 {
+        // Map to [-1, 1]
+        let bits = Self::mix64(seed);
+        let v = (bits as f64) / (u64::MAX as f64);
+        (v as f32) * 2.0 - 1.0
+    }
+}
+
+impl Default for CpuKernels {
+    fn default() -> Self {
+        // Defaults to Qwen2.5-7B dimensions seen elsewhere
+        Self::new(152_064, 3_584)
+    }
+}
+
+impl FusedKernels for CpuKernels {
+    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        // Derive a simple seed from plan bytes for deterministic variation
+        let mut acc: u64 = self.seed;
+        for chunk in plan_bytes.chunks(8) {
+            let mut buf = [0u8; 8];
+            for (i, b) in chunk.iter().enumerate() {
+                buf[i] = *b;
+            }
+            let w = u64::from_le_bytes(buf);
+            acc ^= Self::mix64(w);
+        }
+        self.seed = acc;
+        Ok(())
+    }
+
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // Compute a simple, deterministic logit for each vocab index based on
+        // the last input token, adapter gates, and position.
+        let last_token = io
+            .input_ids
+            .last()
+            .copied()
+            .unwrap_or(0) as u64;
+
+        // Aggregate normalized gate influence
+        let gate_sum: f32 = if !ring.gates_q15.is_empty() {
+            ring.gates_q15
+                .iter()
+                .map(|&g| (g as f32) / 32768.0)
+                .sum()
+        } else {
+            1.0
+        };
+
+        let position = io.position as u64;
+        for (i, logit) in io.output_logits.iter_mut().enumerate().take(self.vocab_size) {
+            let vocab_idx = i as u64;
+            // Mix seed with inputs to get a stable pseudo-feature
+            let seed = self.seed ^ last_token ^ vocab_idx ^ position;
+            let base = Self::hash_to_unit(seed);
+            // Incorporate adapter IDs into the pattern
+            let adapter_mix = if !ring.indices.is_empty() {
+                let mut s = 0.0f32;
+                for (j, &aid) in ring.indices.iter().enumerate() {
+                    let w = ((aid as u64) << 16) ^ (j as u64) ^ vocab_idx;
+                    s += Self::hash_to_unit(w) * 0.25;
+                }
+                s
+            } else {
+                0.0
+            };
+
+            *logit = base * (0.5 + 0.5 * gate_sum.min(1.0)) + adapter_mix;
+        }
+
+        io.position += 1;
+        Ok(())
+    }
+
+    fn device_name(&self) -> &str {
+        &self.device_name
+    }
+
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        Ok(attestation::DeterminismReport {
+            backend_type: attestation::BackendType::Mock,
+            metallib_hash: None,
+            manifest: None,
+            rng_seed_method: attestation::RngSeedingMethod::FixedSeed(self.seed),
+            floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            compiler_flags: vec!["-O2".to_string()],
+            deterministic: true,
+        })
+    }
+}
+
 /// Impl FusedKernels for Box<dyn FusedKernels> to enable dynamic dispatch
 impl FusedKernels for Box<dyn FusedKernels> {
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {

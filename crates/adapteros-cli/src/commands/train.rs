@@ -1,7 +1,10 @@
 //! Training command implementation
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_lora_worker::training::{
+    LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
+};
+use adapteros_lora_worker::training::packager::AdapterPackager;
 use clap::Args;
 use serde_json;
 use std::collections::HashMap;
@@ -58,6 +61,30 @@ pub struct TrainArgs {
     /// Training seed (for deterministic training)
     #[arg(long)]
     seed: Option<u64>,
+
+    /// Package trained adapter into adapters root with manifest/signature
+    #[arg(long)]
+    pack: bool,
+
+    /// Adapters root directory (used when --pack is provided)
+    #[arg(long, default_value = "./adapters")]
+    adapters_root: PathBuf,
+
+    /// Register adapter in the registry database after packaging
+    #[arg(long)]
+    register: bool,
+
+    /// Adapter ID to use for packaging/registration (defaults to generated)
+    #[arg(long)]
+    adapter_id: Option<String>,
+
+    /// Registration tier (e.g., ephemeral, persistent); used with --register
+    #[arg(long, default_value = "ephemeral")]
+    tier: String,
+
+    /// Registration rank; defaults to training rank
+    #[arg(long)]
+    reg_rank: Option<u32>,
 }
 
 /// Training data format
@@ -105,13 +132,55 @@ impl TrainArgs {
         // Train the adapter
         let result = trainer.train(&examples).await?;
 
-        // Save the trained adapter
+        // Save the trained adapter (legacy outputs for compatibility)
         self.save_adapter(&result)?;
 
         info!(
             "Training completed successfully: adapter_id={}, final_loss={:.4}, time={}ms",
             result.adapter_id, result.final_loss, result.training_time_ms
         );
+
+        // Optional: package and register
+        if self.pack {
+            // Quantize weights to Q15
+            let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
+            let mse = LoRAQuantizer::calculate_error(&result.weights, &quantized);
+            info!("Quantization MSE: {:.6}", mse);
+
+            // Determine adapter_id
+            let adapter_id = self
+                .adapter_id
+                .clone()
+                .unwrap_or_else(|| result.adapter_id.clone());
+
+            // Package
+            let packager = AdapterPackager::new(&self.adapters_root);
+            let packaged = packager
+                .package(&adapter_id, &quantized, &config)
+                .await
+                .map_err(|e| AosError::Io(format!("Packaging failed: {}", e)))?;
+
+            info!(
+                "Packaged adapter at {} (hash_b3={})",
+                self.adapters_root.join(&adapter_id).display(),
+                packaged.hash_b3
+            );
+
+            // Optional register into DB via existing CLI helper
+            if self.register {
+                let reg_rank = self.reg_rank.unwrap_or(self.rank as u32);
+                // Reuse existing register command (DB-backed)
+                crate::commands::register_adapter::run(
+                    &adapter_id,
+                    &packaged.hash_b3,
+                    &self.tier,
+                    reg_rank,
+                    &crate::output::OutputWriter::new(false, false),
+                )
+                .await
+                .map_err(|e| AosError::Io(format!("Registration failed: {}", e)))?;
+            }
+        }
 
         Ok(())
     }

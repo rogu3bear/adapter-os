@@ -429,6 +429,51 @@ impl LlmBackend for MockLlmBackend {
     }
 }
 
+/// Simple rule-based backend that generates diffs using request description
+/// and target file names, without external model calls.
+pub struct RuleBasedLlmBackend;
+
+#[async_trait]
+impl LlmBackend for RuleBasedLlmBackend {
+    async fn generate_patch(&self, context: &PatchContext) -> Result<String> {
+        let file = context
+            .request
+            .target_files
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "unknown.txt".to_string());
+
+        // Insert a descriptive comment near the top of the file as a minimal, concrete change.
+        // If we have file context, include a small nearby hunk as context lines.
+        let header = format!("--- a/{}\n+++ b/{}\n", &file, &file);
+        let hunk_header = "@@ 1 2 @@\n"; // simplified header parsable by PatchParser
+        let comment = format!("// TODO: {}", context.request.description);
+
+        let mut body = String::new();
+        if let Some(existing) = context.file_contexts.get(&file) {
+            // Use first line of existing content as context
+            let first_line = existing.lines().next().unwrap_or("");
+            body.push_str(&format!("{}{}\n+{}\n", first_line, "\n", comment));
+        } else {
+            // No context; add comment at file start
+            body.push_str(&format!("+{}\n", comment));
+        }
+
+        Ok(format!("{}{}{}", header, hunk_header, body))
+    }
+
+    async fn extract_rationale(&self, patch_text: &str) -> Result<String> {
+        // Produce a brief rationale based on the TODO line
+        let rationale = patch_text
+            .lines()
+            .find(|l| l.starts_with("+// TODO:"))
+            .map(|l| l.trim_start_matches('+'))
+            .unwrap_or("Added minimal change per request description.")
+            .to_string();
+        Ok(rationale)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -523,6 +523,10 @@ export interface TrainingJob {
   started_at?: string;
   completed_at?: string;
   error_message?: string;
+  // Orchestrator-populated fields when packaging is enabled
+  artifact_path?: string;
+  adapter_id?: string;
+  weights_hash_b3?: string;
 }
 
 export interface TrainingConfig {
@@ -542,6 +546,12 @@ export interface StartTrainingRequest {
   config: TrainingConfig;
   template_id?: string;
   repo_id?: string;
+  dataset_path?: string;
+  adapters_root?: string;
+  package?: boolean;
+  register?: boolean;
+  adapter_id?: string;
+  tier?: number;
 }
 
 export interface TrainingMetrics {
@@ -551,6 +561,16 @@ export interface TrainingMetrics {
   current_epoch: number;
   total_epochs: number;
   progress_pct: number;
+}
+
+export interface TrainingArtifactsResponse {
+  artifact_path?: string;
+  adapter_id?: string;
+  weights_hash_b3?: string;
+  manifest_hash_b3?: string;
+  manifest_hash_matches: boolean;
+  signature_valid: boolean;
+  ready: boolean;
 }
 
 export interface TrainingTemplate {

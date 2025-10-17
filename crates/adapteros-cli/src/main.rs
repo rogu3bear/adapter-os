@@ -243,6 +243,10 @@ Examples:
         adapter_id: String,
     },
 
+    /// Adapters group commands
+    #[command(subcommand)]
+    Adapters(commands::adapters::AdaptersCmd),
+
     /// Adapter lifecycle management commands
     #[command(subcommand)]
     Adapter(adapter::AdapterCommand),
@@ -563,6 +567,26 @@ Examples:
     Verify {
         /// Bundle path
         bundle: PathBuf,
+    },
+
+    /// Verify a packaged adapter directory
+    #[command(after_help = "\
+Examples:
+  # Verify packaged adapter
+  aosctl verify-adapter --adapters-root ./adapters --adapter-id demo_adapter
+
+  # JSON output
+  aosctl verify-adapter --adapters-root ./adapters --adapter-id demo_adapter --json
+
+")]
+    VerifyAdapter {
+        /// Adapters root directory
+        #[arg(long, default_value = "./adapters")]
+        adapters_root: PathBuf,
+
+        /// Adapter ID to verify
+        #[arg(long)]
+        adapter_id: String,
     },
 
     // ============================================================
@@ -1248,6 +1272,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Adapter(cmd) => {
             adapter::handle_adapter_command(cmd.clone(), &output).await?;
         }
+        Commands::Adapters(cmd) => {
+            commands::adapters::run(commands::adapters::AdaptersArgs { cmd: cmd.clone() }, &output)
+                .await?;
+        }
 
         // Node & Cluster Management
         Commands::NodeList { offline } => {
@@ -1378,6 +1406,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
         Commands::Verify { bundle } => {
             verify::run(&bundle, &output).await?;
+        }
+        Commands::VerifyAdapter { adapters_root, adapter_id } => {
+            commands::verify_adapter::run(adapters_root.clone(), adapter_id.clone(), &output).await?;
         }
 
         // Policy Management
@@ -1552,6 +1583,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::AdapterSwap { .. } => "adapter-swap",
         Commands::AdapterInfo { .. } => "adapter-info",
         Commands::Adapter(_) => "adapter",
+        Commands::Adapters(_) => "adapters",
         Commands::NodeList { .. } => "node-list",
         Commands::NodeVerify { .. } => "node-verify",
         Commands::NodeSync { .. } => "node-sync",

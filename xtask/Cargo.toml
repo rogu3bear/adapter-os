@@ -9,6 +9,7 @@ license.workspace = true
 anyhow = { workspace = true }
 adapteros-sbom = { path = "../crates/adapteros-sbom" }
 adapteros-core = { path = "../crates/adapteros-core" }
+adapteros-lora-worker = { path = "../crates/adapteros-lora-worker" }
 cargo-lock = "9.0"
 blake3 = "1.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }

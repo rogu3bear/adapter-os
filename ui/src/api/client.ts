@@ -173,6 +173,27 @@ class ApiClient {
     return this.request<types.Node[]>('/v1/nodes');
   }
 
+  // Adapters
+  async listAdapters(params?: { tier?: number; framework?: string }): Promise<types.Adapter[]> {
+    const qs = new URLSearchParams();
+    if (params?.tier !== undefined) qs.append('tier', String(params.tier));
+    if (params?.framework) qs.append('framework', params.framework);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<types.Adapter[]>(`/v1/adapters${query}`);
+  }
+
+  async loadAdapter(adapterId: string): Promise<types.Adapter> {
+    return this.request<types.Adapter>(`/v1/adapters/${adapterId}/load`, {
+      method: 'POST',
+    });
+  }
+
+  async unloadAdapter(adapterId: string): Promise<void> {
+    return this.request<void>(`/v1/adapters/${adapterId}/unload`, {
+      method: 'POST',
+    });
+  }
+
   async registerNode(data: types.RegisterNodeRequest): Promise<types.Node> {
     return this.request<types.Node>('/v1/nodes/register', {
       method: 'POST',
@@ -372,6 +393,10 @@ class ApiClient {
     return this.request<types.TrainingJob>(`/v1/training/jobs/${jobId}`);
   }
 
+  async getTrainingArtifacts(jobId: string): Promise<types.TrainingArtifactsResponse> {
+    return this.request<types.TrainingArtifactsResponse>(`/v1/training/jobs/${jobId}/artifacts`);
+  }
+
   async startTraining(request: types.StartTrainingRequest): Promise<types.TrainingJob> {
     return this.request<types.TrainingJob>('/v1/training/start', {
       method: 'POST',
@@ -566,8 +591,15 @@ class ApiClient {
   }
 
   // ===== Phase 8: Telemetry Operations =====
+  async listTelemetryBundles(): Promise<Array<{ id: string; cpid: string; event_count: number; size_bytes: number; created_at: string }>> {
+    return this.request('/v1/telemetry/bundles');
+  }
   async exportTelemetryBundle(bundleId: string): Promise<types.ExportTelemetryBundleResponse> {
     return this.request<types.ExportTelemetryBundleResponse>(`/v1/telemetry/bundles/${bundleId}/export`);
+  }
+
+  async generateTelemetryBundle(): Promise<{ id: string; cpid: string; event_count: number; size_bytes: number; created_at: string }> {
+    return this.request('/v1/telemetry/bundles/generate', { method: 'POST' });
   }
 
   async verifyBundleSignature(bundleId: string): Promise<types.VerifyBundleSignatureResponse> {

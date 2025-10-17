@@ -514,6 +514,27 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
         .route("/v1/metrics/system", get(handlers::get_system_metrics))
+        // Telemetry bundle routes
+        .route(
+            "/v1/telemetry/bundles",
+            get(handlers::list_telemetry_bundles),
+        )
+        .route(
+            "/v1/telemetry/bundles/generate",
+            post(handlers::generate_telemetry_bundle),
+        )
+        .route(
+            "/v1/telemetry/bundles/:bundle_id/export",
+            post(handlers::export_telemetry_bundle),
+        )
+        .route(
+            "/v1/telemetry/bundles/:bundle_id/verify",
+            post(handlers::verify_bundle_signature),
+        )
+        .route(
+            "/v1/telemetry/bundles/purge",
+            post(handlers::purge_old_bundles),
+        )
         // Commit routes
         .route("/v1/commits", get(handlers::list_commits))
         .route("/v1/commits/:sha", get(handlers::get_commit))
@@ -526,6 +547,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
         .route("/v1/training/start", post(handlers::start_training))
+        .route(
+            "/v1/training/jobs/:job_id/artifacts",
+            get(handlers::get_training_artifacts),
+        )
         .route(
             "/v1/training/jobs/:job_id/cancel",
             post(handlers::cancel_training),
