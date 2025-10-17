@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use clap::Subcommand;
-use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Table};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 
@@ -230,36 +230,36 @@ async fn show_snapshot() -> Result<()> {
 
         // Mock data when worker is not available
         table.add_row(vec![
-            "python-general",
-            "452",
-            "45.2%",
-            "156 µs",
-            "16 MB",
-            "+0.68",
+            Cell::new("python-general"),
+            Cell::new("452"),
+            Cell::new("45.2%"),
+            Cell::new("156 µs"),
+            Cell::new("16 MB"),
+            Cell::new("+0.68"),
         ]);
         table.add_row(vec![
-            "django-specific",
-            "128",
-            "12.8%",
-            "142 µs",
-            "16 MB",
-            "+0.54",
+            Cell::new("django-specific"),
+            Cell::new("128"),
+            Cell::new("12.8%"),
+            Cell::new("142 µs"),
+            Cell::new("16 MB"),
+            Cell::new("+0.54"),
         ]);
         table.add_row(vec![
-            "rust-general",
-            "21",
-            "2.1%",
-            "198 µs",
-            "16 MB",
-            "+0.32",
+            Cell::new("rust-general"),
+            Cell::new("21"),
+            Cell::new("2.1%"),
+            Cell::new("198 µs"),
+            Cell::new("16 MB"),
+            Cell::new("+0.32"),
         ]);
         table.add_row(vec![
-            "security-patch",
-            "789",
-            "78.9%",
-            "134 µs",
-            "16 MB",
-            "+0.82",
+            Cell::new("security-patch"),
+            Cell::new("789"),
+            Cell::new("78.9%"),
+            Cell::new("134 µs"),
+            Cell::new("16 MB"),
+            Cell::new("+0.82"),
         ]);
 
         println!("{table}");
@@ -287,12 +287,12 @@ async fn show_snapshot() -> Result<()> {
 
             for adapter in snapshot.adapters {
                 table.add_row(vec![
-                    &adapter.id,
-                    &adapter.activations.to_string(),
-                    &format!("{:.1}%", adapter.activation_pct),
-                    &format!("{:.0} µs", adapter.avg_latency_us),
-                    &format!("{} MB", adapter.memory_mb),
-                    &format!("{:.2}", adapter.quality_delta),
+                    Cell::new(&adapter.id),
+                    Cell::new(adapter.activations.to_string()),
+                    Cell::new(format!("{:.1}%", adapter.activation_pct)),
+                    Cell::new(format!("{:.0} µs", adapter.avg_latency_us)),
+                    Cell::new(format!("{} MB", adapter.memory_mb)),
+                    Cell::new(format!("{:.2}", adapter.quality_delta)),
                 ]);
             }
 
@@ -319,36 +319,36 @@ async fn show_snapshot() -> Result<()> {
                 ]);
 
             table.add_row(vec![
-                "python-general",
-                "452",
-                "45.2%",
-                "156 µs",
-                "16 MB",
-                "+0.68",
+                Cell::new("python-general"),
+                Cell::new("452"),
+                Cell::new("45.2%"),
+                Cell::new("156 µs"),
+                Cell::new("16 MB"),
+                Cell::new("+0.68"),
             ]);
             table.add_row(vec![
-                "django-specific",
-                "128",
-                "12.8%",
-                "142 µs",
-                "16 MB",
-                "+0.54",
+                Cell::new("django-specific"),
+                Cell::new("128"),
+                Cell::new("12.8%"),
+                Cell::new("142 µs"),
+                Cell::new("16 MB"),
+                Cell::new("+0.54"),
             ]);
             table.add_row(vec![
-                "rust-general",
-                "21",
-                "2.1%",
-                "198 µs",
-                "16 MB",
-                "+0.32",
+                Cell::new("rust-general"),
+                Cell::new("21"),
+                Cell::new("2.1%"),
+                Cell::new("198 µs"),
+                Cell::new("16 MB"),
+                Cell::new("+0.32"),
             ]);
             table.add_row(vec![
-                "security-patch",
-                "789",
-                "78.9%",
-                "134 µs",
-                "16 MB",
-                "+0.82",
+                Cell::new("security-patch"),
+                Cell::new("789"),
+                Cell::new("78.9%"),
+                Cell::new("134 µs"),
+                Cell::new("16 MB"),
+                Cell::new("+0.82"),
             ]);
 
             println!("{table}");
