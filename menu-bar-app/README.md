@@ -1,3 +1,29 @@
+## AdapterOS Menu Bar App
+
+SwiftUI `MenuBarExtra` companion for local AdapterOS status.
+
+### Build & Run
+
+1. Open in Xcode 15+ or build via SwiftPM:
+   - `swift build -c release`
+2. Launch the `AdapterOSMenu` target.
+
+Requirements:
+- macOS 13+
+- Read access to `/var/run/adapteros_status.json`
+
+### Features
+- VNODE watcher for instant updates + 5s polling fallback
+- Lightweight metrics: CPU%, memory used/total (10s sampling)
+- Robust error states (missing, decode, permission)
+- Actions: Open Dashboard, Reload, Copy Status JSON
+
+### LaunchAgent (optional)
+Use `Config/LaunchAgent.plist` as a template to run on login. Do not install by default; edit the `ProgramArguments` path to your app bundle.
+
+### Screenshots
+Add light/dark screenshots here.
+
 # AdapterOS Menu Bar App
 
 Lightweight macOS menu bar application that displays AdapterOS status by reading JSON written by the control plane.
