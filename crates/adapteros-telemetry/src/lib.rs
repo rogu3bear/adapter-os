@@ -18,6 +18,7 @@ pub mod events;
 pub mod health_monitoring;
 pub mod merkle;
 pub mod metrics;
+pub mod monitoring;
 pub mod performance_monitoring;
 pub mod replay;
 pub mod report;
@@ -45,6 +46,11 @@ pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof}
 pub use metrics::{
     AdapterMetrics, LatencyMetrics, MetricsCollector, MetricsServer, MetricsSnapshot,
     PolicyMetrics, QueueDepthMetrics, SystemMetrics, ThroughputMetrics,
+};
+pub use monitoring::{
+    HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
+    PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor, PolicyViolationAlertPayload,
+    TelemetrySink, ThresholdRange,
 };
 pub use performance_monitoring::{
     LatencySample, PerformanceMonitoringService, PerformanceSnapshot, ThroughputSample,
