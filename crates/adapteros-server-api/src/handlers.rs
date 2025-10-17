@@ -14,6 +14,7 @@ use adapteros_system_metrics::{
 use axum::response::Response;
 use sqlx::Row;
 
+pub mod batch;
 pub mod code;
 pub mod domain_adapters;
 pub mod federation;
