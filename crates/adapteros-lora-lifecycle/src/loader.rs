@@ -23,7 +23,7 @@ impl AdapterLoader {
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
     pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
-        let adapter_path = self.base_path.join(format!("{}.safetensors", adapter_name));
+        let adapter_path = self.resolve_path(adapter_name);
 
         if !adapter_path.exists() {
             return Err(AosError::Lifecycle(format!(
@@ -61,7 +61,19 @@ impl AdapterLoader {
         let adapter_name = adapter_name.to_string();
 
         let handle = tokio::task::spawn_blocking(move || {
-            let adapter_path = base_path.join(format!("{}.safetensors", adapter_name));
+            // Resolve candidate paths
+            let adapter_path = {
+                let mut name = adapter_name.clone();
+                if let Some(rest) = name.strip_prefix("b3:") {
+                    name = rest.to_string();
+                }
+                let candidates = [
+                    base_path.join(format!("{}.safetensors", name)),
+                    base_path.join(&name).join("weights.safetensors"),
+                    base_path.join(&adapter_name).join("weights.safetensors"),
+                ];
+                candidates.into_iter().find(|p| p.exists()).unwrap_or(base_path.join(format!("{}.safetensors", name)))
+            };
 
             if !adapter_path.exists() {
                 return Err(AosError::Lifecycle(format!(
@@ -152,6 +164,23 @@ impl AdapterLoader {
         // Simplified: assume 16MB per adapter
         // In reality, calculate based on rank * target_modules * model_dim
         16 * 1024 * 1024
+    }
+
+    /// Resolve adapter file path from flexible identifiers
+    fn resolve_path(&self, adapter_name: &str) -> std::path::PathBuf {
+        let mut name = adapter_name.to_string();
+        if let Some(rest) = name.strip_prefix("b3:") {
+            name = rest.to_string();
+        }
+        let candidates = [
+            self.base_path.join(format!("{}.safetensors", &name)),
+            self.base_path.join(&name).join("weights.safetensors"),
+            self.base_path.join(adapter_name).join("weights.safetensors"),
+        ];
+        candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| self.base_path.join(format!("{}.safetensors", &name)))
     }
 }
 
