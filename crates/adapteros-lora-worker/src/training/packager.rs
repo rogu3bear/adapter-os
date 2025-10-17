@@ -2,7 +2,8 @@
 //!
 //! Packages trained LoRA adapters into a format compatible with mplora-artifacts.
 
-use super::quantizer::QuantizedLoRAWeights;
+use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
+use safetensors::tensor::TensorView;
 use super::trainer::TrainingConfig;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -101,12 +102,60 @@ impl AdapterPackager {
         path: &Path,
         weights: &QuantizedLoRAWeights,
     ) -> Result<()> {
-        // Serialize weights to JSON (simplified safetensors-like format)
-        // In production, use actual safetensors crate
-        let serialized = serde_json::to_vec_pretty(&weights)
-            .map_err(|e| AosError::Training(format!("Failed to serialize weights: {}", e)))?;
+        // Dequantize to f32 for runtime backends
+        let deq = LoRAQuantizer::dequantize_from_q15(weights);
 
-        tokio::fs::write(path, serialized)
+        // Default module list; future: make configurable
+        let modules = [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+        ];
+
+        // Build tensor views by reusing the same weights for each module
+        let mut tensors: Vec<(String, TensorView)> = Vec::new();
+
+        // Flatten helpers
+        fn flatten_2d(m: &Vec<Vec<f32>>) -> Vec<u8> {
+            let mut out = Vec::with_capacity(m.len() * m.get(0).map(|r| r.len()).unwrap_or(0) * 4);
+            for row in m {
+                for &v in row {
+                    out.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            out
+        }
+
+        let a_rows = deq.lora_a.len() as u64;
+        let a_cols = deq.lora_a.first().map(|r| r.len()).unwrap_or(0) as u64;
+        let b_rows = deq.lora_b.len() as u64; // hidden_dim
+        let b_cols = deq.lora_b.first().map(|r| r.len()).unwrap_or(0) as u64; // rank
+
+        let a_bytes = flatten_2d(&deq.lora_a);
+        let b_bytes = flatten_2d(&deq.lora_b);
+
+        for name in modules.iter() {
+            let a_view = TensorView::new(
+                safetensors::Dtype::F32,
+                vec![a_rows as usize, a_cols as usize],
+                unsafe { std::slice::from_raw_parts(a_bytes.as_ptr(), a_bytes.len()) },
+            )
+            .map_err(|e| AosError::Training(format!("safetensors A view error: {}", e)))?;
+            let b_view = TensorView::new(
+                safetensors::Dtype::F32,
+                vec![b_rows as usize, b_cols as usize],
+                unsafe { std::slice::from_raw_parts(b_bytes.as_ptr(), b_bytes.len()) },
+            )
+            .map_err(|e| AosError::Training(format!("safetensors B view error: {}", e)))?;
+            tensors.push((format!("lora_a.{}", name), a_view));
+            tensors.push((format!("lora_b.{}", name), b_view));
+        }
+
+        let data = safetensors::serialize(tensors, &Default::default())
+            .map_err(|e| AosError::Training(format!("safetensors serialize error: {}", e)))?;
+
+        tokio::fs::write(path, data)
             .await
             .map_err(|e| AosError::Training(format!("Failed to write weights: {}", e)))?;
 
