@@ -6,10 +6,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Arc;
 
+pub mod dependencies;
 pub mod eviction;
 pub mod migrations;
 pub mod models;
 
+pub use dependencies::{DependencyGraph, DependencyResolver};
 pub use models::{ModelRecord, ModelRegistry};
 
 /// Registry for managing adapters, tenants, and access control
@@ -24,7 +26,7 @@ impl Registry {
             .map_err(|e| AosError::Registry(format!("Failed to open database: {}", e)))?;
 
         // Enable WAL mode for better concurrency
-        conn.execute("PRAGMA journal_mode=WAL", [])
+        conn.pragma_update(None, "journal_mode", &"WAL")
             .map_err(|e| AosError::Registry(format!("Failed to set WAL mode: {}", e)))?;
 
         let registry = Self {
@@ -43,6 +45,11 @@ impl Registry {
         migrations::run_migrations(&mut conn)
             .map_err(|e| AosError::Registry(format!("Migration failed: {}", e)))?;
         Ok(())
+    }
+
+    /// Create a dependency resolver backed by this registry instance.
+    pub fn dependency_resolver(&self) -> DependencyResolver<'_> {
+        dependencies::DependencyResolver::new(self)
     }
 
     /// Register a new adapter
@@ -154,46 +161,6 @@ impl Registry {
             params![pct, adapter_id],
         )
         .map_err(|e| AosError::Registry(format!("Failed to update activation: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Validate adapter dependencies
-    pub fn validate_dependencies(
-        &self,
-        adapter_id: &str,
-        dependencies: &adapteros_manifest::AdapterDependencies,
-        base_model: &str,
-    ) -> Result<()> {
-        // Check base model match
-        if let Some(required_base) = &dependencies.base_model {
-            if required_base != base_model {
-                return Err(AosError::Registry(format!(
-                    "Adapter {}: Base model mismatch: requires {}, got {}",
-                    adapter_id, required_base, base_model
-                )));
-            }
-        }
-
-        // Check required adapters exist
-        for required in &dependencies.requires_adapters {
-            if self.get_adapter(required)?.is_none() {
-                return Err(AosError::Registry(format!(
-                    "Adapter {}: Missing required adapter: {}",
-                    adapter_id, required
-                )));
-            }
-        }
-
-        // Check conflicts
-        for conflict in &dependencies.conflicts_with {
-            if self.get_adapter(conflict)?.is_some() {
-                return Err(AosError::Registry(format!(
-                    "Adapter {}: Conflicting adapter present: {}",
-                    adapter_id, conflict
-                )));
-            }
-        }
 
         Ok(())
     }

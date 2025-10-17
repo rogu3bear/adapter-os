@@ -116,13 +116,13 @@ impl ModelRegistry {
             sql,
             params![
                 model.name,
-                model.config_hash.to_string(),
-                model.tokenizer_hash.to_string(),
-                model.tokenizer_cfg_hash.to_string(),
-                model.weights_hash.to_string(),
-                model.license_hash.to_string(),
+                model.config_hash.to_hex(),
+                model.tokenizer_hash.to_hex(),
+                model.tokenizer_cfg_hash.to_hex(),
+                model.weights_hash.to_hex(),
+                model.license_hash.to_hex(),
                 model.license_text,
-                model.model_card_hash.map(|h| h.to_string()),
+                model.model_card_hash.map(|h| h.to_hex()),
                 model.created_at,
             ],
         )?;
@@ -201,7 +201,7 @@ impl ModelRegistry {
             );
 
             let mut stmt = self.conn.prepare(&sql)?;
-            let mut rows = stmt.query(params![hash.to_string(), &model.name])?;
+            let mut rows = stmt.query(params![hash.to_hex(), &model.name])?;
 
             if let Some(row) = rows.next()? {
                 let existing_name: String = row.get(0)?;
