@@ -425,6 +425,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::download_adapter_manifest),
         )
         .route(
+            "/v1/adapters/directory/upsert",
+            post(handlers::upsert_directory_adapter),
+        )
+        .route(
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
         )
