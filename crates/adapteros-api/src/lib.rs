@@ -262,16 +262,3 @@ impl From<AosError> for ApiError {
         }
     }
 }
-
-// Stub chrono for timestamp
-mod chrono {
-    pub struct Utc;
-    impl Utc {
-        pub fn now() -> Self {
-            Self
-        }
-        pub fn to_rfc3339(&self) -> String {
-            "2025-01-01T00:00:00Z".to_string()
-        }
-    }
-}

@@ -2,7 +2,7 @@
 
 use adapteros_db::Db;
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL, Table};
+use comfy_table::{presets::UTF8_FULL, Cell, Table};
 
 /// List nodes in the cluster
 pub async fn run(offline: bool) -> Result<()> {
@@ -41,11 +41,11 @@ pub async fn run(offline: bool) -> Result<()> {
             .unwrap_or_else(|| "never".to_string());
 
         table.add_row(vec![
-            &node.id[..8], // Shortened ID
-            &node.hostname,
-            &node.status,
-            &node.agent_endpoint,
-            &last_seen,
+            Cell::new(&node.id[..8]), // Shortened ID
+            Cell::new(&node.hostname),
+            Cell::new(&node.status),
+            Cell::new(&node.agent_endpoint),
+            Cell::new(&last_seen),
         ]);
     }
 

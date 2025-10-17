@@ -25,8 +25,10 @@ import apiClient from '../api/client';
 import { SystemMetrics } from '../api/types';
 import { toast } from 'sonner';
 
+import { useTenant } from '@/layout/LayoutProvider';
+
 interface AlertsPageProps {
-  selectedTenant: string;
+  selectedTenant?: string;
 }
 
 interface AlertRule {
@@ -106,7 +108,9 @@ const DEFAULT_ALERT_RULES: AlertRule[] = [
   }
 ];
 
-export function AlertsPage({ selectedTenant }: AlertsPageProps) {
+export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
+  const { selectedTenant } = useTenant();
+  const effectiveTenant = tenantProp ?? selectedTenant;
   const [alertRules, setAlertRules] = useState<AlertRule[]>(DEFAULT_ALERT_RULES);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);

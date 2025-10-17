@@ -16,12 +16,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { logger } from '../utils/logger';
 
+import { useAuth, useTenant } from '@/layout/LayoutProvider';
+
 interface PoliciesProps {
-  user: User;
-  selectedTenant: string;
+  user?: User;
+  selectedTenant?: string;
 }
 
-export function Policies({ user, selectedTenant }: PoliciesProps) {
+export function Policies({ user: userProp, selectedTenant: tenantProp }: PoliciesProps) {
+  const { user } = useAuth();
+  const { selectedTenant } = useTenant();
+  const effectiveUser = userProp ?? user!;
+  const effectiveTenant = tenantProp ?? selectedTenant;
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSignModal, setShowSignModal] = useState(false);
@@ -46,8 +52,8 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
       logger.error('Failed to fetch policies', {
         component: 'Policies',
         operation: 'fetchPolicies',
-        tenantId: selectedTenant,
-        userId: user.id
+        tenantId: effectiveTenant,
+        userId: effectiveUser.id
       }, err instanceof Error ? err : new Error(String(err)));
     } finally {
       setLoading(false);
@@ -68,8 +74,8 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
         component: 'Policies',
         operation: 'signPolicy',
         policyId: policy.cpid,
-        tenantId: selectedTenant,
-        userId: user.id
+        tenantId: effectiveTenant,
+        userId: effectiveUser.id
       }, err instanceof Error ? err : new Error(String(err)));
     }
   };
@@ -91,8 +97,8 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
         operation: 'comparePolicies',
         policyId1: selectedPolicy.cpid,
         policyId2: compareCpid2,
-        tenantId: selectedTenant,
-        userId: user.id
+        tenantId: effectiveTenant,
+        userId: effectiveUser.id
       }, err instanceof Error ? err : new Error(String(err)));
     }
   };
@@ -118,8 +124,8 @@ export function Policies({ user, selectedTenant }: PoliciesProps) {
         component: 'Policies',
         operation: 'exportPolicy',
         policyId: policy.cpid,
-        tenantId: selectedTenant,
-        userId: user.id
+        tenantId: effectiveTenant,
+        userId: effectiveUser.id
       }, err instanceof Error ? err : new Error(String(err)));
     }
   };

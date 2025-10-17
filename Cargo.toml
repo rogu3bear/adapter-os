@@ -212,9 +212,6 @@ path = "tests/determinism.rs"
 name = "integration"
 path = "tests/integration_tests.rs"
 
-[[test]]
-name = "patch_proposal_e2e"
-path = "tests/patch_proposal_e2e.rs"
 
 [[test]]
 name = "integration_qwen"

@@ -3,7 +3,7 @@
 use crate::output::OutputWriter;
 use adapteros_registry::Registry;
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL, Table};
+use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -49,11 +49,11 @@ pub async fn run(tier: Option<&str>, output: &OutputWriter) -> Result<()> {
 
     for adapter in &filtered {
         table.add_row(vec![
-            adapter.id.clone(),
-            adapter.hash.to_string(),
-            adapter.tier.clone(),
-            adapter.rank.to_string(),
-            format!("{:.2}", adapter.activation_pct),
+            Cell::new(&adapter.id),
+            Cell::new(adapter.hash.to_string()),
+            Cell::new(&adapter.tier),
+            Cell::new(adapter.rank.to_string()),
+            Cell::new(format!("{:.2}", adapter.activation_pct)),
         ]);
     }
 
