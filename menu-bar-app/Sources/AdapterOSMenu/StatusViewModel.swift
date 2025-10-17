@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import SwiftUI
+import Dispatch
+import AppKit
+import Darwin
 
 /// ViewModel managing status polling and UI state
 @MainActor
@@ -11,119 +14,121 @@ class StatusViewModel: ObservableObject {
     @Published var status: AdapterOSStatus?
     @Published var metrics: SystemMetrics?
     @Published var isOffline: Bool = true
-    @Published var iconName: String = "bolt.slash"
+    @Published var iconName: String = "bolt.slash.circle.fill"
     @Published var tooltip: String = "AdapterOS OFFLINE"
+    @Published var lastError: StatusReadError?
+    @Published var lastUpdate: Date?
     
     // MARK: - Private State
     
-    private let statusPaths = [
-        "/var/run/adapteros_status.json",
-        "var/adapteros_status.json"
-    ]
-    
+    private let statusPath = "/var/run/adapteros_status.json"
+    private let reader = StatusReader()
     private let metricsCollector = SystemMetricsCollector()
-    private var timer: Timer?
+    private var pollTimerCancellable: AnyCancellable?
+    private var metricsTimerCancellable: AnyCancellable?
+    private var vnodeSource: DispatchSourceFileSystemObject?
+    private var lastHash: Data?
+    private var transientErrorSuppressed = false
+    private var sleepWakeObservers: [NSObjectProtocol] = []
     
     // MARK: - Lifecycle
     
     init() {
+        setupWatcher()
+        setupSleepWake()
         startPolling()
-        // Do initial refresh immediately
-        Task {
-            await refresh()
-        }
+        startMetricsSampling()
+        Task { await refresh() }
     }
     
     deinit {
-        timer?.invalidate()
-        timer = nil
+        vnodeSource?.cancel()
+        vnodeSource = nil
+        pollTimerCancellable?.cancel()
+        metricsTimerCancellable?.cancel()
+        let nc = NSWorkspace.shared.notificationCenter
+        for obs in sleepWakeObservers { nc.removeObserver(obs) }
+        sleepWakeObservers.removeAll()
     }
     
     // MARK: - Polling
     
     func startPolling() {
-        // Poll every 5 seconds
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.refresh()
+        pollTimerCancellable = Timer.publish(every: 5, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.vnodeSource == nil { self.setupWatcher() }
+                Task { @MainActor in await self.refresh() }
             }
-        }
-        timer?.tolerance = 0.5  // Allow 0.5s tolerance for efficiency
     }
-    
+
     func stopPolling() {
-        timer?.invalidate()
-        timer = nil
+        pollTimerCancellable?.cancel()
+        pollTimerCancellable = nil
     }
     
     // MARK: - Refresh
     
     func refresh() async {
-        // Collect system metrics
-        metrics = metricsCollector.collect()
-        
-        // Read AdapterOS status
-        status = readStatus()
-        isOffline = (status == nil)
-        
-        // Update icon and tooltip
+        await readStatusAndUpdate()
         updateIconAndTooltip()
     }
     
     // MARK: - Status Reading
     
-    private func readStatus() -> AdapterOSStatus? {
-        // Try each path in order
-        for path in statusPaths {
-            if let status = readStatusFromPath(path) {
-                return status
+    private func readStatusAndUpdate() async {
+        switch await reader.readNow() {
+        case .success(let (newStatus, hash, _)):
+            lastError = nil
+            isOffline = false
+            if lastHash != hash {
+                lastHash = hash
+                status = newStatus
+                lastUpdate = Date()
             }
-        }
-        return nil
-    }
-    
-    private func readStatusFromPath(_ path: String) -> AdapterOSStatus? {
-        let fileURL = URL(fileURLWithPath: path)
-        
-        guard FileManager.default.fileExists(atPath: path) else {
-            return nil
-        }
-        
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let decoder = JSONDecoder()
-            return try decoder.decode(AdapterOSStatus.self, from: data)
-        } catch {
-            // Silent failure - file might be mid-write
-            return nil
+            transientErrorSuppressed = false
+        case .failure(let error):
+            // Suppress transient errors for one cycle
+            if transientErrorSuppressed {
+                lastError = error
+                isOffline = true
+                status = nil
+            } else {
+                transientErrorSuppressed = true
+            }
         }
     }
     
     // MARK: - Icon & Tooltip Logic
     
     private func updateIconAndTooltip() {
-        guard let status = status, let metrics = metrics else {
-            iconName = "bolt.slash"
+        guard let status = status else {
+            iconName = "bolt.slash.circle.fill"
             tooltip = "AdapterOS OFFLINE"
             return
         }
-        
+
         // Determine icon based on state
-        if metrics.cpuUsage > 70 {
-            iconName = "flame"
-        } else if !status.deterministic {
-            iconName = "bolt.slash"
+        if let metrics = metrics, metrics.cpuUsage > 80 {
+            iconName = "flame.fill"
+        } else if status.status == "error" {
+            iconName = "bolt.slash.circle.fill"
+        } else if status.status == "degraded" {
+            iconName = "bolt.badge.exclamationmark"
         } else {
-            iconName = "bolt.circle"
+            iconName = "bolt.circle.fill"
         }
-        
-        // Build tooltip
-        let statusText = status.status.uppercased()
-        let cpu = String(format: "%.0f%%", metrics.cpuUsage)
-        let gpu = String(format: "%.0f%%", metrics.gpuUsage)
-        let ram = String(format: "%.0fGB", metrics.memoryUsedGB)
-        
-        tooltip = "AdapterOS \(statusText) · \(cpu) CPU · \(gpu) GPU · \(ram) RAM"
+
+        // Build tooltip (CPU/mem only)
+        if let metrics = metrics {
+            let statusText = status.status.uppercased()
+            let cpu = String(format: "%.0f%%", metrics.cpuUsage)
+            let mem = String(format: "%.0fGB", metrics.memoryUsedGB)
+            tooltip = "AdapterOS \(statusText) · \(cpu) CPU · \(mem) RAM"
+        } else {
+            tooltip = "AdapterOS \(status.status.uppercased())"
+        }
     }
     
     // MARK: - Actions
@@ -147,6 +152,71 @@ class StatusViewModel: ObservableObject {
     
     func quit() {
         NSApplication.shared.terminate(nil)
+    }
+
+    // MARK: - VNODE watcher
+    private func setupWatcher() {
+        // Cancel any existing watcher first
+        vnodeSource?.cancel()
+        vnodeSource = nil
+
+        guard FileManager.default.fileExists(atPath: statusPath) else { return }
+        let fd = open(statusPath, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: DispatchQueue.main)
+        source.setEventHandler { [weak self, weak source] in
+            guard let self, let source else { return }
+            let flags = DispatchSource.FileSystemEvent(rawValue: source.data)
+            Task { @MainActor in await self.refresh() }
+            if flags.contains(.rename) || flags.contains(.delete) {
+                self.recreateWatcherAfterDelay()
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        vnodeSource = source
+        print("watcher armed")
+    }
+
+    private func recreateWatcherAfterDelay() {
+        vnodeSource?.cancel()
+        vnodeSource = nil
+        // Give the writer a moment to move the new file into place
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.setupWatcher()
+            print("re-armed watcher")
+        }
+    }
+
+    // MARK: - Metrics sampling (CPU/memory only)
+    private func startMetricsSampling() {
+        metricsTimerCancellable = Timer.publish(every: 10, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.metrics = self.metricsCollector.collect()
+                self.updateIconAndTooltip()
+            }
+        // initial sample
+        metrics = metricsCollector.collect()
+    }
+
+    // MARK: - Sleep/Wake handling
+    private func setupSleepWake() {
+        let nc = NSWorkspace.shared.notificationCenter
+        let will = nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.stopPolling()
+        }
+        let did = nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.setupWatcher()
+            self.startPolling()
+            Task { @MainActor in await self.refresh() }
+        }
+        sleepWakeObservers.append(contentsOf: [will, did])
     }
 }
 
