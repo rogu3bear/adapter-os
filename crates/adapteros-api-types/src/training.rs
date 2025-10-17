@@ -129,3 +129,82 @@ pub struct TrainingMetricsResponse {
     pub total_epochs: u32,
     pub progress_pct: f32,
 }
+
+// ===== Dataset Types =====
+
+/// Upload dataset request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UploadDatasetRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub format: String,  // 'patches', 'jsonl', 'txt', 'custom'
+}
+
+/// Upload dataset response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UploadDatasetResponse {
+    pub dataset_id: String,
+    pub name: String,
+    pub file_count: i32,
+    pub total_size_bytes: i64,
+    pub hash_b3: String,
+    pub validation_status: String,
+}
+
+/// Dataset response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DatasetResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub file_count: i32,
+    pub total_size_bytes: i64,
+    pub format: String,
+    pub hash_b3: String,
+    pub validation_status: String,
+    pub validation_errors: Option<String>,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub statistics: Option<DatasetStatisticsResponse>,
+}
+
+/// Dataset statistics response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DatasetStatisticsResponse {
+    pub num_examples: i32,
+    pub avg_input_length: f64,
+    pub avg_target_length: f64,
+    pub language_distribution: Option<serde_json::Value>,
+    pub file_type_distribution: Option<serde_json::Value>,
+    pub total_tokens: i64,
+    pub computed_at: String,
+}
+
+/// Dataset file response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DatasetFileResponse {
+    pub id: String,
+    pub dataset_id: String,
+    pub file_name: String,
+    pub size_bytes: i64,
+    pub hash_b3: String,
+    pub mime_type: Option<String>,
+    pub created_at: String,
+}
+
+/// Dataset validation request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ValidateDatasetRequest {
+    pub dataset_id: String,
+}
+
+/// Dataset validation response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ValidateDatasetResponse {
+    pub dataset_id: String,
+    pub status: String,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub statistics: Option<DatasetStatisticsResponse>,
+}

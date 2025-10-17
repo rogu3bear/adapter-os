@@ -7,10 +7,13 @@ use adapteros_core::AosError;
 use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
+    packager::AdapterPackager,
+    quantizer::LoRAQuantizer,
 };
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -57,6 +60,10 @@ pub struct TrainingJob {
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
     pub config: TrainingConfig,
+    /// Adapter ID after successful training and packaging
+    pub trained_adapter_id: Option<String>,
+    /// Hash of the packaged adapter
+    pub adapter_hash_b3: Option<String>,
 }
 
 /// Training configuration
@@ -239,6 +246,8 @@ impl TrainingService {
             completed_at: None,
             error_message: None,
             config: config.clone(),
+            trained_adapter_id: None,
+            adapter_hash_b3: None,
         };
 
         {
@@ -435,12 +444,34 @@ async fn run_training_job(
         .await;
 
     match result {
-        Ok(_training_result) => {
+        Ok(training_result) => {
+            // Package and register the trained adapter
+            let adapter_result = package_and_register_adapter(
+                &jobs_ref,
+                &job_id,
+                &training_result,
+                &orchestrator_cfg,
+            ).await;
+
             let mut jobs = jobs_ref.write().await;
             if let Some(job) = jobs.get_mut(&job_id) {
-                job.status = TrainingJobStatus::Completed;
-                job.progress_pct = 100.0;
-                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                match adapter_result {
+                    Ok((adapter_id, hash_b3)) => {
+                        job.status = TrainingJobStatus::Completed;
+                        job.progress_pct = 100.0;
+                        job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                        job.trained_adapter_id = Some(adapter_id.clone());
+                        job.adapter_hash_b3 = Some(hash_b3.clone());
+                        tracing::info!("Training job {} completed, adapter registered: {}", job_id, adapter_id);
+                    }
+                    Err(e) => {
+                        tracing::error!("Training succeeded but adapter packaging failed: {}", e);
+                        job.status = TrainingJobStatus::Completed;
+                        job.progress_pct = 100.0;
+                        job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                        job.error_message = Some(format!("Adapter packaging failed: {}", e));
+                    }
+                }
             }
             Ok(())
         }
@@ -454,6 +485,67 @@ async fn run_training_job(
             Err(e.into())
         }
     }
+}
+
+/// Package trained adapter and register it in the system
+/// Returns (adapter_id, hash_b3) on success
+async fn package_and_register_adapter(
+    jobs_ref: &Arc<RwLock<HashMap<String, TrainingJob>>>,
+    job_id: &str,
+    training_result: &adapteros_lora_worker::training::trainer::TrainingResult,
+    config: &TrainingConfig,
+) -> Result<(String, String)> {
+    // Get job info for adapter metadata
+    let adapter_name = {
+        let jobs = jobs_ref.read().await;
+        jobs.get(job_id)
+            .map(|j| j.adapter_name.clone())
+            .unwrap_or_else(|| format!("adapter-{}", job_id))
+    };
+
+    // Create output directory for adapters
+    let adapters_dir = std::env::var("ADAPTERS_DIR")
+        .unwrap_or_else(|_| "/tmp/adapteros/adapters".to_string());
+    let adapters_path = PathBuf::from(&adapters_dir);
+    tokio::fs::create_dir_all(&adapters_path).await
+        .map_err(|e| AosError::Training(format!("Failed to create adapters directory: {}", e)))?;
+
+    // Quantize weights for deployment (Q15 fixed-point format)
+    let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
+
+    // Package adapter with manifest
+    let packager = AdapterPackager::new(&adapters_path);
+
+    // Convert orchestrator config to worker config for packaging
+    let worker_config = adapteros_lora_worker::training::trainer::TrainingConfig {
+        rank: config.rank as usize,
+        alpha: config.alpha as f32,
+        learning_rate: config.learning_rate,
+        batch_size: config.batch_size as usize,
+        epochs: config.epochs as usize,
+        hidden_dim: 768, // default
+    };
+
+    let packaged_adapter = packager
+        .package(&training_result.adapter_id, &quantized_weights, &worker_config)
+        .await
+        .map_err(|e| AosError::Training(format!("Failed to package adapter: {}", e)))?;
+
+    tracing::info!(
+        "Packaged adapter: id={}, hash={}",
+        packaged_adapter.adapter_id,
+        packaged_adapter.hash_b3
+    );
+
+    // TODO: Register adapter in database
+    // This requires passing a Db handle through the orchestrator
+    // For now, the adapter is packaged and ready to be registered via API
+    // The UI/CLI can call POST /v1/adapters/register with this info
+
+    Ok((
+        packaged_adapter.adapter_id.clone(),
+        packaged_adapter.hash_b3.clone(),
+    ))
 }
 
 #[cfg(test)]

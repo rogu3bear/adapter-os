@@ -185,6 +185,8 @@ pub mod jobs;
 pub use jobs::Job;
 pub mod training_jobs;
 pub use training_jobs::{TrainingJobRecord, TrainingProgress};
+pub mod training_datasets;
+pub use training_datasets::{TrainingDataset, DatasetFile, DatasetStatistics};
 pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
