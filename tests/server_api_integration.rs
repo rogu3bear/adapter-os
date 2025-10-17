@@ -9,10 +9,9 @@
 //!
 //! Run with: `cargo test --test server_api_integration -- --ignored --nocapture`
 
-use adapteros_api_types::*;
-use adapteros_client::DefaultClient;
 use adapteros_core::Result;
 use adapteros_db::Db;
+use adapteros_server_api::types::*;
 use adapteros_server_api::{routes, state::AppState};
 use axum::{
     body::Body,
@@ -24,8 +23,8 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 /// Test database setup
-async fn setup_test_db() -> Result<Arc<Db>> {
-    let db = Arc::new(Db::connect(":memory:").await?);
+async fn setup_test_db() -> Result<Db> {
+    let db = Db::connect(":memory:").await?;
 
     // Run migrations to create tables
     sqlx::migrate!("./migrations")
@@ -44,7 +43,7 @@ async fn setup_test_app() -> Result<Router> {
         adapteros_server_api::state::ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: true,
-                bearer_token: Some("test-token".to_string()),
+                bearer_token: "test-token".to_string(),
             },
         },
     ));
@@ -74,13 +73,18 @@ async fn test_plan_creation_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/tenants")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&create_tenant_req)?))?,
+                .body(Body::from(serde_json::to_vec(&create_tenant_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let tenant: TenantResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let tenant: TenantResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(tenant.name, "test-tenant");
 
     // 2. Build plan
@@ -97,13 +101,18 @@ async fn test_plan_creation_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/plans/build")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&build_plan_req)?))?,
+                .body(Body::from(serde_json::to_vec(&build_plan_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let job: JobResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let job: JobResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(job.kind, "plan_build");
 
     // 3. Get plan details
@@ -114,13 +123,18 @@ async fn test_plan_creation_workflow() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri(&format!("/api/v1/plans/{}", job.id))
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let plan: PlanResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let plan: PlanResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(plan.tenant_id, tenant.id);
 
     println!("✓ Plan creation workflow completed successfully!");
@@ -147,13 +161,18 @@ async fn test_policy_enforcement_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/tenants")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&create_tenant_req)?))?,
+                .body(Body::from(serde_json::to_vec(&create_tenant_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let tenant: TenantResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let tenant: TenantResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert!(tenant.itar_flag);
 
     // 2. Apply policy pack
@@ -189,9 +208,11 @@ async fn test_policy_enforcement_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/policies/apply")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&apply_policy_req)?))?,
+                .body(Body::from(serde_json::to_vec(&apply_policy_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -203,13 +224,18 @@ async fn test_policy_enforcement_workflow() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/policies/test-cp-v1")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let policy: PolicyPackResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let policy: PolicyPackResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(policy.cpid, "test-cp-v1");
 
     // 4. Test policy validation
@@ -225,13 +251,18 @@ async fn test_policy_enforcement_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/policies/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&validate_req)?))?,
+                .body(Body::from(serde_json::to_vec(&validate_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let validation: PolicyValidationResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let validation: PolicyValidationResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert!(validation.valid);
 
     println!("✓ Policy enforcement workflow completed successfully!");
@@ -246,7 +277,7 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
 
     // 1. Create telemetry bundle
     println!("1. Creating telemetry bundle...");
-    let telemetry_event = TelemetryEvent {
+    let _telemetry_event = TelemetryEvent {
         event_type: "inference".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         data: json!({
@@ -261,18 +292,18 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
     // 2. Test telemetry bundle creation (simulated)
     println!("2. Simulating telemetry bundle creation...");
     let bundle_response = TelemetryBundleResponse {
-        bundle_id: "test-bundle-001".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        id: "test-bundle-001".to_string(),
+        cpid: "test-cp-v1".to_string(),
         event_count: 1,
         size_bytes: 1024,
-        signature: "test-signature".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
     };
 
     // 3. Test bundle verification
     println!("3. Testing bundle verification...");
     let verify_req = VerifyBundleSignatureRequest {
-        bundle_id: bundle_response.bundle_id.clone(),
-        expected_signature: bundle_response.signature.clone(),
+        bundle_id: bundle_response.id.clone(),
+        expected_signature: "test-signature".to_string(),
     };
 
     let response = app
@@ -282,9 +313,11 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/telemetry/bundles/test-bundle-001/verify")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&verify_req)?))?,
+                .body(Body::from(serde_json::to_vec(&verify_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     // Note: This might return 404 if the bundle doesn't exist in test DB
     // That's expected behavior for this test
@@ -295,8 +328,8 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
 
     // 4. Test telemetry export
     println!("4. Testing telemetry export...");
-    let export_req = ExportTelemetryBundleRequest {
-        bundle_id: bundle_response.bundle_id.clone(),
+    let _export_req = ExportTelemetryBundleRequest {
+        bundle_id: bundle_response.id.clone(),
         format: "json".to_string(),
     };
 
@@ -307,11 +340,13 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
                 .method("GET")
                 .uri(&format!(
                     "/api/v1/telemetry/bundles/{}/export",
-                    bundle_response.bundle_id
+                    bundle_response.id
                 ))
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     // Note: This might return 404 if the bundle doesn't exist in test DB
     // That's expected behavior for this test
@@ -329,9 +364,11 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
                 .method("GET")
                 .uri("/api/v1/stream/telemetry")
                 .header("accept", "text/event-stream")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     // SSE endpoint should return 200 with event-stream content type
     assert_eq!(response.status(), StatusCode::OK);
@@ -361,13 +398,18 @@ async fn test_authentication_workflow() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/healthz")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let health: HealthResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let health: HealthResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(health.status, "healthy");
 
     // 2. Test login endpoint
@@ -384,9 +426,11 @@ async fn test_authentication_workflow() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/auth/login")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&login_req)?))?,
+                .body(Body::from(serde_json::to_vec(&login_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     // Login might fail in test environment (no users seeded)
     // That's expected behavior
@@ -403,9 +447,11 @@ async fn test_authentication_workflow() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tenants")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     // Should return 401 Unauthorized
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -429,9 +475,11 @@ async fn test_error_handling() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/tenants")
                 .header("content-type", "application/json")
-                .body(Body::from("invalid json"))?,
+                .body(Body::from("invalid json"))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
@@ -449,9 +497,11 @@ async fn test_error_handling() -> Result<()> {
                 .method("POST")
                 .uri("/api/v1/tenants")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&invalid_req)?))?,
+                .body(Body::from(serde_json::to_vec(&invalid_req)?))
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
@@ -463,9 +513,11 @@ async fn test_error_handling() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tenants/non-existent-id")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
@@ -477,9 +529,11 @@ async fn test_error_handling() -> Result<()> {
             Request::builder()
                 .method("DELETE")
                 .uri("/api/healthz")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 
@@ -501,15 +555,20 @@ async fn test_api_consistency() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/non-existent-endpoint")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let error: ErrorResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    let error: ErrorResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert!(!error.error.is_empty());
-    assert!(!error.message.is_empty());
+    assert!(!error.code.is_empty());
 
     // 2. Test pagination consistency
     println!("2. Testing pagination consistency...");
@@ -519,9 +578,11 @@ async fn test_api_consistency() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/tenants?page=1&limit=10")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     // Should return 401 (unauthorized) but with consistent format
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -534,9 +595,11 @@ async fn test_api_consistency() -> Result<()> {
             Request::builder()
                 .method("GET")
                 .uri("/api/healthz")
-                .body(Body::empty())?,
+                .body(Body::empty())
+                .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
-        .await?;
+        .await
+        .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     let content_type = response
         .headers()
