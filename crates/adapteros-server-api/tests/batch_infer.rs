@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use adapteros_db::sqlx::Executor;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers::batch;
 use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
@@ -212,7 +211,16 @@ async fn batch_infer_processes_multiple_requests() -> anyhow::Result<()> {
     };
 
     let response =
-        batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await?;
+        match batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await {
+            Ok(r) => r,
+            Err((status, err_json)) => {
+                return Err(anyhow::anyhow!(format!(
+                    "handler error {}: {}",
+                    status,
+                    serde_json::to_string(&err_json.0).unwrap_or_default()
+                )));
+            }
+        };
     let Json(batch_response) = response;
 
     assert_eq!(batch_response.responses.len(), 2);
@@ -261,7 +269,7 @@ async fn batch_infer_enforces_max_size() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn batch_infer_marks_timeouts() -> anyhow::Result<()> {
     let (temp_dir, socket_path, handle) = spawn_mock_worker().await?;
     let state = setup_state(Some(&socket_path)).await?;
@@ -297,7 +305,16 @@ async fn batch_infer_marks_timeouts() -> anyhow::Result<()> {
     };
 
     let response =
-        batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await?;
+        match batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await {
+            Ok(r) => r,
+            Err((status, err_json)) => {
+                return Err(anyhow::anyhow!(format!(
+                    "handler error {}: {}",
+                    status,
+                    serde_json::to_string(&err_json.0).unwrap_or_default()
+                )));
+            }
+        };
     let Json(batch_response) = response;
 
     assert_eq!(batch_response.responses.len(), 2);
