@@ -8,6 +8,7 @@ license.workspace = true
 [[bin]]
 name = "aosctl"
 path = "src/main.rs"
+required-features = ["build-aosctl"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
@@ -67,3 +68,4 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [features]
 experimental-backends = []
+build-aosctl = []
