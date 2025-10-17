@@ -19,6 +19,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_login,
         handlers::propose_patch,
         handlers::infer,
+        handlers::batch::batch_infer,
         handlers::list_adapters,
         handlers::get_adapter,
         handlers::register_adapter,
@@ -97,6 +98,10 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::ProposePatchResponse,
         crate::types::InferRequest,
         crate::types::InferResponse,
+        crate::types::BatchInferRequest,
+        crate::types::BatchInferResponse,
+        crate::types::BatchInferItemRequest,
+        crate::types::BatchInferItemResponse,
         crate::types::InferenceTrace,
         crate::types::RouterDecision,
         crate::types::AdapterResponse,
@@ -188,6 +193,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "git", description = "Git integration and session management"),
         (name = "federation", description = "Federation verification and quarantine management"),
         (name = "openai", description = "OpenAI-compatible endpoints for external tools"),
+        (name = "inference", description = "Model inference endpoints"),
     )
 )]
 pub struct ApiDoc;
@@ -389,6 +395,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/patch/propose", post(handlers::propose_patch))
         .route("/v1/infer", post(handlers::infer))
+        .route("/v1/infer/batch", post(handlers::batch::batch_infer))
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))
         .route("/v1/adapters/:adapter_id", get(handlers::get_adapter))
