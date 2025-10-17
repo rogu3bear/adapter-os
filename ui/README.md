@@ -2,6 +2,29 @@
 
 Modern React-based web interface for managing the AdapterOS control plane.
 
+## Routing (React Router v6)
+
+- Routes:
+  - `/dashboard` – global metrics
+  - `/telemetry` – stream viewer
+  - `/alerts` – monitoring rules
+  - `/replay` – deterministic verification
+  - `/policies` – policy/audit views
+
+Entry: `src/main.tsx` mounts `BrowserRouter` → `LayoutProvider` → `RootLayout` with `<Outlet>`.
+
+## Layouts
+
+- `src/layout/RootLayout.tsx` – global shell, safe-area paddings, Toaster at z-40
+- `src/layout/FeatureLayout.tsx` – page wrapper with non-overlapping resizable panels, `min-w-0/min-h-0`, persistent split positions
+
+## Z-index tiers
+
+- Controls: z-10
+- Dialogs: z-20
+- Drawers: z-30
+- Toaster/overlays: z-40
+
 ## Tech Stack
 
 - **React 18** with TypeScript
