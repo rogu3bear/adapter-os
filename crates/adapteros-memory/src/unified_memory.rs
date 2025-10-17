@@ -333,7 +333,7 @@ pub struct MemoryStats {
 }
 
 /// Backend-specific memory statistics
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BackendStats {
     /// Allocated memory
     pub allocated: usize,

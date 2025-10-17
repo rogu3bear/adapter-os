@@ -9,12 +9,16 @@ import { ReplaySession } from '../api/types';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
 
+import { useTenant } from '@/layout/LayoutProvider';
+
 interface ReplayPanelProps {
-  tenantId: string;
+  tenantId?: string;
   onSessionSelect: (session: ReplaySession | null) => void;
 }
 
-export function ReplayPanel({ tenantId, onSessionSelect }: ReplayPanelProps) {
+export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPanelProps) {
+  const { selectedTenant } = useTenant();
+  const tenantId = tenantProp ?? selectedTenant;
   const [sessions, setSessions] = useState<ReplaySession[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

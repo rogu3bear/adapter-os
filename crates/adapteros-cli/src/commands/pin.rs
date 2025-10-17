@@ -1,7 +1,7 @@
 use crate::output::OutputWriter;
 use adapteros_db::Db;
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL, Table};
+use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -117,7 +117,12 @@ pub async fn list_pinned(db: &Db, tenant_id: &str, output: &OutputWriter) -> Res
 
     for pin in pinned {
         let until = pin.pinned_until.unwrap_or_else(|| "forever".to_string());
-        table.add_row(vec![pin.adapter_id, until, pin.reason, pin.pinned_at]);
+        table.add_row(vec![
+            Cell::new(pin.adapter_id),
+            Cell::new(until),
+            Cell::new(pin.reason),
+            Cell::new(pin.pinned_at),
+        ]);
     }
 
     output.section(format!("Pinned adapters for tenant {}", tenant_id));

@@ -16,12 +16,18 @@ import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
 import { toast } from 'sonner';
 
+import { useAuth, useTenant } from '@/layout/LayoutProvider';
+
 interface TelemetryProps {
-  user: User;
-  selectedTenant: string;
+  user?: User;
+  selectedTenant?: string;
 }
 
-export function Telemetry({ user, selectedTenant }: TelemetryProps) {
+export function Telemetry({ user: userProp, selectedTenant: tenantProp }: TelemetryProps) {
+  const { user } = useAuth();
+  const { selectedTenant } = useTenant();
+  const effectiveUser = userProp ?? user!;
+  const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -47,7 +53,7 @@ export function Telemetry({ user, selectedTenant }: TelemetryProps) {
       }
     };
     fetchBundles();
-  }, [selectedTenant]);
+  }, [effectiveTenant]);
 
   // Update bundles from SSE stream
   useEffect(() => {

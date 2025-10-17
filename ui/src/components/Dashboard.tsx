@@ -44,12 +44,20 @@ import { toast } from 'sonner';
 import { useSSE } from '../hooks/useSSE';
 
 interface DashboardProps {
-  user: User;
-  selectedTenant: string;
-  onNavigate: (tab: string) => void;
+  user?: User;
+  selectedTenant?: string;
+  onNavigate?: (tab: string) => void;
 }
 
-export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) {
+import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useNavigate } from 'react-router-dom';
+
+export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNavigate }: DashboardProps) {
+  const { user } = useAuth();
+  const { selectedTenant } = useTenant();
+  const navigate = useNavigate();
+  const effectiveUser = userProp ?? user!;
+  const effectiveTenant = tenantProp ?? selectedTenant;
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [nodeCount, setNodeCount] = useState<number>(0);
   const [tenantCount, setTenantCount] = useState<number>(0);
@@ -214,8 +222,8 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   const { events: activityEvents, loading: activityLoading, error: activityError } = useActivityFeed({
     enabled: true,
     maxEvents: 10,
-    tenantId: selectedTenant,
-    userId: user.id
+    tenantId: effectiveTenant,
+    userId: effectiveUser.id
   });
 
   // Helper functions for activity feed
@@ -266,7 +274,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       label: 'Create Tenant', 
       icon: Users, 
       color: 'text-blue-600', 
-      restricted: user.role !== 'Admin',
+      restricted: effectiveUser.role !== 'Admin',
       onClick: () => setShowCreateTenantModal(true)
     },
     { 
@@ -279,7 +287,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       label: 'Review Policies', 
       icon: Shield, 
       color: 'text-amber-600',
-      onClick: () => onNavigate('policies')
+      onClick: () => (onNavigate ? onNavigate('policies') : navigate('/policies'))
     }
   ];
 
@@ -383,10 +391,10 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
             showLabel={false}
           />
           <Badge variant="outline" className="text-sm">
-            Tenant: {selectedTenant}
+            Tenant: {effectiveTenant}
           </Badge>
           <Badge variant="secondary" className="text-sm">
-            {user.role}
+            {effectiveUser.role}
           </Badge>
         </div>
       </div>
@@ -434,7 +442,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
         <div>
           <h1 className="section-title">System Dashboard</h1>
           <p className="section-description">
-            Welcome back, {user.display_name}. System status: Operational
+            Welcome back, {effectiveUser.display_name}. System status: Operational
           </p>
         </div>
         <div className="flex-standard">
@@ -601,7 +609,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
         </Card>
 
         {/* Base Model Status */}
-        <BaseModelStatusComponent selectedTenant={selectedTenant} />
+        <BaseModelStatusComponent selectedTenant={effectiveTenant} />
       </div>
 
       {/* Quick Actions */}

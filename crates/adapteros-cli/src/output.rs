@@ -201,17 +201,18 @@ impl OutputWriter {
         }
     }
 
-    /// Print a table (simplified implementation)
+    /// Print a table (human) or JSON (machine)
     pub fn table<T: serde::Serialize>(
         &self,
-        _table: &dyn std::fmt::Display,
+        table: &dyn std::fmt::Display,
         json_data: Option<&T>,
     ) -> Result<(), serde_json::Error> {
-        if let Some(data) = json_data {
-            self.json(data)?;
-        } else if !self.mode.is_quiet() && !self.mode.is_json() {
-            // For now, just print a placeholder message
-            println!("Table output not yet implemented");
+        if self.mode.is_json() {
+            if let Some(data) = json_data {
+                println!("{}", serde_json::to_string_pretty(data)?);
+            }
+        } else if !self.mode.is_quiet() {
+            println!("{}", table);
         }
         Ok(())
     }
