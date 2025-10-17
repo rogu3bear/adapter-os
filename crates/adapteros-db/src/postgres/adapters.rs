@@ -3,7 +3,7 @@
 //! Implements adapter CRUD operations for PostgreSQL backend.
 
 use super::PostgresDb;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosContext, AosError, Result};
 use uuid::Uuid;
 
 /// Adapter row from PostgreSQL
@@ -47,7 +47,8 @@ impl PostgresDb {
         .bind(weights_hash)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Sqlx(format!("Failed to create adapter: {}", e)))?;
+        .context("Failed to create adapter")
+        .with_context(|| format!("tenant_id={tenant_id}, adapter_id={id}"))?;
 
         Ok(id)
     }
@@ -61,7 +62,8 @@ impl PostgresDb {
         .bind(id)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| AosError::Sqlx(format!("Failed to get adapter: {}", e)))?;
+        .context("Failed to fetch adapter by id")
+        .with_context(|| format!("adapter_id={id}"))?;
 
         Ok(adapter)
     }
@@ -76,7 +78,8 @@ impl PostgresDb {
         .bind(tenant_id)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Sqlx(format!("Failed to list adapters: {}", e)))?;
+        .context("Failed to list tenant adapters")
+        .with_context(|| format!("tenant_id={tenant_id}"))?;
 
         Ok(adapters)
     }
@@ -88,7 +91,8 @@ impl PostgresDb {
             .bind(id)
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Sqlx(format!("Failed to update adapter status: {}", e)))?;
+            .context("Failed to update adapter status")
+            .with_context(|| format!("adapter_id={id}, status={status}"))?;
 
         Ok(())
     }
@@ -99,7 +103,8 @@ impl PostgresDb {
             .bind(id)
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Sqlx(format!("Failed to delete adapter: {}", e)))?;
+            .context("Failed to mark adapter as deleted")
+            .with_context(|| format!("adapter_id={id}"))?;
 
         Ok(())
     }
@@ -122,7 +127,8 @@ impl PostgresDb {
         .bind(max_rank)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Sqlx(format!("Failed to get adapters by rank: {}", e)))?;
+        .context("Failed to fetch adapters by rank range")
+        .with_context(|| format!("tenant_id={tenant_id}, min_rank={min_rank}, max_rank={max_rank}"))?;
 
         Ok(adapters)
     }

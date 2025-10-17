@@ -1,4 +1,4 @@
-use adapteros_core::AosError;
+use adapteros_core::{AosContext, AosError};
 use anyhow::Result;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
@@ -57,12 +57,14 @@ impl Db {
         // Use sqlx::migrate with dynamic path
         let migrator = sqlx::migrate::Migrator::new(migrations_path)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to create migrator: {}", e)))?;
+            .context("Failed to initialize migrator")
+            .with_context(|| "backend=sqlite".to_string())?;
 
         migrator
             .run(&self.pool)
             .await
-            .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
+            .context("Database migration run failed")
+            .with_context(|| "backend=sqlite".to_string())?;
 
         Ok(())
     }

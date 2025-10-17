@@ -1,9 +1,16 @@
 //! Error types for AdapterOS
 
+use std::backtrace::Backtrace;
+
 use thiserror::Error;
 use zip::result::ZipError;
 
 pub type Result<T> = std::result::Result<T, AosError>;
+
+mod context;
+
+use context::CapturedContext;
+pub use context::{AosContext, ContextFrame, ContextFrames};
 
 #[derive(Error, Debug)]
 pub enum AosError {
@@ -229,6 +236,54 @@ pub enum AosError {
 
     #[error("{0}")]
     Other(String),
+
+    #[error("{context}")]
+    Contextual {
+        context: ContextFrame,
+        #[source]
+        source: Box<AosError>,
+        backtrace: Option<Backtrace>,
+    },
+}
+
+impl AosError {
+    pub fn contexts(&self) -> ContextFrames<'_> {
+        ContextFrames { next: Some(self) }
+    }
+
+    pub fn backtrace(&self) -> Option<&Backtrace> {
+        match self {
+            AosError::Contextual { backtrace, .. } => backtrace.as_ref(),
+            _ => None,
+        }
+    }
+
+    #[track_caller]
+    pub fn context(self, message: impl Into<String>) -> Self {
+        self.with_context_impl(|| message.into())
+    }
+
+    #[track_caller]
+    pub fn with_context<F>(self, f: F) -> Self
+    where
+        F: FnOnce() -> String,
+    {
+        self.with_context_impl(f)
+    }
+
+    #[track_caller]
+    fn with_context_impl<F>(self, f: F) -> Self
+    where
+        F: FnOnce() -> String,
+    {
+        let CapturedContext { frame, backtrace } = context::capture_context(f());
+
+        AosError::Contextual {
+            context: frame,
+            source: Box::new(self),
+            backtrace,
+        }
+    }
 }
 
 // Rusqlite conversions removed to avoid conflicts with sqlx

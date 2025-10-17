@@ -3,7 +3,7 @@
 //! Production backend for AdapterOS registry and state management.
 //! Replaces SQLite for multi-node deployments with pgvector support.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosContext, AosError, Result};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::time::Duration;
 
@@ -30,6 +30,8 @@ impl PostgresDb {
     /// }
     /// ```
     pub async fn connect(database_url: &str) -> Result<Self> {
+        let endpoint = database_url.rsplit('@').next().unwrap_or(database_url);
+
         let pool = PgPoolOptions::new()
             .max_connections(20) // Connection pool size
             .min_connections(2) // Minimum idle connections
@@ -38,7 +40,8 @@ impl PostgresDb {
             .max_lifetime(Duration::from_secs(1800))
             .connect(database_url)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to connect to PostgreSQL: {}", e)))?;
+            .context("Failed to connect to PostgreSQL")
+            .with_context(|| format!("endpoint={endpoint}"))?;
 
         tracing::info!("Connected to PostgreSQL database");
         Ok(Self { pool })
@@ -67,7 +70,8 @@ impl PostgresDb {
         sqlx::migrate!("../../migrations")
             .run(&self.pool)
             .await
-            .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
+            .context("PostgreSQL migration failed")
+            .with_context(|| "backend=postgres".to_string())?;
 
         tracing::info!("Database migrations completed successfully");
         Ok(())
@@ -80,7 +84,8 @@ impl PostgresDb {
         sqlx::query("SELECT 1")
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| AosError::Database(format!("Health check failed: {}", e)))?;
+            .context("PostgreSQL health check failed")
+            .with_context(|| "query=SELECT 1".to_string())?;
 
         Ok(())
     }
@@ -119,7 +124,8 @@ impl PostgresDb {
         .bind("active")
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
+        .context("Failed to create default tenant")
+        .with_context(|| "tenant_id=default".to_string())?;
 
         // Create development users
         let argon2 = Argon2::default();
@@ -160,7 +166,8 @@ impl PostgresDb {
             .bind(role)
             .execute(&self.pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to create user {}: {}", email, e)))?;
+            .context("Failed to create seed user")
+            .with_context(|| format!("email={email}"))?;
         }
 
         // Create sample nodes
@@ -184,7 +191,8 @@ impl PostgresDb {
             .bind("online")
             .execute(&self.pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to create node {}: {}", id, e)))?;
+            .context("Failed to create seed node")
+            .with_context(|| format!("node_id={id}"))?;
         }
 
         tracing::info!("Development data seeded successfully");
