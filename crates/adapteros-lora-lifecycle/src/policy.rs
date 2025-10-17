@@ -113,7 +113,13 @@ mod tests {
             total_tokens: 100,
             activation_pct: 50.0,
             avg_latency_us: 100.0,
+            latency_p95_us: 0.0,
+            latency_p99_us: 0.0,
             memory_bytes: 1000,
+            peak_memory_bytes: 1000,
+            memory_fragmentation: 0.0,
+            gpu_utilization_pct: 0.0,
+            gpu_memory_bytes: 0,
             quality_delta: 0.8,
         };
 
@@ -123,7 +129,13 @@ mod tests {
             total_tokens: 100,
             activation_pct: 1.0,
             avg_latency_us: 100.0,
+            latency_p95_us: 0.0,
+            latency_p99_us: 0.0,
             memory_bytes: 1000,
+            peak_memory_bytes: 1000,
+            memory_fragmentation: 0.0,
+            gpu_utilization_pct: 0.0,
+            gpu_memory_bytes: 0,
             quality_delta: 0.2,
         };
 

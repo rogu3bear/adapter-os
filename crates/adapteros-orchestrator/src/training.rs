@@ -4,6 +4,10 @@
 //! Integrates with MLX backend for actual training operations.
 
 use adapteros_core::AosError;
+use adapteros_lora_worker::training::{
+    MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
+    TrainingExample as WorkerTrainingExample,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -234,14 +238,24 @@ impl TrainingService {
             started_at: None,
             completed_at: None,
             error_message: None,
-            config,
+            config: config.clone(),
         };
 
-        let mut jobs = self.jobs.write().await;
-        jobs.insert(job_id.clone(), job.clone());
+        {
+            let mut jobs = self.jobs.write().await;
+            jobs.insert(job_id.clone(), job.clone());
+        }
 
-        // TODO: Actually start the training job with MLX backend
-        // For now, just transition to Running state
+        // Spawn background training task
+        let jobs_ref = self.jobs.clone();
+        let cfg_for_run = job.config.clone();
+        let job_id_for_run = job.id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = run_training_job(jobs_ref, job_id_for_run.clone(), cfg_for_run).await {
+                tracing::error!("Training job {} failed: {}", job_id_for_run, e);
+            }
+        });
+
         tracing::info!("Training job created: {}", job_id);
 
         Ok(job)
@@ -354,6 +368,91 @@ impl TrainingService {
 impl Default for TrainingService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Background runner for a single training job. Converts orchestrator config into worker trainer
+/// config, runs training with per-epoch callback, and updates the shared job map.
+async fn run_training_job(
+    jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
+    job_id: String,
+    orchestrator_cfg: TrainingConfig,
+) -> Result<()> {
+    // Transition to running
+    {
+        let mut jobs = jobs_ref.write().await;
+        if let Some(job) = jobs.get_mut(&job_id) {
+            job.status = TrainingJobStatus::Running;
+            job.started_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+    }
+
+    // Map orchestrator config to worker trainer config
+    let worker_cfg = WorkerTrainingConfig {
+        rank: orchestrator_cfg.rank as usize,
+        alpha: orchestrator_cfg.alpha as f32,
+        learning_rate: orchestrator_cfg.learning_rate,
+        batch_size: orchestrator_cfg.batch_size as usize,
+        epochs: orchestrator_cfg.epochs as usize,
+        hidden_dim: 768, // default; can be made configurable via orchestrator config later
+    };
+
+    // TODO: replace with real dataset acquisition once wired (artifact or DB). For now use a tiny synthetic batch.
+    let examples: Vec<WorkerTrainingExample> = vec![
+        WorkerTrainingExample {
+            input: vec![1, 2, 3],
+            target: vec![4, 5, 6],
+            metadata: Default::default(),
+        },
+        WorkerTrainingExample {
+            input: vec![7, 8, 9],
+            target: vec![10, 11, 12],
+            metadata: Default::default(),
+        },
+    ];
+
+    let mut trainer = WorkerTrainer::new(worker_cfg)?;
+
+    // Run with per-epoch callback to update progress
+    let job_id_clone = job_id.clone();
+    let jobs_ref_clone = jobs_ref.clone();
+    let result = trainer
+        .train_with_callback(&examples, move |epoch, loss| {
+            let jobs_ref_inner = jobs_ref_clone.clone();
+            let job_id_inner = job_id_clone.clone();
+            // Fire-and-forget async update
+            tokio::spawn(async move {
+                let mut jobs = jobs_ref_inner.write().await;
+                if let Some(job) = jobs.get_mut(&job_id_inner) {
+                    job.current_epoch = epoch as u32;
+                    job.current_loss = loss;
+                    if job.total_epochs > 0 {
+                        job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+                    }
+                }
+            });
+        })
+        .await;
+
+    match result {
+        Ok(_training_result) => {
+            let mut jobs = jobs_ref.write().await;
+            if let Some(job) = jobs.get_mut(&job_id) {
+                job.status = TrainingJobStatus::Completed;
+                job.progress_pct = 100.0;
+                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            }
+            Ok(())
+        }
+        Err(e) => {
+            let mut jobs = jobs_ref.write().await;
+            if let Some(job) = jobs.get_mut(&job_id) {
+                job.status = TrainingJobStatus::Failed;
+                job.error_message = Some(e.to_string());
+                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            }
+            Err(e.into())
+        }
     }
 }
 

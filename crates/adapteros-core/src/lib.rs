@@ -31,7 +31,7 @@ pub mod id;
 pub mod policy;
 pub mod seed;
 
-pub use error::{AosError, Result};
+pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
 pub use policy::DriftPolicy;
@@ -45,5 +45,5 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 
 /// Re-export commonly used types
 pub mod prelude {
-    pub use crate::{AosError, B3Hash, DriftPolicy, Result, CPID};
+    pub use crate::{AosError, B3Hash, DriftPolicy, Result, ResultExt, CPID};
 }

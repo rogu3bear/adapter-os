@@ -28,6 +28,7 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-registry = { path = "../adapteros-registry" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 bincode = "1.3"
+adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 
 # Database
 sqlx = { workspace = true }

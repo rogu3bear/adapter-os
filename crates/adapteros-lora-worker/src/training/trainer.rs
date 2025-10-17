@@ -135,6 +135,20 @@ impl MicroLoRATrainer {
 
     /// Train LoRA adapter on examples with deterministic Metal backend
     pub async fn train(&mut self, examples: &[TrainingExample]) -> Result<TrainingResult> {
+        // Backward-compatible behavior: no external progress callback
+        self.train_with_callback(examples, |_epoch, _loss| {}).await
+    }
+
+    /// Train with a per-epoch progress callback.
+    /// The callback is invoked after each epoch with (epoch_index starting at 1, epoch_loss).
+    pub async fn train_with_callback<C>(
+        &mut self,
+        examples: &[TrainingExample],
+        mut on_epoch: C,
+    ) -> Result<TrainingResult>
+    where
+        C: FnMut(usize, f32),
+    {
         info!(
             "Starting deterministic LoRA training: rank={}, epochs={}, examples={}, seed={}",
             self.config.rank,
@@ -180,6 +194,9 @@ impl MicroLoRATrainer {
                     "adapter_id": adapter_id
                 }),
             )?;
+
+            // Notify orchestrator/UI via callback
+            on_epoch(epoch + 1, epoch_loss);
 
             // Early stopping if loss is very low
             if epoch_loss < 0.01 {
