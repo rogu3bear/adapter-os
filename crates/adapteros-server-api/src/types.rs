@@ -16,6 +16,43 @@ pub struct ErrorResponse {
     pub details: Option<serde_json::Value>,
 }
 
+/// Single request item within a batch inference call
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchInferItemRequest {
+    /// Client-provided identifier used to correlate responses
+    pub id: String,
+    /// Embedded inference request parameters
+    #[serde(flatten)]
+    pub request: InferRequest,
+}
+
+/// Batch inference request payload
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchInferRequest {
+    /// Collection of inference requests to run together
+    pub requests: Vec<BatchInferItemRequest>,
+}
+
+/// Batch inference response item containing either a result or error
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchInferItemResponse {
+    /// Identifier corresponding to the original request
+    pub id: String,
+    /// Successful inference response
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<InferResponse>,
+    /// Error information if the request failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ErrorResponse>,
+}
+
+/// Batch inference aggregate response payload
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchInferResponse {
+    /// Responses for each submitted request
+    pub responses: Vec<BatchInferItemResponse>,
+}
+
 fn default_error_code() -> String {
     "INTERNAL_ERROR".to_string()
 }
