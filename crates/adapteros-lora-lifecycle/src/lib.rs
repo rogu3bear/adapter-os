@@ -46,12 +46,14 @@ pub struct AdapterEvictionEvent {
     pub memory_freed: usize,
 }
 
+pub mod activation_tracker;
 pub mod category_policies;
 pub mod loader;
 pub mod policy;
 pub mod state;
 pub mod ttl_manager;
 
+pub use activation_tracker::ActivationTracker;
 pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
 pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
@@ -74,6 +76,8 @@ pub struct LifecycleManager {
     category_policies: CategoryPolicyManager,
     /// Database connection for persistence
     db: Option<Db>,
+    /// Rolling activation tracker fed by router decisions
+    activation_tracker: Arc<RwLock<ActivationTracker>>,
 }
 
 impl LifecycleManager {
@@ -101,6 +105,7 @@ impl LifecycleManager {
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
             db: None,
+            activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
         }
     }
 
@@ -134,7 +139,80 @@ impl LifecycleManager {
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
             db: Some(db),
+            activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
         }
+    }
+
+    /// Update rolling activation tracker window size (primarily for tests).
+    pub fn set_activation_window(&self, window: usize) {
+        let mut tracker = self.activation_tracker.write();
+        *tracker = ActivationTracker::new(window);
+    }
+
+    /// Record router selection results to update activation percentages.
+    pub async fn record_router_decision(&self, selected: &[u16]) -> Result<()> {
+        let changed = {
+            let mut tracker = self.activation_tracker.write();
+            tracker.record_decision(selected)
+        };
+
+        if changed.is_empty() {
+            return Ok(());
+        }
+
+        let mut updates = Vec::new();
+        {
+            let states = self.states.read();
+            for (adapter_idx, pct) in &changed {
+                if let Some(record) = states.get(adapter_idx) {
+                    updates.push((
+                        *adapter_idx,
+                        record.adapter_id.clone(),
+                        record.state,
+                        record.pinned,
+                        *pct,
+                    ));
+                }
+            }
+        }
+
+        if let Some(ref db) = self.db {
+            for (_, adapter_id, _, _, pct) in updates.iter().cloned() {
+                let db_clone = db.clone();
+                spawn_deterministic("Activation pct update".to_string(), async move {
+                    if let Err(e) = sqlx::query(
+                        "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
+                         WHERE adapter_id = ?",
+                    )
+                    .bind(pct)
+                    .bind(&adapter_id)
+                    .execute(db_clone.pool())
+                    .await
+                    {
+                        warn!("Failed to update activation_pct for {}: {}", adapter_id, e);
+                    }
+                });
+            }
+        }
+
+        for (adapter_idx, adapter_id, state, pinned, pct) in updates {
+            if pct < self.policy.min_activation_pct && state.is_loaded() && !pinned {
+                if let Err(e) = self.evict_adapter(adapter_idx).await {
+                    warn!(
+                        "Failed to evict low-activation adapter {} ({}): {}",
+                        adapter_id, adapter_idx, e
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Fetch activation percentage tracked for an adapter.
+    pub fn activation_pct(&self, adapter_idx: u16) -> f32 {
+        let tracker = self.activation_tracker.read();
+        tracker.activation_pct(adapter_idx)
     }
 
     /// Get current state of an adapter
@@ -917,6 +995,44 @@ mod tests {
             .demote_adapter(0)
             .expect("Test adapter demotion should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Hot));
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn router_decision_updates_activation_and_eviction() {
+        let adapter_names = vec!["adapter_a".to_string(), "adapter_b".to_string()];
+        let temp_dir = std::env::temp_dir().join("mplora_activation_tracker");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
+
+        manager.set_activation_window(3);
+        manager
+            .promote_adapter(0)
+            .expect("promotion should succeed");
+        manager
+            .promote_adapter(1)
+            .expect("promotion should succeed");
+
+        manager
+            .record_router_decision(&[0])
+            .await
+            .expect("record should succeed");
+        assert!((manager.activation_pct(0) - 100.0).abs() < 1e-3);
+
+        manager
+            .record_router_decision(&[1])
+            .await
+            .expect("record should succeed");
+        manager
+            .record_router_decision(&[1])
+            .await
+            .expect("record should succeed");
+
+        // Adapter 0 should fall below activation threshold and be evicted
+        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
 
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
