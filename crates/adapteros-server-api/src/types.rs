@@ -97,6 +97,31 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
+/// Upsert directory adapter request (synthetic, optional activation)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DirectoryUpsertRequest {
+    /// Tenant ID (scopes adapter namespace)
+    pub tenant_id: String,
+    /// Absolute repository root path
+    pub root: String,
+    /// Relative path under root to analyze
+    pub path: String,
+    /// If true, immediately load the adapter after registration
+    #[serde(default)]
+    pub activate: bool,
+}
+
+/// Directory upsert response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DirectoryUpsertResponse {
+    /// Deterministic adapter ID derived from directory fingerprint
+    pub adapter_id: String,
+    /// B3 hash identifier used as artifact name
+    pub hash_b3: String,
+    /// Whether the adapter was activated (loaded)
+    pub activated: bool,
+}
+
 // Auth, Tenant, and Node types are now imported from adapteros-api-types
 
 /// Import model request

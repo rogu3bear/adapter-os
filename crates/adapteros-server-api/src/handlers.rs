@@ -81,6 +81,201 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+/// Upsert a synthetic directory adapter and optionally activate it
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/directory/upsert",
+    request_body = DirectoryUpsertRequest,
+    responses(
+        (status = 201, description = "Directory adapter upserted", body = DirectoryUpsertResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Failed to upsert directory adapter", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn upsert_directory_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<DirectoryUpsertRequest>,
+) -> Result<(StatusCode, Json<DirectoryUpsertResponse>), (StatusCode, Json<ErrorResponse>)> {
+    // Require admin or operator
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Validate root is absolute and readable
+    let root = std::path::PathBuf::from(&req.root);
+    if !root.is_absolute() || !root.exists() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid root")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("root must be an existing absolute path"),
+            ),
+        ));
+    }
+
+    // Validate path is safe relative
+    let rel = std::path::PathBuf::from(&req.path);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid path")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("path must be relative and must not contain .."),
+            ),
+        ));
+    }
+
+    // Analyze directory to derive deterministic fingerprint
+    let analysis = adapteros_codegraph::analyze_directory(&root, &rel).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("directory analysis failed")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Build adapter_id and synthetic artifact hash from fingerprint
+    let adapter_id = format!(
+        "directory::{}::{}",
+        req.tenant_id,
+        analysis.fingerprint.to_short_hex()
+    );
+    let hash_hex = analysis.fingerprint.to_hex();
+    let hash_b3 = format!("b3:{}", hash_hex);
+
+    // Ensure placeholder artifact exists at ./adapters/{hash}.safetensors
+    let artifact_dir = std::path::PathBuf::from("./adapters");
+    let artifact_path = artifact_dir.join(format!("{}.safetensors", hash_hex));
+    if !artifact_path.exists() {
+        if let Some(parent) = artifact_path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to create adapters directory")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        }
+        if let Err(e) = std::fs::write(&artifact_path, b"synthetic adapter placeholder") {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to write adapter artifact")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    }
+
+    // Register adapter if not present
+    let existing = state.db.get_adapter(&adapter_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to query adapter")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    if existing.is_none() {
+        let languages = analysis.language_stats.keys().cloned().collect::<Vec<_>>();
+        let languages_json = serde_json::to_string(&languages).unwrap_or("[]".to_string());
+
+        state
+            .db
+            .register_adapter(
+                &adapter_id,
+                &adapter_id,
+                &hash_b3,
+                i32::from(analysis.symbols.len() as i32 % 17 + 16),
+                4, // tier = codebase level for directories
+                Some(&languages_json),
+                Some("directory"),
+            )
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to register adapter")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    }
+
+    // Optionally activate (load) adapter now
+    let mut activated = false;
+    if req.activate {
+        match state.db.get_adapter(&adapter_id).await {
+            Ok(Some(a)) => {
+                let _ = state
+                    .db
+                    .update_adapter_state(&adapter_id, "loading", "directory_upsert")
+                    .await;
+
+                if let Some(ref lifecycle) = state.lifecycle_manager {
+                    use adapteros_lora_lifecycle::AdapterLoader;
+                    use std::path::PathBuf;
+                    // Use the DB numeric id if it parses, else fall back to 0
+                    let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
+                    let adapters_path = PathBuf::from("./adapters");
+                    let mut loader = AdapterLoader::new(adapters_path);
+                    if loader
+                        .load_adapter_async(adapter_idx, &hash_hex)
+                        .await
+                        .is_ok()
+                    {
+                        let _ = state
+                            .db
+                            .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
+                            .await;
+                        activated = true;
+                    } else {
+                        let _ = state
+                            .db
+                            .update_adapter_state(&adapter_id, "cold", "load_failed")
+                            .await;
+                    }
+                } else {
+                    // Simulate load
+                    let _ = state
+                        .db
+                        .update_adapter_state(&adapter_id, "warm", "simulated_load")
+                        .await;
+                    activated = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(DirectoryUpsertResponse {
+            adapter_id,
+            hash_b3,
+            activated,
+        }),
+    ))
+}
+
 /// Login handler
 #[utoipa::path(
     post,
@@ -2600,27 +2795,23 @@ pub async fn infer(
         )
     })?;
 
-    if workers.is_empty() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("no workers available")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("No active workers found for inference"),
-            ),
-        ));
-    }
-
-    // Select first available worker (simple round-robin for now)
-    let worker = &workers[0];
-    let uds_path = std::path::Path::new(&worker.uds_path);
+    // Resolve UDS path: prefer registered worker; otherwise fall back to local dev socket
+    let uds_path_buf = if let Some(worker) = workers.get(0) {
+        std::path::PathBuf::from(&worker.uds_path)
+    } else {
+        // Fallback: honor env override or default to /var/run/adapteros.sock
+        let fallback = std::env::var("AOS_WORKER_SOCKET")
+            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
+        std::path::PathBuf::from(fallback)
+    };
+    let uds_path = uds_path_buf.as_path();
 
     // Create UDS client and send request
     let uds_client = UdsClient::new(std::time::Duration::from_secs(30));
 
     // Convert server API request to worker API request
     let worker_request = WorkerInferRequest {
-        cpid: claims.sub.clone(), // Use tenant ID from JWT claims as CPID
+        cpid: claims.tenant_id.clone(),
         prompt: req.prompt.clone(),
         max_tokens: req.max_tokens.unwrap_or(100),
         require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
