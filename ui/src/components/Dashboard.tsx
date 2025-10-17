@@ -171,12 +171,13 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
     }
     
     try {
-      // For now, we'll just show a success message
-      // In a full implementation, this would call an adapter deployment endpoint
-      toast.success(`Adapter deployed to tenant "${deployTargetTenant}"`);
+      const result = await apiClient.loadAdapter(selectedAdapter);
+      toast.success(`Adapter "${result.name}" loaded (ID: ${result.adapter_id})`);
       setShowDeployAdapterModal(false);
       setSelectedAdapter('');
       setError(null);
+      // Optionally refresh dashboard metrics
+      await fetchData();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to deploy adapter';
       setError(errorMsg);
@@ -186,14 +187,20 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
 
   const handleExportLogs = async () => {
     try {
-      toast.info('Preparing log export...');
-      // In a full implementation, this would call the log export endpoint
-      // For now, we'll simulate a download
-      setTimeout(() => {
-        toast.success('Logs exported successfully');
-      }, 1000);
+      toast.info('Preparing telemetry bundle export...');
+      const bundles = await apiClient.listTelemetryBundles();
+      if (!bundles || bundles.length === 0) {
+        toast.info('No telemetry bundles available to export');
+        return;
+      }
+      // Export the most recent bundle by created_at
+      const sorted = [...bundles].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const latest = sorted[0];
+      const res = await apiClient.exportTelemetryBundle(latest.id);
+      toast.success(`Bundle ${res.bundle_id} ready: ${res.events_count} events, ${(res.size_bytes/1024/1024).toFixed(1)} MB`);
     } catch (err) {
-      toast.error('Failed to export logs');
+      const errorMsg = err instanceof Error ? err.message : 'Failed to export telemetry bundle';
+      toast.error(errorMsg);
     }
   };
 
@@ -282,6 +289,21 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
       icon: Code, 
       color: 'text-violet-600',
       onClick: () => setShowDeployAdapterModal(true)
+    },
+    { 
+      label: 'Generate Telemetry Bundle', 
+      icon: Download, 
+      color: 'text-emerald-600',
+      onClick: async () => {
+        try {
+          toast.info('Generating telemetry bundle...');
+          const res = await apiClient.generateTelemetryBundle();
+          toast.success(`Bundle ${res.id} created with ${res.event_count} events`);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Failed to generate bundle';
+          toast.error(errorMsg);
+        }
+      }
     },
     { 
       label: 'Review Policies', 
@@ -779,6 +801,24 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
               setError(null);
             }}>Cancel</Button>
             <Button onClick={handleDeployAdapter}>Deploy</Button>
+            <Button variant="secondary" onClick={async () => {
+              try {
+                if (!selectedAdapter) {
+                  setError('Please select an adapter');
+                  return;
+                }
+                await apiClient.unloadAdapter(selectedAdapter);
+                toast.success('Adapter unloaded');
+                setShowDeployAdapterModal(false);
+                setSelectedAdapter('');
+                setError(null);
+                await fetchData();
+              } catch (err) {
+                const errorMsg = err instanceof Error ? err.message : 'Failed to unload adapter';
+                setError(errorMsg);
+                toast.error(errorMsg);
+              }
+            }}>Unload</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

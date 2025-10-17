@@ -208,6 +208,18 @@ pub struct JobResponse {
     pub created_at: String,
 }
 
+/// Training job artifacts verification response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TrainingArtifactsResponse {
+    pub artifact_path: Option<String>,
+    pub adapter_id: Option<String>,
+    pub weights_hash_b3: Option<String>,
+    pub manifest_hash_b3: Option<String>,
+    pub manifest_hash_matches: bool,
+    pub signature_valid: bool,
+    pub ready: bool,
+}
+
 // HealthResponse, InferRequest, InferResponse, InferenceTrace, RouterDecision, and WorkerResponse
 // are now imported from adapteros-api-types
 
