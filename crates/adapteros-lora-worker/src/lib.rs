@@ -490,6 +490,9 @@ impl<K: FusedKernels> Worker<K> {
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);
+            self.lifecycle
+                .record_router_decision(&decision.indices)
+                .await?;
 
             // Convert Decision to RouterRing
             let router_ring = RouterRing {
