@@ -153,7 +153,7 @@ impl TelemetryMergePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use safetensors::serialize::serialize;
+    use safetensors::serialize;
 
     #[test]
     fn test_merge_plan() {
@@ -185,14 +185,14 @@ mod tests {
         let tensors = [
             (
                 "telemetry_lora.weight".to_string(),
-                TensorView::new(&weights, &[3, 1]).unwrap(),
+                TensorView::new(safetensors::Dtype::F32, vec![3, 1], bytemuck::cast_slice(&weights)).unwrap(),
             ),
             (
                 "telemetry_lora.bias".to_string(),
-                TensorView::new(&bias, &[3]).unwrap(),
+                TensorView::new(safetensors::Dtype::F32, vec![3], bytemuck::cast_slice(&bias)).unwrap(),
             ),
         ];
-        let serialized = serialize(&tensors, &Default::default()).unwrap();
+        let serialized = serialize(tensors, &Default::default()).unwrap();
 
         let weights = load_telemetry_lora(&serialized, TelemetryTask::Control).unwrap();
         assert_eq!(Arc::as_ref(&weights.weights)[2], 3.0);
