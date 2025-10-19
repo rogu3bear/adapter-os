@@ -423,13 +423,13 @@ pub async fn train_repository_adapter(
             training_config,
             None, // template_id
             Some(repo_id.clone()),
-            None, // dataset_path
-            None, // directory_root
-            None, // directory_path
-            None, // tenant_id
-            None, // adapters_root
+            None,  // dataset_path
+            None,  // directory_root
+            None,  // directory_path
+            None,  // tenant_id
+            None,  // adapters_root
             false, // package
-            None, // adapter_id
+            None,  // adapter_id
         )
         .await
         .map_err(|e| {

@@ -3,11 +3,11 @@
 use anyhow::Result;
 use std::env;
 
+mod code2db_dataset;
 mod determinism_report;
+mod pack_lora;
 mod sbom;
 mod verify_agents;
-mod code2db_dataset;
-mod pack_lora;
 
 #[tokio::main]
 async fn main() -> Result<()> {

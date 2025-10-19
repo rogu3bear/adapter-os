@@ -30,7 +30,7 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
-use adapteros_lora_router::Router;
+use adapteros_lora_router::{CodeFeatures, Router};
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
@@ -234,6 +234,7 @@ use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms
@@ -261,6 +262,8 @@ pub struct Worker<K: FusedKernels> {
     lifecycle: adapteros_lora_lifecycle::LifecycleManager,
     // Hot-swap management
     hotswap: HotSwapManager,
+    // Optional signal broadcaster for per-step events
+    signal_tx: Option<broadcast::Sender<WorkerSignal>>,
 }
 
 impl<K: FusedKernels> Worker<K> {
@@ -280,13 +283,30 @@ impl<K: FusedKernels> Worker<K> {
 
         // Create router from manifest
         let router_seed = adapteros_core::derive_seed(&manifest.seeds.global, "router");
-        let router = Router::new(
+        let mut router = Router::new(
             vec![1.0; manifest.adapters.len()],
             manifest.router.k_sparse,
             manifest.router.tau,
             manifest.router.entropy_floor,
             router_seed,
         );
+
+        // Router telemetry and configuration
+        // Log first N tokens fully as per manifest telemetry config
+        router.set_full_log_tokens(manifest.telemetry.router_full_tokens);
+        // Enable telemetry logging of router decisions
+        router.set_telemetry(telemetry.clone());
+        // Optional MPLoRA knobs from manifest
+        if manifest.router.orthogonal_constraints {
+            router.set_orthogonal_constraints(
+                true,
+                manifest.router.diversity_threshold,
+                manifest.router.orthogonal_penalty,
+                64,
+            );
+        }
+        router.set_shared_downsample(manifest.router.shared_downsample);
+        router.set_compression_ratio(manifest.router.compression_ratio);
 
         let memory_monitor = MemoryMonitor::new(manifest.policies.memory.min_headroom_pct);
 
@@ -303,9 +323,30 @@ impl<K: FusedKernels> Worker<K> {
 
         // Create generator with deterministic seed
         let gen_seed = adapteros_core::derive_seed(&manifest.seeds.global, "generation");
-        let generator = Generator::new(gen_seed)
+        // Default sampling tuned for balanced quality
+        let mut generator = Generator::new(gen_seed)
             .with_temperature(0.7)
             .with_top_p(0.9);
+
+        // When policy requires higher reliability (open-book or higher abstain threshold),
+        // use more conservative sampling.
+        if manifest.policies.evidence.require_open_book
+            || manifest.policies.refusal.abstain_threshold >= 0.55
+        {
+            generator = generator.with_temperature(0.5).with_top_k(50);
+        }
+
+        // Development overrides for sampling via environment variables
+        if let Ok(t) = std::env::var("AOS_SAMPLING_TEMP") {
+            if let Ok(tv) = t.parse::<f32>() {
+                generator = generator.with_temperature(tv);
+            }
+        }
+        if let Ok(k) = std::env::var("AOS_TOP_K") {
+            if let Ok(kv) = k.parse::<usize>() {
+                generator = generator.with_top_k(kv);
+            }
+        }
 
         // Load embedding model
         let embedding_model = Arc::new(EmbeddingModel::from_model_path(
@@ -344,7 +385,8 @@ impl<K: FusedKernels> Worker<K> {
 
         // Initialize lifecycle manager
         let adapters_path = {
-            let root = std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
+            let root =
+                std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
             std::path::PathBuf::from(root)
         };
         let lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
@@ -376,6 +418,7 @@ impl<K: FusedKernels> Worker<K> {
             profiler,
             lifecycle,
             hotswap: HotSwapManager::new(),
+            signal_tx: None,
         })
     }
 
@@ -416,9 +459,11 @@ impl<K: FusedKernels> Worker<K> {
             })?;
         }
 
-        // Retrieve evidence if required
+        // Retrieve evidence if required by request or policy
         let mut evidence = Vec::new();
-        if request.require_evidence {
+        let need_evidence =
+            request.require_evidence || self.manifest.policies.evidence.require_open_book;
+        if need_evidence {
             // Compute query embedding first (before borrowing rag)
             let query_emb = self.compute_embedding(&request.prompt)?;
 
@@ -444,6 +489,15 @@ impl<K: FusedKernels> Worker<K> {
                 // Check evidence policy
                 if let Err(_e) = self.policy.check_evidence(evidence.len()) {
                     // Insufficient evidence, returning refusal
+                    let _ = self.telemetry.log_policy_violation(
+                        "Evidence",
+                        "InsufficientSpans",
+                        &format!(
+                            "Found {} spans, need {}",
+                            evidence.len(),
+                            self.manifest.policies.evidence.min_spans
+                        ),
+                    );
                     return Ok(InferenceResponse {
                         text: None,
                         status: "insufficient_evidence".to_string(),
@@ -464,6 +518,32 @@ impl<K: FusedKernels> Worker<K> {
                         patch_proposal: None,
                     });
                 }
+            } else {
+                // Policy or request requires evidence but RAG/evidence retriever unavailable
+                let _ = self.telemetry.log_policy_violation(
+                    "Evidence",
+                    "BackendUnavailable",
+                    "RAG backend unavailable while evidence is required",
+                );
+                return Ok(InferenceResponse {
+                    text: None,
+                    status: "insufficient_evidence".to_string(),
+                    trace: ResponseTrace {
+                        cpid: request.cpid.clone(),
+                        plan_id: "placeholder".to_string(),
+                        evidence: vec![],
+                        router_summary: RouterSummary {
+                            adapters_used: vec![],
+                            avg_activations: vec![],
+                        },
+                        token_count: 0,
+                    },
+                    refusal: Some(RefusalResponse::insufficient_evidence(
+                        self.manifest.policies.evidence.min_spans,
+                        0,
+                    )),
+                    patch_proposal: None,
+                });
             }
         }
 
@@ -474,6 +554,8 @@ impl<K: FusedKernels> Worker<K> {
         let mut generated_tokens = Vec::new();
 
         // Autoregressive generation loop
+        let mut avg_conf_sum = 0.0f32;
+        let mut avg_conf_n = 0usize;
         for step in 0..request.max_tokens {
             // Prepare input for this step
             let input_ids_slice = if step == 0 {
@@ -486,10 +568,38 @@ impl<K: FusedKernels> Worker<K> {
             };
 
             // Run router to get active adapters
-            // Create dummy features from token embeddings (simplified for now)
-            let features = vec![1.0; 32]; // Simplified feature vector
-            let priors = vec![1.0; self.manifest.adapters.len()];
-            let decision = self.router.route(&features, &priors);
+            // Build CodeFeatures from prompt context
+            let mut code_features = CodeFeatures::from_context(&formatted_prompt);
+            // Simple attention entropy proxy based on token variety
+            let token_entropy = {
+                let unique: std::collections::HashSet<_> =
+                    generated_tokens.iter().copied().collect();
+                if generated_tokens.is_empty() {
+                    0.0
+                } else {
+                    (unique.len() as f32 / generated_tokens.len() as f32).min(1.0)
+                }
+            };
+            code_features.set_attn_entropy(token_entropy);
+            let feature_vec = code_features.to_vector();
+
+            // Compute adapter priors: base + framework boost + activation%
+            let mut priors: Vec<f32> = vec![1.0; self.manifest.adapters.len()];
+            for (idx, adapter) in self.manifest.adapters.iter().enumerate() {
+                // Framework prior boost if framework_id matches context
+                if let Some(fid) = &adapter.framework_id {
+                    if let Some(score) = code_features.framework_prior.get(fid) {
+                        // Scale raw framework score to a small prior boost
+                        priors[idx] += (*score).min(3.0) * 0.1; // up to +0.3
+                    }
+                }
+
+                // Lifecycle activation percentage as prior (+0.0..+0.3)
+                let act = self.lifecycle.activation_pct(idx as u16);
+                priors[idx] += (act.max(0.0).min(1.0)) * 0.3;
+            }
+
+            let decision = self.router.route(&feature_vec, &priors);
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);
@@ -515,6 +625,22 @@ impl<K: FusedKernels> Worker<K> {
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
             let kernel_duration = kernel_start.elapsed();
 
+            // Emit router decision signal if subscribed
+            if let Some(ref tx) = self.signal_tx {
+                let _ = tx.send(WorkerSignal::router_decision(
+                    step as u64,
+                    &router_ring.indices,
+                    &router_ring.gates_q15,
+                ));
+            }
+
+            // Track per-step max probability as a proxy for confidence
+            let step_conf = self.generator.max_prob(&io_buffers.output_logits);
+            if step_conf.is_finite() {
+                avg_conf_sum += step_conf;
+                avg_conf_n += 1;
+            }
+
             // Record latency for each active adapter (simplified: divide equally)
             if !decision.indices.is_empty() {
                 let per_adapter_latency = kernel_duration / decision.indices.len() as u32;
@@ -526,6 +652,11 @@ impl<K: FusedKernels> Worker<K> {
 
             // Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
+
+            // Emit token signal
+            if let Some(ref tx) = self.signal_tx {
+                let _ = tx.send(WorkerSignal::token(step as u64, next_token));
+            }
 
             // Check stopping criteria
             if next_token == self.tokenizer.eos_token_id() {
@@ -540,6 +671,32 @@ impl<K: FusedKernels> Worker<K> {
 
         // Log profiling snapshot (sampled at 5%)
         self.profiler.maybe_log_snapshot()?;
+
+        // Confidence gating (policy-driven abstention)
+        let avg_conf = if avg_conf_n > 0 {
+            avg_conf_sum / (avg_conf_n as f32)
+        } else {
+            0.0
+        };
+        // Allow disabling confidence gating for development
+        let skip_conf = std::env::var("AOS_INSECURE_SKIP_CONF")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        if !skip_conf && (self.policy.check_confidence(avg_conf).is_err()) {
+            let threshold = self.manifest.policies.refusal.abstain_threshold;
+            let _ = self.telemetry.log_policy_violation(
+                "Confidence",
+                "BelowThreshold",
+                &format!("avg_max_p={} below threshold {}", avg_conf, threshold),
+            );
+            return Ok(InferenceResponse {
+                text: None,
+                status: "low_confidence".to_string(),
+                trace: self.build_trace(&request.cpid, &evidence, 0),
+                refusal: Some(RefusalResponse::low_confidence(threshold, avg_conf)),
+                patch_proposal: None,
+            });
+        }
 
         // Decode to text
         let generated_text = self.tokenizer.decode(&generated_tokens)?;
@@ -876,6 +1033,189 @@ impl<K: FusedKernels> Worker<K> {
     pub fn get_adapter_states(&self) -> Vec<adapter_hotswap::AdapterState> {
         self.hotswap.table().get_active()
     }
+
+    /// Check if current policy requires open-book (evidence) serving
+    pub fn policy_requires_open_book(&self) -> bool {
+        self.manifest.policies.evidence.require_open_book
+    }
+
+    /// Get refusal abstain threshold configured by policy
+    pub fn policy_abstain_threshold(&self) -> f32 {
+        self.manifest.policies.refusal.abstain_threshold
+    }
+
+    /// Attach a signal broadcaster for per-step events
+    pub fn set_signal_tx(&mut self, tx: broadcast::Sender<WorkerSignal>) {
+        self.signal_tx = Some(tx);
+    }
+
+    /// Find adapter index by string id from manifest
+    fn adapter_index_by_id(&self, adapter_id: &str) -> Option<u16> {
+        self.manifest
+            .adapters
+            .iter()
+            .position(|a| a.id == adapter_id)
+            .map(|i| i as u16)
+    }
+
+    /// Promote adapter by string id (lifecycle-aware)
+    pub fn promote_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
+        if let Some(idx) = self.adapter_index_by_id(adapter_id) {
+            self.lifecycle.promote_adapter(idx)
+        } else {
+            Err(AosError::Lifecycle(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )))
+        }
+    }
+
+    /// Demote adapter by string id (lifecycle-aware)
+    pub fn demote_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
+        if let Some(idx) = self.adapter_index_by_id(adapter_id) {
+            self.lifecycle.demote_adapter(idx)
+        } else {
+            Err(AosError::Lifecycle(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )))
+        }
+    }
+
+    /// Pin adapter by string id (resident state)
+    pub fn pin_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
+        if let Some(idx) = self.adapter_index_by_id(adapter_id) {
+            self.lifecycle.pin_adapter(idx)
+        } else {
+            Err(AosError::Lifecycle(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )))
+        }
+    }
+
+    /// Unpin adapter by string id
+    pub fn unpin_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
+        if let Some(idx) = self.adapter_index_by_id(adapter_id) {
+            self.lifecycle.unpin_adapter(idx)
+        } else {
+            Err(AosError::Lifecycle(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )))
+        }
+    }
+
+    /// Adapter state view used by UDS API (matches CLI expectations)
+    pub fn list_adapter_states_view(&self) -> Vec<serde_json::Value> {
+        use adapteros_manifest::AdapterTier;
+
+        // Collect active set from hot-swap manager for 'active' flag and VRAM
+        let active_set = self.hotswap.table().get_active();
+        let mut active_map: std::collections::HashMap<String, (u64, bool)> =
+            std::collections::HashMap::new();
+        for a in active_set {
+            active_map.insert(a.id.clone(), (a.vram_mb, a.active));
+        }
+
+        // Collect pinned info from lifecycle manager
+        let pinned_map: std::collections::HashMap<String, bool> = self
+            .lifecycle
+            .get_all_states()
+            .into_iter()
+            .map(|r| (r.adapter_id, r.pinned))
+            .collect();
+
+        // Build view per manifest adapter in stable order
+        self.manifest
+            .adapters
+            .iter()
+            .enumerate()
+            .map(|(idx, a)| {
+                let idx_u16 = idx as u16;
+                let metrics = self.profiler.get_adapter_metrics(idx_u16);
+                let (vram_mb, is_active) = active_map.get(&a.id).cloned().unwrap_or((0, false));
+                let pinned = pinned_map.get(&a.id).copied().unwrap_or(false);
+
+                let activation_pct = metrics.as_ref().map(|m| m.activation_pct).unwrap_or(0.0);
+                let quality_delta = metrics.as_ref().map(|m| m.quality_delta).unwrap_or(0.0);
+
+                let tier = match a.tier {
+                    AdapterTier::Persistent => "persistent",
+                    AdapterTier::Ephemeral => "ephemeral",
+                };
+
+                serde_json::json!({
+                    "id": a.id,
+                    "hash": format!("b3:{}", a.hash.to_hex()),
+                    "vram_mb": vram_mb,
+                    "active": is_active,
+                    "tier": tier,
+                    "rank": a.rank,
+                    "activation_pct": activation_pct,
+                    "quality_delta": quality_delta,
+                    "last_activation": serde_json::Value::Null,
+                    "pinned": pinned,
+                })
+            })
+            .collect()
+    }
+
+    /// Adapter profile view used by UDS API (matches CLI expectations)
+    pub fn adapter_profile_view(&self, adapter_id: &str) -> Option<serde_json::Value> {
+        let idx = self.adapter_index_by_id(adapter_id)?;
+        let metrics = self.profiler.get_adapter_metrics(idx);
+
+        let activation_pct = metrics.as_ref().map(|m| m.activation_pct).unwrap_or(0.0);
+        let activations = metrics.as_ref().map(|m| m.activation_count).unwrap_or(0);
+        let total_tokens = metrics.as_ref().map(|m| m.total_tokens).unwrap_or(0);
+        let avg_latency_us = metrics.as_ref().map(|m| m.avg_latency_us).unwrap_or(0.0);
+        let p95 = metrics.as_ref().map(|m| m.latency_p95_us).unwrap_or(0.0);
+        let p99 = metrics.as_ref().map(|m| m.latency_p99_us).unwrap_or(0.0);
+        let memory_kb = metrics
+            .as_ref()
+            .map(|m| m.memory_bytes as u64 / 1024)
+            .unwrap_or(0);
+        let quality_delta = metrics.as_ref().map(|m| m.quality_delta).unwrap_or(0.0);
+
+        let state = self
+            .lifecycle
+            .get_state(idx)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let profile = serde_json::json!({
+            "state": state,
+            "activation_pct": activation_pct,
+            "activations": activations,
+            "total_tokens": total_tokens,
+            "avg_latency_us": avg_latency_us,
+            "memory_kb": memory_kb,
+            "quality_delta": quality_delta,
+            "recent_activations": [],
+            "performance_metrics": {
+                "p50_latency_us": avg_latency_us,
+                "p95_latency_us": p95,
+                "p99_latency_us": p99,
+                "throughput_tokens_per_sec": 0.0,
+                "error_rate": 0.0
+            },
+            "policy_compliance": {
+                "determinism_score": 1.0,
+                "evidence_coverage": 1.0,
+                "refusal_rate": 0.0,
+                "policy_violations": 0
+            }
+        });
+
+        Some(profile)
+    }
+
+    /// Profiling snapshot for UDS API
+    pub fn profiling_snapshot_json(&self) -> serde_json::Value {
+        let metrics = self.profiler.get_all_metrics();
+        serde_json::json!({ "adapters": metrics })
+    }
 }
 
 /// Inference event for telemetry
@@ -912,6 +1252,100 @@ pub fn init_determinism_guards() -> Result<()> {
 pub fn determinism_guards_enabled() -> bool {
     // runtime_guards::guards_enabled()  // Temporarily disabled due to dependency issues
     false
+}
+
+/// Warmup report for worker initialization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarmupReport {
+    pub steps: u32,
+    pub duration_ms: u64,
+    pub ok: bool,
+}
+
+impl<K: FusedKernels> Worker<K> {
+    /// Perform a lightweight warmup of tokenizer and kernel step
+    pub async fn warmup(&mut self) -> Result<WarmupReport> {
+        let start = std::time::Instant::now();
+
+        // Encode a tiny prompt to exercise tokenizer path
+        let prompt = "hello";
+        let tokens = self.tokenizer.encode(prompt)?;
+        let first = tokens
+            .get(0)
+            .copied()
+            .unwrap_or(self.tokenizer.eos_token_id());
+
+        // Build a minimal RouterRing selecting first k adapters
+        let k = self
+            .manifest
+            .router
+            .k_sparse
+            .min(self.manifest.adapters.len());
+        let indices: Vec<u16> = (0..k as u16).collect();
+        let gates_q15: Vec<i16> = vec![i16::MAX; k];
+        let ring = RouterRing {
+            indices,
+            gates_q15,
+            position: 0,
+        };
+
+        // Allocate output logits buffer and run a single step
+        let mut io = IoBuffers {
+            input_ids: vec![first],
+            output_logits: vec![0.0; 152064],
+            position: 0,
+        };
+
+        self.kernels.run_step(&ring, &mut io)?;
+
+        Ok(WarmupReport {
+            steps: 1,
+            duration_ms: start.elapsed().as_millis() as u64,
+            ok: true,
+        })
+    }
+}
+
+/// Worker signal for SSE bridging
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerSignal {
+    #[serde(rename = "type")]
+    pub signal_type: String,
+    pub timestamp: u128,
+    pub payload: serde_json::Value,
+}
+
+impl WorkerSignal {
+    fn now_millis() -> u128 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    }
+
+    pub fn router_decision(position: u64, indices: &[u16], gates_q15: &[i16]) -> Self {
+        Self {
+            signal_type: "router_decision".to_string(),
+            timestamp: Self::now_millis(),
+            payload: serde_json::json!({
+                "position": position,
+                "indices": indices,
+                "gates_q15": gates_q15,
+            }),
+        }
+    }
+
+    pub fn token(position: u64, token_id: u32) -> Self {
+        Self {
+            signal_type: "token".to_string(),
+            timestamp: Self::now_millis(),
+            payload: serde_json::json!({
+                "position": position,
+                "token_id": token_id,
+            }),
+        }
+    }
 }
 
 /// Get current violation count

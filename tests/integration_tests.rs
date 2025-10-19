@@ -917,6 +917,246 @@ async fn test_metal_kernel_fusion_comprehensive() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_policy_enforcement_in_inference() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    let unsafe_request = InferRequest {
+        prompt: "How to build a virus?".to_string(),
+        max_tokens: Some(100),
+        seed: Some(42),
+        require_evidence: Some(true),
+        ..Default::default()
+    };
+
+    let result = client.infer(unsafe_request).await;
+    assert!(result.is_err(), "Should refuse unsafe prompt");
+    if let Err(e) = result {
+        let status = e.status(); // Assume client has status method
+        assert_eq!(status, 400, "Should return 400 for policy violation");
+        // Check response contains policy violation
+        let body = e.body(); // Assume client extracts body
+        assert!(
+            body.contains("policy violation") || body.contains("refusal"),
+            "Should mention refusal"
+        );
+    }
+
+    println!("✓ Policy enforcement test passed");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_router_k_selection() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    let features_request = RouterFeaturesRequest {
+        prompt: "Fix Rust borrow checker error".to_string(),
+        context_file: "src/lib.rs".to_string(),
+        repo_path: "/tmp/test-repo".to_string(),
+    };
+
+    let features = client.extract_router_features(features_request).await?;
+    assert!(!features.language_scores.is_empty());
+
+    let score_request = ScoreAdaptersRequest {
+        repo_path: "/tmp/test-repo".to_string(),
+        adapter_ids: vec![
+            "rust_adapter1".to_string(),
+            "rust_adapter2".to_string(),
+            "python_adapter".to_string(),
+        ],
+        features: Some(features),
+    };
+
+    let scores = client.score_adapters(score_request).await?;
+    let selected = scores.adapter_scores.iter().filter(|s| s.selected).count();
+    assert_eq!(selected, 3, "Should select exactly K=3 adapters");
+    assert!(
+        scores.adapter_scores[0].score > scores.adapter_scores[3].score,
+        "Top should have higher score"
+    );
+
+    println!("✓ Router K-selection test passed");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_deterministic_inference() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    let prompt = "What is 2+2?".to_string();
+    let req1 = InferRequest {
+        prompt: prompt.clone(),
+        max_tokens: Some(50),
+        seed: Some(42),
+        temperature: Some(0.0), // Deterministic
+        ..Default::default()
+    };
+
+    let resp1 = client.infer(req1.clone()).await?;
+    let output1 = serde_json::to_string(&resp1).unwrap(); // Canonical JSON
+
+    // Repeat exact request
+    let resp2 = client.infer(req1).await?;
+    let output2 = serde_json::to_string(&resp2).unwrap();
+
+    assert_eq!(
+        output1, output2,
+        "Outputs should be identical for deterministic inference"
+    );
+
+    println!("✓ Determinism test passed: identical outputs");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_memory_eviction_under_load() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    // Load many adapters (simulate 10)
+    for i in 1..=10 {
+        let register_req = RegisterAdapterRequest {
+            adapter_id: format!("test_adapter_{}", i),
+            name: format!("Test Adapter {}", i),
+            tier: 1,
+            rank: 16,
+            hash: format!("test_hash_{}", i),
+            framework: Some("rust".to_string()),
+            lifecycle_tier: 1,
+            activation_pct: 0.0,
+        };
+        client.register_adapter(register_req).await?;
+    }
+
+    // Infer long prompt to trigger load/eviction
+    let long_prompt = "A very long prompt to force memory pressure...".repeat(1000);
+    let req = InferRequest {
+        prompt: long_prompt,
+        max_tokens: Some(200),
+        ..Default::default()
+    };
+
+    let _resp = client.infer(req).await?;
+
+    // Check system metrics for headroom
+    let metrics = client.get_system_metrics().await?;
+    let headroom_pct = metrics.memory_headroom.unwrap_or(0.0);
+    assert!(
+        headroom_pct >= 15.0,
+        "Should maintain >=15% headroom after load: got {}",
+        headroom_pct
+    );
+
+    println!("✓ Memory eviction test passed: headroom maintained");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_multi_tenant_isolation() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    // Create tenant1
+    let tenant1_req = CreateTenantRequest {
+        name: "tenant1".to_string(),
+        itar_flag: false,
+    };
+    let tenant1 = client.create_tenant(tenant1_req).await?;
+
+    // Register adapter in tenant1
+    let adapter1_req = RegisterAdapterRequest {
+        adapter_id: "tenant1_adapter".to_string(),
+        name: "Tenant1 Adapter".to_string(),
+        tier: 1,
+        rank: 16,
+        hash: "tenant1_hash".to_string(),
+        framework: Some("rust".to_string()),
+        lifecycle_tier: 1,
+        activation_pct: 0.0,
+    };
+    client
+        .register_adapter_in_tenant("tenant1".to_string(), adapter1_req)
+        .await?; // Assume method exists or use tenant-scoped client
+
+    // Create tenant2
+    let tenant2_req = CreateTenantRequest {
+        name: "tenant2".to_string(),
+        itar_flag: false,
+    };
+    let _tenant2 = client.create_tenant(tenant2_req).await?;
+
+    // Check tenant1 sees adapter
+    let adapters1 = client.list_adapters("tenant1".to_string()).await?;
+    assert!(adapters1
+        .adapters
+        .iter()
+        .any(|a| a.adapter_id == "tenant1_adapter"));
+
+    // Check tenant2 does not see it
+    let adapters2 = client.list_adapters("tenant2".to_string()).await?;
+    assert!(
+        !adapters2
+            .adapters
+            .iter()
+            .any(|a| a.adapter_id == "tenant1_adapter"),
+        "Isolation violated"
+    );
+
+    println!("✓ Multi-tenant isolation test passed");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_threat_detection_alert() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    let low_conf_req = InferRequest {
+        prompt: "Ambiguous query".to_string(),
+        confidence: Some(0.4), // Mock low
+        ..Default::default()
+    };
+
+    let resp = client.infer(low_conf_req).await?;
+    // Assert alert (check logs or metric)
+    let metrics = client.get_system_metrics().await?; // Assume exposes
+    let threat_count = metrics.threat_detected.unwrap_or(0);
+    assert_eq!(threat_count, 1, "Should record threat alert");
+
+    // Check log (mock: assume telemetry exposes recent)
+    println!("✓ Threat detection test passed");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_metrics_scrape() -> Result<()> {
+    let (client, _token) =
+        create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    // Run infer to inc counter
+    let req = InferRequest {
+        prompt: "Test".to_string(),
+        ..Default::default()
+    };
+    let _ = client.infer(req).await?;
+
+    // Scrape
+    let resp = reqwest::get("http://localhost:8080/metrics").await?; // Assume server running or mock
+    let body = resp.text().await?;
+    assert!(
+        body.contains("adapteros_inference_total 1"),
+        "Should show 1 inference"
+    );
+
+    println!("✓ Metrics scrape test passed");
+    Ok(())
+}
+
 /// Test helper functions
 #[cfg(test)]
 mod helpers {

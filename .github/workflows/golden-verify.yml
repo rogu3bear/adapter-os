@@ -1,0 +1,32 @@
+name: Golden Verify (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      golden_name:
+        description: 'Golden baseline name (under golden_runs/baselines)'
+        required: true
+        default: 'baseline-001'
+      bundle_path:
+        description: 'Path to replay bundle (.ndjson) to verify'
+        required: true
+        default: 'var/bundles/new_run.ndjson'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build CLI
+        run: cargo build -p adapteros-cli --release
+      - name: Golden verify
+        run: |
+          ./target/release/aosctl golden verify \
+            --golden "${{ inputs.golden_name }}" \
+            --bundle "${{ inputs.bundle_path }}" \
+            --strictness epsilon-tolerant

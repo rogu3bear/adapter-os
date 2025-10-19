@@ -6,14 +6,15 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub mod code_jobs;
+pub mod dataset_builder;
 pub mod federation_daemon;
 pub mod gates;
 pub mod report;
 pub mod supervisor;
 pub mod training;
-pub mod dataset_builder;
 
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
+pub use dataset_builder::{build_from_directory, DatasetBuilderConfig};
 pub use federation_daemon::{
     FederationDaemon, FederationDaemonConfig, FederationVerificationReport,
 };

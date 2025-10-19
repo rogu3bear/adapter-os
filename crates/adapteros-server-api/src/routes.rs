@@ -31,6 +31,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_quality_metrics,
         handlers::get_adapter_metrics,
         handlers::get_system_metrics,
+        handlers::rag_list_retrievals,
+        handlers::rag_stats,
         handlers::list_commits,
         handlers::get_commit,
         handlers::get_commit_diff,
@@ -128,6 +130,8 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::RoutingDecisionsQuery,
         crate::types::RoutingDecision,
         crate::types::RoutingDecisionsResponse,
+        crate::types::RagRetrievalRecordResponse,
+        crate::types::RagRetrievalTenantCount,
         crate::types::AuditsQuery,
         crate::types::AuditExtended,
         crate::types::AuditsResponse,
@@ -243,6 +247,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::assign_tenant_policies),
         )
         .route(
+            "/v1/tenants/:tenant_id/rename",
+            post(handlers::rename_tenant),
+        )
+        .route(
             "/v1/tenants/:tenant_id/adapters",
             post(handlers::assign_tenant_adapters),
         )
@@ -256,6 +264,8 @@ pub fn build(state: AppState) -> Router {
             "/v1/nodes/:node_id/ping",
             post(handlers::test_node_connection),
         )
+        .route("/v1/nodes/:node_id/cordon", post(handlers::node_cordon))
+        .route("/v1/nodes/:node_id/drain", post(handlers::node_drain))
         .route(
             "/v1/nodes/:node_id/offline",
             post(handlers::mark_node_offline),
@@ -278,6 +288,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/plans/:plan_id/rebuild", post(handlers::rebuild_plan))
         .route("/v1/plans/compare", post(handlers::compare_plans))
+        .route("/v1/plans/:plan_id/pin", post(handlers::pin_plan_alias))
         .route(
             "/v1/plans/:plan_id/manifest",
             get(handlers::export_plan_manifest),
@@ -292,6 +303,14 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/cp/promotions", get(handlers::get_promotion_history))
         .route("/v1/workers", get(handlers::list_workers))
         .route("/v1/workers/spawn", post(handlers::worker_spawn))
+        .route(
+            "/v1/workers/register-local",
+            post(handlers::worker_register_local),
+        )
+        .route(
+            "/v1/workers/:worker_id/heartbeat",
+            post(handlers::worker_heartbeat),
+        )
         .route(
             "/v1/workers/:worker_id/logs",
             get(handlers::list_process_logs),
@@ -376,6 +395,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/telemetry/bundles/purge",
             post(handlers::purge_old_bundles),
         )
+        // Golden baselines
+        .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
+        .route(
+            "/v1/golden/runs/:name",
+            get(handlers::golden::get_golden_run),
+        )
+        .route("/v1/golden/compare", post(handlers::golden::golden_compare))
         // Replay session routes
         .route(
             "/v1/replay/sessions",
@@ -393,16 +419,32 @@ pub fn build(state: AppState) -> Router {
             "/v1/replay/sessions/:id/verify",
             post(handlers::replay::verify_replay_session),
         )
+        .route(
+            "/v1/tenants/:tenant_id/cp-pointers",
+            get(handlers::list_cp_pointers),
+        )
+        .route(
+            "/v1/tenants/:tenant_id/cp-pointers/:alias/activate",
+            post(handlers::activate_cp_pointer),
+        )
         .route("/v1/patch/propose", post(handlers::propose_patch))
         .route("/v1/infer", post(handlers::infer))
+        .route("/v1/infer/stream", post(handlers::infer_stream))
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))
         .route("/v1/adapters/:adapter_id", get(handlers::get_adapter))
-        .route("/v1/adapters/register", post(handlers::register_adapter))
+        .route(
+            "/v1/adapters/register",
+            post(handlers::register_adapter.with_state(state.clone()).layer(
+                middleware::from_fn_with_state(state.clone(), admin_middleware),
+            )),
+        )
         .route(
             "/v1/adapters/:adapter_id",
-            axum::routing::delete(handlers::delete_adapter),
+            axum::routing::delete(handlers::delete_adapter.with_state(state.clone()).layer(
+                middleware::from_fn_with_state(state.clone(), admin_middleware),
+            )),
         )
         .route(
             "/v1/adapters/:adapter_id/load",
@@ -428,6 +470,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/directory/upsert",
             post(handlers::upsert_directory_adapter),
         )
+        .route("/v1/adapters/bulk-load", post(handlers::bulk_adapter_load))
         .route(
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
@@ -514,6 +557,9 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
         .route("/v1/metrics/system", get(handlers::get_system_metrics))
+        // RAG retrieval audit endpoints
+        .route("/v1/rag/retrievals", get(handlers::rag_list_retrievals))
+        .route("/v1/rag/stats", get(handlers::rag_stats))
         // Telemetry bundle routes
         .route(
             "/v1/telemetry/bundles",
@@ -535,6 +581,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/telemetry/bundles/purge",
             post(handlers::purge_old_bundles),
         )
+        // Golden baselines
+        .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
+        .route(
+            "/v1/golden/runs/:name",
+            get(handlers::golden::get_golden_run),
+        )
+        .route("/v1/golden/compare", post(handlers::golden::golden_compare))
         // Commit routes
         .route("/v1/commits", get(handlers::list_commits))
         .route("/v1/commits/:sha", get(handlers::get_commit))
@@ -620,5 +673,9 @@ pub fn build(state: AppState) -> Router {
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(tower::limit::RateLimitLayer::new(
+            100,
+            std::time::Duration::from_secs(60),
+        ))
         .with_state(state)
 }

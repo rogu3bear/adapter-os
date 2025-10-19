@@ -1989,7 +1989,7 @@ impl LlmOutputValidator {
 impl PolicyPackValidator for LlmOutputValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let warnings = Vec::new();
+        let mut warnings = Vec::new();
 
         // Check output format requirements
         if let Some(data) = &request.context.data {
@@ -2002,6 +2002,36 @@ impl PolicyPackValidator for LlmOutputValidator {
                         message: "Output format must be JSON".to_string(),
                         details: Some(serde_json::json!({"output_format": output_format})),
                         remediation: Some("Use JSON format for all outputs".to_string()),
+                        timestamp: Utc::now(),
+                    });
+                }
+            }
+        }
+
+        // If trace is required, warn when no evidence is present in response trace
+        if let Some(data) = &request.context.data {
+            let require_trace = self
+                .config
+                .get("require_trace")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
+            if require_trace {
+                let evidence_len = data
+                    .get("trace")
+                    .and_then(|t| t.get("evidence"))
+                    .and_then(|e| e.as_array())
+                    .map(|arr| arr.len())
+                    .unwrap_or(0);
+
+                if evidence_len == 0 {
+                    warnings.push(PolicyWarning {
+                        warning_id: Uuid::new_v4().to_string(),
+                        policy_pack: "LLM Output Ruleset".to_string(),
+                        message: "No citations present in output trace".to_string(),
+                        details: Some(serde_json::json!({
+                            "hint": "Enable open-book or ensure RAG evidence is retrieved",
+                        })),
                         timestamp: Utc::now(),
                     });
                 }

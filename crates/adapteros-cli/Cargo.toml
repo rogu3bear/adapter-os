@@ -8,7 +8,6 @@ license.workspace = true
 [[bin]]
 name = "aosctl"
 path = "src/main.rs"
-required-features = ["build-aosctl"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
@@ -22,8 +21,9 @@ adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-client = { path = "../adapteros-client" }
-adapteros-server = { path = "../adapteros-server" }
+adapteros-server = { path = "../adapteros-server", optional = true }
 adapteros-api = { path = "../adapteros-api" }
+adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
@@ -69,3 +69,5 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 [features]
 experimental-backends = []
 build-aosctl = []
+rag-pgvector = ["adapteros-lora-rag/rag-pgvector"]
+with-server = ["dep:adapteros-server"]

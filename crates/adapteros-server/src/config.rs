@@ -1,3 +1,4 @@
+use adapteros_verify::StrictnessLevel;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -15,6 +16,8 @@ pub struct Config {
     pub git: Option<adapteros_git::GitConfig>,
     #[serde(default)]
     pub policies: PoliciesConfig,
+    #[serde(default)]
+    pub cab: Option<CabConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +43,12 @@ pub struct SecurityConfig {
     #[serde(default = "default_false")]
     pub mtls_required: bool,
     pub jwt_secret: String,
+    /// JWT mode: "hmac" (default) or "eddsa"
+    #[serde(default)]
+    pub jwt_mode: Option<String>,
+    /// Optional Ed25519 public key in PEM for JWT validation when jwt_mode = "eddsa"
+    #[serde(default)]
+    pub jwt_public_key_pem: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -91,10 +100,62 @@ pub struct PoliciesConfig {
     pub drift: adapteros_core::DriftPolicy,
 }
 
+/// Telemetry retention configuration for bundle GC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryRetentionConfig {
+    /// Keep last K bundles per CPID
+    #[serde(default = "TelemetryRetentionConfig::default_keep")]
+    pub keep_bundles_per_cpid: usize,
+    /// Keep incident bundles from GC
+    #[serde(default = "default_true")]
+    pub keep_incident_bundles: bool,
+    /// Keep promotion bundles from GC
+    #[serde(default = "default_true")]
+    pub keep_promotion_bundles: bool,
+}
+
+impl TelemetryRetentionConfig {
+    fn default_keep() -> usize {
+        12
+    }
+}
+
+impl Default for TelemetryRetentionConfig {
+    fn default() -> Self {
+        Self {
+            keep_bundles_per_cpid: Self::default_keep(),
+            keep_incident_bundles: true,
+            keep_promotion_bundles: true,
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CabConfig {
+    #[serde(default)]
+    pub golden_gate: Option<GoldenGateConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoldenGateConfig {
+    pub enabled: bool,
+    pub baseline: String,
+    /// Verification strictness level
+    pub strictness: StrictnessLevel,
+    #[serde(default)]
+    pub skip_toolchain: bool,
+    #[serde(default)]
+    pub skip_signature: bool,
+    #[serde(default)]
+    pub verify_device: bool,
+    #[serde(default)]
+    pub bundle_path: Option<String>,
 }

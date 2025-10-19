@@ -120,6 +120,30 @@ pub fn validate_languages(languages: &[String]) -> ValidationResult<()> {
     Ok(())
 }
 
+/// Validate that an optional directory root, when provided, is an absolute path
+///
+/// - Accepts `None` (no validation needed)
+/// - Returns 400 BAD_REQUEST if provided path is not absolute
+pub fn validate_directory_root_absolute(directory_root: &Option<String>) -> ValidationResult<()> {
+    if let Some(root) = directory_root {
+        let path = Path::new(root);
+        if !path.is_absolute() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("directory_root must be absolute")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(
+                            "Provide an absolute path for directory_root (e.g., /path/to/repo)"
+                                .to_string(),
+                        ),
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Validate commit SHA format
 pub fn validate_commit_sha(sha: &str) -> ValidationResult<()> {
     let sha_regex = Regex::new(r"^[a-f0-9]{7,40}$").expect("Invalid regex");
@@ -431,6 +455,16 @@ mod tests {
 
         assert!(validate_languages(&vec![]).is_err());
         assert!(validate_languages(&vec!["cobol".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_validate_directory_root_absolute() {
+        // None is allowed
+        assert!(validate_directory_root_absolute(&None).is_ok());
+        // POSIX absolute path accepted
+        assert!(validate_directory_root_absolute(&Some("/abs/path".to_string())).is_ok());
+        // Relative path rejected
+        assert!(validate_directory_root_absolute(&Some("relative/path".to_string())).is_err());
     }
 
     #[test]

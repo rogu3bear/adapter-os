@@ -1,7 +1,6 @@
 use adapteros_core::AosError;
 use anyhow::Result;
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
-use std::str::FromStr;
+use sqlx::SqlitePool;
 
 // PostgreSQL backend for production
 pub mod postgres;
@@ -17,13 +16,36 @@ pub struct Db {
 
 impl Db {
     /// Connect to SQLite database with WAL mode
+    ///
+    /// Accepts either a filesystem path (e.g., "var/aos.db") or a full URL (e.g.,
+    /// "sqlite://var/aos.db"). Prevents double-prefix issues in tests.
     pub async fn connect(path: &str) -> Result<Self> {
-        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path))?
-            .create_if_missing(true)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
+        // Normalize input to a SQLite URL understood by sqlx
+        let url = if path.starts_with("sqlite://") {
+            // Convert triple-slash form to single-colon absolute path style
+            // e.g., sqlite:///abs/path.db -> sqlite:/abs/path.db
+            format!("sqlite:{}", &path["sqlite://".len()..])
+        } else if path.starts_with("sqlite:") {
+            path.to_string()
+        } else if path.starts_with('/') {
+            // Absolute filesystem path
+            format!("sqlite:{}", path)
+        } else {
+            // Relative filesystem path
+            format!("sqlite://{}", path)
+        };
 
-        let pool = SqlitePool::connect_with(options).await?;
+        // Establish connection via URL (creates DB file if missing)
+        let pool = SqlitePool::connect(&url).await?;
+
+        // Apply recommended pragmas for concurrency and performance
+        let _ = sqlx::query("PRAGMA journal_mode = WAL;")
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("PRAGMA synchronous = NORMAL;")
+            .execute(&pool)
+            .await;
+
         Ok(Self { pool })
     }
 
@@ -34,32 +56,10 @@ impl Db {
         Self::connect(&database_url).await
     }
 
-    /// Run database migrations
+    /// Run database migrations (SQLite)
     pub async fn migrate(&self) -> Result<()> {
-        // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let workspace_root = std::path::Path::new(manifest_dir)
-            .parent() // crates/
-            .and_then(|p| p.parent()) // workspace root
-            .ok_or_else(|| AosError::Database("Failed to find workspace root".to_string()))?;
-
-        let migrations_path = workspace_root.join("migrations");
-
-        // Verify migrations directory exists
-        if !migrations_path.exists() {
-            return Err(AosError::Database(format!(
-                "Migrations directory not found: {}",
-                migrations_path.display()
-            ))
-            .into());
-        }
-
-        // Use sqlx::migrate with dynamic path
-        let migrator = sqlx::migrate::Migrator::new(migrations_path)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to create migrator: {}", e)))?;
-
-        migrator
+        // Embed migrations at compile time for reproducibility
+        sqlx::migrate!("../../migrations")
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
@@ -129,24 +129,15 @@ impl Db {
             .await?;
         }
 
-        // Create sample nodes
+        // Create sample nodes using stable schema helper
         let nodes = vec![
-            ("node-01", "m1-max-01.local", "M1 Max", 64),
-            ("node-02", "m2-ultra-01.local", "M2 Ultra", 128),
-            ("node-03", "m3-max-01.local", "M3 Max", 96),
+            ("m1-max-01.local", "http://127.0.0.1:8081"),
+            ("m2-ultra-01.local", "http://127.0.0.1:8082"),
+            ("m3-max-01.local", "http://127.0.0.1:8083"),
         ];
 
-        for (id, hostname, family, memory) in nodes {
-            sqlx::query(
-                "INSERT INTO nodes (id, tenant_id, hostname, metal_family, memory_gb, status, last_heartbeat)
-                 VALUES (?, 'default', ?, ?, ?, 'online', datetime('now'))"
-            )
-            .bind(id)
-            .bind(hostname)
-            .bind(family)
-            .bind(memory)
-            .execute(&self.pool)
-            .await?;
+        for (hostname, agent_endpoint) in nodes {
+            let _ = self.register_node(hostname, agent_endpoint).await;
         }
 
         tracing::info!("Development data seeded successfully");
@@ -186,7 +177,7 @@ pub use jobs::Job;
 pub mod training_jobs;
 pub use training_jobs::{TrainingJobRecord, TrainingProgress};
 pub mod training_datasets;
-pub use training_datasets::{TrainingDataset, DatasetFile, DatasetStatistics};
+pub use training_datasets::{DatasetFile, DatasetStatistics, TrainingDataset};
 pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
@@ -200,6 +191,7 @@ pub mod policies;
 pub mod policy_hash;
 pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
+pub mod rag_retrieval_audit;
 pub mod replay_sessions;
 pub mod repositories;
 pub mod telemetry_bundles;
@@ -212,3 +204,6 @@ pub use unified_access::{
     ConnectionInfo, DatabaseAccess, DatabaseConfig, DatabaseStatistics, DatabaseType, HealthState,
     HealthStatus, SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
 };
+
+// Re-export RAG audit types for API convenience
+pub use rag_retrieval_audit::{RagRetrievalAuditRecord, RagRetrievalCount};

@@ -14,8 +14,9 @@ Production-ready RAG system with dual-backend support for development and produc
 **Compilation Status:** ✅ Green (`cargo check --package adapteros-lora-rag`)
 
 **Key Files:**
-- `src/pgvector.rs` - Dual-backend RAG implementation (679 lines)
-- `../migrations/0029_pgvector_rag.sql` - Database schema (131 lines)
+- `src/pgvector.rs` - Dual-backend RAG implementation
+- `../../migrations_postgres/0001_init_pg.sql` - Database schema
+- `../../migrations_postgres/0002_pgvector.sql` - Vector index setup
 
 ---
 
@@ -109,7 +110,8 @@ let pool = PgPool::connect("postgresql://aos:aos@localhost/aos_prod").await?;
 // psql: CREATE EXTENSION IF NOT EXISTS vector;
 
 // Create index
-let index = PgVectorIndex::new_postgres(pool, embedding_hash, 384);
+// Dimension must match your embedding model (default: 3584)
+let index = PgVectorIndex::new_postgres(pool, embedding_hash, 3584);
 
 // Same API as SQLite backend
 let results = index.retrieve("tenant-001", &query_embedding, 5).await?;
@@ -165,7 +167,7 @@ let results = index.retrieve("tenant-001", &query_embedding, 5).await?;
 
 ## Database Schema
 
-See `../migrations/0029_pgvector_rag.sql` for complete schema.
+See `../../migrations_postgres/` for the complete schema and indices.
 
 ### Key Tables
 
@@ -249,5 +251,4 @@ Tests included:
 - ✅ Cosine similarity fallback for SQLite
 - ✅ Complete database schema with audit tables
 - ✅ Policy compliance verification
-
 

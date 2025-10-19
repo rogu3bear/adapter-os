@@ -16,12 +16,19 @@ use adapteros_crypto::Keypair;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
+use std::path::{Path, PathBuf};
 use tracing;
+
+use crate::state::ApiConfig;
+use std::sync::{Arc, RwLock};
+
+use adapteros_verify::{verify_against_golden, ComparisonConfig};
 
 /// CAB Workflow Manager
 pub struct CABWorkflow {
     pool: PgPool,
     signing_keypair: Keypair,
+    api_config: Option<Arc<RwLock<ApiConfig>>>,
 }
 
 impl CABWorkflow {
@@ -30,6 +37,20 @@ impl CABWorkflow {
         Self {
             pool,
             signing_keypair,
+            api_config: None,
+        }
+    }
+
+    /// Create a new CAB workflow manager with API config access
+    pub fn new_with_config(
+        pool: PgPool,
+        signing_keypair: Keypair,
+        api_config: Arc<RwLock<ApiConfig>>,
+    ) -> Self {
+        Self {
+            pool,
+            signing_keypair,
+            api_config: Some(api_config),
         }
     }
 
@@ -64,6 +85,85 @@ impl CABWorkflow {
             )));
         }
         tracing::info!("[Step 2/4] ✓ Replay tests passed (zero divergence)");
+
+        // Golden Gate: verify current replay bundle against named baseline (if enabled)
+        if let Some(cfg_handle) = &self.api_config {
+            match cfg_handle.read() {
+                Ok(cfg) => {
+                    if let Some(gg) = &cfg.golden_gate {
+                        if gg.enabled {
+                            tracing::info!(
+                                "[Golden Gate] Verifying against baseline '{}' with strictness {:?}",
+                                gg.baseline, gg.strictness
+                            );
+
+                            // Resolve golden dir and current bundle
+                            let golden_dir = Path::new("golden_runs/baselines").join(&gg.baseline);
+                            if !golden_dir.exists() {
+                                return Err(AosError::Promotion(format!(
+                                    "Golden baseline not found: {}",
+                                    golden_dir.display()
+                                )));
+                            }
+
+                            let current_bundle = match &gg.bundle_path {
+                                Some(p) => PathBuf::from(p),
+                                None => find_newest_ndjson(&cfg.bundles_root).ok_or_else(|| {
+                                    AosError::Promotion(format!(
+                                        "No .ndjson bundles found under {}",
+                                        cfg.bundles_root
+                                    ))
+                                })?,
+                            };
+
+                            if !current_bundle.exists() {
+                                return Err(AosError::Promotion(format!(
+                                    "Bundle not found: {}",
+                                    current_bundle.display()
+                                )));
+                            }
+
+                            // Build comparison config
+                            let mut comp = ComparisonConfig::default();
+                            comp.strictness = gg.strictness;
+                            comp.verify_toolchain = !gg.skip_toolchain;
+                            comp.verify_signature = !gg.skip_signature;
+                            comp.verify_device = gg.verify_device;
+                            comp.verify_adapters = true; // Always verify adapters
+
+                            // Run verification
+                            let report = verify_against_golden(&golden_dir, &current_bundle, &comp)
+                                .await
+                                .map_err(|e| {
+                                    AosError::Promotion(format!(
+                                        "Golden gate verification error: {}",
+                                        e
+                                    ))
+                                })?;
+
+                            if !report.passed {
+                                tracing::error!(
+                                    "[Golden Gate] Verification FAILED for {}",
+                                    current_bundle.display()
+                                );
+                                return Err(AosError::Promotion(format!(
+                                    "Golden gate FAILED. Summary: {}",
+                                    report.summary()
+                                )));
+                            } else {
+                                tracing::info!(
+                                    "[Golden Gate] ✓ Verification passed for {}",
+                                    current_bundle.display()
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Golden gate config lock poisoned: {}", e);
+                }
+            }
+        }
 
         // Step 3: Record approval signature
         tracing::info!("[Step 3/4] Recording approval signature");
@@ -399,6 +499,59 @@ impl CABWorkflow {
 
         Ok(history)
     }
+}
+
+/// Find the newest *.ndjson file under a directory (non-recursive and recursive fallback)
+fn find_newest_ndjson(root: &str) -> Option<PathBuf> {
+    let root_path = Path::new(root);
+    if !root_path.exists() {
+        return None;
+    }
+
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+
+    // First pass: top-level only
+    if let Ok(entries) = std::fs::read_dir(root_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("ndjson") {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if newest.as_ref().map(|(t, _)| modified > *t).unwrap_or(true) {
+                            newest = Some((modified, path.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if newest.is_some() {
+        return newest.map(|(_, p)| p);
+    }
+
+    // Fallback: recursive descent
+    fn walk(dir: &Path, newest: &mut Option<(std::time::SystemTime, PathBuf)>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, newest);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("ndjson") {
+                    if let Ok(meta) = entry.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            if newest.as_ref().map(|(t, _)| modified > *t).unwrap_or(true) {
+                                *newest = Some((modified, path.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk(root_path, &mut newest);
+    newest.map(|(_, p)| p)
 }
 
 /// Complete promotion result

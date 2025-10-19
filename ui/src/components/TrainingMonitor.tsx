@@ -45,17 +45,24 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
   useEffect(() => {
     const fetchJobData = async () => {
       try {
-        const [jobData, metricsData, logsData, artifactsData] = await Promise.all([
+        const [jobData, metricsData, logsData] = await Promise.all([
           apiClient.getTrainingJob(jobId),
           apiClient.getTrainingMetrics(jobId),
-          apiClient.getTrainingLogs(jobId),
-          apiClient.getTrainingArtifacts(jobId)
+          apiClient.getTrainingLogs(jobId)
         ]);
-        
+
         setJob(jobData);
         setMetrics(metricsData);
         setLogs(logsData);
-        setArtifacts(artifactsData);
+
+        // Fetch artifacts separately; ignore errors so UI still updates
+        try {
+          const artifactsData = await apiClient.getTrainingArtifacts(jobId);
+          setArtifacts(artifactsData);
+        } catch (e) {
+          // Not all jobs produce artifacts; keep previous artifacts or null
+          if (!artifacts) setArtifacts(null);
+        }
         setError(null);
 
         // Auto-scroll logs to bottom

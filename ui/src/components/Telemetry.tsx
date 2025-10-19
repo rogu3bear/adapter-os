@@ -14,9 +14,11 @@ import { useSSE } from '../hooks/useSSE';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
+import { HelpTooltip } from './ui/help-tooltip';
 import { toast } from 'sonner';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { GoldenCompareModal } from './GoldenCompareModal';
 
 interface TelemetryProps {
   user?: User;
@@ -31,10 +33,12 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
   const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyBundleSignatureResponse | null>(null);
   const [selectedBundle, setSelectedBundle] = useState<TelemetryBundle | null>(null);
   const [purgeKeepCount, setPurgeKeepCount] = useState(12);
+  // Golden compare modal is encapsulated in its own component
 
   // SSE for real-time bundle notifications
   const { data: sseBundles, connected } = useSSE<TelemetryBundle[]>('/v1/stream/telemetry');
@@ -93,6 +97,13 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     }
   };
 
+  const handleCompareToGolden = (bundle: TelemetryBundle) => {
+    setSelectedBundle(bundle);
+    setShowCompareModal(true);
+  };
+
+  // Compare execution moved into GoldenCompareModal
+
   const handlePurge = async () => {
     try {
       const result = await apiClient.purgeOldBundles(purgeKeepCount);
@@ -141,10 +152,18 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
             <TableHeader>
               <TableRow>
                 <TableHead>Bundle ID</TableHead>
-                <TableHead>CPID</TableHead>
+                <TableHead>
+                  <HelpTooltip helpId="cpid">
+                    <span>CPID</span>
+                  </HelpTooltip>
+                </TableHead>
                 <TableHead>Events</TableHead>
                 <TableHead>Size</TableHead>
-                <TableHead>Merkle Root</TableHead>
+                <TableHead>
+                  <HelpTooltip helpId="merkle-root">
+                    <span>Merkle Root</span>
+                  </HelpTooltip>
+                </TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -186,6 +205,10 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                         <DropdownMenuItem onClick={() => handleVerifySignature(bundle)}>
                           <Shield className="icon-standard mr-2" />
                           Verify Signature
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCompareToGolden(bundle)}>
+                          <Eye className="icon-standard mr-2" />
+                          Compare to Golden
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -242,6 +265,51 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                   <p className="text-sm text-muted-foreground">{verifyResult.verification_error}</p>
                 </div>
               )}
+
+              {/* Verification receipt actions */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const receipt = {
+                      bundle_id: verifyResult.bundle_id,
+                      signature: verifyResult.signature,
+                      signed_by: verifyResult.signed_by,
+                      signed_at: verifyResult.signed_at,
+                      valid: verifyResult.valid,
+                      verification_error: verifyResult.verification_error,
+                    };
+                    navigator.clipboard.writeText(JSON.stringify(receipt, null, 2));
+                    toast.success('Verification receipt copied');
+                  }}
+                >
+                  Copy Receipt
+                </Button>
+                <Button
+                  onClick={() => {
+                    const receipt = {
+                      bundle_id: verifyResult.bundle_id,
+                      signature: verifyResult.signature,
+                      signed_by: verifyResult.signed_by,
+                      signed_at: verifyResult.signed_at,
+                      valid: verifyResult.valid,
+                      verification_error: verifyResult.verification_error,
+                    };
+                    const dataStr = JSON.stringify(receipt, null, 2);
+                    const blob = new Blob([dataStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `verification-receipt-${verifyResult.bundle_id}.json`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  Download Receipt
+                </Button>
+              </div>
             </div>
           )}
           <DialogFooter>
@@ -285,6 +353,13 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Compare to Golden Modal */}
+      <GoldenCompareModal
+        open={showCompareModal}
+        onOpenChange={setShowCompareModal}
+        bundleId={selectedBundle ? selectedBundle.id : null}
+      />
     </div>
   );
 }

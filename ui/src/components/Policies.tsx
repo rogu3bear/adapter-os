@@ -15,6 +15,7 @@ import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { logger } from '../utils/logger';
+import { HelpTooltip } from './ui/help-tooltip';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 
@@ -184,8 +185,16 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           <Table className="table-standard">
             <TableHeader>
               <TableRow>
-                <TableHead>CPID</TableHead>
-                <TableHead>Schema Hash</TableHead>
+                <TableHead>
+                  <HelpTooltip helpId="cpid">
+                    <span>CPID</span>
+                  </HelpTooltip>
+                </TableHead>
+                <TableHead>
+                  <HelpTooltip helpId="schema-hash">
+                    <span>Schema Hash</span>
+                  </HelpTooltip>
+                </TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-[100px]">Actions</TableHead>
               </TableRow>
@@ -271,6 +280,45 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             </div>
           )}
           <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!signResult) return;
+                const attestation = {
+                  cpid: signResult.cpid,
+                  signature: signResult.signature,
+                  signed_by: signResult.signed_by,
+                  signed_at: signResult.signed_at,
+                };
+                navigator.clipboard.writeText(JSON.stringify(attestation, null, 2));
+                toast.success('Attestation copied');
+              }}
+            >
+              Copy Attestation
+            </Button>
+            <Button
+              onClick={() => {
+                if (!signResult) return;
+                const attestation = {
+                  cpid: signResult.cpid,
+                  signature: signResult.signature,
+                  signed_by: signResult.signed_by,
+                  signed_at: signResult.signed_at,
+                };
+                const dataStr = JSON.stringify(attestation, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `policy-attestation-${signResult.cpid}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Download Attestation
+            </Button>
             <Button onClick={() => setShowSignModal(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>

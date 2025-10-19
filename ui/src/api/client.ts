@@ -350,10 +350,23 @@ class ApiClient {
     return this.request<types.TelemetryBundle[]>('/v1/telemetry/bundles');
   }
 
-  // Adapters
-  async listAdapters(): Promise<types.Adapter[]> {
-    return this.request<types.Adapter[]>('/v1/adapters');
+  // Golden baselines
+  async listGoldenRuns(): Promise<string[]> {
+    return this.request<string[]>('/v1/golden/runs');
   }
+
+  async getGoldenRun(name: string): Promise<types.GoldenRunSummary> {
+    return this.request<types.GoldenRunSummary>(`/v1/golden/runs/${encodeURIComponent(name)}`);
+    }
+
+  async goldenCompare(req: types.GoldenCompareRequest): Promise<types.VerificationReport> {
+    return this.request<types.VerificationReport>('/v1/golden/compare', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  // (removed duplicate listAdapters without parameters)
 
   async getAdapter(adapterId: string): Promise<types.Adapter> {
     return this.request<types.Adapter>(`/v1/adapters/${adapterId}`);
@@ -372,17 +385,7 @@ class ApiClient {
     });
   }
 
-  async loadAdapter(adapterId: string): Promise<types.AdapterResponse> {
-    return this.request<types.AdapterResponse>(`/v1/adapters/${adapterId}/load`, {
-      method: 'POST',
-    });
-  }
-
-  async unloadAdapter(adapterId: string): Promise<void> {
-    return this.request<void>(`/v1/adapters/${adapterId}/unload`, {
-      method: 'POST',
-    });
-  }
+  // (duplicate methods removed; see definitions above returning types.Adapter)
 
   // Training endpoints
   async listTrainingJobs(): Promise<types.TrainingJob[]> {
@@ -591,9 +594,7 @@ class ApiClient {
   }
 
   // ===== Phase 8: Telemetry Operations =====
-  async listTelemetryBundles(): Promise<Array<{ id: string; cpid: string; event_count: number; size_bytes: number; created_at: string }>> {
-    return this.request('/v1/telemetry/bundles');
-  }
+  // (duplicate method removed; see canonical definition above returning TelemetryBundle[])
   async exportTelemetryBundle(bundleId: string): Promise<types.ExportTelemetryBundleResponse> {
     return this.request<types.ExportTelemetryBundleResponse>(`/v1/telemetry/bundles/${bundleId}/export`);
   }

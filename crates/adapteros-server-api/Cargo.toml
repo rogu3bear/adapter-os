@@ -17,6 +17,7 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }
 adapteros-federation = { path = "../adapteros-federation" }
+adapteros-verify = { path = "../adapteros-verify" }
 anyhow = "1.0"
 argon2 = "0.5"
 axum = { version = "0.7", features = ["macros"] }

@@ -2,6 +2,7 @@ use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_orchestrator::{CodeJobManager, TrainingService};
+use adapteros_verify::StrictnessLevel;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -10,12 +11,32 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
     pub metrics: MetricsConfig,
+    /// Optional CAB golden gate configuration
+    #[serde(default)]
+    pub golden_gate: Option<GoldenGateConfigApi>,
+    /// Root directory where replay bundles are stored
+    pub bundles_root: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsConfig {
     pub enabled: bool,
     pub bearer_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoldenGateConfigApi {
+    pub enabled: bool,
+    pub baseline: String,
+    pub strictness: StrictnessLevel,
+    #[serde(default)]
+    pub skip_toolchain: bool,
+    #[serde(default)]
+    pub skip_signature: bool,
+    #[serde(default)]
+    pub verify_device: bool,
+    #[serde(default)]
+    pub bundle_path: Option<String>,
 }
 
 /// Cryptographic state for signing and verification
@@ -59,6 +80,10 @@ pub struct AppState {
     pub crypto: Arc<CryptoState>,
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
     pub code_job_manager: Option<Arc<CodeJobManager>>,
+    /// JWT validation mode
+    pub jwt_mode: JwtMode,
+    /// Optional Ed25519 public key PEM for JWT validation
+    pub jwt_public_key_pem: Option<String>,
 }
 
 impl AppState {
@@ -79,6 +104,8 @@ impl AppState {
             crypto: Arc::new(CryptoState::new()),
             lifecycle_manager: None,
             code_job_manager: None,
+            jwt_mode: JwtMode::Hmac,
+            jwt_public_key_pem: None,
         }
     }
 
@@ -106,4 +133,17 @@ impl AppState {
     pub fn has_lifecycle_manager(&self) -> bool {
         self.lifecycle_manager.is_some()
     }
+
+    /// Configure JWT validation mode and public key (if EdDSA)
+    pub fn set_jwt_mode(&mut self, mode: JwtMode, public_pem: Option<String>) {
+        self.jwt_mode = mode;
+        self.jwt_public_key_pem = public_pem;
+    }
+}
+
+/// JWT validation mode for middleware
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JwtMode {
+    Hmac,
+    EdDsa,
 }

@@ -195,7 +195,16 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
         }
     }
 
-    println!("\nTotal: {} / 20 policies", filtered.len());
+    let total = policies.len();
+    let implemented_count = policies.iter().filter(|p| p.implemented).count();
+    if only_implemented {
+        println!(
+            "\nTotal: {} / {} policies (implemented)",
+            implemented_count, total
+        );
+    } else {
+        println!("\nTotal: {} / {} policies", filtered.len(), total);
+    }
 
     Ok(())
 }
@@ -573,7 +582,11 @@ mod tests {
     #[test]
     fn test_list_policies_count() {
         let policies = list_policies();
-        assert_eq!(policies.len(), 20, "Must have exactly 20 policies");
+        assert!(
+            policies.len() >= 20,
+            "Must have at least 20 policies (found {})",
+            policies.len()
+        );
     }
 
     #[test]

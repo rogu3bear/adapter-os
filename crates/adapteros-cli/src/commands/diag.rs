@@ -642,7 +642,13 @@ impl DiagnosticRunner {
     }
 
     fn check_worker_socket(&mut self) {
-        let socket_path = Path::new("/var/run/aos/aos.sock");
+        // Prefer per-tenant socket when tenant_id is provided
+        let socket_path_buf = if let Some(ref tenant) = self.tenant_id {
+            std::path::PathBuf::from(format!("/var/run/aos/{}/aos.sock", tenant))
+        } else {
+            std::path::PathBuf::from("/var/run/aos/aos.sock")
+        };
+        let socket_path = socket_path_buf.as_path();
 
         if !socket_path.exists() {
             self.check(

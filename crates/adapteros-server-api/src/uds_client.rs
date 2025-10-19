@@ -327,6 +327,67 @@ impl UdsClient {
 
         response.ok_or_else(|| UdsClientError::RequestFailed("No response received".to_string()))
     }
+
+    pub async fn send_http_request(
+        &self,
+        uds_path: &Path,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, UdsClientError> {
+        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let request_json = if let Some(b) = body {
+            serde_json::to_string(&b)
+                .map_err(|e| UdsClientError::SerializationError(e.to_string()))?
+        } else {
+            "".to_string()
+        };
+
+        let http_request = if !request_json.is_empty() {
+            format!(
+                "{} {} HTTP/1.1\r\nHost: worker\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                method, path, request_json.len(), request_json
+            )
+        } else {
+            format!("{} {} HTTP/1.1\r\nHost: worker\r\n\r\n", method, path)
+        };
+
+        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let mut response_buffer = Vec::new();
+        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        let lines: Vec<&str> = response_str.lines().collect();
+
+        if lines.is_empty() {
+            return Err(UdsClientError::RequestFailed("Empty response".to_string()));
+        }
+
+        let status_line = lines[0];
+        if !status_line.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned error: {}",
+                status_line
+            )));
+        }
+
+        let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
+        let json_str = &response_str[body_start..];
+
+        serde_json::from_str(json_str)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
 }
 
 /// Signal type for client consumption

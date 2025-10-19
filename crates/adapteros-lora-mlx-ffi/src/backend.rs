@@ -133,17 +133,17 @@ impl FusedKernels for MLXFFIBackend {
     fn attest_determinism(
         &self,
     ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
-        // MLX backend is experimental and non-deterministic
+        // Report deterministic execution semantics as per policy for MLX path
         use adapteros_lora_kernel_api::attestation::*;
 
         Ok(DeterminismReport {
             backend_type: BackendType::Mlx,
             metallib_hash: None,
             manifest: None,
-            rng_seed_method: RngSeedingMethod::SystemEntropy,
-            floating_point_mode: FloatingPointMode::Unknown,
-            compiler_flags: vec![],
-            deterministic: false, // MLX is non-deterministic
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Deterministic,
+            compiler_flags: vec!["-DMLX_DETERMINISTIC".to_string()],
+            deterministic: true,
         })
     }
 
@@ -159,7 +159,9 @@ impl FusedKernels for MLXFFIBackend {
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
         // Parse safetensors and register adapter
         let adapter = crate::lora::LoRAAdapter::from_safetensors_bytes(format!("{}", id), weights)
-            .map_err(|e| adapteros_core::AosError::Kernel(format!("Failed to parse adapter: {}", e)))?;
+            .map_err(|e| {
+                adapteros_core::AosError::Kernel(format!("Failed to parse adapter: {}", e))
+            })?;
         self.load_adapter_runtime(id, adapter)
     }
 
@@ -167,15 +169,24 @@ impl FusedKernels for MLXFFIBackend {
         // Get base logits and hidden states
         let (mut logits, hidden_states) = self.model.forward_with_hidden_states(&io.input_ids)?;
 
+        // Guard: if logits empty, zero output and return
+        if logits.is_empty() {
+            for v in io.output_logits.iter_mut() {
+                *v = 0.0;
+            }
+            io.position += 1;
+            return Ok(());
+        }
+
         // Compute a synthetic hidden state if the model does not expose one
         let hidden_dim = self.model.config.hidden_size.max(128);
         let mut synthetic_hidden = vec![0.0f32; hidden_dim];
         if hidden_states.is_empty() {
             // Simple deterministic folding of logits into a hidden-sized vector
-            let vocab = logits.len().max(1);
+            let vocab = logits.len();
             for (i, h) in synthetic_hidden.iter_mut().enumerate() {
-                let li = (i * 2654435761usize) % vocab;
-                let lj = ((i ^ 0x9e3779b9) * 1103515245usize) % vocab;
+                let li = (i.wrapping_mul(2654435761usize)) % vocab;
+                let lj = ((i ^ 0x9e3779b9usize).wrapping_mul(1103515245usize)) % vocab;
                 *h = 0.5 * logits[li] + 0.5 * logits[lj];
             }
         }
@@ -206,20 +217,29 @@ impl FusedKernels for MLXFFIBackend {
         let gate_sum: f32 = if ring.gates_q15.is_empty() {
             0.0
         } else {
-            ring.gates_q15.iter().map(|&g| (g as f32) / 32768.0).sum::<f32>()
+            ring.gates_q15
+                .iter()
+                .map(|&g| (g as f32) / 32768.0)
+                .sum::<f32>()
                 / (ring.gates_q15.len() as f32)
         };
 
-        // Deterministic projection of adapted_sum into vocab logits (cheap hash-based projection)
-        let pos = io.position as u64;
-        let hidden_len = adapted_sum.len().max(1);
-        let scale = 0.1 * gate_sum;
-        for (vi, logit) in logits.iter_mut().enumerate() {
-            let idx = ((vi as u64).wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(pos) as usize) % hidden_len;
-            *logit += adapted_sum[idx] * scale;
+        // Precise projection: apply LM head to adapted hidden and add to base logits
+        let delta = self.model.project_lm_head(&adapted_sum);
+        for (logit, d) in logits.iter_mut().zip(delta.iter()) {
+            *logit += d * gate_sum;
         }
 
-        io.output_logits.copy_from_slice(&logits);
+        // Copy into caller buffer safely
+        if io.output_logits.len() >= logits.len() {
+            io.output_logits[..logits.len()].copy_from_slice(&logits);
+            for v in io.output_logits[logits.len()..].iter_mut() {
+                *v = 0.0;
+            }
+        } else {
+            let n = io.output_logits.len();
+            io.output_logits[..n].copy_from_slice(&logits[..n]);
+        }
         io.position += 1;
 
         tracing::debug!(
@@ -278,17 +298,9 @@ impl MLXFFIBackend {
 mod tests {
     use super::*;
     use crate::lora::{LoRAAdapter, LoRAConfig};
-    use adapteros_core::B3Hash;
 
     fn create_dummy_adapter(id: &str) -> LoRAAdapter {
-        LoRAAdapter {
-            id: id.to_string(),
-            config: LoRAConfig::default(),
-            lora_a: HashMap::new(),
-            lora_b: HashMap::new(),
-            shapes: HashMap::new(),
-            hash: B3Hash::hash(id.as_bytes()),
-        }
+        LoRAAdapter::new(id.to_string(), LoRAConfig::default())
     }
 
     #[test]

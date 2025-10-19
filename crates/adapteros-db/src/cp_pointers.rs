@@ -90,4 +90,37 @@ impl Db {
         .await?;
         Ok(sig)
     }
+
+    /// Insert a new control plane pointer
+    pub async fn insert_cp_pointer(
+        &self,
+        id: &str,
+        tenant_id: &str,
+        name: &str,
+        plan_id: &str,
+        active: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO cp_pointers (id, tenant_id, name, plan_id, active) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(name)
+        .bind(plan_id)
+        .bind(if active { 1 } else { 0 })
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// List all CP pointers for a tenant
+    pub async fn list_cp_pointers_by_tenant(&self, tenant_id: &str) -> Result<Vec<CpPointer>> {
+        let rows = sqlx::query_as::<_, CpPointer>(
+            "SELECT id, tenant_id, name, plan_id, active, created_at, activated_at, signing_public_key FROM cp_pointers WHERE tenant_id = ? ORDER BY created_at DESC",
+        )
+        .bind(tenant_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
 }

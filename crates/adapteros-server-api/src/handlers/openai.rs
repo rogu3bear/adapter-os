@@ -60,24 +60,24 @@ pub async fn chat_completions(
         require_evidence: Some(true),
     };
 
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let workers = match state.db.list_all_workers().await {
+        Ok(ws) => ws,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to list workers (falling back to default UDS): {}",
+                e
+            );
+            Vec::new()
+        }
+    };
 
-    // Resolve UDS path: prefer registered worker; otherwise fall back to local dev socket
+    // Resolve UDS path: prefer registered worker; otherwise fall back to per-tenant default
     let uds_path_buf = if let Some(worker) = workers.get(0) {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
-        // Fallback: honor env override or default to /var/run/adapteros.sock (dev convenience)
+        // Fallback: honor env override or use /var/run/aos/<tenant>/aos.sock
         let fallback = std::env::var("AOS_WORKER_SOCKET")
-            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
+            .unwrap_or_else(|_| format!("/var/run/aos/{}/aos.sock", claims.tenant_id));
         std::path::PathBuf::from(fallback)
     };
     let uds_path = uds_path_buf.as_path();

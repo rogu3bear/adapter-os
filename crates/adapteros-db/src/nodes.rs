@@ -54,4 +54,13 @@ impl Db {
         .await?;
         Ok(node)
     }
+
+    pub async fn update_node_status(&self, id: &str, status: &str) -> Result<()> {
+        sqlx::query("UPDATE nodes SET status = ?, last_seen_at = datetime('now') WHERE id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
 }

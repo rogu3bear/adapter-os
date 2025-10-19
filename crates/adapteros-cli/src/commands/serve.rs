@@ -5,15 +5,13 @@ use anyhow::Result;
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
-use nix::unistd::{setgid, setuid, Gid, Uid};
+use nix::unistd::{geteuid, setgid, setuid, Gid, Uid};
 
 /// Drop privileges to tenant UID/GID
 #[cfg(target_os = "macos")]
 async fn drop_privileges(tenant: &str) -> Result<()> {
-    use nix::unistd::getuid;
-
-    // Only attempt privilege dropping if running as root
-    if !getuid().is_root() {
+    // Only attempt privilege dropping if running as root (effective UID)
+    if geteuid().as_raw() != 0 {
         tracing::debug!("Not running as root, skipping privilege drop");
         return Ok(());
     }
@@ -24,6 +22,7 @@ async fn drop_privileges(tenant: &str) -> Result<()> {
 
     tracing::info!("Dropping privileges to UID: {}, GID: {}", uid, gid);
 
+    // Drop supplementary groups fully, then set primary group, then user
     // Drop group privileges first (must be done before dropping user privileges)
     setgid(Gid::from_raw(gid)).map_err(|e| anyhow::anyhow!("Failed to setgid: {}", e))?;
 
@@ -77,12 +76,21 @@ pub async fn run(
     socket: &Path,
     backend: BackendType,
     dry_run: bool,
+    capture_events: Option<&std::path::PathBuf>,
     output: &OutputWriter,
 ) -> Result<()> {
     output.section("Starting AdapterOS server");
+
+    // Normalize socket path: if default global path is used, select per-tenant path
+    let mut socket_path = socket.to_path_buf();
+    if socket_path.as_os_str() == "/var/run/aos/aos.sock" {
+        // Fallback to per-tenant path; will be refined after manifest load
+        socket_path = std::path::PathBuf::from(format!("/var/run/aos/{}/aos.sock", tenant));
+    }
+
     output.kv("Tenant", tenant);
     output.kv("Plan", plan);
-    output.kv("Socket", &socket.display().to_string());
+    output.kv("Socket", &socket_path.display().to_string());
     output.blank();
 
     if dry_run {
@@ -90,43 +98,7 @@ pub async fn run(
         output.blank();
     }
 
-    // Phase 0: Egress preflight validation
-    output.progress("Validating egress policy");
-
-    #[cfg(target_os = "macos")]
-    {
-        if let Err(e) = egress::validate_egress_policy() {
-            tracing::error!(
-                error = %e,
-                "Preflight failed: egress policy validation failed"
-            );
-            output.progress_done(false);
-            output.blank();
-            output.error("PREFLIGHT FAILED: Egress policy validation failed");
-            output.error(format!("  {}", e));
-            output.blank();
-            output.error("The system refuses to serve without proper egress controls.");
-            output.error("See docs/security.md for PF configuration instructions.");
-            return Err(e.into());
-        }
-        output.progress_done(true);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        tracing::warn!("PF egress validation only available on macOS, proceeding without egress enforcement (dev mode only)");
-        output.warning("PF egress validation only available on macOS");
-        output.warning("Proceeding without egress enforcement (dev mode only)");
-    }
-
-    if dry_run {
-        output.blank();
-        output.success("All preflight checks passed");
-        output.kv("System status", "ready to serve");
-        output.blank();
-        output.info("Re-run without --dry-run to start serving.");
-        return Ok(());
-    }
+    // Phase 0: Egress preflight validation is deferred until after manifest load
 
     // Load plan directory
     let plan_dir = std::path::PathBuf::from("./plan").join(plan);
@@ -143,8 +115,85 @@ pub async fn run(
 
     output.success("Manifest loaded");
 
+    // After manifest load, re-evaluate default socket path using policy uds_root
+    if socket.as_os_str() == "/var/run/aos/aos.sock" {
+        let uds_root = manifest
+            .policies
+            .isolation
+            .uds_root
+            .replace("<tenant>", tenant);
+        socket_path = std::path::PathBuf::from(uds_root).join("aos.sock");
+        output.verbose(format!(
+            "Using policy-derived UDS root for tenant: {}",
+            socket_path.display()
+        ));
+    }
+
+    // Phase 0: Egress preflight (policy-aware, post-manifest)
+    let skip_egress = std::env::var("AOS_INSECURE_SKIP_EGRESS")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    if manifest.policies.egress.serve_requires_pf && !skip_egress {
+        output.progress("Validating egress policy");
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(e) = egress::validate_egress_policy() {
+                tracing::error!(
+                    error = %e,
+                    "Preflight failed: egress policy validation failed"
+                );
+                output.progress_done(false);
+                output.blank();
+                output.error("PREFLIGHT FAILED: Egress policy validation failed");
+                output.error(format!("  {}", e));
+                output.blank();
+                output.error("The system refuses to serve without proper egress controls.");
+                output.error("See docs/security.md for PF configuration instructions.");
+                return Err(e.into());
+            }
+            output.progress_done(true);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            tracing::warn!("PF egress validation only available on macOS, proceeding without egress enforcement (dev mode only)");
+            output.warning("PF egress validation only available on macOS");
+            output.warning("Proceeding without egress enforcement (dev mode only)");
+        }
+    } else {
+        // Policy disabled or env override set
+        output.warning("Skipping PF egress validation (policy or AOS_INSECURE_SKIP_EGRESS)");
+        // Best-effort network socket scan for awareness
+        let _ = adapteros_policy::egress::validate_no_network_sockets();
+    }
+
+    // Strict mode: refuse to run with insecure confidence skip in production
+    let strict_mode = std::env::var("AOS_STRICT_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let insecure_skip_conf = std::env::var("AOS_INSECURE_SKIP_CONF")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    if strict_mode && insecure_skip_conf {
+        output.error("Strict mode enabled: AOS_INSECURE_SKIP_CONF must not be set");
+        return Err(anyhow::anyhow!(
+            "Refusing to start with AOS_INSECURE_SKIP_CONF under AOS_STRICT_MODE"
+        ));
+    }
+
+    if dry_run {
+        output.blank();
+        output.success("All preflight checks passed");
+        output.kv("System status", "ready to serve");
+        output.blank();
+        output.info("Re-run without --dry-run to start serving.");
+        return Ok(());
+    }
+
     // Create UDS server directory
-    let socket_dir = socket
+    let socket_dir = socket_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid socket path"))?;
     if !socket_dir.exists() {
@@ -159,18 +208,41 @@ pub async fn run(
     // Drop privileges to tenant UID/GID if running as root
     #[cfg(target_os = "macos")]
     {
-        if let Err(e) = drop_privileges(tenant).await {
-            tracing::warn!(error = %e, "Failed to drop privileges (continuing anyway)");
-            output.warning(format!("Failed to drop privileges: {}", e));
-            output.warning("Continuing with current privileges (dev mode)");
+        use adapteros_lora_worker::launcher::{setup_tenant_isolation, TenantIsolation};
+        // Only attempt isolation setup if effective root
+        if geteuid().as_raw() == 0 {
+            let (uid, gid) = get_tenant_credentials(tenant)?;
+            let tenant_root = std::path::PathBuf::from("/var/lib/aos").join(tenant);
+            let isolation = TenantIsolation {
+                tenant_id: tenant.to_string(),
+                uid,
+                gid,
+                root_dir: tenant_root,
+                socket_path: socket_path.clone(),
+            };
+            match setup_tenant_isolation(&isolation) {
+                Ok(()) => {
+                    output.success(format!("Tenant isolation established for: {}", tenant));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed tenant isolation (continuing dev mode)");
+                    output.warning(format!("Failed tenant isolation: {}", e));
+                    output.warning("Continuing with current privileges (dev mode)");
+                }
+            }
         } else {
-            output.success(format!("Privileges dropped to tenant: {}", tenant));
+            output.verbose("Not running as root, skipping privilege drop");
         }
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         output.verbose("Note: Privilege dropping only available on macOS");
+        if std::env::var("AOS_INSECURE_SKIP_EGRESS").ok().is_none() {
+            output.warning(
+                "Development mode: egress enforcement unavailable on this platform; do not use in production",
+            );
+        }
     }
 
     output.info("Initializing worker...");
@@ -185,43 +257,123 @@ pub async fn run(
 
     output.success(format!("Model directory found: {}", model_path));
 
+    // Validate tokenizer exists early to fail fast with actionable error
+    if !std::path::Path::new(&tokenizer_path).exists() {
+        return Err(anyhow::anyhow!(
+            "Tokenizer file not found: {}",
+            tokenizer_path
+        ));
+    }
+
     // 2. Initialize telemetry writer
-    let telemetry_dir = std::path::PathBuf::from("./var/telemetry");
+    let default_dir = std::path::PathBuf::from(format!("./var/telemetry/{}", tenant));
+    let telemetry_dir = capture_events.cloned().unwrap_or(default_dir);
     std::fs::create_dir_all(&telemetry_dir)?;
     let telemetry = adapteros_telemetry::TelemetryWriter::new(
-        telemetry_dir,
-        500_000,           // max_events from policy
-        256 * 1024 * 1024, // max_bytes (256MB) from policy
+        telemetry_dir.clone(),
+        manifest.telemetry.bundle.max_events,
+        manifest.telemetry.bundle.max_bytes,
     )?;
 
     output.success("Telemetry writer initialized");
+    output.kv("TelemetryDir", &telemetry_dir.display().to_string());
 
     // 3. Initialize RAG system (optional)
     let rag = if manifest.policies.evidence.require_open_book {
         output.info("Initializing RAG system...");
-        let index_dir = std::path::PathBuf::from(format!("./var/indices/{}", tenant));
-        if index_dir.exists() {
-            // Use a placeholder embedding hash - in production this should come from the manifest
-            let embedding_hash = adapteros_core::B3Hash::hash(b"placeholder");
-            match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
-                Ok(rag_system) => {
-                    output.success("RAG system initialized");
+
+        // Use embedding model hash from manifest policy
+        let embedding_hash = manifest.policies.rag.embedding_model_hash;
+
+        // Feature-gated pgvector backend
+        #[cfg(feature = "rag-pgvector")]
+        {
+            // Try Postgres pgvector backend first
+            match adapteros_db::postgres::PostgresDb::connect_env().await {
+                Ok(db) => {
+                    let _ = db.migrate().await; // best-effort migrations
+                    let pool = db.pool().clone();
+                    // Embedding dimension: configurable via env, defaults to 3584
+                    let embedding_dim = std::env::var("RAG_EMBED_DIM")
+                        .ok()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or(3584);
+                    let pg = adapteros_lora_rag::PgVectorIndex::new_postgres(
+                        pool,
+                        embedding_hash,
+                        embedding_dim,
+                    );
+                    let rag_system =
+                        adapteros_lora_rag::RagSystem::from_pg_index(pg, embedding_hash);
+                    output.success("RAG system (pgvector) initialized");
                     Some(rag_system)
                 }
                 Err(e) => {
-                    output.warning(format!("Failed to initialize RAG system: {}", e));
-                    output.warning("Continuing without evidence retrieval");
-                    None
+                    output.warning(format!(
+                        "Failed to connect to PostgreSQL (falling back to in-memory RAG): {}",
+                        e
+                    ));
+
+                    // Fallback to in-memory if Postgres failed
+                    let index_dir = std::path::PathBuf::from(format!("./var/indices/{}", tenant));
+                    if index_dir.exists() {
+                        match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
+                            Ok(rag_system) => {
+                                output.success("RAG system (in-memory) initialized");
+                                Some(rag_system)
+                            }
+                            Err(e) => {
+                                output.warning(format!("Failed to initialize RAG system: {}", e));
+                                output.warning("Continuing without evidence retrieval");
+                                None
+                            }
+                        }
+                    } else {
+                        output
+                            .warning("RAG index not found, continuing without evidence retrieval");
+                        None
+                    }
                 }
             }
-        } else {
-            output.warning("RAG index not found, continuing without evidence retrieval");
-            None
+        }
+
+        // Default in-memory backend when feature is not enabled
+        #[cfg(not(feature = "rag-pgvector"))]
+        {
+            let index_dir = std::path::PathBuf::from(format!("./var/indices/{}", tenant));
+            if index_dir.exists() {
+                match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
+                    Ok(rag_system) => {
+                        output.success("RAG system initialized");
+                        Some(rag_system)
+                    }
+                    Err(e) => {
+                        output.warning(format!("Failed to initialize RAG system: {}", e));
+                        output.warning("Continuing without evidence retrieval");
+                        None
+                    }
+                }
+            } else {
+                output.warning("RAG index not found, continuing without evidence retrieval");
+                None
+            }
         }
     } else {
         output.verbose("RAG system not required by policy");
         None
     };
+
+    // If policy requires open-book evidence, refuse to serve without a RAG backend
+    if manifest.policies.evidence.require_open_book && rag.is_none() {
+        output.error("Policy requires open-book evidence, but no RAG index/backend is available");
+        output.error(
+            "Initialize a pgvector index or create a local index under ./var/indices/<tenant>",
+        );
+        output.info("Docs: see docs/rag-pgvector.md for setup instructions");
+        return Err(anyhow::anyhow!(
+            "Refusing to serve without evidence backend when policy requires open-book"
+        ));
+    }
 
     // 4. Initialize backend based on selection
     output.info(format!("Initializing {:?} backend...", backend));
@@ -242,7 +394,7 @@ pub async fn run(
             adapteros_lora_worker::BackendChoice::Metal
         }
         BackendType::Mlx => {
-            output.verbose("Using MLX backend (Python/MLX)");
+            output.verbose("Using MLX backend (C++ FFI)");
 
             #[cfg(not(feature = "experimental-backends"))]
             {
@@ -255,21 +407,6 @@ pub async fn run(
 
             #[cfg(feature = "experimental-backends")]
             {
-                // Check if MLX is available
-                let mlx_available = std::process::Command::new("python3")
-                    .args(&["-c", "import mlx.core; print('ok')"])
-                    .output()
-                    .map(|out| String::from_utf8_lossy(&out.stdout).contains("ok"))
-                    .unwrap_or(false);
-
-                if !mlx_available {
-                    output.error("MLX not found. Please install MLX:");
-                    output.info("  uv pip install mlx");
-                    output.info("Or use: pip install mlx");
-                    return Err(anyhow::anyhow!("MLX not installed"));
-                }
-
-                output.verbose("MLX detected");
                 adapteros_lora_worker::BackendChoice::Mlx {
                     model_path: std::path::PathBuf::from(&model_path),
                 }
@@ -308,10 +445,18 @@ pub async fn run(
         let mut adapters_loaded = 0;
 
         for (adapter_id, adapter_spec) in manifest.adapters.iter().enumerate() {
-            let adapter_path = if std::path::Path::new(&format!("./adapters/{}/weights.safetensors", adapter_spec.id)).exists() {
-                format!("./adapters/{}/weights.safetensors", adapter_spec.id)
+            let packaged = format!("./adapters/{}/weights.safetensors", adapter_spec.id);
+            let flat = format!("./adapters/{}.safetensors", adapter_spec.id);
+            let adapter_path = if std::path::Path::new(&packaged).exists() {
+                packaged
+            } else if std::path::Path::new(&flat).exists() {
+                flat
             } else {
-                format!("./adapters/{}.safetensors", adapter_spec.id)
+                output.warning(format!(
+                    "Adapter files not found for {} (checked: {}, {})",
+                    adapter_spec.id, packaged, flat
+                ));
+                continue;
             };
             if std::path::Path::new(&adapter_path).exists() {
                 output.verbose(format!(
@@ -322,10 +467,16 @@ pub async fn run(
                 match std::fs::read(&adapter_path) {
                     Ok(bytes) => {
                         if let Err(e) = kernels.load_adapter(adapter_id as u16, &bytes) {
-                            output.warning(format!("  Backend rejected adapter {}: {}", adapter_spec.id, e));
+                            output.warning(format!(
+                                "  Backend rejected adapter {}: {}",
+                                adapter_spec.id, e
+                            ));
                         } else {
                             adapters_loaded += 1;
-                            output.verbose(format!("  Loaded adapter into backend: {}", adapter_spec.id));
+                            output.verbose(format!(
+                                "  Loaded adapter into backend: {}",
+                                adapter_spec.id
+                            ));
                         }
                     }
                     Err(e) => {
@@ -335,8 +486,6 @@ pub async fn run(
                         ));
                     }
                 }
-            } else {
-                output.warning(format!("Adapter file not found: {}", adapter_path));
             }
         }
         output.success(format!("{} adapters loaded successfully", adapters_loaded));
@@ -361,14 +510,74 @@ pub async fn run(
     output.success("Server configuration complete");
     output.kv("Tenant", tenant);
     output.kv("Plan", plan);
-    output.kv("Socket", &socket.display().to_string());
+    output.kv("Socket", &socket_path.display().to_string());
     output.kv("Model", &manifest.base.model_id);
     output.kv("Adapters", &manifest.adapters.len().to_string());
     output.blank();
     output.success("Starting UDS server...");
+    // 6. Register worker with control plane (best-effort) and start heartbeats
+    {
+        let uds_path_str = socket_path.display().to_string();
+        let tenant_id = tenant.to_string();
+        let plan_id = plan.to_string();
+        let cp_base =
+            std::env::var("AOS_CP_URL").unwrap_or_else(|_| "http://127.0.0.1:3200".to_string());
+        let cp_api = format!("{}/api", cp_base.trim_end_matches('/'));
+        let jwt_opt = std::env::var("AOS_CP_JWT").ok();
+        let pid = std::process::id() as i32;
 
-    // 6. Start UDS server with worker
-    adapteros_api::serve_uds_with_worker(socket, worker)
+        // Perform registration in a task to avoid blocking
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let url = format!("{}/v1/workers/register-local", cp_api);
+            let body = serde_json::json!({
+                "tenant_id": tenant_id,
+                "plan_id": plan_id,
+                "node_id": "local",
+                "uds_path": uds_path_str,
+                "pid": pid,
+            });
+
+            let mut req = client.post(&url).json(&body);
+            if let Some(jwt) = &jwt_opt {
+                req = req.bearer_auth(jwt);
+            }
+
+            match req.send().await {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        if let Ok(val) = resp.json::<serde_json::Value>().await {
+                            if let Some(worker_id) = val.get("id").and_then(|v| v.as_str()) {
+                                // Start heartbeat loop
+                                let hb_client = reqwest::Client::new();
+                                let hb_url =
+                                    format!("{}/v1/workers/{}/heartbeat", cp_api, worker_id);
+                                let jwt_clone = jwt_opt.clone();
+                                tokio::spawn(async move {
+                                    let mut interval =
+                                        tokio::time::interval(std::time::Duration::from_secs(10));
+                                    loop {
+                                        interval.tick().await;
+                                        let mut req = hb_client.post(&hb_url);
+                                        if let Some(jwt) = &jwt_clone {
+                                            req = req.bearer_auth(jwt);
+                                        }
+                                        let _ = req.send().await;
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                Err(_e) => {
+                    // Best-effort: ignore registration failure in dev mode
+                }
+            }
+        });
+    }
+
+    // 7. Start UDS server with worker
+    adapteros_api::serve_uds_with_worker(&socket_path, worker)
         .await
         .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
 

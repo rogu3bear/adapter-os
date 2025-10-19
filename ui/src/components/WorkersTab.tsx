@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Dialog, DialogContent } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import {
   Activity,
   Play,
@@ -33,6 +33,9 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   const [loading, setLoading] = useState(true);
   const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [debugWorkerId, setDebugWorkerId] = useState<string | null>(null);
+  const [hotSwapOpen, setHotSwapOpen] = useState(false);
+  const [hotSwapAdd, setHotSwapAdd] = useState('');
+  const [hotSwapRemove, setHotSwapRemove] = useState('');
   
   // Filters
   const [filterTenant, setFilterTenant] = useState<string>('');
@@ -145,6 +148,9 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
           <Button onClick={() => setShowSpawnModal(true)}>
             <Play className="h-4 w-4 mr-2" />
             Spawn Worker
+          </Button>
+          <Button variant="outline" onClick={() => setHotSwapOpen(true)}>
+            Hot-swap
           </Button>
         </div>
       </div>
@@ -298,6 +304,41 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         selectedTenant={selectedTenant}
         onSuccess={fetchWorkers}
       />
+
+      {/* Hot-swap Dialog */}
+      <Dialog open={hotSwapOpen} onOpenChange={setHotSwapOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hot-swap Adapters</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="form-label">Add (comma-separated adapter IDs)</label>
+              <Input value={hotSwapAdd} onChange={(e) => setHotSwapAdd(e.target.value)} placeholder="adapter_a,adapter_b" />
+            </div>
+            <div>
+              <label className="form-label">Remove (comma-separated adapter IDs)</label>
+              <Input value={hotSwapRemove} onChange={(e) => setHotSwapRemove(e.target.value)} placeholder="adapter_x,adapter_y" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHotSwapOpen(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              try {
+                const add = hotSwapAdd.split(',').map(s => s.trim()).filter(Boolean);
+                const remove = hotSwapRemove.split(',').map(s => s.trim()).filter(Boolean);
+                await apiClient.swapAdapters(add, remove, true);
+                setHotSwapOpen(false);
+                setHotSwapAdd('');
+                setHotSwapRemove('');
+                toast.success('Hot-swap committed');
+              } catch (err) {
+                toast.error('Hot-swap failed');
+              }
+            }}>Commit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Process Debugger Modal */}
       {debugWorkerId && (

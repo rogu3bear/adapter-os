@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOCKET="/var/run/adapteros.sock"
+SOCKET="/var/run/aos/aos.sock"
 
 echo "[1/3] Starting worker (background)"
 ./target/release/aosctl serve --tenant default --plan cp_abc123 --socket "$SOCKET" &
@@ -33,5 +33,4 @@ echo "[3/3] Running inference via CLI"
 }
 
 echo "Smoke test completed successfully"
-
 

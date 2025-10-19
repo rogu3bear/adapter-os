@@ -72,30 +72,25 @@ pub async fn batch_infer(
         ));
     }
 
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let workers = match state.db.list_all_workers().await {
+        Ok(ws) => ws,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to list workers (falling back to default UDS): {}",
+                e
+            );
+            Vec::new()
+        }
+    };
 
-    if workers.is_empty() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("no workers available")
-                    .with_code("SERVICE_UNAVAILABLE")
-                    .with_string_details("No active workers found for inference"),
-            ),
-        ));
-    }
-
-    let worker = &workers[0];
-    let uds_path = PathBuf::from(&worker.uds_path);
+    // Resolve UDS path: prefer registered worker; otherwise fall back to per-tenant default
+    let uds_path = if let Some(worker) = workers.get(0) {
+        PathBuf::from(&worker.uds_path)
+    } else {
+        let fallback = std::env::var("AOS_WORKER_SOCKET")
+            .unwrap_or_else(|_| format!("/var/run/aos/{}/aos.sock", claims.tenant_id));
+        PathBuf::from(fallback)
+    };
     let uds_client = UdsClient::new(WORKER_TIMEOUT);
     let deadline = Instant::now() + BATCH_TIMEOUT;
     let cpid = claims.sub.clone();

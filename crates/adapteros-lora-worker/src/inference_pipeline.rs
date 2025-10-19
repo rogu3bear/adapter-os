@@ -11,7 +11,10 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_router::Router;
+use adapteros_lora_router::{extract_attn_entropy, CodeFeatures};
+use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
@@ -122,6 +125,21 @@ pub struct InferencePipeline {
     config: InferencePipelineConfig,
     /// Quarantine manager for policy hash enforcement
     quarantine_manager: Arc<Mutex<QuarantineManager>>,
+    /// Optional prior computation context (manifest + lifecycle)
+    prior_context: Option<PriorContext>,
+    /// Recent output logits for sliding-window entropy
+    recent_logits: Vec<Vec<f32>>,
+    /// Sliding entropy window size (default 8)
+    entropy_window: usize,
+}
+
+/// Context for computing priors during routing
+#[derive(Clone)]
+struct PriorContext {
+    /// Framework IDs for each adapter in manifest order
+    adapter_framework_ids: Vec<Option<String>>,
+    /// Lifecycle manager handle for activation percentages
+    lifecycle: Arc<LifecycleManager>,
 }
 
 impl InferencePipeline {
@@ -162,6 +180,9 @@ impl InferencePipeline {
             telemetry,
             config,
             quarantine_manager,
+            prior_context: None,
+            recent_logits: Vec::new(),
+            entropy_window: 8,
         })
     }
 
@@ -201,7 +222,30 @@ impl InferencePipeline {
             telemetry,
             config,
             quarantine_manager,
+            prior_context: None,
+            recent_logits: Vec::new(),
+            entropy_window: 8,
         })
+    }
+
+    /// Attach prior computation context (manifest + lifecycle). Optional.
+    /// Precomputes adapter framework IDs for efficient per-step priors.
+    pub fn with_prior_context(
+        mut self,
+        manifest: &ManifestV3,
+        lifecycle: Arc<LifecycleManager>,
+    ) -> Self {
+        let adapter_framework_ids = manifest
+            .adapters
+            .iter()
+            .map(|a| a.framework_id.clone())
+            .collect::<Vec<_>>();
+
+        self.prior_context = Some(PriorContext {
+            adapter_framework_ids,
+            lifecycle,
+        });
+        self
     }
 
     /// Run inference on a prompt
@@ -255,10 +299,42 @@ impl InferencePipeline {
             };
 
             // 5. Router decision: select K adapters
-            // Create feature vector from token embeddings (simplified for now)
-            let features = self.create_feature_vector(&current_tokens);
-            let priors = vec![1.0; 8]; // Uniform priors for all adapters
-            let decision = self.router.route(&features, &priors);
+            // Build code features from prompt context with sliding-window entropy
+            let mut code_features = self.create_code_features(&formatted_prompt);
+
+            // Compute priors
+            let priors = if let Some(pc) = &self.prior_context {
+                if pc.adapter_framework_ids.is_empty() {
+                    // No adapters available in manifest; fallback to uniform priors
+                    vec![1.0; 8]
+                } else {
+                    let mut priors = vec![1.0f32; pc.adapter_framework_ids.len()];
+
+                    // Framework prior boosts from features
+                    for (i, fw) in pc.adapter_framework_ids.iter().enumerate() {
+                        if let Some(framework) = fw {
+                            if let Some(boost) = code_features.framework_prior.get(framework) {
+                                priors[i] += boost * 0.5; // scale framework boost
+                            }
+                        }
+                    }
+
+                    // Lifecycle activation percentage prior
+                    for (i, prior) in priors.iter_mut().enumerate() {
+                        let act = pc.lifecycle.activation_pct(i as u16);
+                        *prior += act;
+                    }
+
+                    priors
+                }
+            } else {
+                // Fallback to uniform priors (legacy behavior)
+                vec![1.0; 8]
+            };
+
+            // Route using computed features and priors
+            let features_vec = code_features.to_vector();
+            let decision = self.router.route(&features_vec, &priors);
 
             // 6. Check policy: entropy floor (simplified for now)
             // TODO: Implement router entropy check in PolicyEngine
@@ -283,6 +359,13 @@ impl InferencePipeline {
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
             let kernel_latency = kernel_start.elapsed();
+
+            // Update recent logits for sliding-window entropy
+            self.recent_logits.push(io_buffers.output_logits.clone());
+            if self.recent_logits.len() > self.entropy_window {
+                // Remove oldest to maintain window size
+                self.recent_logits.remove(0);
+            }
 
             // 8. Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
@@ -364,31 +447,13 @@ impl InferencePipeline {
         })
     }
 
-    /// Create feature vector for router from tokens
-    fn create_feature_vector(&self, tokens: &[u32]) -> Vec<f32> {
-        // Simplified feature extraction
-        // In production, this would use token embeddings and more sophisticated features
-        let mut features = vec![0.0; 22]; // 22-dimensional feature vector
-
-        // Language detection (one-hot, 8 dims)
-        features[0] = 1.0; // Assume English for now
-
-        // Framework scores (3 dims)
-        features[8] = 0.5; // Generic framework score
-
-        // Symbol hits (1 dim)
-        features[11] = 0.0;
-
-        // Path tokens (1 dim)
-        features[12] = 0.0;
-
-        // Prompt verb (one-hot, 8 dims)
-        features[13] = 1.0; // Generic verb
-
-        // Attention entropy (1 dim)
-        features[21] = self.calculate_token_entropy(tokens);
-
-        features
+    /// Create code features for router from prompt context using sliding-window entropy
+    fn create_code_features(&self, prompt_context: &str) -> CodeFeatures {
+        let mut cf = CodeFeatures::from_context(prompt_context);
+        // Compute stronger entropy from recent logits (sliding window)
+        let entropy = extract_attn_entropy(&self.recent_logits, Some(self.entropy_window));
+        cf.set_attn_entropy(entropy);
+        cf
     }
 
     /// Calculate entropy from token distribution

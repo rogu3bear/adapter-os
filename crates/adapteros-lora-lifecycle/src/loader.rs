@@ -67,12 +67,15 @@ impl AdapterLoader {
                 if let Some(rest) = name.strip_prefix("b3:") {
                     name = rest.to_string();
                 }
+                // Prefer sanitized name; avoid using the raw adapter_name with prefix as a path segment
                 let candidates = [
                     base_path.join(format!("{}.safetensors", name)),
                     base_path.join(&name).join("weights.safetensors"),
-                    base_path.join(&adapter_name).join("weights.safetensors"),
                 ];
-                candidates.into_iter().find(|p| p.exists()).unwrap_or(base_path.join(format!("{}.safetensors", name)))
+                candidates
+                    .into_iter()
+                    .find(|p| p.exists())
+                    .unwrap_or(base_path.join(format!("{}.safetensors", name)))
             };
 
             if !adapter_path.exists() {
@@ -167,16 +170,41 @@ impl AdapterLoader {
     }
 
     /// Resolve adapter file path from flexible identifiers
+    ///
+    /// Supports the following layouts:
+    /// - Hex-based:     `<root>/<hex>.safetensors` or `<root>/<hex>/weights.safetensors`
+    /// - Packaged dir:  `<root>/<id>/weights.safetensors`
+    /// - Legacy flat:   `<root>/<id>.safetensors`
     fn resolve_path(&self, adapter_name: &str) -> std::path::PathBuf {
         let mut name = adapter_name.to_string();
         if let Some(rest) = name.strip_prefix("b3:") {
             name = rest.to_string();
         }
-        let candidates = [
-            self.base_path.join(format!("{}.safetensors", &name)),
-            self.base_path.join(&name).join("weights.safetensors"),
-            self.base_path.join(adapter_name).join("weights.safetensors"),
-        ];
+
+        let is_hex = name.len() == 64 && name.chars().all(|c| c.is_ascii_hexdigit());
+
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+
+        // Prefer packaged dir over flat for non-hex ids
+        if !is_hex {
+            candidates.push(self.base_path.join(&name).join("weights.safetensors"));
+            candidates.push(self.base_path.join(format!("{}.safetensors", &name)));
+        } else {
+            // For hex, try flat first (CAS-like) then packaged dir
+            candidates.push(self.base_path.join(format!("{}.safetensors", &name)));
+            candidates.push(self.base_path.join(&name).join("weights.safetensors"));
+        }
+
+        // Also consider the raw adapter_name value (could include prefixes or legacy ids)
+        if adapter_name != name {
+            candidates.push(
+                self.base_path
+                    .join(adapter_name)
+                    .join("weights.safetensors"),
+            );
+            candidates.push(self.base_path.join(format!("{}.safetensors", adapter_name)));
+        }
+
         candidates
             .into_iter()
             .find(|p| p.exists())
@@ -232,5 +260,50 @@ mod tests {
 
         // Cleanup
         fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[test]
+    fn test_resolve_prefers_packaged_dir_over_flat_for_non_hex() {
+        let temp_dir = std::env::temp_dir().join("mplora_loader_pref");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let name = "my_adapter"; // non-hex id
+                                 // Create both packaged dir and flat file
+        let packaged_dir = temp_dir.join(name);
+        fs::create_dir_all(&packaged_dir).unwrap();
+        let packaged_path = packaged_dir.join("weights.safetensors");
+        fs::write(&packaged_path, b"packaged").unwrap();
+
+        let flat_path = temp_dir.join(format!("{}.safetensors", name));
+        fs::write(&flat_path, b"flat").unwrap();
+
+        let mut loader = AdapterLoader::new(temp_dir.clone());
+        let handle = loader
+            .load_adapter(42, name)
+            .expect("should load packaged path");
+        // Should pick packaged_dir/weights.safetensors
+        assert_eq!(handle.path, packaged_path);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_error_when_no_candidate_path_exists() {
+        let temp_dir = std::env::temp_dir().join("mplora_loader_missing");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let mut loader = AdapterLoader::new(temp_dir.clone());
+        let name = "nonexistent_adapter";
+        let err = loader
+            .load_adapter(1, name)
+            .expect_err("should error when missing");
+        let msg = format!("{}", err);
+        // Should mention the attempted path
+        assert!(msg.contains("Adapter file not found:"));
+        assert!(msg.contains(&format!("{}.safetensors", name)));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

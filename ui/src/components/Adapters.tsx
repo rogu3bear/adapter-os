@@ -14,6 +14,7 @@ import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
 import { TrainingWizard } from './TrainingWizard';
+import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
 import { 
   Plus, 
   Code, 
@@ -160,7 +161,12 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [upsertOpen, setUpsertOpen] = useState(false);
+  const [upsertRoot, setUpsertRoot] = useState('');
+  const [upsertPath, setUpsertPath] = useState('');
+  const [upsertActivate, setUpsertActivate] = useState(true);
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
+  const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
@@ -437,9 +443,17 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <Brain className="h-4 w-4 mr-2" />
               Train Adapter
             </Button>
+            <Button onClick={() => setIsLanguageDialogOpen(true)}>
+              <Brain className="h-4 w-4 mr-2" />
+              Train Language Base Adapter
+            </Button>
             <Button onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Register Adapter
+            </Button>
+            <Button variant="outline" onClick={() => setUpsertOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Directory Upsert
             </Button>
           </div>
         }
@@ -737,6 +751,19 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </DialogContent>
       </Dialog>
 
+      {/* Language Base Adapter Dialog */}
+      <LanguageBaseAdapterDialog
+        open={isLanguageDialogOpen}
+        onOpenChange={setIsLanguageDialogOpen}
+        selectedTenant={selectedTenant}
+        onSuccess={(jobId) => {
+          toast.success(`Training job ${jobId} started`);
+          setIsLanguageDialogOpen(false);
+          setSelectedTrainingJob(jobId);
+          setActiveTab('training');
+        }}
+      />
+
       {/* Register Adapter Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent className="modal-standard">
@@ -756,6 +783,59 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Directory Upsert Dialog */}
+      <Dialog open={upsertOpen} onOpenChange={setUpsertOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Directory Upsert</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="form-label">Tenant</label>
+              <Input value={selectedTenant} readOnly />
+            </div>
+            <div>
+              <label className="form-label">Root (absolute)</label>
+              <Input value={upsertRoot} onChange={(e) => setUpsertRoot(e.target.value)} placeholder="/abs/root" />
+            </div>
+            <div>
+              <label className="form-label">Path (relative)</label>
+              <Input value={upsertPath} onChange={(e) => setUpsertPath(e.target.value)} placeholder="src/" />
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="activate" type="checkbox" checked={upsertActivate} onChange={(e) => setUpsertActivate(e.target.checked)} />
+              <label htmlFor="activate">Activate after create</label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpsertOpen(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              try {
+                const resp = await fetch(`${(import.meta as any).env?.VITE_API_URL || '/api'}/v1/adapters/directory/upsert`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(apiClient.getToken() ? { 'Authorization': `Bearer ${apiClient.getToken()}` } : {}),
+                  },
+                  body: JSON.stringify({ tenant_id: selectedTenant, root: upsertRoot, path: upsertPath, activate: upsertActivate }),
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                toast.success(`Upserted: ${data.adapter_id}`);
+                setUpsertOpen(false);
+                setUpsertRoot('');
+                setUpsertPath('');
+                setUpsertActivate(true);
+                const adaptersData = await apiClient.listAdapters();
+                setAdapters(adaptersData);
+              } catch (err) {
+                toast.error('Upsert failed');
+              }
+            }}>Submit</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

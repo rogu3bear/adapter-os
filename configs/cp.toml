@@ -67,3 +67,23 @@ enabled = true
 alert_dir = "var/alerts"
 max_alerts_per_file = 10000
 rotate_size_mb = 50
+
+# Optional: CAB Golden Gate (config-driven golden run verification during promotion)
+[cab.golden_gate]
+enabled = true
+baseline = "baseline-001"
+# one of: bitwise | epsilon-tolerant | statistical
+strictness = "epsilon-tolerant"
+skip_toolchain = false
+skip_signature = false
+verify_device = false
+# bundle_path = "var/bundles/cp-promote.ndjson" # optional explicit bundle
+
+[jwt]
+secret = "secure-dev-jwt-secret-32-chars-long-at-least-change-in-prod"
+rotation_enabled = true
+max_age = 3600
+
+[rbac]
+enabled = true
+default_role = "admin"

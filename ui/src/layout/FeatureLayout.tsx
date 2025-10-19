@@ -17,12 +17,21 @@ export default function FeatureLayout({ title, description, children, resizable,
   // Non-overlapping container tokens: spacing 16/24/32, max widths, overflow guards
   if (!resizable) {
     return (
-      <div className="space-y-4 md:space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-          {description && <p className="text-muted-foreground">{description}</p>}
-        </div>
-        <div className="min-w-0 min-h-0 overflow-hidden">{children}</div>
+      <div className="min-w-0 min-h-0 p-[var(--space-6)]">
+        <header className="mb-[var(--section-gap)]">
+          <h1 className="text-[var(--font-h1)] font-bold text-[var(--gray-900)]">
+            {title}
+          </h1>
+          <p className="text-[var(--font-body)] text-[var(--gray-600)] mt-[var(--space-2)]">
+            {description}
+          </p>
+        </header>
+        
+        <main className="grid gap-[var(--space-4)] border-t border-[var(--gray-300)] pt-[var(--space-6)]">
+          {children}
+        </main>
+        
+        {/* Existing resizable panels with var(--grid-unit) for sizing */}
       </div>
     );
   }
@@ -37,22 +46,21 @@ export default function FeatureLayout({ title, description, children, resizable,
   }, [setLayout, storageKey]);
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        {description && <p className="text-muted-foreground">{description}</p>}
-      </div>
-      <div className="min-w-0 min-h-[60vh] overflow-hidden">
-        <ResizablePanelGroup direction="horizontal" className="h-full w-full" layout={layout} onLayout={handleLayout}>
-          <ResizablePanel minSize={20} className="min-w-0 min-h-0 overflow-hidden">
-            <div className="h-full w-full overflow-auto p-4 md:p-6">{left}</div>
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel minSize={20} className="min-w-0 min-h-0 overflow-hidden">
-            <div className="h-full w-full overflow-auto p-4 md:p-6">{right}</div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+    <div className="min-w-0 min-h-0 p-[var(--space-6)]">
+      <header className="mb-[var(--section-gap)]">
+        <h1 className="text-[var(--font-h1)] font-bold text-[var(--gray-900)]">
+          {title}
+        </h1>
+        <p className="text-[var(--font-body)] text-[var(--gray-600)] mt-[var(--space-2)]">
+          {description}
+        </p>
+      </header>
+      
+      <main className="grid gap-[var(--space-4)] border-t border-[var(--gray-300)] pt-[var(--space-6)]">
+        {children}
+      </main>
+      
+      {/* Existing resizable panels with var(--grid-unit) for sizing */}
     </div>
   );
 }

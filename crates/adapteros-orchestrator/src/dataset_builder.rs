@@ -6,9 +6,12 @@
 
 use adapteros_codegraph::analyze_directory;
 use adapteros_core::{AosError, Result};
-use adapteros_lora_worker::training::{dataset::ChangeType, dataset::FilePatch, DatasetGenerator, TrainingExample};
+use adapteros_lora_worker::training::{
+    dataset::ChangeType, dataset::FilePatch, DatasetGenerator, TrainingExample,
+};
 use std::path::{Path, PathBuf};
 use tracing::info;
+use walkdir::WalkDir;
 
 /// Configuration for building a directory dataset
 #[derive(Debug, Clone)]
@@ -29,11 +32,18 @@ impl Default for DatasetBuilderConfig {
 }
 
 /// Build training examples from a repository root + relative path
-pub fn build_from_directory(root: &Path, rel: &Path, cfg: DatasetBuilderConfig) -> Result<Vec<TrainingExample>> {
+pub fn build_from_directory(
+    root: &Path,
+    rel: &Path,
+    cfg: DatasetBuilderConfig,
+) -> Result<Vec<TrainingExample>> {
     if !root.is_absolute() {
-        return Err(AosError::Validation("directory root must be absolute".into()));
+        return Err(AosError::Validation(
+            "directory root must be absolute".into(),
+        ));
     }
-    let analysis = analyze_directory(root, rel).map_err(|e| AosError::Validation(format!("directory analysis failed: {}", e)))?;
+    let analysis = analyze_directory(root, rel)
+        .map_err(|e| AosError::Validation(format!("directory analysis failed: {}", e)))?;
 
     info!(
         path = %analysis.path.display(),
@@ -43,19 +53,31 @@ pub fn build_from_directory(root: &Path, rel: &Path, cfg: DatasetBuilderConfig) 
         "Building training dataset from directory"
     );
 
-    // Heuristic: create a patch per file present (treat as Modify of same content),
-    // so DatasetGenerator will create sliding windows of tokens. In future, we can
-    // incorporate diffs/commits to create true old/new pairs.
+    // Walk the directory and create a patch per file.
+    // Treat each file as a self-modification (old == new) to seed examples
+    // via sliding windows. This yields deterministic pairs without diffs.
     let mut patches: Vec<FilePatch> = Vec::new();
-
-    // Build a file list by asking codegraph again limited to rel path; for now,
-    // we just use the fingerprint path itself as a single patch placeholder.
-    patches.push(FilePatch {
-        file_path: normalize_path(&analysis.path),
-        old_content: String::new(),
-        new_content: read_file_best_effort(&analysis.path),
-        change_type: ChangeType::Modify,
-    });
+    let target_dir = root.join(&analysis.path);
+    for entry in WalkDir::new(&target_dir).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path_abs = entry.path().to_path_buf();
+        let content = match std::fs::read_to_string(&path_abs) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let rel_path = path_abs
+            .strip_prefix(root)
+            .unwrap_or(&path_abs)
+            .to_path_buf();
+        patches.push(FilePatch {
+            file_path: normalize_path(&rel_path),
+            old_content: content.clone(),
+            new_content: content,
+            change_type: ChangeType::Modify,
+        });
+    }
 
     let gen = DatasetGenerator::new(cfg.context_window, cfg.min_examples);
     let examples = gen.generate_from_patches(&patches)?;
@@ -63,19 +85,15 @@ pub fn build_from_directory(root: &Path, rel: &Path, cfg: DatasetBuilderConfig) 
     Ok(examples)
 }
 
-fn normalize_path(p: &PathBuf) -> String {
+fn normalize_path(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
-}
-
-fn read_file_best_effort(path: &PathBuf) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_build_from_directory() {
@@ -86,9 +104,11 @@ mod tests {
         let mut f = std::fs::File::create(sub.join("lib.rs")).unwrap();
         writeln!(f, "fn hello() {{ println!(\"hi\"); }}").unwrap();
 
-        let cfg = DatasetBuilderConfig { context_window: 64, min_examples: 1 };
+        let cfg = DatasetBuilderConfig {
+            context_window: 64,
+            min_examples: 1,
+        };
         let examples = build_from_directory(&root, Path::new("src"), cfg).unwrap();
         assert!(!examples.is_empty());
     }
 }
-

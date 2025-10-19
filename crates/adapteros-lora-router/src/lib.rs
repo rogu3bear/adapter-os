@@ -870,4 +870,70 @@ mod tests {
             total
         );
     }
+
+    #[test]
+    fn test_deterministic_route_for_identical_inputs() {
+        // Build a router with default weights and fixed params
+        let weights = RouterWeights::default();
+        let mut router = Router::new_with_weights(weights, 3, 1.0, 0.02);
+
+        // Identical prompt context → identical CodeFeatures
+        let features =
+            CodeFeatures::from_context("Implement a Python function using Django framework");
+        let feature_vec = features.to_vector();
+
+        // Fixed priors vector (e.g., 6 adapters)
+        let priors = vec![1.0f32; 6];
+
+        // Route twice with identical inputs
+        let d1 = router.route(&feature_vec, &priors);
+        let d2 = router.route(&feature_vec, &priors);
+
+        // Deterministic outputs: same indices and same Q15 gates
+        assert_eq!(d1.indices, d2.indices, "Indices must be identical");
+        assert_eq!(d1.gates_q15, d2.gates_q15, "Gates (Q15) must be identical");
+    }
+
+    #[test]
+    fn test_route_with_k0_detection_empty_priors() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        let features = vec![0.0f32; 22];
+        let priors: Vec<f32> = vec![];
+        let d = router.route_with_k0_detection(&features, &priors);
+        assert!(d.indices.is_empty());
+        assert!(d.gates_q15.is_empty());
+    }
+
+    #[test]
+    fn test_q15_gates_properties_k1_and_k3() {
+        // K=1
+        let mut r1 = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+        let features = vec![0.0f32; 22];
+        let priors = vec![0.1, 0.2, 0.3];
+        let d1 = r1.route(&features, &priors);
+        let g1 = d1.gates_f32();
+        assert_eq!(g1.len(), 1);
+        assert!(g1[0] >= 0.0);
+        assert!((g1.iter().sum::<f32>() - 1.0).abs() < 0.02);
+
+        // K=3
+        let mut r3 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        let d3 = r3.route(&features, &priors);
+        let g3 = d3.gates_f32();
+        for &g in &g3 {
+            assert!(g >= 0.0);
+        }
+        assert!((g3.iter().sum::<f32>() - 1.0).abs() < 0.02);
+    }
+
+    #[test]
+    fn test_router_weights_save_load_roundtrip() {
+        let tmp = std::env::temp_dir().join("router_weights_roundtrip.json");
+        let w = RouterWeights::default();
+        w.save(&tmp).expect("save weights");
+        let w2 = RouterWeights::load(&tmp).expect("load weights");
+        let t = w2.total_weight();
+        assert!((t - 1.0).abs() < 0.001, "total_weight ≈ 1, got {}", t);
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
