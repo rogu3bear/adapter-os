@@ -3,8 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { api } from '@/api/client'; // Assume API client exists
-import { JourneyResponse } from '@/api/types'; // Add to types.ts: export interface JourneyResponse { ... } from backend
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // Add Accordion
+import { Input } from '@/components/ui/input'; // Add Input
+import { Button } from '@/components/ui/button'; // Add Button for pagination
+import Mermaid from 'react-mermaid'; // Add Mermaid
+import { api } from '@/api/client';
+import { JourneyResponse } from '@/api/types';
 
 interface JourneysProps {
   user: { email: string; roles: string[] };
@@ -13,7 +17,16 @@ interface JourneysProps {
 
 export function Journeys({ user, selectedTenant }: JourneysProps) {
   const [activeTab, setActiveTab] = useState('adapter-lifecycle');
-  const [journeyId, setJourneyId] = useState('example-id'); // Default or from props
+  const [journeyId, setJourneyId] = useState('example-id');
+  const [idInput, setIdInput] = useState(journeyId); // Dynamic input
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 20;
+
+  // Update query on idInput change
+  React.useEffect(() => {
+    setJourneyId(idInput);
+    setPage(0); // Reset page
+  }, [idInput]);
 
   const { data: journeyData, isLoading, error } = useQuery({
     queryKey: ['journey', activeTab, journeyId, selectedTenant],
@@ -29,23 +42,40 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
   if (isLoading) return <div>Loading journey...</div>;
   if (error) return <div>Error loading journey: {(error as Error).message}</div>;
 
-  const renderStates = (states: JourneyResponse['states']) => (
-    <div className="space-y-2">
-      {states.map((state, idx) => (
-        <Card key={idx}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">{state.state}</CardTitle>
-            <CardDescription className="text-xs">
-              {new Date(state.timestamp.toString()).toLocaleString()}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-xs">{JSON.stringify(state.details, null, 2)}</pre>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+  const paginatedStates = journeyData ? journeyData.states.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
+  const totalPages = Math.ceil((journeyData?.states.length || 0) / PAGE_SIZE);
+
+  const renderStates = (states: JourneyResponse['states']) => {
+    const defaultVal = states.length > 0 ? ['item-0'] : []; // Conditional for 0 states
+    return (
+      <Accordion type="multiple" defaultValue={defaultVal} onValueChange={(details) => console.log('Expanded:', details)} className="w-full">
+        {states.map((state, idx) => (
+          <AccordionItem key={idx} value={`item-${idx}-${state.state}`}>
+            <AccordionTrigger>
+              <CardTitle className="text-sm">{state.state}</CardTitle>
+              <CardDescription className="text-xs">
+                {new Date(state.timestamp.toString()).toLocaleString()}
+              </CardDescription>
+            </AccordionTrigger>
+            <AccordionContent>
+              <CardContent>
+                <pre className="text-xs">{JSON.stringify(state.details, null, 2)}</pre>
+              </CardContent>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    );
+  };
+
+  const generateMermaid = (states: JourneyResponse['states']) => {
+    if (!states.length) return '';
+    let diagram = 'sequenceDiagram\n    participant Adapter\n';
+    states.forEach(s => {
+      diagram += `    Adapter->>Adapter: ${s.state}\n`;
+    });
+    return diagram;
+  };
 
   return (
     <TooltipProvider>
@@ -57,7 +87,19 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
               Visualize and track operational workflows for {selectedTenant}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {/* Dynamic ID Input */}
+            <div className="flex gap-2">
+              <Input
+                value={idInput}
+                onChange={(e) => setIdInput(e.target.value)}
+                placeholder="Enter journey ID"
+                aria-label="Enter journey ID"
+                className="w-64"
+              />
+              <Button onClick={() => setJourneyId(idInput)}>Load</Button>
+            </div>
+
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
               <TabsList>
                 <TabsTrigger value="adapter-lifecycle">
@@ -68,7 +110,6 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
                 </TabsTrigger>
                 <TabsTrigger value="promotion-pipeline">Promotion Pipeline</TabsTrigger>
                 <TabsTrigger value="monitoring-flow">Monitoring Flow</TabsTrigger>
-                {/* Add more tabs for other journeys */}
               </TabsList>
               <TabsContent value={activeTab} className="space-y-4">
                 {journeyData ? (
@@ -77,7 +118,28 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
                       <h3 className="text-lg font-semibold">{journeyData.journey_type} for {journeyData.id}</h3>
                       <p className="text-sm text-muted-foreground">Created: {journeyData.created_at.toLocaleString()}</p>
                     </div>
-                    {renderStates(journeyData.states)}
+                    {/* Mermaid Diagram */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Workflow Diagram</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Mermaid chart={generateMermaid(journeyData.states)} />
+                      </CardContent>
+                    </Card>
+                    {renderStates(paginatedStates)}
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="flex justify-between">
+                        <Button variant="outline" onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0}>
+                          Previous
+                        </Button>
+                        <span>Page {page + 1} of {totalPages}</span>
+                        <Button variant="outline" onClick={() => setPage(p => Math.min(totalPages - 1, p+1))} disabled={page === totalPages - 1}>
+                          Next
+                        </Button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p>Select a journey ID to view details.</p>

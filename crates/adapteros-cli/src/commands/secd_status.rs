@@ -1,8 +1,8 @@
 //! aos-secd status command
 
 use adapteros_secd::{is_process_running, read_pid};
-use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use anyhow::Result;
+use std::path::Path;
 
 /// Display aos-secd daemon status
 pub async fn run(

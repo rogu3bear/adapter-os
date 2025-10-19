@@ -8,7 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::time::{interval, Duration};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 /// Alert watcher that monitors for failed jobs and writes alerts

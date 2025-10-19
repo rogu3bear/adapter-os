@@ -7,6 +7,109 @@
 //! - Memory map hashing
 //! - Replay integration
 //! - End-to-end watchdog functionality
+//!
+//! Buffer relocation detection tests verify:
+//! - Real-time buffer address monitoring
+//! - Relocation event detection and recording
+//! - Content integrity verification
+//! - Replay system integration
+
+#[cfg(test)]
+mod buffer_relocation_tests {
+    use super::super::*;
+    use std::sync::Arc;
+    use chrono;
+
+    #[test]
+    fn test_buffer_relocation_detector_creation() {
+        // Test detector creation on non-macOS
+        let detector = BufferRelocationDetector::new(None, true);
+        assert!(detector.detection_enabled);
+
+        // Test detector creation on macOS (if Metal available)
+        #[cfg(target_os = "macos")]
+        {
+            use metal::Device;
+
+            if let Some(device) = Device::system_default() {
+                let detector = BufferRelocationDetector::new(Arc::new(device), true);
+                assert!(detector.detection_enabled);
+            }
+        }
+    }
+
+    #[test]
+    fn test_buffer_registration_non_macos() {
+        let detector = BufferRelocationDetector::new(None, true);
+
+        // Test buffer registration (should work on all platforms)
+        let buffer_id = detector.register_buffer(None).unwrap();
+        assert_eq!(buffer_id, 1);
+
+        // Test getting relocation history (should be empty)
+        let history = detector.get_relocation_history();
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn test_relocation_detection_non_macos() {
+        let detector = BufferRelocationDetector::new(None, true);
+
+        // Test relocation detection (should return empty on non-macOS)
+        let relocations = detector.check_relocations().unwrap();
+        assert!(relocations.is_empty());
+    }
+
+    #[test]
+    fn test_integrity_verification() {
+        let detector = BufferRelocationDetector::new(None, true);
+
+        let relocation_record = BufferRelocationRecord {
+            relocation_id: uuid::Uuid::new_v4(),
+            buffer_id: 1,
+            original_addr: 0x1000,
+            new_addr: 0x2000,
+            size_bytes: 1024,
+            timestamp: chrono::Utc::now().timestamp_millis() as u128,
+            reason: RelocationReason::MemoryPressure,
+            content_hash_before: None,
+            content_hash_after: None,
+            context: serde_json::json!({}),
+        };
+
+        // Test integrity verification
+        let integrity_ok = detector.verify_relocation_integrity(&relocation_record).unwrap();
+        assert!(integrity_ok);
+    }
+
+    #[tokio::test]
+    async fn test_replay_consistency_verification() {
+        let detector = BufferRelocationDetector::new(None, true);
+
+        // Test replay consistency verification with empty data
+        let expected_relocations = vec![];
+        let consistency_ok = detector.verify_replay_consistency(&expected_relocations).await.unwrap();
+        assert!(consistency_ok);
+
+        // Test with mismatched data
+        let relocation_record = BufferRelocationRecord {
+            relocation_id: uuid::Uuid::new_v4(),
+            buffer_id: 1,
+            original_addr: 0x1000,
+            new_addr: 0x2000,
+            size_bytes: 1024,
+            timestamp: chrono::Utc::now().timestamp_millis() as u128,
+            reason: RelocationReason::MemoryPressure,
+            content_hash_before: None,
+            content_hash_after: None,
+            context: serde_json::json!({}),
+        };
+
+        let expected_relocations = vec![relocation_record];
+        let consistency_ok = detector.verify_replay_consistency(&expected_relocations).await.unwrap();
+        assert!(!consistency_ok); // Should fail due to length mismatch
+    }
+}
 
 #[cfg(test)]
 mod integration_tests {
@@ -48,6 +151,44 @@ mod integration_tests {
         // Generate memory layout hash
         let layout_hash = watchdog.generate_memory_layout_hash().unwrap();
         assert!(!layout_hash.layout_hash.is_zero());
+
+        // Test buffer relocation detection (if Metal is available)
+        #[cfg(target_os = "macos")]
+        {
+            use metal::{Device, MTLResourceOptions};
+
+            if let Some(device) = Device::system_default() {
+                let detector = super::super::BufferRelocationDetector::new(Arc::new(device), true);
+
+                // Test buffer registration (would need actual Metal buffer)
+                // detector.register_buffer(&buffer).unwrap();
+
+                // Test relocation detection
+                let relocations = detector.check_relocations().unwrap();
+                assert!(relocations.is_empty()); // No buffers registered yet
+
+                // Test replay integration
+                let history = detector.get_relocation_history();
+                assert!(history.is_empty());
+
+                // Test integrity verification
+                let relocation_record = super::super::BufferRelocationRecord {
+                    relocation_id: uuid::Uuid::new_v4(),
+                    buffer_id: 1,
+                    original_addr: 0x1000,
+                    new_addr: 0x2000,
+                    size_bytes: 1024,
+                    timestamp: chrono::Utc::now().timestamp_millis() as u128,
+                    reason: super::super::RelocationReason::MemoryPressure,
+                    content_hash_before: None,
+                    content_hash_after: None,
+                    context: serde_json::json!({}),
+                };
+
+                let integrity_ok = detector.verify_relocation_integrity(&relocation_record).unwrap();
+                assert!(integrity_ok);
+            }
+        }
 
         // Verify layout consistency
         watchdog.verify_layout_consistency(&layout_hash).unwrap();

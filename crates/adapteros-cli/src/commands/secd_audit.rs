@@ -104,7 +104,7 @@ pub async fn run(db_path: &Path, limit: i64, operation_type: Option<&str>) -> Re
 }
 
 fn format_timestamp(timestamp: i64) -> String {
-    use chrono::{DateTime, Local, TimeZone};
+    use chrono::{Local, TimeZone};
 
     let dt = Local
         .timestamp_opt(timestamp, 0)

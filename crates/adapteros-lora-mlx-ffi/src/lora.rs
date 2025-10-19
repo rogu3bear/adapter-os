@@ -761,8 +761,8 @@ mod tests {
         // Create a valid buffer first
         let rank = 2usize;
         let hidden = 2usize;
-        let mut a_vals: Vec<f32> = (0..rank * hidden).map(|i| i as f32 * 0.01).collect();
-        let mut b_vals: Vec<f32> = (0..hidden * rank).map(|i| i as f32 * 0.02).collect();
+        let a_vals: Vec<f32> = (0..rank * hidden).map(|i| i as f32 * 0.01).collect();
+        let b_vals: Vec<f32> = (0..hidden * rank).map(|i| i as f32 * 0.02).collect();
         let a_blob: Vec<u8> = a_vals.iter().flat_map(|v| v.to_le_bytes()).collect();
         let b_blob: Vec<u8> = b_vals.iter().flat_map(|v| v.to_le_bytes()).collect();
         let a_view = TensorView::new(

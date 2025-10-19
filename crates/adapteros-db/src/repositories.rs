@@ -1,7 +1,6 @@
 use crate::Db;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 // UUID generation simplified - using timestamp-based IDs
 fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};

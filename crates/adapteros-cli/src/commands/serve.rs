@@ -5,33 +5,8 @@ use anyhow::Result;
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
-use nix::unistd::{geteuid, setgid, setuid, Gid, Uid};
+use nix::unistd::geteuid;
 
-/// Drop privileges to tenant UID/GID
-#[cfg(target_os = "macos")]
-async fn drop_privileges(tenant: &str) -> Result<()> {
-    // Only attempt privilege dropping if running as root (effective UID)
-    if geteuid().as_raw() != 0 {
-        tracing::debug!("Not running as root, skipping privilege drop");
-        return Ok(());
-    }
-
-    // In a production system, you would look up the tenant's UID/GID from a database
-    // For now, we use a simple mapping based on tenant name
-    let (uid, gid) = get_tenant_credentials(tenant)?;
-
-    tracing::info!("Dropping privileges to UID: {}, GID: {}", uid, gid);
-
-    // Drop supplementary groups fully, then set primary group, then user
-    // Drop group privileges first (must be done before dropping user privileges)
-    setgid(Gid::from_raw(gid)).map_err(|e| anyhow::anyhow!("Failed to setgid: {}", e))?;
-
-    // Drop user privileges
-    setuid(Uid::from_raw(uid)).map_err(|e| anyhow::anyhow!("Failed to setuid: {}", e))?;
-
-    tracing::info!("Successfully dropped privileges to tenant: {}", tenant);
-    Ok(())
-}
 
 /// Get tenant credentials (UID/GID)
 /// In production, this would query a database or configuration file

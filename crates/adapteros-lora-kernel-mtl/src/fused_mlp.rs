@@ -74,6 +74,7 @@ impl FusedMlpKernel {
     }
 
     /// Execute the fused MLP kernel
+    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &mut self,
         input: &Buffer,

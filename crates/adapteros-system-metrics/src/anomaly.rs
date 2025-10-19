@@ -646,6 +646,7 @@ struct TenantInfo {
 #[derive(Debug, Clone)]
 struct WorkerInfo {
     id: String,
+    #[allow(dead_code)]
     tenant_id: String,
 }
 

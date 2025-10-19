@@ -742,7 +742,7 @@ impl UnifiedTestingFramework {
         let suite = TestSuite {
             id: suite_id,
             name: "Integration E2E".to_string(),
-            description,
+            description: Some(description),
             test_cases,
             config,
             metadata: HashMap::new(),
@@ -774,6 +774,43 @@ impl UnifiedTestingFramework {
             metadata: HashMap::new(),
         }]; // Mock one, extend for all
 
+        // Pre-compute summary metrics before moving `test_results` into the struct
+        let total_tests = test_results.len() as u32;
+        let passed_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Passed)
+            .count() as u32;
+        let failed_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Failed)
+            .count() as u32;
+        let skipped_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Skipped)
+            .count() as u32;
+        let error_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Error)
+            .count() as u32;
+        let timeout_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Timeout)
+            .count() as u32;
+        let success_rate = if total_tests == 0 {
+            0.0
+        } else {
+            passed_tests as f64 / total_tests as f64
+        };
+        let average_execution_time_ms = if total_tests == 0 {
+            0.0
+        } else {
+            test_results
+                .iter()
+                .map(|r| r.execution_time_ms)
+                .sum::<u64>() as f64
+                / total_tests as f64
+        };
+
         TestSuiteResult {
             suite_id: suite.id.clone(),
             status: TestStatus::Passed,
@@ -782,45 +819,14 @@ impl UnifiedTestingFramework {
             end_time: chrono::Utc::now(),
             test_results,
             summary: TestSummary {
-                total_tests: test_results.len() as u32,
-                passed_tests: test_results
-                    .iter()
-                    .filter(|r| r.status == TestStatus::Passed)
-                    .count() as u32,
-                failed_tests: test_results
-                    .iter()
-                    .filter(|r| r.status == TestStatus::Failed)
-                    .count() as u32,
-                skipped_tests: test_results
-                    .iter()
-                    .filter(|r| r.status == TestStatus::Skipped)
-                    .count() as u32,
-                error_tests: test_results
-                    .iter()
-                    .filter(|r| r.status == TestStatus::Error)
-                    .count() as u32,
-                timeout_tests: test_results
-                    .iter()
-                    .filter(|r| r.status == TestStatus::Timeout)
-                    .count() as u32,
-                success_rate: if test_results.is_empty() {
-                    0.0
-                } else {
-                    test_results
-                        .iter()
-                        .filter(|r| r.status == TestStatus::Passed)
-                        .count() as f64
-                        / test_results.len() as f64
-                },
-                average_execution_time_ms: if test_results.is_empty() {
-                    0.0
-                } else {
-                    test_results
-                        .iter()
-                        .map(|r| r.execution_time_ms)
-                        .sum::<u64>() as f64
-                        / test_results.len() as f64
-                },
+                total_tests,
+                passed_tests,
+                failed_tests,
+                skipped_tests,
+                error_tests,
+                timeout_tests,
+                success_rate,
+                average_execution_time_ms,
             },
             metadata: HashMap::new(),
         }

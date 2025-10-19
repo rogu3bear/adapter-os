@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_gpu_collector_creation() {
-        let collector = GpuMetricsCollector::new();
+        let _collector = GpuMetricsCollector::new();
         // Test that collector can be created without panicking
         assert!(true);
     }

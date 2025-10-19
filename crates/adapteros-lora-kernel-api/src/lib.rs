@@ -144,6 +144,7 @@ impl Default for MockKernels {
 /// CPU fallback kernels implementing a deterministic, input-dependent
 /// scoring function without GPU acceleration. This is intended for
 /// functionality-first operation in environments without Metal/MLX.
+#[allow(dead_code)]
 pub struct CpuKernels {
     device_name: String,
     vocab_size: usize,

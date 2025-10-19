@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_quantize_zeros() {
         let zeros = vec![0.0; 10];
-        let (quantized, scale) = LoRAQuantizer::quantize_row(&zeros);
+        let (quantized, _scale) = LoRAQuantizer::quantize_row(&zeros);
 
         assert_eq!(quantized.len(), 10);
         assert!(quantized.iter().all(|&v| v == 0));

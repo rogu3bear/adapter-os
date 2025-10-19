@@ -717,7 +717,7 @@ impl<K: FusedKernels> Worker<K> {
         patch_request: &PatchProposalRequest,
     ) -> Result<InferenceResponse> {
         use crate::evidence::EvidenceRequest;
-        use crate::patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator};
+        use crate::patch_generator::{PatchGenerationRequest, PatchGenerator};
         use crate::patch_telemetry::{
             EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics,
         };

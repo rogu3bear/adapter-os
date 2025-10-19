@@ -110,6 +110,7 @@ impl FusedQkvKernel {
     }
 
     /// Execute the fused QKV kernel
+    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
         input: &Buffer,

@@ -14,6 +14,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
 
 # AdapterOS dependencies
 adapteros-core = { path = "../adapteros-core" }
@@ -23,9 +25,13 @@ adapteros-graph = { path = "../adapteros-graph" }
 # Schema & Validation
 schemars = "0.8"
 serde_jcs = "0.1"
+zstd = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true }
 
 # Filesystem
 tempfile = { workspace = true }
+
+# Observability
+tracing = { workspace = true }

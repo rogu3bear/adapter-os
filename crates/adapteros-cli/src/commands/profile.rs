@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Table};
 use std::path::PathBuf;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// Profiling snapshot structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

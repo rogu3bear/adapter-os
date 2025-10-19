@@ -1,6 +1,5 @@
 use axum::{
     body::Body,
-    extract::Path,
     http::{header, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
     routing::get,

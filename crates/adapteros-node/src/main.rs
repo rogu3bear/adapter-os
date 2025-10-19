@@ -13,7 +13,7 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod agent;
-use agent::{NodeAgent, NodeHealth, WorkerInfo};
+use agent::NodeAgent;
 
 #[derive(Parser)]
 #[command(name = "aos-node")]

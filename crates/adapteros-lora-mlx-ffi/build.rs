@@ -178,6 +178,31 @@ fn generate_real_bindings(include_dir: &Path) {
         .clang_arg(format!("-I{}", include))
         .clang_arg("-I.")
         .clang_arg("-DMLX_HAVE_REAL_API")
+        // Suppress warnings from system headers that we can't control
+        .clang_arg("-Wno-non-camel-case-types")
+        .clang_arg("-Wno-non-upper-case-globals")
+        .clang_arg("-Wno-non-snake-case")
+        // Only generate bindings for our wrapper types and functions
+        .allowlist_type("mlx_.*")
+        .allowlist_function("mlx_.*")
+        // Allow system types that are explicitly used in our wrapper
+        .allowlist_type("wchar_t")
+        .allowlist_type("max_align_t")
+        .allowlist_type("int_least.*_t")
+        .allowlist_type("uint_least.*_t")
+        .allowlist_type("int_fast.*_t")
+        .allowlist_type("uint_fast.*_t")
+        .allowlist_type("__int.*_t")
+        .allowlist_type("__uint.*_t")
+        .allowlist_type("__darwin_.*_t")
+        .allowlist_type("intmax_t")
+        .allowlist_type("uintmax_t")
+        .allowlist_type("__builtin_va_list")
+        // Allow system constants that are needed
+        .allowlist_var("__darwin_.*")
+        .allowlist_var("__bool_true_false_are_defined")
+        .allowlist_var("true_")
+        .allowlist_var("false_")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");

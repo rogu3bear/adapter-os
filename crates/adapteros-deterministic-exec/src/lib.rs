@@ -78,6 +78,7 @@ impl std::fmt::Display for TaskId {
 /// Cancellation token with BLAKE3-hashed cause tracking
 #[derive(Debug, Clone)]
 pub struct CancelToken {
+    #[allow(dead_code)]
     cause: String,
     cause_hash: [u8; 32],
     cancelled: Arc<AtomicU64>,
@@ -180,6 +181,7 @@ pub type Result<T> = std::result::Result<T, DeterministicExecutorError>;
 /// Handle for a spawned deterministic task
 pub struct DeterministicJoinHandle {
     task_id: TaskId,
+    #[allow(dead_code)]
     executor: Arc<DeterministicExecutor>,
 }
 
@@ -286,6 +288,7 @@ impl Default for ExecutorConfig {
 #[derive(Debug, Clone)]
 pub struct TickTimeout {
     /// Task ID this timeout belongs to
+    #[allow(dead_code)]
     task_id: TaskId,
     /// Tick when timeout should trigger
     timeout_tick: u64,

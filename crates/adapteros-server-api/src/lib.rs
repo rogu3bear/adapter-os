@@ -1,8 +1,6 @@
 pub mod auth;
 pub mod cab_workflow;
-pub mod handlers {
-    pub mod journeys;
-}
+pub mod handlers;
 pub mod middleware;
 pub mod routes;
 pub mod signing;

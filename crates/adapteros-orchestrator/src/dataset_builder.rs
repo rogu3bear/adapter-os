@@ -9,7 +9,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{
     dataset::ChangeType, dataset::FilePatch, DatasetGenerator, TrainingExample,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::info;
 use walkdir::WalkDir;
 

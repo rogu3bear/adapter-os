@@ -6,7 +6,7 @@ use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
-use adapteros_system_metrics::{
+use adapteros_system_metrics::monitoring_types::{
     AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
     CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
@@ -21,6 +21,8 @@ pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod golden;
+pub mod journeys;
+pub mod models;
 pub mod openai;
 pub mod replay;
 
@@ -40,20 +42,25 @@ use serde::Deserialize;
 use adapteros_verify::{verify_against_golden, ComparisonConfig};
 use anyhow::Context as _;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use futures_util::stream::{self, Stream};
+use futures_util::stream::{self, Stream, StreamExt};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::Path as StdPath;
+use std::time::Duration;
 use tokio_stream::wrappers::ReceiverStream;
 
 // Helper: CAB Golden Gate verification (read-only)
 async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
-    let cfg_guard = state
-        .config
-        .read()
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    // Copy required config values and drop the lock before awaiting
+    let (gg_opt, bundles_root) = {
+        let cfg_guard = state
+            .config
+            .read()
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        (cfg_guard.golden_gate.clone(), cfg_guard.bundles_root.clone())
+    };
 
-    let gg = match &cfg_guard.golden_gate {
+    let gg = match gg_opt {
         Some(c) if c.enabled => c,
         _ => return Ok(true),
     };
@@ -68,7 +75,7 @@ async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
     let bundle_path = if let Some(p) = &gg.bundle_path {
         std::path::PathBuf::from(p)
     } else {
-        newest_ndjson(&cfg_guard.bundles_root)
+        newest_ndjson(&bundles_root)
             .context("no .ndjson bundles found under bundles_root")?
     };
 
@@ -1630,6 +1637,7 @@ pub async fn build_plan(
 }
 
 /// Promote CP with quality gates
+#[axum::debug_handler]
 pub async fn cp_promote(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -2717,6 +2725,7 @@ pub async fn export_plan_manifest(
 }
 
 /// Check promotion gates
+#[axum::debug_handler]
 pub async fn promotion_gates(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -3096,15 +3105,56 @@ pub async fn verify_bundle_signature(
     Extension(_claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<VerifyBundleSignatureResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would verify signature using mplora-crypto
-    Ok(Json(VerifyBundleSignatureResponse {
-        bundle_id,
-        valid: true,
-        signature: "ed25519:abc123...".to_string(),
-        signed_by: "control-plane-key".to_string(),
-        signed_at: chrono::Utc::now().to_rfc3339(),
-        verification_error: None,
-    }))
+    // Filesystem M0: bundles in var/bundles and signatures in var/signatures
+    let bundles_root = std::path::Path::new("var/bundles");
+    let signatures_root = std::path::Path::new("var/signatures");
+
+    // Prefer .ndjson, fall back to .ndjson.zst
+    let ndjson = bundles_root.join(format!("{}.ndjson", bundle_id));
+    let zst = bundles_root.join(format!("{}.ndjson.zst", bundle_id));
+    let bundle_path = if ndjson.exists() { ndjson } else { zst };
+
+    if !bundle_path.exists() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("bundle not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    // Load bundle and verify signature
+    let bundle = match adapteros_trace::read_trace_bundle(&bundle_path) {
+        Ok(b) => b,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("failed to parse bundle")
+                        .with_code("BAD_BUNDLE")
+                        .with_string_details(e.to_string()),
+                ),
+            ))
+        }
+    };
+
+    // Attempt signature verify from var/signatures/<hash>.sig
+    match adapteros_crypto::verify_bundle_from_file(&bundle.bundle_hash, &signatures_root) {
+        Ok(sig) => Ok(Json(VerifyBundleSignatureResponse {
+            bundle_id,
+            valid: true,
+            signature: hex::encode(sig.signature.to_bytes()),
+            signed_by: sig.key_id,
+            signed_at: chrono::Utc::now().to_rfc3339(),
+            verification_error: None,
+        })),
+        Err(e) => Ok(Json(VerifyBundleSignatureResponse {
+            bundle_id,
+            valid: false,
+            signature: String::new(),
+            signed_by: String::new(),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+            verification_error: Some(e.to_string()),
+        })),
+    }
 }
 
 /// Purge old telemetry bundles based on retention policy
@@ -3723,7 +3773,8 @@ pub async fn infer_stream(
         });
     }
 
-    Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
+    let stream = ReceiverStream::new(rx).map(Ok::<Event, Infallible>);
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // ===== Process Debugging Endpoints =====
@@ -6714,7 +6765,7 @@ pub async fn get_training_artifacts(
     let mut manifest_hash_b3 = None;
     let mut manifest_hash_matches = false;
     let mut signature_valid = false;
-    let mut ready = false;
+    let mut _ready = false;
 
     if let (Some(path), Some(aid)) = (job.artifact_path.clone(), job.adapter_id.clone()) {
         let dir = std::path::PathBuf::from(path.clone());

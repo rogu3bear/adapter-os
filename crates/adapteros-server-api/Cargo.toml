@@ -3,6 +3,9 @@ name = "adapteros-server-api"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+openapi = []
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
@@ -41,7 +44,7 @@ tracing = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tower = "0.5"
-tower-http = { version = "0.5", features = ["trace", "cors"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "limit"] }
 utoipa = { version = "4.2", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.0", features = ["v7"] }

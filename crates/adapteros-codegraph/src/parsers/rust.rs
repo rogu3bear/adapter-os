@@ -27,6 +27,7 @@ pub struct RustParser {
     /// Tree-sitter parser
     parser: Parser,
     /// Rust language
+    #[allow(dead_code)]
     rust_lang: TSLanguage,
     /// Query for function definitions
     function_query: Query,

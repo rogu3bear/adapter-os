@@ -180,7 +180,7 @@ impl LifecycleManager {
             for (_, adapter_id, _, _, pct) in updates.iter().cloned() {
                 let db_clone = db.clone();
                 spawn_deterministic("Activation pct update".to_string(), async move {
-                    if let Err(e) = sqlx::query(
+                    let _ = sqlx::query(
                         "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
                          WHERE adapter_id = ?",
                     )
@@ -188,9 +188,9 @@ impl LifecycleManager {
                     .bind(&adapter_id)
                     .execute(db_clone.pool())
                     .await
-                    {
+                    .map_err(|e| {
                         warn!("Failed to update activation_pct for {}: {}", adapter_id, e);
-                    }
+                    });
                 });
             }
         }

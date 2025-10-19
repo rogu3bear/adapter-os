@@ -884,6 +884,7 @@ impl AlertEvaluator {
     }
 
     /// Trigger anomaly alert
+    #[allow(dead_code)]
     async fn trigger_anomaly_alert(
         &self,
         rule: &ProcessMonitoringRule,
@@ -2080,7 +2081,9 @@ struct BaselineStats {
     std_dev: f64,
     #[allow(dead_code)]
     sample_count: usize,
+    #[allow(dead_code)]
     min_value: f64,
+    #[allow(dead_code)]
     max_value: f64,
 }
 

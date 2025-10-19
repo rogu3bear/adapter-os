@@ -14,8 +14,6 @@ pub fn generate_openapi() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn openapi_generates_without_error() {
         super::generate_openapi().expect("Failed to generate OpenAPI spec");

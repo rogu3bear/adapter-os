@@ -15,18 +15,23 @@ use tracing::{error, info};
 /// Unified policy enforcement interface
 pub trait PolicyEnforcer {
     /// Validate a request against all applicable policies
+    #[allow(async_fn_in_trait)]
     async fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult>;
 
     /// Check if an operation is allowed
+    #[allow(async_fn_in_trait)]
     async fn is_operation_allowed(&self, operation: &Operation) -> Result<bool>;
 
     /// Get policy violations for an operation
+    #[allow(async_fn_in_trait)]
     async fn get_violations(&self, operation: &Operation) -> Result<Vec<PolicyViolation>>;
 
     /// Apply policy enforcement to an operation
+    #[allow(async_fn_in_trait)]
     async fn enforce_policy(&self, operation: &Operation) -> Result<PolicyEnforcementResult>;
 
     /// Get policy compliance report
+    #[allow(async_fn_in_trait)]
     async fn get_compliance_report(&self) -> Result<PolicyComplianceReport>;
 }
 

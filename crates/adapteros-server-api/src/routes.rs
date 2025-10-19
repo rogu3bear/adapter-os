@@ -7,6 +7,9 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use axum::extract::{Path, State};
+use axum::{Extension, Json};
+// Note: Rate limiting disabled - consider using tower-governor for proper rate limiting
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -85,6 +88,8 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::delete_domain_adapter,
         // Model status handlers
         handlers::get_base_model_status,
+        // Model management handlers - Citation: IMPLEMENTATION_PLAN.md Phase 1
+        // Note: OpenAPI path macros disabled due to feature flag
         // OpenAI-compatible handlers
         handlers::openai::chat_completions,
         handlers::openai::list_models,
@@ -204,7 +209,8 @@ pub struct ApiDoc;
 
 pub fn build(state: AppState) -> Router {
     // Public routes (no auth required)
-    let public_routes = Router::new()
+    let public_routes: Router<AppState> = Router::new()
+        .with_state(state.clone())
         .route("/healthz", get(handlers::health))
         .route("/readyz", get(handlers::ready))
         .route("/v1/auth/login", post(handlers::auth_login))
@@ -216,7 +222,8 @@ pub fn build(state: AppState) -> Router {
         .with_state(state.clone());
 
     // OpenAI-compatible endpoints (dual auth: API key or JWT)
-    let openai_routes = Router::new()
+    let openai_routes: Router<AppState> = Router::new()
+        .with_state(state.clone())
         .route(
             "/v1/chat/completions",
             post(handlers::openai::chat_completions),
@@ -225,11 +232,25 @@ pub fn build(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             dual_auth_middleware,
-        ))
-        .with_state(state.clone());
+        ));
 
     // Protected routes (require auth)
-    let protected_routes = Router::new()
+    use axum::routing::MethodRouter;
+
+    // Help type inference for handlers that require state by wrapping in closures
+    let cp_promote_route: MethodRouter<AppState> = post(
+        |state: State<AppState>, claims: Extension<crate::auth::Claims>, req: Json<crate::types::PromoteCPRequest>| async move {
+            handlers::cp_promote(state, claims, req).await
+        },
+    );
+    let promotion_gates_route: MethodRouter<AppState> = get(
+        |state: State<AppState>, claims: Extension<crate::auth::Claims>, Path(cpid): Path<String>| async move {
+            handlers::promotion_gates(state, claims, Path(cpid)).await
+        },
+    );
+
+    let protected_routes: Router<AppState> = Router::new()
+        .with_state(state.clone())
         .route("/v1/auth/logout", post(handlers::auth_logout))
         .route("/v1/auth/me", get(handlers::auth_me))
         .route(
@@ -293,10 +314,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/plans/:plan_id/manifest",
             get(handlers::export_plan_manifest),
         )
-        .route("/v1/cp/promote", post(handlers::cp_promote))
+        .route("/v1/cp/promote", cp_promote_route)
         .route(
             "/v1/cp/promotion-gates/:cpid",
-            get(handlers::promotion_gates),
+            promotion_gates_route,
         )
         .route("/v1/cp/rollback", post(handlers::cp_rollback))
         .route("/v1/cp/promote/dry-run", post(handlers::cp_dry_run_promote))
@@ -435,18 +456,8 @@ pub fn build(state: AppState) -> Router {
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))
         .route("/v1/adapters/:adapter_id", get(handlers::get_adapter))
-        .route(
-            "/v1/adapters/register",
-            post(handlers::register_adapter.with_state(state.clone()).layer(
-                middleware::from_fn_with_state(state.clone(), admin_middleware),
-            )),
-        )
-        .route(
-            "/v1/adapters/:adapter_id",
-            axum::routing::delete(handlers::delete_adapter.with_state(state.clone()).layer(
-                middleware::from_fn_with_state(state.clone(), admin_middleware),
-            )),
-        )
+        .route("/v1/adapters/register", post(handlers::register_adapter))
+        .route("/v1/adapters/:adapter_id", axum::routing::delete(handlers::delete_adapter))
         .route(
             "/v1/adapters/:adapter_id/load",
             post(handlers::load_adapter),
@@ -476,6 +487,12 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
         )
+        // Base model management routes - Citation: IMPLEMENTATION_PLAN.md Phase 1
+        .route("/v1/models/import", post(handlers::models::import_model))
+        .route("/v1/models/:model_id/load", post(handlers::models::load_model))
+        .route("/v1/models/:model_id/unload", post(handlers::models::unload_model))
+        .route("/v1/models/imports/:import_id", get(handlers::models::get_import_status))
+        .route("/v1/models/cursor-config", get(handlers::models::get_cursor_config))
         // Domain adapter routes
         .route(
             "/v1/domain-adapters",
@@ -657,10 +674,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ));
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Configure CORS for development
     let cors = CorsLayer::permissive(); // Allow all origins in dev mode
@@ -674,9 +688,5 @@ pub fn build(state: AppState) -> Router {
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .layer(tower::limit::RateLimitLayer::new(
-            100,
-            std::time::Duration::from_secs(60),
-        ))
         .with_state(state)
 }

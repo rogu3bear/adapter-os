@@ -190,7 +190,7 @@ pub async fn run(cpid: &str, suite: Option<&Path>, output: &OutputWriter) -> Res
 }
 
 /// Generate code metrics report from audit data
-pub fn generate_code_metrics_report(
+pub fn _generate_code_metrics_report(
     cpid: &str,
     code_metrics: &CodeMetrics,
     output_path: &Path,

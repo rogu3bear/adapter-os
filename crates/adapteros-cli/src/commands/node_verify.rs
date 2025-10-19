@@ -3,7 +3,6 @@
 use adapteros_core::B3Hash;
 use adapteros_db::Db;
 use anyhow::{Context, Result};
-use comfy_table::{presets::UTF8_FULL, Table};
 use std::collections::HashMap;
 
 /// Verify determinism across nodes

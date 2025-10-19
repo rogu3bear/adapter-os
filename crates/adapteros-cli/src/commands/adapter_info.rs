@@ -1,7 +1,6 @@
 //! Adapter info command - show provenance and signer information
 
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL, Table};
 
 /// Show adapter information including signer and provenance
 pub async fn run(adapter_id: &str) -> Result<()> {

@@ -12,11 +12,17 @@ use sysinfo::System;
 /// System metrics collector
 pub struct SystemMetricsCollector {
     sys: System,
+    #[allow(dead_code)]
     last_cpu_time: u64,
+    #[allow(dead_code)]
     last_cpu_count: usize,
+    #[allow(dead_code)]
     last_disk_read: u64,
+    #[allow(dead_code)]
     last_disk_write: u64,
+    #[allow(dead_code)]
     last_network_rx: u64,
+    #[allow(dead_code)]
     last_network_tx: u64,
     last_collection: SystemTime,
 }
@@ -219,10 +225,10 @@ mod tests {
         let mut collector = SystemMetricsCollector::new();
         let metrics = collector.collect_metrics();
 
-        assert!(metrics.cpu_usage >= 0.0 && metrics.cpu_usage <= 100.0);
-        assert!(metrics.memory_usage >= 0.0 && metrics.memory_usage <= 100.0);
-        assert!(metrics.disk_io.read_bytes >= 0);
-        assert!(metrics.network_io.rx_bytes >= 0);
+        assert!(metrics.cpu_usage.is_finite() && metrics.cpu_usage >= 0.0 && metrics.cpu_usage <= 100.0);
+        assert!(metrics.memory_usage.is_finite() && metrics.memory_usage >= 0.0 && metrics.memory_usage <= 100.0);
+        assert!(metrics.disk_io.read_bytes >= 0); // u64 is always >= 0
+        assert!(metrics.network_io.rx_bytes >= 0); // u64 is always >= 0
     }
 
     #[test]

@@ -3,9 +3,9 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
 use adapteros_policy::{
-    explain_policy, list_policies, PolicyHashWatcher, PolicyId, QuarantineManager,
+    explain_policy, list_policies, PolicyId,
 };
-use clap::{Args, Subcommand};
+use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use std::sync::Arc;
 
@@ -259,7 +259,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
     };
 
     let mut passed = 0;
-    let mut failed = 0;
+    let failed = 0;
     let mut skipped = 0;
 
     for policy_id in policies_to_check {
