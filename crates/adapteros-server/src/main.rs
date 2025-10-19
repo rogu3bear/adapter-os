@@ -261,9 +261,9 @@ async fn main() -> Result<()> {
     info!("Connecting to database: {}", db_path);
     let db = Db::connect(&db_path).await?;
 
-    // Run migrations (temporarily disabled for demo)
-    info!("Skipping database migrations for demo");
-    // db.migrate().await?;
+    // Run migrations
+    info!("Running database migrations");
+    db.migrate().await?;
 
     // Seed development data
     if let Err(e) = db.seed_dev_data().await {
@@ -280,11 +280,28 @@ async fn main() -> Result<()> {
         let cfg = config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        // Map CAB golden gate config if present
+        let golden_gate = cfg
+            .cab
+            .as_ref()
+            .and_then(|c| c.golden_gate.as_ref())
+            .map(|gg| adapteros_server_api::state::GoldenGateConfigApi {
+                enabled: gg.enabled,
+                baseline: gg.baseline.clone(),
+                strictness: gg.strictness,
+                skip_toolchain: gg.skip_toolchain,
+                skip_signature: gg.skip_signature,
+                verify_device: gg.verify_device,
+                bundle_path: gg.bundle_path.clone(),
+            });
+
         Arc::new(RwLock::new(adapteros_server_api::state::ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: cfg.metrics.enabled,
                 bearer_token: cfg.metrics.bearer_token.clone(),
             },
+            golden_gate,
+            bundles_root: cfg.paths.bundles_root.clone(),
         }))
     };
 
@@ -320,6 +337,21 @@ async fn main() -> Result<()> {
                                 api_cfg.metrics.enabled = new_config.metrics.enabled;
                                 api_cfg.metrics.bearer_token =
                                     new_config.metrics.bearer_token.clone();
+                                // Update golden gate config
+                                api_cfg.golden_gate = new_config
+                                    .cab
+                                    .as_ref()
+                                    .and_then(|c| c.golden_gate.as_ref())
+                                    .map(|gg| adapteros_server_api::state::GoldenGateConfigApi {
+                                        enabled: gg.enabled,
+                                        baseline: gg.baseline.clone(),
+                                        strictness: gg.strictness,
+                                        skip_toolchain: gg.skip_toolchain,
+                                        skip_signature: gg.skip_signature,
+                                        verify_device: gg.verify_device,
+                                        bundle_path: gg.bundle_path.clone(),
+                                    });
+                                api_cfg.bundles_root = new_config.paths.bundles_root.clone();
                             }
                             Err(e) => {
                                 error!("API config lock poisoned during reload: {}", e);
@@ -450,6 +482,46 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Telemetry bundle retention GC loop (runs every 6 hours)
+    {
+        use adapteros_telemetry::bundle_store::{BundleStore, EvictionStrategy, RetentionPolicy};
+        let cfg_guard = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        let bundles_root = cfg_guard.paths.bundles_root.clone();
+        // Use defaults for now (config knobs can be added as needed)
+        let keep_bundles_per_cpid: usize = 12;
+        let keep_incident_bundles = true;
+        let keep_promotion_bundles = true;
+        drop(cfg_guard);
+
+        let _ = spawn_deterministic("Telemetry GC".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(6 * 60 * 60));
+            loop {
+                interval.tick().await;
+                let policy = RetentionPolicy {
+                    keep_bundles_per_cpid,
+                    keep_incident_bundles,
+                    keep_promotion_bundles,
+                    evict_strategy: EvictionStrategy::OldestFirstSafe,
+                };
+                match BundleStore::new(&bundles_root, policy) {
+                    Ok(mut store) => match store.run_gc() {
+                        Ok(report) => info!(
+                            "Telemetry GC: evicted={} freed={} retained={}",
+                            report.evicted_bundles.len(),
+                            report.bytes_freed,
+                            report.retained_bundles
+                        ),
+                        Err(e) => warn!("Telemetry GC run failed: {}", e),
+                    },
+                    Err(e) => warn!("Telemetry GC init failed: {}", e),
+                }
+            }
+        });
+        info!("Telemetry retention GC loop scheduled (6h interval)");
+    }
+
     // TODO: Start Federation Daemon once dependencies are fixed
     // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
     // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
@@ -509,6 +581,20 @@ async fn main() -> Result<()> {
         api_config.clone(),
         Arc::clone(&metrics_exporter),
     );
+
+    // Configure JWT mode from config (HMAC by default, EdDSA optional)
+    {
+        use adapteros_server_api::state::JwtMode;
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        let mode = match cfg.security.jwt_mode.as_deref() {
+            Some("eddsa") => JwtMode::EdDsa,
+            _ => JwtMode::Hmac,
+        };
+        let pem = cfg.security.jwt_public_key_pem.clone();
+        state.set_jwt_mode(mode, pem);
+    }
 
     // Initialize Git subsystem (optional, only if enabled in config)
     let git_enabled = config

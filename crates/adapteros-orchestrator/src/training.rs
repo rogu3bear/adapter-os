@@ -4,13 +4,16 @@
 //! Integrates with MLX backend for actual training operations.
 
 use adapteros_core::AosError;
+use adapteros_lora_worker::training::{
+    MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
+    TrainingExample as WorkerTrainingExample,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
-use adapteros_lora_worker::training::{MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig, TrainingExample as WorkerTrainingExample};
 
 /// Training job state
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -437,25 +440,62 @@ async fn run_training_job(
         match tokio::fs::read_to_string(&path).await {
             Ok(s) => {
                 #[derive(serde::Deserialize)]
-                struct TrainingData { examples: Vec<TrainingExampleJson>, }
+                struct TrainingData {
+                    examples: Vec<TrainingExampleJson>,
+                }
                 #[derive(serde::Deserialize)]
-                struct TrainingExampleJson { input: Vec<u32>, target: Vec<u32>, }
+                struct TrainingExampleJson {
+                    input: Vec<u32>,
+                    target: Vec<u32>,
+                }
                 match serde_json::from_str::<TrainingData>(&s) {
-                    Ok(td) => td.examples.into_iter().map(|e| WorkerTrainingExample { input: e.input, target: e.target, metadata: Default::default() }).collect(),
+                    Ok(td) => td
+                        .examples
+                        .into_iter()
+                        .map(|e| WorkerTrainingExample {
+                            input: e.input,
+                            target: e.target,
+                            metadata: Default::default(),
+                        })
+                        .collect(),
                     Err(e) => {
-                        tracing::warn!("Failed to parse dataset {}: {}. Falling back to synthetic", path, e);
+                        tracing::warn!(
+                            "Failed to parse dataset {}: {}. Falling back to synthetic",
+                            path,
+                            e
+                        );
                         vec![
-                            WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
-                            WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+                            WorkerTrainingExample {
+                                input: vec![1, 2, 3],
+                                target: vec![4, 5, 6],
+                                metadata: Default::default(),
+                            },
+                            WorkerTrainingExample {
+                                input: vec![7, 8, 9],
+                                target: vec![10, 11, 12],
+                                metadata: Default::default(),
+                            },
                         ]
                     }
                 }
             }
             Err(e) => {
-                tracing::warn!("Failed to read dataset {}: {}. Falling back to synthetic", path, e);
+                tracing::warn!(
+                    "Failed to read dataset {}: {}. Falling back to synthetic",
+                    path,
+                    e
+                );
                 vec![
-                    WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
-                    WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+                    WorkerTrainingExample {
+                        input: vec![1, 2, 3],
+                        target: vec![4, 5, 6],
+                        metadata: Default::default(),
+                    },
+                    WorkerTrainingExample {
+                        input: vec![7, 8, 9],
+                        target: vec![10, 11, 12],
+                        metadata: Default::default(),
+                    },
                 ]
             }
         }
@@ -473,22 +513,39 @@ async fn run_training_job(
                 ) {
                     Ok(ex) => ex,
                     Err(e) => {
-                        tracing::warn!(
-                            "Directory dataset build failed (root={}, rel={}): {}. Falling back to synthetic",
-                            root, rel, e
+                        tracing::error!(
+                            "Directory dataset build failed (root={}, rel={}): {}",
+                            root,
+                            rel,
+                            e
                         );
-                        vec![
-                            WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
-                            WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
-                        ]
+                        // Mark job failed before returning error
+                        {
+                            let mut jobs = jobs_ref.write().await;
+                            if let Some(job) = jobs.get_mut(&job_id) {
+                                job.status = TrainingJobStatus::Failed;
+                                job.error_message = Some(e.to_string());
+                                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                        }
+                        // Propagate error to fail the task
+                        return Err(e.into());
                     }
                 }
             }
         }
     } else {
         vec![
-            WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
-            WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
+            WorkerTrainingExample {
+                input: vec![1, 2, 3],
+                target: vec![4, 5, 6],
+                metadata: Default::default(),
+            },
+            WorkerTrainingExample {
+                input: vec![7, 8, 9],
+                target: vec![10, 11, 12],
+                metadata: Default::default(),
+            },
         ]
     };
 
@@ -525,36 +582,47 @@ async fn run_training_job(
 
                 if package {
                     // Quantize and package into adapters_root
-                    let chosen_root = adapters_root.unwrap_or_else(|| std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string()));
-                    let adapter_id = adapter_id_opt.clone().unwrap_or_else(|| format!("train-{}", uuid::Uuid::new_v4()));
+                    let chosen_root = adapters_root.unwrap_or_else(|| {
+                        std::env::var("AOS_ADAPTERS_ROOT")
+                            .unwrap_or_else(|_| "./adapters".to_string())
+                    });
+                    let adapter_id = adapter_id_opt
+                        .clone()
+                        .unwrap_or_else(|| format!("train-{}", uuid::Uuid::new_v4()));
                     let aid_for_pack = adapter_id.clone();
                     let root_for_pack = chosen_root.clone();
 
                     // Quantize weights
-                    let quantized = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(&training_result.weights);
+                    let quantized = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(
+                        &training_result.weights,
+                    );
 
-                    // Package
-                    let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(&chosen_root);
-                    match tokio::runtime::Handle::current().spawn(async move {
-                        packager.package(&aid_for_pack, &quantized, &adapteros_lora_worker::training::TrainingConfig {
-                            rank: orchestrator_cfg.rank as usize,
-                            alpha: orchestrator_cfg.alpha as f32,
-                            learning_rate: orchestrator_cfg.learning_rate,
-                            batch_size: orchestrator_cfg.batch_size as usize,
-                            epochs: orchestrator_cfg.epochs as usize,
-                            hidden_dim: 768,
-                        }).await
-                    }).await {
-                        Ok(Ok(packaged)) => {
+                    // Package synchronously in this async task (no nested runtime spawn)
+                    let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(
+                        &chosen_root,
+                    );
+                    match packager
+                        .package(
+                            &aid_for_pack,
+                            &quantized,
+                            &adapteros_lora_worker::training::TrainingConfig {
+                                rank: orchestrator_cfg.rank as usize,
+                                alpha: orchestrator_cfg.alpha as f32,
+                                learning_rate: orchestrator_cfg.learning_rate,
+                                batch_size: orchestrator_cfg.batch_size as usize,
+                                epochs: orchestrator_cfg.epochs as usize,
+                                hidden_dim: 768,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(packaged) => {
                             job.artifact_path = Some(format!("{}/{}", root_for_pack, adapter_id));
                             job.adapter_id = Some(adapter_id);
                             job.weights_hash_b3 = Some(packaged.hash_b3);
                         }
-                        Ok(Err(e)) => {
+                        Err(e) => {
                             tracing::error!("Packaging failed: {}", e);
-                        }
-                        Err(join_err) => {
-                            tracing::error!("Packaging task join failed: {}", join_err);
                         }
                     }
                 }
@@ -592,6 +660,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             )
@@ -614,6 +683,7 @@ mod tests {
             .start_training(
                 "test-adapter".to_string(),
                 config,
+                None,
                 None,
                 None,
                 None,
@@ -647,6 +717,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             )
@@ -672,5 +743,51 @@ mod tests {
         assert!(templates.len() >= 4);
         assert!(templates.iter().any(|t| t.id == "general-code"));
         assert!(templates.iter().any(|t| t.id == "framework-specific"));
+    }
+
+    #[tokio::test]
+    async fn test_directory_dataset_failure_propagates() {
+        use std::time::Duration;
+
+        let service = TrainingService::new();
+        let config = TrainingConfig::default();
+
+        // Create an absolute root and point to an empty subdirectory to induce failure (min_examples not met)
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        let empty_sub = root.join("empty");
+        std::fs::create_dir_all(&empty_sub).unwrap();
+
+        let job = service
+            .start_training(
+                "dir-fail".to_string(),
+                config,
+                None,
+                None,
+                None,
+                Some(root.display().to_string()),
+                Some("empty".to_string()),
+                None,
+                None,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Poll briefly for failure
+        for _ in 0..60u32 {
+            let j = service.get_job(&job.id).await.unwrap();
+            if matches!(j.status, TrainingJobStatus::Failed) {
+                return;
+            }
+            if matches!(j.status, TrainingJobStatus::Completed) {
+                panic!("expected job to fail for invalid directory dataset");
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let j = service.get_job(&job.id).await.unwrap();
+        assert!(matches!(j.status, TrainingJobStatus::Failed));
     }
 }

@@ -66,7 +66,7 @@ pub struct ActivationWindow {
 /// Get worker socket path for tenant
 fn get_worker_socket_path(tenant_id: Option<&str>) -> std::path::PathBuf {
     let tenant = tenant_id.unwrap_or("default");
-    std::path::PathBuf::from(format!("./var/run/aos/{}/worker.sock", tenant))
+    std::path::PathBuf::from(format!("/var/run/aos/{}/aos.sock", tenant))
 }
 
 /// Upsert directory adapter via HTTP API
@@ -79,7 +79,10 @@ async fn directory_upsert(
     output: &OutputWriter,
 ) -> Result<()> {
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/adapters/directory/upsert", base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/adapters/directory/upsert",
+        base_url.trim_end_matches('/')
+    );
     let body = serde_json::json!({
         "tenant_id": tenant,
         "root": root,
@@ -95,17 +98,19 @@ async fn directory_upsert(
         output.kv("Activate", "true");
     }
 
-    let resp = client.post(&url).json(&body).send().await.map_err(|e| {
-        adapteros_core::AosError::Io(format!("HTTP request failed: {}", e))
-    })?;
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| adapteros_core::AosError::Io(format!("HTTP request failed: {}", e)))?;
 
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         return Err(adapteros_core::AosError::Other(format!(
             "Upsert failed: {} {}",
-            status,
-            text
+            status, text
         )));
     }
 

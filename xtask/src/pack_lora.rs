@@ -11,7 +11,7 @@ pub struct PackLoraArgs {
     pub input_dir: PathBuf,
 
     /// Output adapters directory
-    #[arg(long, default_value = "adapters")] 
+    #[arg(long, default_value = "adapters")]
     pub output_dir: PathBuf,
 
     /// Adapter ID to assign
@@ -49,5 +49,3 @@ pub async fn run(args: PackLoraArgs) -> Result<()> {
     );
     Ok(())
 }
-
-

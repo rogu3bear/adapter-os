@@ -97,6 +97,102 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
+// ============================================================================
+// Golden Baselines API Types
+// ============================================================================
+
+/// Summary of a golden run baseline for UI listing
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GoldenRunSummary {
+    pub name: String,
+    pub run_id: String,
+    pub cpid: String,
+    pub plan_id: String,
+    pub bundle_hash: String,
+    pub layer_count: usize,
+    pub max_epsilon: f64,
+    pub mean_epsilon: f64,
+    pub toolchain_summary: String,
+    pub adapters: Vec<String>,
+    pub created_at: String,
+    pub has_signature: bool,
+}
+
+/// Request to compare a telemetry bundle against a golden baseline
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GoldenCompareRequest {
+    /// Baseline name under golden_runs/baselines/{golden}
+    pub golden: String,
+    /// Telemetry bundle ID (var/bundles/{bundle_id}.ndjson)
+    pub bundle_id: String,
+    /// Strictness level: bitwise | epsilon-tolerant | statistical
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strictness: Option<String>,
+    /// Verification toggles
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_toolchain: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_adapters: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_device: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_signature: Option<bool>,
+}
+
+/// Register local worker request (from aosctl serve)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RegisterLocalWorkerRequest {
+    pub tenant_id: String,
+    pub plan_id: String,
+    pub node_id: String,
+    pub uds_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<i32>,
+}
+
+/// Pin plan (alias pointer) request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PlanPinRequest {
+    /// Alias name for pointer (e.g., "production" or "staging")
+    pub alias: String,
+    /// If true, activates this pointer and deactivates others for the tenant
+    #[serde(default)]
+    pub active: bool,
+}
+
+/// Control Plane pointer response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CpPointerResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub plan_id: String,
+    pub active: bool,
+    pub created_at: String,
+    pub activated_at: Option<String>,
+}
+
+/// Bulk adapter load/unload request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BulkAdapterRequest {
+    /// Adapter IDs to add (load)
+    #[serde(default)]
+    pub add: Vec<String>,
+    /// Adapter IDs to remove (unload)
+    #[serde(default)]
+    pub remove: Vec<String>,
+    /// Optional tenant ID (uses JWT tenant if missing)
+    pub tenant_id: Option<String>,
+}
+
+/// Bulk adapter operation result
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BulkAdapterResponse {
+    pub added: usize,
+    pub removed: usize,
+    pub errors: Vec<String>,
+}
+
 /// Upsert directory adapter request (synthetic, optional activation)
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DirectoryUpsertRequest {
@@ -237,6 +333,25 @@ pub struct RollbackResponse {
     pub previous_plan_id: String,
     pub rolled_back_by: String,
     pub rolled_back_at: String,
+}
+
+/// RAG retrieval audit record (API response)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RagRetrievalRecordResponse {
+    pub tenant_id: String,
+    pub query_hash: String,
+    pub doc_ids: Vec<String>,
+    pub scores: Vec<f32>,
+    pub top_k: i32,
+    pub embedding_model_hash: String,
+    pub created_at: String,
+}
+
+/// RAG retrieval count per tenant
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RagRetrievalTenantCount {
+    pub tenant_id: String,
+    pub count: i64,
 }
 
 // UserInfoResponse and PlanResponse are now imported from adapteros-api-types
@@ -1347,6 +1462,9 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
         completed_at: job.completed_at,
         error_message: job.error_message,
         estimated_completion: None, // TODO: Calculate from training progress
+        artifact_path: job.artifact_path,
+        adapter_id: job.adapter_id,
+        weights_hash_b3: job.weights_hash_b3,
     }
 }
 

@@ -247,6 +247,8 @@ In a separate terminal:
   --plan my-plan \
   --socket /var/run/aos/production/inference.sock \
   --backend metal
+
+Note: If the policy enables open-book (evidence) mode, the worker refuses to start without a RAG backend. Configure pgvector or provide a local index at `./var/indices/<tenant>`.
 ```
 
 ### Step 3: Run Inference
@@ -315,6 +317,23 @@ sudo pfctl -e -f /etc/pf.conf
 
 # Verify PF is active
 sudo pfctl -s info
+```
+
+### PostgreSQL (pgvector) for RAG
+
+For persistent RAG storage and fast vector search:
+
+- Build CLI with feature: `cargo build -p adapteros-cli --features rag-pgvector`.
+- Provide a PostgreSQL instance with the `vector` extension.
+- Set `DATABASE_URL` (e.g., `postgresql://aos:aos@localhost/adapteros`).
+- Optional: configure `RAG_EMBED_DIM` (defaults to `3584`).
+- Deterministic retrieval is enforced as `(score DESC, doc_id ASC)`.
+
+Dev helper:
+
+```bash
+docker compose -f scripts/docker-compose.postgres.yml up -d
+export DATABASE_URL=postgresql://aos:aos@localhost/adapteros
 ```
 
 ### Process Management

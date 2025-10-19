@@ -43,7 +43,7 @@ pub struct RegisterArgs {
     pub tier: Option<i32>,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:8080/api")] 
+    #[arg(long, default_value = "http://127.0.0.1:8080/api")]
     pub base_url: String,
 }
 
@@ -65,7 +65,10 @@ async fn register(args: RegisterArgs, output: &OutputWriter) -> Result<()> {
         let data = std::fs::read_to_string(&manifest_path)?;
         let v: serde_json::Value = serde_json::from_str(&data)?;
         (
-            v.get("rank").and_then(|r| r.as_i64()).map(|r| r as i32).unwrap_or(8),
+            v.get("rank")
+                .and_then(|r| r.as_i64())
+                .map(|r| r as i32)
+                .unwrap_or(8),
             v.get("metadata")
                 .and_then(|m| m.get("description"))
                 .and_then(|d| d.as_str())
@@ -106,8 +109,9 @@ async fn register(args: RegisterArgs, output: &OutputWriter) -> Result<()> {
     let client = reqwest::Client::new();
     let resp = client.post(&url).json(&body).send().await?;
     if !resp.status().is_success() {
+        let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Register failed: {} {}", resp.status(), text);
+        anyhow::bail!("Register failed: {} {}", status, text);
     }
     let value: serde_json::Value = resp.json().await?;
     if output.is_json() {
@@ -143,5 +147,3 @@ fn resolve_paths(path: &Path) -> Result<(PathBuf, PathBuf, String)> {
         Ok((path.to_path_buf(), manifest, adapter_id))
     }
 }
-
-

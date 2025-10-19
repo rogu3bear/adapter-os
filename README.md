@@ -132,11 +132,13 @@ cargo build --release
 ```bash
 # Build and serve a plan
 ./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
-./target/release/aosctl serve --plan-id <plan-id>
+./target/release/aosctl serve --plan <plan-id>
 
 # Or use the integrated server
 ./target/release/mplora-server --config configs/cp.toml
 ```
+
+Note: If your policy requires open-book (evidence) serving, the server refuses to start unless a RAG index is available (pgvector or local index). See docs/rag-pgvector.md for setup.
 
 ---
 
@@ -176,6 +178,19 @@ cargo build --release
 
 ## 🎛️ Key Features
 
+**Database Migrations**
+- SQLite uses `migrations/` (default for local/dev; tests reference this path).
+- PostgreSQL uses `migrations_postgres/` (production/cluster deployments).
+- Set `DATABASE_URL=postgresql://...` to use the Postgres backend and apply PG migrations.
+
+### RAG PgVector Backend (feature)
+
+- Default builds use an in-memory per-tenant index with a synchronous `RagSystem` API.
+- Enable the PostgreSQL backend with `--features rag-pgvector` (CLI forwards the feature to the RAG crate).
+- At startup, the CLI will connect to Postgres, run migrations, and initialize `PgVectorIndex` with `RAG_EMBED_DIM` (default `3584`).
+- Deterministic retrieval is guaranteed by ordering `(score DESC, doc_id ASC)`.
+- See docs/rag-pgvector.md for setup and docker-compose.
+
 ### 1. **K-Sparse LoRA Routing**
 
 AdapterOS uses learned gates to select the top-K most relevant LoRA adapters per token:
@@ -187,6 +202,11 @@ let selected = router.route(hidden_states, k=3);
 // Entropy floor prevents single-adapter collapse
 // Deterministic tie-breaking: (score desc, doc_id asc)
 ```
+
+Runtime adapter selection integrates feature-driven scoring and priors:
+- Features: language one-hot, framework priors, symbol hits, path tokens, prompt verb, attention entropy (22-dim vector)
+- Priors: framework hint boosts and lifecycle activation percentage
+- Deterministic ordering with entropy floor and Q15 quantization
 
 ### 2. **Modular Metal Kernels**
 
@@ -399,16 +419,22 @@ AdapterOS alpha-v0.01-1 includes:
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
 - ✅ **Database Schema**: Versioned migrations with rollback support
+- ✅ **Server API Refactor**: Rate limiting (100/min), RBAC enhancements for admin routes【@crates/adapteros-server-api/src/routes.rs §694】
+- ✅ **Integration Tests**: E2E flows for policy, routing, determinism, memory, tenants【@tests/integration_tests.rs §new tests】
 
 ### In Progress
-- 🔄 **Server API Refactor**: Structural improvements for production readiness
-- 🔄 **Integration Tests**: End-to-end testing with policy enforcement
-- 🔄 **Documentation**: Complete API reference and deployment guides
+- 🔄 **MLX Backend Stabilization**: Fixing PyO3 linker【@README.md §103】
+- 🔄 **Observability**: Prometheus hooks, threat detection【@README.md §431】
 
 ### Planned for v0.02
-- 📋 **Performance Optimization**: Router calibration and kernel tuning
-- 📋 **Security Hardening**: Advanced threat detection and response
-- 📋 **Monitoring**: Comprehensive observability and alerting
+- 📋 **MLX Backend**: Full parity with Metal, feature flags【@crates/adapteros-base-llm/src/】
+- 📋 **Observability Hardening**: Alerting, advanced detection【@crates/adapteros-telemetry/src/】
+- 📋 **Deployment Guides**: Multi-node, scaling【@docs/DEPLOYMENT.md】
+
+### API Reference
+- **Rust API**: Run `cargo doc --no-deps --open`【@README.md §451】
+- **REST API**: Swagger UI at `/swagger-ui` post-server start【@crates/adapteros-server-api/src/routes.rs §690】
+- **Deployment**: See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for prod setup (Postgres, RAG, monitoring)【@docs/DEPLOYMENT.md §1】
 
 ---
 

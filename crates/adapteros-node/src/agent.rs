@@ -54,7 +54,7 @@ impl NodeAgent {
         }
 
         // 2. Create UDS socket directory
-        let uds_path = format!("/var/run/aos/{}/worker.sock", tenant_id);
+        let uds_path = format!("/var/run/aos/{}/aos.sock", tenant_id);
         let uds_dir = PathBuf::from(format!("/var/run/aos/{}", tenant_id));
 
         if !uds_dir.exists() {

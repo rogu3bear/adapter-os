@@ -20,6 +20,7 @@ pub mod domain_adapters;
 pub mod federation;
 pub mod git;
 pub mod git_repository;
+pub mod golden;
 pub mod openai;
 pub mod replay;
 
@@ -36,7 +37,110 @@ use blake3;
 pub use domain_adapters::*;
 use serde::Deserialize;
 // use serde_json::json; // unused
+use adapteros_verify::{verify_against_golden, ComparisonConfig};
+use anyhow::Context as _;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use futures_util::stream::{self, Stream};
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::path::Path as StdPath;
+use tokio_stream::wrappers::ReceiverStream;
+
+// Helper: CAB Golden Gate verification (read-only)
+async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
+    let cfg_guard = state
+        .config
+        .read()
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    let gg = match &cfg_guard.golden_gate {
+        Some(c) if c.enabled => c,
+        _ => return Ok(true),
+    };
+
+    let golden_dir = StdPath::new("golden_runs/baselines").join(&gg.baseline);
+    if !golden_dir.exists() {
+        // Treat missing golden as failure to be safe
+        return Ok(false);
+    }
+
+    // Choose bundle path: prefer explicit, else newest .ndjson under bundles_root
+    let bundle_path = if let Some(p) = &gg.bundle_path {
+        std::path::PathBuf::from(p)
+    } else {
+        newest_ndjson(&cfg_guard.bundles_root)
+            .context("no .ndjson bundles found under bundles_root")?
+    };
+
+    if !bundle_path.exists() {
+        return Ok(false);
+    }
+
+    let mut cmp = ComparisonConfig::default();
+    cmp.strictness = gg.strictness;
+    cmp.verify_toolchain = !gg.skip_toolchain;
+    cmp.verify_signature = !gg.skip_signature;
+    cmp.verify_device = gg.verify_device;
+
+    let report = verify_against_golden(&golden_dir, &bundle_path, &cmp).await?;
+    Ok(report.passed)
+}
+
+fn newest_ndjson(root: &str) -> anyhow::Result<std::path::PathBuf> {
+    let root_path = std::path::Path::new(root);
+    if !root_path.exists() {
+        return Err(anyhow::anyhow!("bundles_root does not exist: {}", root));
+    }
+
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+
+    if let Ok(entries) = std::fs::read_dir(root_path) {
+        for ent in entries.flatten() {
+            let p = ent.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("ndjson") {
+                if let Ok(meta) = ent.metadata() {
+                    if let Ok(mtime) = meta.modified() {
+                        if newest.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+                            newest = Some((mtime, p.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some((_, p)) = newest {
+        return Ok(p);
+    }
+
+    // Fallback: recursive search
+    fn walk(
+        dir: &std::path::Path,
+        newest: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for ent in entries.flatten() {
+                let p = ent.path();
+                if p.is_dir() {
+                    walk(&p, newest);
+                } else if p.extension().and_then(|s| s.to_str()) == Some("ndjson") {
+                    if let Ok(meta) = ent.metadata() {
+                        if let Ok(mtime) = meta.modified() {
+                            if newest.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+                                *newest = Some((mtime, p.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk(root_path, &mut newest);
+    newest
+        .map(|(_, p)| p)
+        .ok_or_else(|| anyhow::anyhow!("no .ndjson bundles found under {}", root))
+}
 
 /// Health check endpoint
 #[utoipa::path(
@@ -117,7 +221,11 @@ pub async fn upsert_directory_adapter(
 
     // Validate path is safe relative
     let rel = std::path::PathBuf::from(&req.path);
-    if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -162,7 +270,7 @@ pub async fn upsert_directory_adapter(
                             .with_code("INTERNAL_SERVER_ERROR")
                             .with_string_details(e.to_string()),
                     ),
-                ))
+                ));
             }
         }
         if let Err(e) = std::fs::write(&artifact_path, b"synthetic adapter placeholder") {
@@ -190,11 +298,7 @@ pub async fn upsert_directory_adapter(
     })?;
 
     if existing.is_none() {
-        let languages = analysis
-            .language_stats
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let languages = analysis.language_stats.keys().cloned().collect::<Vec<_>>();
         let languages_json = serde_json::to_string(&languages).unwrap_or("[]".to_string());
 
         state
@@ -238,7 +342,11 @@ pub async fn upsert_directory_adapter(
                     let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
                     let adapters_path = PathBuf::from("./adapters");
                     let mut loader = AdapterLoader::new(adapters_path);
-                    if loader.load_adapter_async(adapter_idx, &hash_hex).await.is_ok() {
+                    if loader
+                        .load_adapter_async(adapter_idx, &hash_hex)
+                        .await
+                        .is_ok()
+                    {
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
@@ -271,6 +379,84 @@ pub async fn upsert_directory_adapter(
             activated,
         }),
     ))
+}
+
+/// Bulk load/unload adapters on a worker
+pub async fn bulk_adapter_load(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<BulkAdapterRequest>,
+) -> Result<Json<BulkAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator])?;
+
+    // Resolve tenant and UDS path
+    let tenant_id = req.tenant_id.unwrap_or_else(|| claims.tenant_id.clone());
+    let workers = match state.db.list_all_workers().await {
+        Ok(ws) => ws,
+        Err(_) => Vec::new(),
+    };
+    let uds_path = if let Some(worker) = workers.get(0) {
+        std::path::PathBuf::from(&worker.uds_path)
+    } else {
+        std::path::PathBuf::from(format!("/var/run/aos/{}/aos.sock", tenant_id))
+    };
+
+    let client = UdsClient::new(std::time::Duration::from_secs(10));
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    let mut errors = Vec::new();
+
+    // Add (load) adapters
+    for a in &req.add {
+        match client
+            .send_http_request(
+                uds_path.as_path(),
+                "POST",
+                &format!("/adapter/{}/load", a),
+                None,
+            )
+            .await
+        {
+            Ok(resp) => {
+                /* handle ok */
+                if let Some(status) = resp.get("status").and_then(|s| s.as_str()) {
+                    if status == "ok" {
+                        added += 1;
+                    }
+                }
+            }
+            Err(e) => errors.push(format!("load {}: {}", a, e)),
+        }
+    }
+
+    // Remove (unload) adapters
+    for r in &req.remove {
+        match client
+            .send_http_request(
+                uds_path.as_path(),
+                "POST",
+                &format!("/adapter/{}/unload", r),
+                None,
+            )
+            .await
+        {
+            Ok(resp) => {
+                /* handle ok */
+                if let Some(status) = resp.get("status").and_then(|s| s.as_str()) {
+                    if status == "ok" {
+                        removed += 1;
+                    }
+                }
+            }
+            Err(e) => errors.push(format!("unload {}: {}", r, e)),
+        }
+    }
+
+    Ok(Json(BulkAdapterResponse {
+        added,
+        removed,
+        errors,
+    }))
 }
 
 /// Login handler
@@ -550,6 +736,104 @@ pub async fn update_tenant(
     }))
 }
 
+#[derive(Deserialize)]
+pub struct RenameTenantRequest {
+    pub new_name: String,
+}
+
+/// Rename tenant
+pub async fn rename_tenant(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+    Json(req): Json<RenameTenantRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_role(&claims, Role::Admin)?;
+    state
+        .db
+        .rename_tenant(&tenant_id, &req.new_name)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to rename tenant")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Cordon node (mark maintenance)
+pub async fn node_cordon(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(node_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    state
+        .db
+        .update_node_status(&node_id, "maintenance")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to cordon node")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+/// Drain a node (set workers to draining)
+pub async fn node_drain(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(node_id): Path<String>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Create a job to simulate drain progression
+    let payload = serde_json::json!({ "node_id": node_id });
+    let job_id = state
+        .db
+        .create_job("node_drain", None, Some(&claims.sub), &payload.to_string())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to create drain job")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Best-effort: set all workers on node to draining
+    match state.db.list_workers_by_node(&node_id).await {
+        Ok(workers) => {
+            for w in workers {
+                let _ = state.db.update_worker_status(&w.id, "draining").await;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to list workers for drain: {}", e);
+        }
+    }
+
+    Ok(Json(JobResponse {
+        id: job_id,
+        kind: "node_drain".to_string(),
+        status: "queued".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
 /// Pause tenant (stop new sessions)
 pub async fn pause_tenant(
     State(state): State<AppState>,
@@ -608,6 +892,114 @@ pub async fn archive_tenant(
 
     tracing::info!("Tenant {} archived by {}", tenant_id, claims.email);
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ===== RAG Retrieval Audit Endpoints (Operator/Admin) =====
+
+#[derive(Debug, Deserialize)]
+pub struct RagRetrievalsQuery {
+    pub tenant_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// List recent RAG retrievals (operator/admin only)
+#[utoipa::path(
+    get,
+    path = "/v1/rag/retrievals",
+    responses(
+        (status = 200, description = "Recent retrievals", body = [RagRetrievalRecordResponse]),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    )
+)]
+pub async fn rag_list_retrievals(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<RagRetrievalsQuery>,
+) -> Result<Json<Vec<RagRetrievalRecordResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
+    let tenant_opt = params.tenant_id.as_deref();
+
+    let rows = adapteros_db::rag_retrieval_audit::list_recent_rag_retrievals_sqlite(
+        state.db.pool(),
+        limit,
+        tenant_opt,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to query rag retrievals")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let resp: Vec<RagRetrievalRecordResponse> = rows
+        .into_iter()
+        .map(|r| RagRetrievalRecordResponse {
+            tenant_id: r.tenant_id,
+            query_hash: r.query_hash,
+            doc_ids: r.doc_ids,
+            scores: r.scores,
+            top_k: r.top_k as i32,
+            embedding_model_hash: r.embedding_model_hash,
+            created_at: r.created_at,
+        })
+        .collect();
+
+    Ok(Json(resp))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RagStatsQuery {
+    pub window_days: Option<i64>,
+}
+
+/// Summarize RAG retrieval counts by tenant (operator/admin only)
+#[utoipa::path(
+    get,
+    path = "/v1/rag/stats",
+    responses(
+        (status = 200, description = "Counts per tenant", body = [RagRetrievalTenantCount]),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    )
+)]
+pub async fn rag_stats(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<RagStatsQuery>,
+) -> Result<Json<Vec<RagRetrievalTenantCount>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let rows = adapteros_db::rag_retrieval_audit::rag_retrieval_counts_by_tenant_sqlite(
+        state.db.pool(),
+        params.window_days,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to query rag stats")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let resp: Vec<RagRetrievalTenantCount> = rows
+        .into_iter()
+        .map(|r| RagRetrievalTenantCount {
+            tenant_id: r.tenant_id,
+            count: r.count,
+        })
+        .collect();
+
+    Ok(Json(resp))
 }
 
 /// Assign policies to tenant
@@ -1190,7 +1582,6 @@ pub async fn list_jobs(
 
     Ok(Json(response))
 }
-
 /// Build plan (stub)
 pub async fn build_plan(
     State(state): State<AppState>,
@@ -1355,6 +1746,31 @@ pub async fn cp_promote(
                     .with_string_details(failures.join("; ")),
             ),
         ));
+    }
+
+    // CAB Golden Gate: verify against configured golden baseline (if enabled)
+    match run_golden_gate(&state).await {
+        Ok(true) => { /* proceed */ }
+        Ok(false) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("golden verification failed")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details("Golden Run Match gate did not pass"),
+                ),
+            ));
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("golden verification error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     }
 
     // All gates passed - proceed with promotion in a transaction
@@ -1616,8 +2032,8 @@ pub async fn worker_spawn(
         )
     })? as i32;
 
-    // Create UDS path for worker
-    let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
+    // Create UDS path for worker (standardized)
+    let uds_path = format!("/var/run/aos/{}/aos.sock", req.tenant_id);
 
     // Register worker in database
     let worker_id = uuid::Uuid::now_v7().to_string();
@@ -1715,6 +2131,78 @@ pub async fn list_workers(
         .collect();
 
     Ok(Json(response))
+}
+
+/// Register a local worker (from aosctl serve)
+pub async fn worker_register_local(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<RegisterLocalWorkerRequest>,
+) -> Result<Json<WorkerResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Insert worker with status 'serving'
+    let worker_id = uuid::Uuid::now_v7().to_string();
+    state
+        .db
+        .insert_worker(
+            &worker_id,
+            &req.tenant_id,
+            &req.node_id,
+            &req.plan_id,
+            &req.uds_path,
+            req.pid,
+            "serving",
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to register worker")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    Ok(Json(WorkerResponse {
+        id: worker_id,
+        tenant_id: req.tenant_id,
+        node_id: req.node_id,
+        plan_id: req.plan_id,
+        uds_path: req.uds_path,
+        pid: req.pid,
+        status: "serving".to_string(),
+        started_at: now.clone(),
+        last_seen_at: Some(now),
+    }))
+}
+
+/// Update worker heartbeat
+pub async fn worker_heartbeat(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    state
+        .db
+        .update_worker_heartbeat(&worker_id, Some("serving"))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update heartbeat")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Logout endpoint (stateless JWT - just return success)
@@ -1870,6 +2358,164 @@ pub async fn get_plan_details(
         },
         created_at: plan.created_at,
     }))
+}
+/// Pin a plan with an alias (control-plane pointer)
+pub async fn pin_plan_alias(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(plan_id): Path<String>,
+    Json(req): Json<PlanPinRequest>,
+) -> Result<Json<CpPointerResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Optional activation: deactivate old pointers first
+    if req.active {
+        state
+            .db
+            .deactivate_all_cp_pointers(&claims.tenant_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to deactivate existing pointers")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    }
+
+    let id = uuid::Uuid::now_v7().to_string();
+    state
+        .db
+        .insert_cp_pointer(&id, &claims.tenant_id, &req.alias, &plan_id, req.active)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to pin plan")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Build response
+    let now = chrono::Utc::now();
+    Ok(Json(CpPointerResponse {
+        id,
+        tenant_id: claims.tenant_id,
+        name: req.alias,
+        plan_id,
+        active: req.active,
+        created_at: now.to_rfc3339(),
+        activated_at: if req.active {
+            Some(now.to_rfc3339())
+        } else {
+            None
+        },
+    }))
+}
+
+/// List control plane pointers for a tenant
+pub async fn list_cp_pointers(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<Vec<CpPointerResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let rows = state
+        .db
+        .list_cp_pointers_by_tenant(&tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list pointers")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let items = rows
+        .into_iter()
+        .map(|r| CpPointerResponse {
+            id: r.id,
+            tenant_id: r.tenant_id,
+            name: r.name,
+            plan_id: r.plan_id,
+            active: r.active == 1,
+            created_at: r.created_at,
+            activated_at: r.activated_at,
+        })
+        .collect();
+    Ok(Json(items))
+}
+
+/// Activate a specific pointer alias for a tenant
+pub async fn activate_cp_pointer(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path((tenant_id, alias)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Find pointer by name
+    let ptr = state.db.get_cp_pointer_by_name(&alias).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("db error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let ptr = ptr.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("pointer not found").with_code("NOT_FOUND")),
+        )
+    })?;
+
+    if ptr.tenant_id != tenant_id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("tenant mismatch")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("Alias belongs to a different tenant"),
+            ),
+        ));
+    }
+
+    state
+        .db
+        .deactivate_all_cp_pointers(&tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to deactivate pointers")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    state.db.activate_cp_pointer(&ptr.id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to activate pointer")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Rebuild plan
@@ -2072,12 +2718,12 @@ pub async fn export_plan_manifest(
 
 /// Check promotion gates
 pub async fn promotion_gates(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<PromotionGatesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub implementation - in reality would check all gates
-    let gates = vec![
+    // Base gates (stubbed values)
+    let mut gates = vec![
         GateStatus {
             name: "Replay Determinism".to_string(),
             passed: true,
@@ -2121,6 +2767,29 @@ pub async fn promotion_gates(
             evidence_id: Some("isolation_test_456".to_string()),
         },
     ];
+
+    // Append CAB Golden Gate status if configured
+    let gg_status = match run_golden_gate(&state).await {
+        Ok(true) => GateStatus {
+            name: "Golden Run Match".to_string(),
+            passed: true,
+            message: "Golden verification passed".to_string(),
+            evidence_id: None,
+        },
+        Ok(false) => GateStatus {
+            name: "Golden Run Match".to_string(),
+            passed: false,
+            message: "Golden verification failed".to_string(),
+            evidence_id: None,
+        },
+        Err(e) => GateStatus {
+            name: "Golden Run Match".to_string(),
+            passed: false,
+            message: format!("Golden verification error: {}", e),
+            evidence_id: None,
+        },
+    };
+    gates.push(gg_status);
 
     let all_passed = gates.iter().all(|g| g.passed);
 
@@ -2318,7 +2987,7 @@ pub async fn export_policy(
 pub async fn list_telemetry_bundles(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-) -> Result<Json<Vec<TelemetryBundleResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<crate::types::TelemetryBundleResponse>>, (StatusCode, Json<ErrorResponse>)> {
     // M0: list bundles by scanning var/bundles directory
     let root = std::path::Path::new("var/bundles");
     let mut results = Vec::new();
@@ -2338,7 +3007,7 @@ pub async fn list_telemetry_bundles(
                         .map(|s| s.lines().count() as u64)
                         .unwrap_or(0);
                     let created_at = chrono::Utc::now().to_rfc3339();
-                    results.push(TelemetryBundleResponse {
+                    results.push(crate::types::TelemetryBundleResponse {
                         id,
                         cpid: "global".to_string(),
                         event_count,
@@ -2454,7 +3123,6 @@ pub async fn purge_old_bundles(
         purged_cpids: vec!["cp_001".to_string(), "cp_002".to_string()],
     }))
 }
-
 /// Rollback CP to previous plan
 pub async fn cp_rollback(
     State(state): State<AppState>,
@@ -2692,35 +3360,33 @@ pub async fn propose_patch(
     validate_description(&req.description)?;
     validate_file_paths(&req.target_files)?;
 
-    // Get available workers from database
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    // Get available workers from database; on error, fall back to per-tenant default socket
+    let workers = match state.db.list_all_workers().await {
+        Ok(ws) => ws,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to list workers (falling back to default UDS): {}",
+                e
+            );
+            Vec::new()
+        }
+    };
 
-    if workers.is_empty() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("no workers available")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("No active workers found for patch proposal"),
-            ),
-        ));
-    }
-
-    // Select first available worker (simple selection for now)
-    let worker = &workers[0];
-    let uds_path = std::path::Path::new(&worker.uds_path);
+    // Continue using fallback logic below when empty
 
     // Create UDS client and send patch proposal request
     let uds_client = UdsClient::new(std::time::Duration::from_secs(60)); // Longer timeout for patch generation
+
+    // Resolve UDS path: prefer registered worker; fallback to per-tenant default
+    let uds_path_buf = if let Some(worker) = workers.get(0) {
+        std::path::PathBuf::from(&worker.uds_path)
+    } else {
+        // Fallback: honor env override or use /var/run/aos/<tenant>/aos.sock
+        let fallback = std::env::var("AOS_WORKER_SOCKET")
+            .unwrap_or_else(|_| format!("/var/run/aos/{}/aos.sock", claims.tenant_id));
+        std::path::PathBuf::from(fallback)
+    };
+    let uds_path = uds_path_buf.as_path();
 
     let worker_request = PatchProposalInferRequest {
         cpid: "patch-proposal".to_string(),
@@ -2874,13 +3540,13 @@ pub async fn infer(
         )
     })?;
 
-    // Resolve UDS path: prefer registered worker; otherwise fall back to local dev socket
+    // Resolve UDS path: prefer registered worker; otherwise fall back to per-tenant default
     let uds_path_buf = if let Some(worker) = workers.get(0) {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
-        // Fallback: honor env override or default to /var/run/adapteros.sock
+        // Fallback: honor env override or use /var/run/aos/<tenant>/aos.sock
         let fallback = std::env::var("AOS_WORKER_SOCKET")
-            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
+            .unwrap_or_else(|_| format!("/var/run/aos/{}/aos.sock", claims.tenant_id));
         std::path::PathBuf::from(fallback)
     };
     let uds_path = uds_path_buf.as_path();
@@ -2936,6 +3602,128 @@ pub async fn infer(
             ),
         )),
     }
+}
+
+/// Streaming inference via SSE bridging worker signals
+pub async fn infer_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<InferRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    if req.prompt.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("prompt cannot be empty").with_code("BAD_REQUEST")),
+        ));
+    }
+
+    // Resolve worker UDS
+    let workers = match state.db.list_all_workers().await {
+        Ok(ws) => ws,
+        Err(_) => Vec::new(),
+    };
+    let uds_path = if let Some(worker) = workers.get(0) {
+        std::path::PathBuf::from(&worker.uds_path)
+    } else {
+        let fallback = std::env::var("AOS_WORKER_SOCKET")
+            .unwrap_or_else(|_| format!("/var/run/aos/{}/aos.sock", claims.tenant_id));
+        std::path::PathBuf::from(fallback)
+    };
+
+    // Channel to client SSE
+    let (tx, rx) = tokio::sync::mpsc::channel::<Event>(1024);
+
+    // Task A: subscribe to worker /signals and forward
+    {
+        let tx_signals = tx.clone();
+        let uds_path_signals = uds_path.clone();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+            use tokio::net::UnixStream;
+            if let Ok(mut stream) = UnixStream::connect(&uds_path_signals).await {
+                let _ = stream
+                    .write_all(b"GET /signals HTTP/1.1\r\nHost: worker\r\n\r\n")
+                    .await;
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                // Skip headers
+                loop {
+                    line.clear();
+                    if reader
+                        .read_line(&mut line)
+                        .await
+                        .ok()
+                        .filter(|&n| n > 0)
+                        .is_none()
+                    {
+                        break;
+                    }
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                }
+                // Read SSE events
+                let mut event_type = String::new();
+                let mut event_data = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let l = line.trim();
+                            if l.is_empty() {
+                                if !event_type.is_empty() && !event_data.is_empty() {
+                                    let _ = tx_signals
+                                        .send(
+                                            Event::default()
+                                                .event(event_type.clone())
+                                                .data(event_data.clone()),
+                                        )
+                                        .await;
+                                }
+                                event_type.clear();
+                                event_data.clear();
+                            } else if let Some(et) = l.strip_prefix("event:") {
+                                event_type = et.trim().to_string();
+                            } else if let Some(data) = l.strip_prefix("data:") {
+                                if !event_data.is_empty() {
+                                    event_data.push('\n');
+                                }
+                                event_data.push_str(data.trim());
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+        });
+    }
+
+    // Task B: fire the inference (non-streaming) and emit final completion event
+    {
+        let tx_complete = tx.clone();
+        let uds_client = UdsClient::new(std::time::Duration::from_secs(60));
+        let worker_req = crate::types::WorkerInferRequest {
+            cpid: claims.tenant_id.clone(),
+            prompt: req.prompt.clone(),
+            max_tokens: req.max_tokens.unwrap_or(100),
+            require_evidence: req.require_evidence.unwrap_or(false),
+        };
+        tokio::spawn(async move {
+            if let Ok(resp) = uds_client.infer(uds_path.as_path(), worker_req).await {
+                let payload = serde_json::json!({
+                    "text": resp.text.unwrap_or_default(),
+                    "status": resp.status,
+                    "adapters_used": resp.trace.router_summary.adapters_used,
+                });
+                let _ = tx_complete
+                    .send(Event::default().event("complete").data(payload.to_string()))
+                    .await;
+            }
+        });
+    }
+
+    Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
 // ===== Process Debugging Endpoints =====
@@ -3828,22 +4616,30 @@ pub async fn load_adapter(
         use adapteros_lora_lifecycle::AdapterLoader;
         use std::path::PathBuf;
 
-        let adapters_root = std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
+        let adapters_root =
+            std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
         let adapters_path = PathBuf::from(&adapters_root);
         let mut loader = AdapterLoader::new(adapters_path.clone());
 
-        // Choose identifier based on which artifact exists
-        let id_to_use = if let Some(h) = adapter.hash_b3.strip_prefix("b3:") {
-            let candidate = adapters_path.join(format!("{}.safetensors", h));
-            if candidate.exists() { adapter.hash_b3.clone() } else { adapter.adapter_id.clone() }
+        // Choose identifier, preferring B3 hash; resolution of concrete path is delegated to AdapterLoader
+        let id_to_use = if !adapter.hash_b3.is_empty() {
+            // If the hash points to an existing artifact (flat or packaged), prefer it
+            if let Some(h) = adapter.hash_b3.strip_prefix("b3:") {
+                let flat = adapters_path.join(format!("{}.safetensors", h));
+                let packaged = adapters_path.join(h).join("weights.safetensors");
+                if flat.exists() || packaged.exists() {
+                    adapter.hash_b3.clone()
+                } else {
+                    adapter.adapter_id.clone()
+                }
+            } else {
+                adapter.hash_b3.clone()
+            }
         } else {
             adapter.adapter_id.clone()
         };
 
-        match loader
-            .load_adapter_async(adapter_idx, &id_to_use)
-            .await
-        {
+        match loader.load_adapter_async(adapter_idx, &id_to_use).await {
             Ok(handle) => {
                 // Update adapter state to 'warm' and record memory usage
                 state
@@ -4028,7 +4824,8 @@ pub async fn unload_adapter(
         use adapteros_lora_lifecycle::AdapterLoader;
         use std::path::PathBuf;
 
-        let adapters_root = std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
+        let adapters_root =
+            std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
         let adapters_path = PathBuf::from(adapters_root);
         let mut loader = AdapterLoader::new(adapters_path);
 
@@ -4996,11 +5793,6 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
 
 // ===== SSE Stream Endpoints =====
 
-use axum::response::sse::{Event, KeepAlive, Sse};
-use futures_util::stream::{self, Stream};
-use std::convert::Infallible;
-use std::time::Duration;
-
 /// SSE stream for system metrics
 /// Pushes SystemMetrics every 5 seconds
 pub async fn system_metrics_stream(
@@ -5316,7 +6108,6 @@ pub async fn discovery_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 /// Contacts stream SSE endpoint
 ///
 /// Streams real-time contact discovery and update events as contacts are
@@ -5787,6 +6578,9 @@ pub async fn start_training(
         )
     })?;
 
+    // Validate absolute directory_root if provided (matches orchestrator dataset builder requirements)
+    crate::validation::validate_directory_root_absolute(&req.directory_root)?;
+
     let config = req.config.into();
 
     let job = state
@@ -5829,15 +6623,32 @@ pub async fn start_training(
                 attempts += 1;
                 match training_service.get_job(&job_id_for_reg).await {
                     Ok(j) => {
-                        if matches!(j.status, adapteros_orchestrator::TrainingJobStatus::Completed) {
-                            if let (Some(adapter_id), Some(hash_b3)) = (j.adapter_id.clone(), j.weights_hash_b3.clone()) {
+                        if matches!(
+                            j.status,
+                            adapteros_orchestrator::TrainingJobStatus::Completed
+                        ) {
+                            if let (Some(adapter_id), Some(hash_b3)) =
+                                (j.adapter_id.clone(), j.weights_hash_b3.clone())
+                            {
                                 // Register in DB
                                 let _ = db
-                                    .register_adapter(&adapter_id, &adapter_id, &hash_b3, j.config.rank as i32, tier, None, None)
+                                    .register_adapter(
+                                        &adapter_id,
+                                        &adapter_id,
+                                        &hash_b3,
+                                        j.config.rank as i32,
+                                        tier,
+                                        None,
+                                        None,
+                                    )
                                     .await;
                             }
                             break;
-                        } else if matches!(j.status, adapteros_orchestrator::TrainingJobStatus::Failed | adapteros_orchestrator::TrainingJobStatus::Cancelled) {
+                        } else if matches!(
+                            j.status,
+                            adapteros_orchestrator::TrainingJobStatus::Failed
+                                | adapteros_orchestrator::TrainingJobStatus::Cancelled
+                        ) {
                             break;
                         }
                     }
@@ -5845,7 +6656,21 @@ pub async fn start_training(
                         tracing::warn!("Failed to get training job {}: {}", job_id_for_reg, e);
                     }
                 }
-                if attempts > 300 { // ~5 minutes at 1s
+                if attempts % 60 == 0 {
+                    // every minute
+                    tracing::info!(
+                        "waiting for training job {} to complete ({}s elapsed)",
+                        job_id_for_reg,
+                        attempts
+                    );
+                }
+                if attempts > 7200 {
+                    // up to 2 hours
+                    tracing::warn!(
+                        "registration watcher timed out after {} seconds for job {}",
+                        attempts,
+                        job_id_for_reg
+                    );
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -5873,20 +6698,16 @@ pub async fn get_training_artifacts(
     Path(job_id): Path<String>,
 ) -> Result<Json<crate::types::TrainingArtifactsResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Get job from orchestrator service
-    let job = state
-        .training_service
-        .get_job(&job_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("training job not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let job = state.training_service.get_job(&job_id).await.map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("training job not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let mut artifact_path = None;
     let mut adapter_id = None;
@@ -5909,22 +6730,30 @@ pub async fn get_training_artifacts(
                 weights_hash_b3 = Some(w_hash.clone());
                 if let Ok(manifest_bytes) = std::fs::read(&manifest) {
                     #[derive(serde::Deserialize)]
-                    struct Manifest { weights_hash: String }
+                    struct Manifest {
+                        weights_hash: String,
+                    }
                     if let Ok(m) = serde_json::from_slice::<Manifest>(&manifest_bytes) {
                         let m_hash = m.weights_hash;
                         manifest_hash_b3 = Some(m_hash.clone());
                         manifest_hash_matches = m_hash == w_hash;
                     }
 
-                    if let (Ok(sig_bytes), Ok(pubkey_hex)) = (std::fs::read(&sig), std::fs::read_to_string(&pubkey)) {
+                    if let (Ok(sig_bytes), Ok(pubkey_hex)) =
+                        (std::fs::read(&sig), std::fs::read_to_string(&pubkey))
+                    {
                         if sig_bytes.len() == 64 {
-                            if let (Ok(sig_array), Ok(pk_bytes)) = (<[u8;64]>::try_from(sig_bytes.as_slice()), hex::decode(pubkey_hex.trim())) {
-                                if let Ok(pk_array) = <[u8;32]>::try_from(pk_bytes.as_slice()) {
+                            if let (Ok(sig_array), Ok(pk_bytes)) = (
+                                <[u8; 64]>::try_from(sig_bytes.as_slice()),
+                                hex::decode(pubkey_hex.trim()),
+                            ) {
+                                if let Ok(pk_array) = <[u8; 32]>::try_from(pk_bytes.as_slice()) {
                                     if let (Ok(signature), Ok(public_key)) = (
                                         adapteros_crypto::Signature::from_bytes(&sig_array),
                                         adapteros_crypto::PublicKey::from_bytes(&pk_array),
                                     ) {
-                                        signature_valid = public_key.verify(&manifest_bytes, &signature).is_ok();
+                                        signature_valid =
+                                            public_key.verify(&manifest_bytes, &signature).is_ok();
                                     }
                                 }
                             }
@@ -6031,7 +6860,6 @@ pub async fn get_training_logs(
 
     Ok(Json(logs))
 }
-
 /// Get training metrics
 #[utoipa::path(
     get,
@@ -6828,7 +7656,6 @@ pub async fn recalculate_baseline(
 
     Ok(Json(baseline.into()))
 }
-
 /// Get dashboard configuration
 #[utoipa::path(
     get,

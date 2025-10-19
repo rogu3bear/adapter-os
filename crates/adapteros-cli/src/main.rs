@@ -56,8 +56,7 @@ enum Commands {
     // Tenant Management
     // ============================================================
     /// Initialize a new tenant
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Create a development tenant
   aosctl init-tenant --id tenant_dev --uid 1000 --gid 1000
 
@@ -66,7 +65,7 @@ Examples:
 
   # Quick alias (hidden)
   aosctl init --id tenant_test --uid 1000 --gid 1000
-")]
+"#)]
     TenantInit {
         /// Tenant ID
         #[arg(short, long)]
@@ -85,11 +84,14 @@ Examples:
     // Adapter Management
     // ============================================================
     /// List adapters in the registry
-    #[command(after_help = r#"Examples:
+    #[command(
+        alias = "list-adapters",
+        after_help = r#"Examples:
   aosctl list-adapters
   aosctl list-adapters --tier persistent
   aosctl list-adapters --json > adapters.json
-"#)]
+"#
+    )]
     AdapterList {
         /// Filter by tier
         #[arg(short, long)]
@@ -97,8 +99,7 @@ Examples:
     },
 
     /// Register a new adapter
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Register a persistent adapter
   aosctl register-adapter my_adapter b3:abc123... --tier persistent --rank 16
 
@@ -107,7 +108,7 @@ Examples:
 
   # High-rank adapter for complex tasks
   aosctl register-adapter specialist b3:789ghi... --tier persistent --rank 32
-")]
+"#)]
     AdapterRegister {
         /// Adapter ID
         id: String,
@@ -125,17 +126,16 @@ Examples:
     },
 
     /// Pin adapter to prevent eviction
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Pin adapter permanently
-  aosctl pin-adapter --tenant dev --adapter specialist --reason \"Production critical\"
+  aosctl pin-adapter --tenant dev --adapter specialist --reason "Production critical"
 
   # Pin adapter with TTL
-  aosctl pin-adapter --tenant dev --adapter temp_fix --ttl-hours 24 --reason \"Testing\"
+  aosctl pin-adapter --tenant dev --adapter temp_fix --ttl-hours 24 --reason "Testing"
 
   # List pinned adapters
   aosctl list-pinned --tenant dev
-")]
+"#)]
     AdapterPin {
         /// Tenant ID
         #[arg(short, long)]
@@ -155,14 +155,13 @@ Examples:
     },
 
     /// Unpin adapter to allow eviction
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Unpin adapter
   aosctl unpin-adapter --tenant dev --adapter temp_fix
 
   # Verify unpinning
   aosctl list-pinned --tenant dev
-")]
+"#)]
     AdapterUnpin {
         /// Tenant ID
         #[arg(short, long)]
@@ -174,14 +173,13 @@ Examples:
     },
 
     /// List pinned adapters
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all pinned adapters for tenant
   aosctl list-pinned --tenant dev
 
   # Check specific adapter status
   aosctl adapter-info specialist
-")]
+"#)]
     AdapterListPinned {
         /// Tenant ID
         #[arg(short, long)]
@@ -189,8 +187,7 @@ Examples:
     },
 
     /// Hot-swap adapters in running worker
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Dry-run adapter swap
   aosctl adapter-swap --tenant dev --add specialist --remove temp_fix
 
@@ -199,7 +196,7 @@ Examples:
 
   # Add multiple adapters
   aosctl adapter-swap --tenant dev --add adapter1,adapter2 --commit
-")]
+"#)]
     AdapterSwap {
         /// Tenant ID
         #[arg(short, long)]
@@ -227,8 +224,7 @@ Examples:
     },
 
     /// Show adapter information and provenance
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Show adapter details
   aosctl adapter-info specialist
 
@@ -237,7 +233,7 @@ Examples:
 
   # Show adapter provenance
   aosctl adapter-info specialist --show-provenance
-")]
+"#)]
     AdapterInfo {
         /// Adapter ID
         adapter_id: String,
@@ -255,8 +251,7 @@ Examples:
     // Node & Cluster Management
     // ============================================================
     /// List cluster nodes
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all nodes
   aosctl node-list
 
@@ -265,7 +260,7 @@ Examples:
 
   # Check node status
   aosctl node-status node1
-")]
+"#)]
     NodeList {
         /// Offline mode (use cached database state)
         #[arg(long)]
@@ -273,8 +268,7 @@ Examples:
     },
 
     /// Verify cross-node determinism
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Verify all nodes
   aosctl node-verify --all
 
@@ -283,7 +277,7 @@ Examples:
 
   # Check determinism across cluster
   aosctl node-verify --all --verbose
-")]
+"#)]
     NodeVerify {
         /// Verify all nodes
         #[arg(long)]
@@ -304,8 +298,7 @@ Examples:
     // Registry Management
     // ============================================================
     /// Sync adapters from local directory to registry
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Sync adapters from directory
   aosctl sync-registry --dir ./adapters
 
@@ -314,7 +307,7 @@ Examples:
 
   # Sync to custom registry
   aosctl sync-registry --dir ./adapters --registry ./var/custom.db
-")]
+"#)]
     RegistrySync {
         /// Directory containing adapters with SBOM and signatures
         #[arg(short, long)]
@@ -333,14 +326,13 @@ Examples:
     // Plan Management
     // ============================================================
     /// Build a plan from manifest
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Build plan from YAML manifest
   aosctl build-plan manifests/qwen7b.yaml --output plan/qwen7b/plan.bin
 
   # Build plan for production
   aosctl build-plan manifests/production.yaml --output plan/prod_v1/plan.bin
-")]
+"#)]
     PlanBuild {
         /// Manifest path
         manifest: PathBuf,
@@ -358,17 +350,16 @@ Examples:
     // Model Management
     // ============================================================
     /// Import a model
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Import Qwen2.5-7B model
-  aosctl import-model \\
-    --name qwen2.5-7b \\
-    --weights models/qwen2.5-7b-mlx/weights.safetensors \\
-    --config models/qwen2.5-7b-mlx/config.json \\
-    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \\
-    --tokenizer-cfg models/qwen2.5-7b-mlx/tokenizer_config.json \\
+  aosctl import-model \
+    --name qwen2.5-7b \
+    --weights models/qwen2.5-7b-mlx/weights.safetensors \
+    --config models/qwen2.5-7b-mlx/config.json \
+    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+    --tokenizer-cfg models/qwen2.5-7b-mlx/tokenizer_config.json \
     --license models/qwen2.5-7b-mlx/LICENSE
-")]
+"#)]
     ModelImport {
         /// Model name
         #[arg(short, long)]
@@ -426,8 +417,7 @@ Examples:
     },
 
     /// Check for environment drift
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Check drift against baseline
   aosctl drift-check
 
@@ -439,7 +429,7 @@ Examples:
 
   # Use custom baseline path
   aosctl drift-check --baseline var/production_baseline.json
-")]
+"#)]
     DriftCheck {
         /// Database path
         #[arg(long)]
@@ -481,14 +471,13 @@ Examples:
     },
 
     /// Generate CodeGraph statistics
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Generate statistics
   aosctl codegraph-stats --codegraph-db ./var/codegraph.db
 
   # Export statistics to JSON
   aosctl codegraph-stats --codegraph-db ./var/codegraph.db --json > stats.json
-")]
+"#)]
     CodegraphStats {
         /// CodeGraph database path
         #[arg(short, long)]
@@ -538,14 +527,13 @@ Examples:
     // General Operations
     // ============================================================
     /// Import an artifact bundle
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Import signed bundle (default, recommended)
   aosctl import artifacts/adapters.zip
 
   # Import without verification (dev only, not recommended)
   aosctl import bundle.zip --no-verify
-")]
+"#)]
     Import {
         /// Bundle path
         bundle: PathBuf,
@@ -556,29 +544,27 @@ Examples:
     },
 
     /// Verify a bundle
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Verify artifact bundle signature and hashes
   aosctl verify artifacts/adapters.zip
 
   # Verify telemetry bundle chain
   aosctl verify-telemetry --bundle-dir ./var/telemetry
-")]
+"#)]
     Verify {
         /// Bundle path
         bundle: PathBuf,
     },
 
     /// Verify a packaged adapter directory
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Verify packaged adapter
   aosctl verify-adapter --adapters-root ./adapters --adapter-id demo_adapter
 
   # JSON output
   aosctl verify-adapter --adapters-root ./adapters --adapter-id demo_adapter --json
 
-")]
+"#)]
     VerifyAdapter {
         /// Adapters root directory
         #[arg(long, default_value = "./adapters")]
@@ -594,8 +580,7 @@ Examples:
     // ============================================================
     /// Manage policy packs
     #[command(subcommand)]
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all policy packs
   aosctl policy list
 
@@ -611,12 +596,11 @@ Examples:
 
   # Enforce specific policy
   aosctl policy enforce --pack Determinism
-")]
+"#)]
     Policy(policy::PolicyCommand),
 
     /// Start serving
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Validate setup without starting (recommended first)
   aosctl serve --tenant tenant_dev --plan cp_abc123 --dry-run
 
@@ -625,14 +609,14 @@ Examples:
 
   # Custom socket path
   aosctl serve --tenant tenant_dev --plan cp_abc123 --socket /tmp/aos.sock
-")]
+"#)]
     Serve {
         /// Tenant ID
         #[arg(short, long)]
         tenant: String,
 
         /// Plan ID
-        #[arg(short, long)]
+        #[arg(short, long, alias = "plan-id")]
         plan: String,
 
         /// UDS socket path
@@ -646,11 +630,17 @@ Examples:
         /// Dry-run: validate preflight checks without starting server
         #[arg(long)]
         dry_run: bool,
+
+        /// INSECURE: Skip PF egress preflight (development only)
+        #[arg(long, hide = true)]
+        insecure_skip_egress_check: bool,
+        /// Capture telemetry events to this directory (overrides default)
+        #[arg(long)]
+        capture_events: Option<PathBuf>,
     },
 
     /// Run audit checks
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Audit checkpoint
   aosctl audit CP-0001
 
@@ -659,7 +649,7 @@ Examples:
 
   # Audit and generate report
   aosctl audit CP-0001 --json > audit.json
-")]
+"#)]
     Audit {
         /// CPID to audit
         cpid: String,
@@ -670,8 +660,7 @@ Examples:
     },
 
     /// Audit backend determinism attestation
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Audit Metal backend (default)
   aosctl audit-determinism
 
@@ -680,24 +669,26 @@ Examples:
 
   # Audit MLX backend (requires --features experimental-backends)
   aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
-")]
+"#)]
     AuditDeterminism {
         #[command(flatten)]
         args: audit_determinism::AuditDeterminismArgs,
     },
 
     /// Run a local inference against the worker UDS
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Basic inference
-  aosctl infer --prompt 'Hello world' --socket /var/run/adapteros.sock
+  aosctl infer --prompt 'Hello world' --socket /var/run/aos/aos.sock
 
   # Inference using a specific adapter (preload+swap)
-  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/adapteros.sock
+  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/aos/aos.sock
 
   # Increase max tokens and timeout
   aosctl infer --prompt 'Test' --max-tokens 256 --timeout 60000
-"])
+
+  # Show citations and trace for auditability
+  aosctl infer --prompt 'Explain...' --show-citations --show-trace
+"#)]
     Infer {
         /// Optional adapter to activate before inference
         #[arg(long)]
@@ -708,7 +699,7 @@ Examples:
         prompt: String,
 
         /// UDS socket path
-        #[arg(long, default_value = "/var/run/adapteros.sock")]
+        #[arg(long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
         /// Max tokens to generate
@@ -722,11 +713,18 @@ Examples:
         /// Timeout in milliseconds
         #[arg(long, default_value_t = 30000)]
         timeout: u64,
+
+        /// Show citations (trace.evidence) in output
+        #[arg(long, default_value_t = false)]
+        show_citations: bool,
+
+        /// Show full trace (router summary, token counts)
+        #[arg(long, default_value_t = false)]
+        show_trace: bool,
     },
 
     /// Replay a bundle
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Replay bundle
   aosctl replay ./var/bundles/bundle_001.zip
 
@@ -735,7 +733,7 @@ Examples:
 
   # Replay and check determinism
   aosctl replay ./var/bundles/bundle_001.zip --check-determinism
-")]
+"#)]
     Replay {
         /// Bundle path
         bundle: PathBuf,
@@ -746,8 +744,7 @@ Examples:
     },
 
     /// Rollback to previous checkpoint
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Rollback tenant to checkpoint
   aosctl rollback --tenant dev CP-0001
 
@@ -756,7 +753,7 @@ Examples:
 
   # Check rollback status
   aosctl rollback --tenant dev CP-0001 --dry-run
-")]
+"#)]
     Rollback {
         /// Tenant ID
         #[arg(short, long)]
@@ -768,8 +765,7 @@ Examples:
 
     /// Golden run archive management (audit reproducibility)
     #[command(subcommand)]
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Initialize golden_runs directory
   aosctl golden init
 
@@ -787,13 +783,12 @@ Examples:
 
   # Show golden run details
   aosctl golden show baseline-001
-")]
+"#)]
     Golden(GoldenCmd),
 
     /// Router weight calibration and management
     #[command(subcommand)]
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Calibrate router weights using a dataset
   aosctl router calibrate --dataset calibration.json --output weights.json
 
@@ -802,12 +797,11 @@ Examples:
 
   # Show current router weights
   aosctl router show --weights weights.json
-")]
+"#)]
     Router(router::RouterCmd),
 
     /// Generate HTML report from bundle
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Generate HTML report
   aosctl report ./var/bundles/bundle_001.zip --output report.html
 
@@ -816,7 +810,7 @@ Examples:
 
   # Generate report and open in browser
   aosctl report ./var/bundles/bundle_001.zip --output report.html --open
-")]
+"#)]
     Report {
         /// Bundle path
         bundle: PathBuf,
@@ -827,8 +821,7 @@ Examples:
     },
 
     /// Bootstrap AdapterOS installation
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Full installation
   aosctl bootstrap --mode full
 
@@ -840,7 +833,7 @@ Examples:
 
   # Bootstrap with checkpoint
   aosctl bootstrap --mode full --checkpoint-file ./checkpoint.json
-")]
+"#)]
     Bootstrap {
         /// Installation mode (full or minimal)
         #[arg(short, long, default_value = "full")]
@@ -863,8 +856,7 @@ Examples:
     // Utility
     // ============================================================
     /// Generate shell completion script
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Generate bash completion
   aosctl completions bash > /usr/local/etc/bash_completion.d/aosctl
 
@@ -873,7 +865,7 @@ Examples:
 
   # Generate fish completion
   aosctl completions fish > ~/.config/fish/completions/aosctl.fish
-")]
+"#)]
     Completions {
         /// Shell type
         #[arg(value_enum)]
@@ -884,8 +876,7 @@ Examples:
     // Documentation & Help
     // ============================================================
     /// Run system diagnostics
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Full system diagnostics
   aosctl diag --full
 
@@ -897,7 +888,7 @@ Examples:
 
   # Create diagnostic bundle
   aosctl diag --full --bundle ./diag_bundle.zip
-")]
+"#)]
     Diag {
         /// Diagnostic profile: system, tenant, or full
         #[arg(long, default_value = "full")]
@@ -929,8 +920,7 @@ Examples:
     },
 
     /// Explain an error code or AosError variant
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Explain specific error code
   aosctl explain E3001
 
@@ -939,15 +929,14 @@ Examples:
 
   # Get help for unknown error
   aosctl explain E9999
-")]
+"#)]
     Explain {
         /// Error code (E3001) or AosError name (InvalidHash)
         code: String,
     },
 
     /// List all error codes
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all error codes
   aosctl error-codes
 
@@ -956,7 +945,7 @@ Examples:
 
   # Filter by category
   aosctl error-codes --category crypto
-")]
+"#)]
     ErrorCodes {
         /// Output JSON format
         #[arg(long)]
@@ -964,8 +953,7 @@ Examples:
     },
 
     /// Interactive tutorial
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Run basic tutorial
   aosctl tutorial
 
@@ -974,7 +962,7 @@ Examples:
 
   # Non-interactive mode for CI
   aosctl tutorial --ci
-")]
+"#)]
     Tutorial {
         /// Run advanced tutorial
         #[arg(long)]
@@ -986,8 +974,7 @@ Examples:
     },
 
     /// Display offline manual
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Display manpage
   aosctl manual --format man
 
@@ -995,31 +982,30 @@ Examples:
   aosctl manual --format md
 
   # Search manual for specific terms
-  aosctl manual --format md --search \"error codes\"
-")]
+  aosctl manual --format md --search "error codes"
+"#)]
     Manual {
         #[command(flatten)]
         args: commands::manual::ManualArgs,
     },
 
     /// Train a LoRA adapter
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Train adapter with default settings
   aosctl train --data training_data.json --output ./trained_adapter
 
   # Train with custom configuration
-  aosctl train --data training_data.json --output ./trained_adapter \\
+  aosctl train --data training_data.json --output ./trained_adapter \
     --rank 8 --alpha 32.0 --learning-rate 0.001 --epochs 5
 
   # Train with Metal backend
-  aosctl train --data training_data.json --output ./trained_adapter \\
+  aosctl train --data training_data.json --output ./trained_adapter \
     --plan plan/qwen7b/plan.bin
 
   # Train with configuration file
-  aosctl train --config training_config.json --data training_data.json \\
+  aosctl train --config training_config.json --data training_data.json \
     --output ./trained_adapter
-")]
+"#)]
     Train {
         #[command(flatten)]
         args: train::TrainArgs,
@@ -1045,14 +1031,13 @@ Examples:
     // Code Intelligence Commands
     // ============================================================
     /// Initialize a code repository
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Initialize current directory
   aosctl code-init .
 
   # Initialize specific repository
   aosctl code-init /path/to/repo --tenant default
-")]
+"#)]
     CodeInit {
         /// Repository path
         path: PathBuf,
@@ -1063,14 +1048,13 @@ Examples:
     },
 
     /// Update repository scan
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Scan repository at current commit
   aosctl code-update my-repo
 
   # Scan specific commit
   aosctl code-update my-repo --commit abc123
-")]
+"#)]
     CodeUpdate {
         /// Repository ID
         repo_id: String,
@@ -1085,14 +1069,13 @@ Examples:
     },
 
     /// List registered repositories
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all repositories
   aosctl code-list
 
   # List with JSON output
   aosctl code-list --json
-")]
+"#)]
     CodeList {
         /// Tenant ID
         #[arg(long, default_value = "default")]
@@ -1100,14 +1083,13 @@ Examples:
     },
 
     /// Get repository status
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Get repository status
   aosctl code-status my-repo
 
   # Get status with JSON output
   aosctl code-status my-repo --json
-")]
+"#)]
     CodeStatus {
         /// Repository ID
         repo_id: String,
@@ -1273,8 +1255,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             adapter::handle_adapter_command(cmd.clone(), &output).await?;
         }
         Commands::Adapters(cmd) => {
-            commands::adapters::run(commands::adapters::AdaptersArgs { cmd: cmd.clone() }, &output)
-                .await?;
+            commands::adapters::run(
+                commands::adapters::AdaptersArgs { cmd: cmd.clone() },
+                &output,
+            )
+            .await?;
         }
 
         // Node & Cluster Management
@@ -1407,8 +1392,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Verify { bundle } => {
             verify::run(&bundle, &output).await?;
         }
-        Commands::VerifyAdapter { adapters_root, adapter_id } => {
-            commands::verify_adapter::run(adapters_root.clone(), adapter_id.clone(), &output).await?;
+        Commands::VerifyAdapter {
+            adapters_root,
+            adapter_id,
+        } => {
+            commands::verify_adapter::run(adapters_root.clone(), adapter_id.clone(), &output)
+                .await?;
         }
 
         // Policy Management
@@ -1422,8 +1411,23 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             socket,
             backend,
             dry_run,
+            insecure_skip_egress_check,
+            capture_events,
         } => {
-            serve::run(&tenant, &plan, &socket, backend.clone(), *dry_run, &output).await?;
+            // Dev-only: allow bypassing PF preflight via hidden flag
+            if *insecure_skip_egress_check {
+                std::env::set_var("AOS_INSECURE_SKIP_EGRESS", "1");
+            }
+            serve::run(
+                &tenant,
+                &plan,
+                &socket,
+                backend.clone(),
+                *dry_run,
+                capture_events.as_ref(),
+                &output,
+            )
+            .await?;
         }
         Commands::Audit { cpid, suite } => {
             audit::run(&cpid, suite.as_deref(), &output).await?;
@@ -1440,6 +1444,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             max_tokens,
             require_evidence,
             timeout,
+            show_citations,
+            show_trace,
         } => {
             commands::infer::run(
                 adapter.clone(),
@@ -1448,6 +1454,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 *require_evidence,
                 socket.clone(),
                 *timeout,
+                *show_citations,
+                *show_trace,
             )
             .await?;
         }
@@ -1620,6 +1628,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",
         Commands::CodeStatus { .. } => "code-status",
+        Commands::VerifyAdapter { .. } => "verify-adapter",
+        Commands::Infer { .. } => "infer",
     }
     .to_string()
 }

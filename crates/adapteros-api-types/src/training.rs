@@ -60,6 +60,10 @@ pub struct TrainingJobResponse {
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
     pub estimated_completion: Option<String>,
+    // Artifact metadata (populated when packaging is enabled)
+    pub artifact_path: Option<String>,
+    pub adapter_id: Option<String>,
+    pub weights_hash_b3: Option<String>,
 }
 
 impl From<TrainingJob> for TrainingJobResponse {
@@ -81,6 +85,9 @@ impl From<TrainingJob> for TrainingJobResponse {
             completed_at: job.completed_at,
             error_message: job.error_message,
             estimated_completion: None, // Calculate if needed
+            artifact_path: job.artifact_path,
+            adapter_id: job.adapter_id,
+            weights_hash_b3: job.weights_hash_b3,
         }
     }
 }
@@ -109,9 +116,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             epochs: req.epochs,
             learning_rate: req.learning_rate,
             batch_size: req.batch_size,
-            warmup_steps: None,
-            max_seq_length: None,
-            gradient_accumulation_steps: None,
+            warmup_steps: req.warmup_steps,
+            max_seq_length: req.max_seq_length,
+            gradient_accumulation_steps: req.gradient_accumulation_steps,
         }
     }
 }
@@ -151,7 +158,7 @@ pub struct TrainingMetricsResponse {
 pub struct UploadDatasetRequest {
     pub name: String,
     pub description: Option<String>,
-    pub format: String,  // 'patches', 'jsonl', 'txt', 'custom'
+    pub format: String, // 'patches', 'jsonl', 'txt', 'custom'
 }
 
 /// Upload dataset response

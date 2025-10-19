@@ -308,7 +308,7 @@ mod tests {
 
         // UDS paths should be allowed
         assert!(validator
-            .validate_network_access("/var/run/aos/tenant/worker.sock")
+            .validate_network_access("/var/run/aos/tenant/aos.sock")
             .is_ok());
 
         // Network addresses should be denied

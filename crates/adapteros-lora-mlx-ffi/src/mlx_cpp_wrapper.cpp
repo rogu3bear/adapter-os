@@ -1,6 +1,10 @@
-// MLX C++ wrapper implementation (stub)
+// MLX C++ wrapper implementation
 // Provides C-compatible interface for MLX functionality
-// Note: MLX is primarily a Python framework, so this is a stub implementation
+//
+// Build modes:
+// - Stub mode (default): no real MLX dependencies; deterministic placeholders
+// - Real mode: compiled with -DMLX_HAVE_REAL_API and linked to libmlx
+//   (current implementation retains stub logic as a placeholder; real calls TBD)
 
 #include "wrapper.h"
 #include <memory>
@@ -11,6 +15,14 @@
 
 // Global error state
 static thread_local std::string g_last_error;
+
+extern "C" int mlx_wrapper_is_real(void) {
+#ifdef MLX_HAVE_REAL_API
+    return 1;
+#else
+    return 0;
+#endif
+}
 
 // Simple array structure for stub implementation
 struct StubArray {
@@ -270,18 +282,40 @@ mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_
     try {
         auto mdl = reinterpret_cast<StubModel*>(model);
         auto inp = reinterpret_cast<StubArray*>(input);
-        
+
         // Stub forward pass with hidden states
+        // Produce logits sized to input length as placeholder
         std::vector<float> output(inp->data.size(), 0.5f);
         auto result = new StubArray(output);
-        *hidden_states = nullptr;
-        *num_hidden = 0;
-        
+
+        // Produce a concatenated hidden states buffer for Q/K/V/O projections
+        const int hidden_size = 128; // stub dimension
+        const int modules = 4;       // q_proj, k_proj, v_proj, o_proj
+        std::vector<float> concat;
+        concat.reserve(hidden_size * modules);
+        for (int m = 0; m < modules; ++m) {
+            for (int i = 0; i < hidden_size; ++i) {
+                // simple, reproducible pattern per module
+                concat.push_back(0.001f * static_cast<float>((i + 1) * (m + 1)));
+            }
+        }
+        auto hidden = new StubArray(concat);
+        *hidden_states = reinterpret_cast<mlx_array_t*>(hidden);
+        *num_hidden = modules;
+
         return reinterpret_cast<mlx_array_t*>(result);
     } catch (const std::exception& e) {
         g_last_error = e.what();
         return nullptr;
     }
+}
+
+void mlx_free_hidden_states(mlx_array_t** arrays, int num_hidden) {
+    if (!arrays) return;
+    // Caller is responsible for freeing individual arrays via mlx_array_free
+    // Here we only free the container pointer
+    (void)num_hidden; // unused in stub
+    delete[] arrays;
 }
 
 void mlx_model_free(mlx_model_t* model) {

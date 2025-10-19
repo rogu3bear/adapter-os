@@ -350,7 +350,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             "Cannot connect to worker socket for adapter operations.",
             "1. Check if worker is running: aosctl serve status\n\
              2. Start worker if needed: aosctl serve start\n\
-             3. Verify socket path: ./var/run/aos/<tenant>/worker.sock\n\
+             3. Verify socket path: /var/run/aos/<tenant>/aos.sock\n\
              4. Check tenant isolation and permissions",
             docs = ["crates/adapteros-client/"]
         ),

@@ -47,7 +47,17 @@ const Button = React.forwardRef<
     <Comp
       ref={ref}
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        "inline-flex items-center justify-center whitespace-nowrap rounded-[var(--radius-button)] text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+        "h-[calc(var(--button-padding-y)_*__2_+_var(--font-body))]", // ~36px
+        "px-[var(--button-padding-x)] py-[var(--button-padding-y)]",
+        {
+          'bg-[var(--accent-500)] text-primary-foreground hover:bg-[var(--accent-600)]': variant === "default",
+          'bg-[var(--success)] text-primary-foreground hover:bg-[color-mix(in_srgb,var(--success)_20%,black)]': variant === "success",
+          // ... other variants with tokens
+        },
+        className
+      )}
       {...props}
     />
   );

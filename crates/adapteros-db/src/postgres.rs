@@ -61,10 +61,10 @@ impl PostgresDb {
 
     /// Run database migrations
     ///
-    /// Applies all SQL migrations from the `migrations/` directory.
+    /// Applies all SQL migrations from the `migrations_postgres/` directory.
     /// Migrations are idempotent and can be run multiple times safely.
     pub async fn migrate(&self) -> Result<()> {
-        sqlx::migrate!("../../migrations")
+        sqlx::migrate!("../../migrations_postgres")
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;

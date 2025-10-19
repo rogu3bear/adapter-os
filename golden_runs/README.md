@@ -50,6 +50,8 @@ Per-layer floating-point error statistics:
   - `mean_error`: Mean absolute error
   - `element_count`: Number of elements in the layer
 
+Note: When multiple adapters are active, layer IDs may be prefixed with `adapter:<adapter_id>/` to tag per-adapter epsilon (for example: `adapter:a1/ff.gate`). The file schema remains a string key mapped to stats.
+
 ### bundle_hash.txt
 
 BLAKE3 hash of the complete event bundle (NDJSON format). This enables verification without storing the full event trace.
@@ -96,6 +98,32 @@ aosctl golden verify \
 #   Adapters: ✓ match
 #   Epsilon: ✓ All 32 layers within tolerance (ε < 1.00e-06)
 ```
+
+## Server API Usage
+
+The server exposes endpoints to list baselines, inspect a baseline summary, and compare a telemetry bundle to a chosen baseline.
+
+Endpoints:
+
+- `GET /v1/golden/runs` → `string[]` of baseline names (from `golden_runs/baselines/*`).
+- `GET /v1/golden/runs/:name` → GoldenRunSummary (metadata and ε stats summary).
+- `POST /v1/golden/compare` → VerificationReport for a bundle against a baseline.
+
+Example compare request body:
+
+```json
+{
+  "golden": "baseline-001",
+  "bundle_id": "f2b1c3e0",
+  "strictness": "epsilon-tolerant",
+  "verify_toolchain": true,
+  "verify_adapters": true,
+  "verify_signature": true,
+  "verify_device": false
+}
+```
+
+Bundle is resolved at `var/bundles/{bundle_id}.ndjson`. Defaults enforce the "golden rules": strictness `epsilon-tolerant`; verify toolchain, adapters, and signature; device verification is optional.
 
 ## Verification Strictness Levels
 
@@ -169,3 +197,24 @@ Golden run was created with different toolchain. Either:
 - [docs/control-plane.md](../../docs/control-plane.md) - Control plane documentation
 - [.cursor/rules/global.mdc](../../.cursor/rules/global.mdc) - Policy rulesets
 
+## CAB Golden Gate
+
+Control Plane promotion can optionally run a golden-run verification gate between replay tests and approval signing. Enable via `configs/cp.toml`:
+
+```
+[cab.golden_gate]
+enabled = true
+baseline = "baseline-001"
+# one of: bitwise | epsilon-tolerant | statistical
+strictness = "epsilon-tolerant"
+skip_toolchain = false
+skip_signature = false
+verify_device = false
+# bundle_path = "var/bundles/cp-promote.ndjson" # optional explicit bundle
+```
+
+Behavior:
+- When enabled, the server verifies the current replay bundle against `golden_runs/baselines/<baseline>`.
+- If `bundle_path` is not set, the newest `*.ndjson` under `paths.bundles_root` is used.
+- Strictness controls epsilon tolerance; bitwise requires identical bundles.
+- Any failure blocks promotion.

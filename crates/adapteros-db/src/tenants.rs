@@ -41,4 +41,14 @@ impl Db {
         .await?;
         Ok(tenants)
     }
+
+    /// Rename a tenant
+    pub async fn rename_tenant(&self, id: &str, new_name: &str) -> Result<()> {
+        sqlx::query("UPDATE tenants SET name = ?, created_at = created_at WHERE id = ?")
+            .bind(new_name)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
 }

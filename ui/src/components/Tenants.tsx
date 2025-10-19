@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from './ui/switch';
 import { Alert, AlertDescription } from './ui/alert';
 import { Progress } from './ui/progress';
-import {
+import { 
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -170,6 +170,17 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     }
   };
 
+  const handlePause = async (tenant: ApiTenant) => {
+    try {
+      await apiClient.pauseTenant(tenant.id);
+      toast.success(`Tenant "${tenant.name}" paused`);
+      await fetchTenants();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to pause tenant';
+      toast.error(errorMsg);
+    }
+  };
+
   // Mock data removed - using real API data from state
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -215,27 +226,18 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     );
   };
 
-  const handleCreateTenant = () => {
+  const handleCreateTenant = async () => {
     if (!newTenant.name.trim()) return;
-
-    const tenant: ApiTenant = {
-      id: Date.now().toString(),
-      name: newTenant.name,
-      created_at: new Date().toISOString(),
-      isolation_level: 'standard',
-      description: newTenant.description,
-      status: 'active',
-      users: 0,
-      adapters: 0,
-      policies: 0,
-      itar_compliant: newTenant.itarCompliant,
-      data_classification: newTenant.dataClassification,
-      last_activity: 'Just created'
-    };
-
-    setTenants([...tenants, tenant]);
-    setNewTenant({ name: '', description: '', dataClassification: 'internal', itarCompliant: false });
-    setIsCreateDialogOpen(false);
+    try {
+      await apiClient.createTenant({ name: newTenant.name, isolation_level: 'standard' });
+      toast.success('Tenant created');
+      setNewTenant({ name: '', description: '', dataClassification: 'internal', itarCompliant: false });
+      setIsCreateDialogOpen(false);
+      await fetchTenants();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create tenant';
+      toast.error(errorMsg);
+    }
   };
 
   if (user.role !== 'Admin') {
@@ -452,6 +454,12 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {tenant.status !== 'paused' && tenant.status !== 'archived' && (
+                          <DropdownMenuItem onClick={() => handlePause(tenant)}>
+                            <Lock className="mr-2 h-4 w-4" />
+                            Pause
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => {
                           setSelectedTenantForAction(tenant);
                           setEditName(tenant.name);
@@ -646,6 +654,31 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
             </div>
           )}
           <DialogFooter>
+            {usageData && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const rows = [
+                    ['cpu_usage_pct', usageData.cpu_usage_pct.toFixed(1)],
+                    ['gpu_usage_pct', usageData.gpu_usage_pct.toFixed(1)],
+                    ['memory_used_gb', usageData.memory_used_gb.toFixed(2)],
+                    ['memory_total_gb', usageData.memory_total_gb.toFixed(2)],
+                    ['inference_count_24h', usageData.inference_count_24h.toString()],
+                    ['active_adapters_count', usageData.active_adapters_count.toString()],
+                  ];
+                  const csv = 'key,value\n' + rows.map(r => r.join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `tenant-usage-${selectedTenantForAction?.id}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Export CSV
+              </Button>
+            )}
             <Button onClick={() => setShowUsageModal(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>

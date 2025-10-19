@@ -1,10 +1,10 @@
 //! Training command implementation
 
 use adapteros_core::{AosError, Result};
+use adapteros_lora_worker::training::packager::AdapterPackager;
 use adapteros_lora_worker::training::{
     LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
-use adapteros_lora_worker::training::packager::AdapterPackager;
 use clap::Args;
 use serde_json;
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 
 /// Train a LoRA adapter
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Default)]
 pub struct TrainArgs {
     /// Training configuration file (JSON)
     #[arg(short, long)]
@@ -113,7 +113,7 @@ impl TrainArgs {
         info!("Loaded {} training examples", examples.len());
 
         // Create trainer
-        let mut trainer = MicroLoRATrainer::new(config)?;
+        let mut trainer = MicroLoRATrainer::new(config.clone())?;
 
         // Initialize Metal kernels if plan is provided
         if let Some(plan_path) = &self.plan {
@@ -175,7 +175,8 @@ impl TrainArgs {
                     &packaged.hash_b3,
                     &self.tier,
                     reg_rank,
-                    &crate::output::OutputWriter::new(false, false),
+                    // Respect current output mode by inheriting JSON/verbosity from environment flags
+                    &crate::output::OutputWriter::new(crate::output::OutputMode::from_env(), false),
                 )
                 .await
                 .map_err(|e| AosError::Io(format!("Registration failed: {}", e)))?;
@@ -312,6 +313,7 @@ mod tests {
             hidden_dim: 768,
             deterministic: false,
             seed: None,
+            ..Default::default()
         };
 
         let loaded_config = args.load_config().unwrap();
@@ -355,6 +357,7 @@ mod tests {
             hidden_dim: 768,
             deterministic: false,
             seed: None,
+            ..Default::default()
         };
 
         let examples = args.load_training_data().unwrap();

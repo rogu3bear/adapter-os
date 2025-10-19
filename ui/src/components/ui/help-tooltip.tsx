@@ -41,7 +41,16 @@ export function HelpTooltip({
       'policy-pack': 'Collection of security and compliance rules.',
       'telemetry-bundle': 'Compressed system events and audit logs.',
       'router': 'Component selecting best adapters for requests.',
-      'k-sparse': 'Routing strategy selecting top K adapters.'
+      'k-sparse': 'Routing strategy selecting top K adapters.',
+      // Newly added UX clarifications
+      'cpid': 'Control Plane ID: identifier that groups policies, plans, and telemetry.',
+      'merkle-root': 'Root hash of a Merkle tree used to attest integrity of bundled events.',
+      'schema-hash': 'Content hash of the policy schema version applied to a policy pack.',
+      'tokens-per-second': 'Throughput: number of tokens processed per second across the system.',
+      'latency-p95': 'Latency p95: 95th percentile end-to-end response latency in milliseconds.',
+      'adapter-count': 'Total number of active code adapters loaded in the system.',
+      'active-sessions': 'Concurrent active user or service sessions currently using the system.',
+      'requires-admin': 'This action requires the Admin role. Contact an administrator for access.'
     };
     return helpTexts[id] || 'Help information not available.';
   };

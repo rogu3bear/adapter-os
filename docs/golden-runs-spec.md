@@ -110,6 +110,8 @@ Per-layer floating-point error statistics:
 
 These statistics are extracted from `kernel.noise` telemetry events during inference.
 
+Note: For runs with multiple adapters, layer IDs can be adapter‑qualified using the prefix `adapter:<adapter_id>/`. Example: `adapter:a1/ff.gate`. This tags ε per adapter without changing the file schema (string key → stats).
+
 ### bundle_hash.txt
 
 BLAKE3 hash of the complete event bundle (plain text):
@@ -473,4 +475,3 @@ aosctl golden create --bundle new_run.ndjson --name baseline-002
 - [docs/control-plane.md](./control-plane.md) - Control plane operations
 - [.cursor/rules/global.mdc](../.cursor/rules/global.mdc) - Policy rulesets
 - [crates/adapteros-verify/README.md](../crates/adapteros-verify/README.md) - Library documentation
-

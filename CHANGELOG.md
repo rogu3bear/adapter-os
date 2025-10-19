@@ -90,3 +90,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Performance profiling and optimization tools
 - Enterprise deployment features
 - Community contribution guidelines
+# Unreleased
+
+## Added
+- Evidence-first enforcement: server refuses to start without RAG when open-book policy is enabled.
+- Confidence gating: worker abstains on low-confidence generations via avg max-prob.
+- CLI: `aosctl infer` supports `--show-citations` and `--show-trace` for auditability.
+- API: `/signals` SSE; adapter lifecycle endpoints (admin-gated); `/health` includes policy status.
+
+## Security/Policy
+- Admin endpoints require `AOS_API_ENABLE_ADMIN=true` and optionally `X-Admin-Token` header matching `AOS_API_ADMIN_TOKEN`.
+- Strict mode: refuse to start if `AOS_INSECURE_SKIP_CONF` is set under `AOS_STRICT_MODE`.
+
+## Notes
+- `adapteros-server-api` contains pre-existing compilation errors; CLI feature-gates server to avoid blocking build.
+
+## [0.02] - 2025-10-20
+### Added
+- Observability: Prometheus exporter (/metrics with inference/errors counters【@crates/adapteros-metrics-exporter/src/lib.rs】), threat detection hooks in Incident/Refusal validators (alerts on low conf【@crates/adapteros-policy/src/policy_packs.rs§1900/1100】).
+- MLX Backend: Stabilized with PyO3 0.22, feature flag mlx-backend for parity testing【@Cargo.toml§77, @crates/adapteros-base-llm/src/lib.rs enum】.
+- Tests: Expanded E2E (policy, router, determinism, memory, tenants; +20% coverage【@tests/integration_tests.rs§626-817】).
+- Docs: DEPLOYMENT.md for prod (Postgres/RAG, multi-node, monitoring【@docs/DEPLOYMENT.md§1】); auto Rust API【@README.md§451】.
+
+### Changed
+- Server: Rate limit 100/min, admin RBAC【@crates/adapteros-server-api/src/routes.rs§694】.
+- Policies: Async desugared to impl Future + Send【@crates/adapteros-policy/src/unified_enforcement.rs§18-30】.
+
+### Fixed
+- PyO3 linker for MLX【@Cargo.toml§147】.
+- Lints: Unused Results, dead code【@clippy§unused_must_use】.

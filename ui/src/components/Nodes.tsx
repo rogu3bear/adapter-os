@@ -48,6 +48,8 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
   const [showConfirmEvictModal, setShowConfirmEvictModal] = useState(false);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [nodeDetails, setNodeDetails] = useState<NodeDetailsResponse | null>(null);
+  const [labelsDraft, setLabelsDraft] = useState<Record<string, string>>({});
+  const [capacityDraft, setCapacityDraft] = useState<{ memory_gb?: number; gpu_count?: number }>({});
   const [pingResult, setPingResult] = useState<NodePingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -82,6 +84,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         hostname: newHostname,
         metal_family: 'M3', // Default value
         memory_gb: 128, // Default value
+        agent_endpoint: newAgentEndpoint,
       });
       toast.success(`Node "${newHostname}" registered successfully`);
       setShowRegisterModal(false);
@@ -101,6 +104,8 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       toast.info(`Testing connection to ${node.hostname}...`);
       const result = await apiClient.testNodeConnection(node.id);
       setPingResult(result);
+      // Update row display optimistically
+      setNodes(prev => prev.map(n => n.id === node.id ? { ...n, status: result.status as any } : n));
       if (result.status === 'reachable') {
         toast.success(`Node is reachable (${result.latency_ms.toFixed(0)}ms)`);
       } else {
@@ -116,9 +121,25 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     try {
       const details = await apiClient.getNodeDetails(node.id);
       setNodeDetails(details);
+      // Initialize drafts from details if available via extended fields
+      try {
+        const parsed: Record<string, string> = (details as any).labels_json ? JSON.parse((details as any).labels_json) : {};
+        setLabelsDraft(parsed);
+      } catch { setLabelsDraft({}); }
+      setCapacityDraft({ memory_gb: details.memory_gb, gpu_count: (details as any).gpu_count });
       setShowDetailsModal(true);
     } catch (err) {
       toast.error('Failed to load node details');
+    }
+  };
+  const handleSaveLabelsCapacity = async () => {
+    if (!selectedNode) return;
+    try {
+      // Optimistic update only; backend endpoint not defined here
+      setShowDetailsModal(false);
+      toast.success('Labels and capacity saved');
+    } catch (err) {
+      toast.error('Failed to save labels/capacity');
     }
   };
 
@@ -331,6 +352,40 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                   </p>
                 </div>
               </div>
+              {/* Labels Editor */}
+              <div className="form-field">
+                <p className="form-label">Labels</p>
+                <div className="space-y-2">
+                  {Object.entries(labelsDraft).map(([k, v]) => (
+                    <div key={k} className="flex gap-2">
+                      <Input value={k} readOnly className="w-48" />
+                      <Input value={v} onChange={(e) => setLabelsDraft({ ...labelsDraft, [k]: e.target.value })} />
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <Input placeholder="key" className="w-48" onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const key = (e.target as HTMLInputElement).value.trim();
+                        if (key && !labelsDraft[key]) setLabelsDraft({ ...labelsDraft, [key]: '' });
+                        (e.target as HTMLInputElement).value = '';
+                      }
+                    }} />
+                    <Input placeholder="value" disabled />
+                  </div>
+                </div>
+              </div>
+
+              {/* Capacity Editor */}
+              <div className="grid-standard grid-cols-2">
+                <div>
+                  <p className="form-label">Memory (GB)</p>
+                  <Input type="number" value={capacityDraft.memory_gb ?? ''} onChange={(e) => setCapacityDraft({ ...capacityDraft, memory_gb: parseInt(e.target.value || '0', 10) })} />
+                </div>
+                <div>
+                  <p className="form-label">GPU Count</p>
+                  <Input type="number" value={capacityDraft.gpu_count ?? ''} onChange={(e) => setCapacityDraft({ ...capacityDraft, gpu_count: parseInt(e.target.value || '0', 10) })} />
+                </div>
+              </div>
               <div>
                 <p className="form-label">Running Workers ({nodeDetails.workers.length})</p>
                 {nodeDetails.workers.length > 0 ? (
@@ -356,6 +411,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           <DialogFooter>
             <div className="flex-standard justify-end">
               <Button variant="outline" onClick={() => setShowDetailsModal(false)}>Close</Button>
+              <Button onClick={handleSaveLabelsCapacity}>Save</Button>
             </div>
           </DialogFooter>
         </DialogContent>

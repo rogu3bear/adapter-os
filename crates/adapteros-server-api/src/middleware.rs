@@ -1,4 +1,4 @@
-use crate::auth::{validate_token, Claims};
+use crate::auth::{validate_token, validate_token_ed25519, validate_token_ed25519_der, Claims};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -26,7 +26,20 @@ pub async fn auth_middleware(
 
     if let Some(auth_header) = auth_header {
         if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            match validate_token(token, &state.jwt_secret) {
+            // Choose validation based on configured JWT mode
+            let claims_res = match state.jwt_mode {
+                crate::state::JwtMode::Hmac => validate_token(token, &state.jwt_secret),
+                crate::state::JwtMode::EdDsa => {
+                    if let Some(ref pem) = state.jwt_public_key_pem {
+                        validate_token_ed25519(token, pem)
+                    } else {
+                        // Fallback to in-memory public key DER from crypto state
+                        let der = state.crypto.jwt_keypair.public_key().to_bytes();
+                        validate_token_ed25519_der(token, &der)
+                    }
+                }
+            };
+            match claims_res {
                 Ok(claims) => {
                     // Insert claims into request extensions for handlers to use
                     req.extensions_mut().insert(claims);
@@ -83,7 +96,18 @@ pub async fn dual_auth_middleware(
                 return Ok(next.run(req).await);
             }
 
-            match validate_token(token, &state.jwt_secret) {
+            let claims_res = match state.jwt_mode {
+                crate::state::JwtMode::Hmac => validate_token(token, &state.jwt_secret),
+                crate::state::JwtMode::EdDsa => {
+                    if let Some(ref pem) = state.jwt_public_key_pem {
+                        validate_token_ed25519(token, pem)
+                    } else {
+                        let der = state.crypto.jwt_keypair.public_key().to_bytes();
+                        validate_token_ed25519_der(token, &der)
+                    }
+                }
+            };
+            match claims_res {
                 Ok(claims) => {
                     req.extensions_mut().insert(claims);
                     return Ok(next.run(req).await);

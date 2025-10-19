@@ -207,24 +207,18 @@ impl FusedKernels for CpuKernels {
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         // Compute a simple, deterministic logit for each vocab index based on
         // the last input token, adapter gates, and position.
-        let last_token = io
-            .input_ids
-            .last()
-            .copied()
-            .unwrap_or(0) as u64;
+        let last_token = io.input_ids.last().copied().unwrap_or(0) as u64;
 
         // Aggregate normalized gate influence
         let gate_sum: f32 = if !ring.gates_q15.is_empty() {
-            ring.gates_q15
-                .iter()
-                .map(|&g| (g as f32) / 32768.0)
-                .sum()
+            ring.gates_q15.iter().map(|&g| (g as f32) / 32768.0).sum()
         } else {
             1.0
         };
 
         let position = io.position as u64;
-        for (i, logit) in io.output_logits.iter_mut().enumerate().take(self.vocab_size) {
+        let limit = core::cmp::min(self.vocab_size, io.output_logits.len());
+        for (i, logit) in io.output_logits.iter_mut().enumerate().take(limit) {
             let vocab_idx = i as u64;
             // Mix seed with inputs to get a stable pseudo-feature
             let seed = self.seed ^ last_token ^ vocab_idx ^ position;
@@ -244,6 +238,10 @@ impl FusedKernels for CpuKernels {
             *logit = base * (0.5 + 0.5 * gate_sum.min(1.0)) + adapter_mix;
         }
 
+        // Zero any remaining tail of the buffer beyond vocab_size
+        for v in io.output_logits[limit..].iter_mut() {
+            *v = 0.0;
+        }
         io.position += 1;
         Ok(())
     }

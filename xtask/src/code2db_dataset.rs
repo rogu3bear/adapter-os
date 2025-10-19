@@ -51,7 +51,9 @@ struct TrainingDataOut {
 pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
     // Resolve include paths
     let include_paths: Vec<PathBuf> = if let Some(inc) = &args.include {
-        inc.split(',').map(|s| args.repo_root.join(s.trim())).collect()
+        inc.split(',')
+            .map(|s| args.repo_root.join(s.trim()))
+            .collect()
     } else {
         vec![
             args.repo_root.join("crates/adapteros-db"),
@@ -93,11 +95,14 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
         let content = fs::read_to_string(&path).unwrap_or_default();
 
         // If SQL migration, use filename as prompt and SQL as target
-        if path.extension().and_then(|e| e.to_str()) == Some("sql") && re_sql_create.is_match(&content)
+        if path.extension().and_then(|e| e.to_str()) == Some("sql")
+            && re_sql_create.is_match(&content)
         {
             let prompt = format!(
                 "Create migration for {}\n{}",
-                path.file_name().and_then(|n| n.to_str()).unwrap_or("migration.sql"),
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("migration.sql"),
                 path.display()
             );
             let input_ids = tokenizer.encode(&prompt)?;
@@ -173,12 +178,12 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
             metadata: Some(e.metadata),
         })
         .collect();
-    let td = TrainingDataOut { examples: examples_out };
+    let td = TrainingDataOut {
+        examples: examples_out,
+    };
     let json = serde_json::to_string_pretty(&td)?;
     fs::write(&args.output, json).with_context(|| format!("writing {}", args.output.display()))?;
 
     println!("✓ Wrote dataset: {}", args.output.display());
     Ok(())
 }
-
-

@@ -5,7 +5,7 @@ import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { ArrowUp, CheckCircle, XCircle, AlertTriangle, Play, History } from 'lucide-react';
+import { ArrowUp, CheckCircle, XCircle, AlertTriangle, Play, History, Download, Undo2 } from 'lucide-react';
 import apiClient from '../api/client';
 import { PromotionGate, User, DryRunPromotionResponse, PromotionHistoryEntry } from '../api/types';
 import { Alert, AlertDescription } from './ui/alert';
@@ -25,6 +25,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
   const [dryRunResult, setDryRunResult] = useState<DryRunPromotionResponse | null>(null);
   const [history, setHistory] = useState<PromotionHistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [gatesLog, setGatesLog] = useState<string>('');
 
   useEffect(() => {
     fetchHistory();
@@ -73,6 +74,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     try {
       const data = await apiClient.getPromotionGates(cpid);
       setGates(data);
+      setGatesLog(JSON.stringify(data, null, 2));
       toast.success('Gates checked successfully');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to check gates';
@@ -80,6 +82,26 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       toast.error(errorMsg);
     } finally {
       setLoading(false);
+    }
+  };
+  const handleDownloadGatesLog = () => {
+    if (!gatesLog) return;
+    const blob = new Blob([gatesLog], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `promotion-gates-${cpid || 'unknown'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRollback = async () => {
+    try {
+      await apiClient.rollback();
+      toast.success('Rollback initiated');
+      fetchHistory();
+    } catch (err) {
+      toast.error('Failed to rollback');
     }
   };
 
@@ -229,6 +251,16 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
                 <ArrowUp className="icon-standard mr-2" />
                 {allGatesPassed ? 'Promote to Production' : 'Gates Must Pass to Promote'}
               </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleDownloadGatesLog} disabled={!gatesLog}>
+                  <Download className="icon-standard mr-2" />
+                  Download Gates Log
+                </Button>
+                <Button variant="destructive" onClick={handleRollback}>
+                  <Undo2 className="icon-standard mr-2" />
+                  Rollback
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

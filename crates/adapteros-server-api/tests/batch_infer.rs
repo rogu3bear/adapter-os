@@ -53,6 +53,8 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
             enabled: false,
             bearer_token: String::new(),
         },
+        golden_gate: None,
+        bundles_root: "var/bundles".to_string(),
     };
 
     let metrics = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
@@ -210,16 +212,17 @@ async fn batch_infer_processes_multiple_requests() -> anyhow::Result<()> {
         ],
     };
 
-    let response = match batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await {
-        Ok(r) => r,
-        Err((status, err_json)) => {
-            return Err(anyhow::anyhow!(format!(
-                "handler error {}: {}",
-                status,
-                serde_json::to_string(&err_json.0).unwrap_or_default()
-            )));
-        }
-    };
+    let response =
+        match batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await {
+            Ok(r) => r,
+            Err((status, err_json)) => {
+                return Err(anyhow::anyhow!(format!(
+                    "handler error {}: {}",
+                    status,
+                    serde_json::to_string(&err_json.0).unwrap_or_default()
+                )));
+            }
+        };
     let Json(batch_response) = response;
 
     assert_eq!(batch_response.responses.len(), 2);
@@ -303,16 +306,17 @@ async fn batch_infer_marks_timeouts() -> anyhow::Result<()> {
         ],
     };
 
-    let response = match batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await {
-        Ok(r) => r,
-        Err((status, err_json)) => {
-            return Err(anyhow::anyhow!(format!(
-                "handler error {}: {}",
-                status,
-                serde_json::to_string(&err_json.0).unwrap_or_default()
-            )));
-        }
-    };
+    let response =
+        match batch::batch_infer(State(state.clone()), Extension(claims), Json(request)).await {
+            Ok(r) => r,
+            Err((status, err_json)) => {
+                return Err(anyhow::anyhow!(format!(
+                    "handler error {}: {}",
+                    status,
+                    serde_json::to_string(&err_json.0).unwrap_or_default()
+                )));
+            }
+        };
     let Json(batch_response) = response;
 
     assert_eq!(batch_response.responses.len(), 2);

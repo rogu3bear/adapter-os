@@ -174,6 +174,46 @@ impl Generator {
         self.sample_from_distribution(&final_probs)
     }
 
+    /// Compute maximum selection probability for current logits
+    ///
+    /// Applies temperature scaling and the same filtering (top-k/top-p)
+    /// as `next_token`, then returns the maximum probability. This can be
+    /// used as a conservative proxy for model confidence during generation.
+    pub fn max_prob(&self, logits: &[f32]) -> f32 {
+        if logits.is_empty() {
+            return 0.0;
+        }
+
+        // Apply temperature
+        let scaled_logits: Vec<f32> = if self.temperature != 1.0 {
+            logits.iter().map(|&l| l / self.temperature).collect()
+        } else {
+            logits.to_vec()
+        };
+
+        // Convert logits to probabilities (softmax)
+        let probs = self.softmax(&scaled_logits);
+
+        // Apply top-k filtering if configured
+        let filtered_probs = if let Some(k) = self.top_k {
+            self.apply_top_k(&probs, k)
+        } else {
+            probs
+        };
+
+        // Apply nucleus (top-p) filtering if configured
+        let final_probs = if let Some(p) = self.top_p {
+            self.apply_top_p(&filtered_probs, p)
+        } else {
+            filtered_probs
+        };
+
+        final_probs
+            .iter()
+            .copied()
+            .fold(0.0f32, |m, v| if v > m { v } else { m })
+    }
+
     /// Softmax function to convert logits to probabilities
     fn softmax(&self, logits: &[f32]) -> Vec<f32> {
         // Find max for numerical stability

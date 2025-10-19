@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import apiClient from '@/api/client';
+import { toast } from 'sonner';
 import type { Tenant, User, UserRole } from '@/api/types';
 
 // Theme
@@ -138,7 +139,11 @@ function TenantProvider({ children }: { children: React.ReactNode }) {
   const setSelectedTenant = useCallback((tenantId: string) => {
     setSelectedTenantState(tenantId);
     try { localStorage.setItem('aos_selected_tenant', tenantId); } catch {}
-  }, []);
+    try {
+      const name = tenants.find(t => t.id === tenantId)?.name || tenantId;
+      toast.success(`Switched to tenant: ${name}`);
+    } catch {}
+  }, [tenants]);
 
   useEffect(() => {
     const loadTenants = async () => {

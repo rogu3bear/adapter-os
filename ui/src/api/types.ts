@@ -66,6 +66,7 @@ export interface RegisterNodeRequest {
   hostname: string;
   metal_family: string;
   memory_gb: number;
+  agent_endpoint?: string;
 }
 
 export interface NodePingResponse {
@@ -107,8 +108,8 @@ export interface Plan {
 }
 
 export interface BuildPlanRequest {
-  model_name: string;
-  adapters: string[];
+  tenant_id: string;
+  manifest_hash_b3: string;
 }
 
 export interface PlanComparisonResponse {
@@ -166,6 +167,103 @@ export interface TelemetryBundle {
   size_bytes: number;
   merkle_root: string;
   created_at: string;
+}
+
+// Golden baselines
+export interface GoldenRunSummary {
+  name: string;
+  run_id: string;
+  cpid: string;
+  plan_id: string;
+  bundle_hash: string;
+  layer_count: number;
+  max_epsilon: number;
+  mean_epsilon: number;
+  toolchain_summary: string;
+  adapters: string[];
+  created_at: string;
+  has_signature: boolean;
+}
+
+export type Strictness = 'bitwise' | 'epsilon-tolerant' | 'statistical';
+
+export interface GoldenCompareRequest {
+  golden: string;
+  bundle_id: string;
+  strictness?: Strictness;
+  verify_toolchain?: boolean;
+  verify_adapters?: boolean;
+  verify_device?: boolean;
+  verify_signature?: boolean;
+}
+
+// Epsilon comparison structures
+export interface EpsilonStats {
+  l2_error: number;
+  max_error: number;
+  mean_error: number;
+  element_count: number;
+}
+
+export interface LayerDivergence {
+  layer_id: string;
+  golden: EpsilonStats;
+  current: EpsilonStats;
+  relative_error: number;
+}
+
+export interface EpsilonComparison {
+  matching_layers: string[];
+  divergent_layers: LayerDivergence[];
+  missing_in_current: string[];
+  missing_in_golden: string[];
+  tolerance: number;
+}
+
+export interface ToolchainMetadata {
+  rustc_version: string;
+  metal_version: string;
+  kernel_hash: string;
+}
+
+export interface DeviceFingerprint {
+  schema_version: number;
+  device_model: string;
+  soc_id: string;
+  gpu_pci_id: string;
+  os_version: string;
+  os_build: string;
+  metal_family: string;
+  gpu_driver_version: string;
+  path_hash: string;
+  env_hash: string;
+  cpu_features: string[];
+  firmware_hash?: string | null;
+  boot_version_hash?: string | null;
+}
+
+export interface GoldenRunMetadata {
+  run_id: string;
+  cpid: string;
+  plan_id: string;
+  created_at: string;
+  toolchain: ToolchainMetadata;
+  adapters: string[];
+  device: DeviceFingerprint;
+  global_seed: string;
+}
+
+export interface VerificationReport {
+  passed: boolean;
+  golden_metadata: GoldenRunMetadata;
+  current_metadata: GoldenRunMetadata;
+  bundle_hash_match: boolean;
+  signature_verified: boolean;
+  epsilon_comparison: EpsilonComparison;
+  toolchain_compatible: boolean;
+  adapters_compatible: boolean;
+  device_compatible: boolean;
+  messages: string[];
 }
 
 // Adapters
@@ -552,6 +650,13 @@ export interface StartTrainingRequest {
   register?: boolean;
   adapter_id?: string;
   tier?: number;
+  // New optional fields aligned with server
+  // Absolute directory root required by dataset builder
+  directory_root?: string;
+  // Directory path relative to root (defaults to ".")
+  directory_path?: string;
+  // Optional tenant context
+  tenant_id?: string;
 }
 
 export interface TrainingMetrics {

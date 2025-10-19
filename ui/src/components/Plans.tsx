@@ -40,6 +40,8 @@ export function Plans({ user, selectedTenant }: PlansProps) {
   const [selectedPlan2, setSelectedPlan2] = useState('');
   const [compareResult, setCompareResult] = useState<PlanComparisonResponse | null>(null);
   const [showRollbackModal, setShowRollbackModal] = useState(false);
+  const [showBuildModal, setShowBuildModal] = useState(false);
+  const [manifestHash, setManifestHash] = useState('');
 
   const fetchPlans = async () => {
     setLoading(true);
@@ -104,6 +106,30 @@ export function Plans({ user, selectedTenant }: PlansProps) {
     }
   };
 
+  const handleDownloadDiff = () => {
+    if (!compareResult) return;
+    const blob = new Blob([JSON.stringify(compareResult, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `plan-compare-${compareResult.plan_id_1}-${compareResult.plan_id_2}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBuildPlan = async () => {
+    if (!manifestHash.trim()) return;
+    try {
+      await apiClient.buildPlan({ tenant_id: selectedTenant, manifest_hash_b3: manifestHash.trim() });
+      toast.success('Plan build started');
+      setShowBuildModal(false);
+      setManifestHash('');
+      fetchPlans();
+    } catch (err) {
+      toast.error('Failed to start plan build');
+    }
+  };
+
   const handleRollback = async () => {
     try {
       await apiClient.rollback();
@@ -138,7 +164,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
             <Undo2 className="icon-standard mr-2" />
             Rollback
           </Button>
-          <Button>
+          <Button onClick={() => setShowBuildModal(true)}>
             <Plus className="icon-standard mr-2" />
             Build Plan
           </Button>
@@ -207,6 +233,75 @@ export function Plans({ user, selectedTenant }: PlansProps) {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Build Plan Modal */}
+      <Dialog open={showBuildModal} onOpenChange={setShowBuildModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Build Plan</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Manifest Hash (B3)</Label>
+              <input
+                className="w-full border rounded px-3 py-2"
+                placeholder="b3:..."
+                value={manifestHash}
+                onChange={(e) => setManifestHash(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBuildModal(false)}>Cancel</Button>
+            <Button onClick={handleBuildPlan} disabled={!manifestHash.trim()}>Build</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compare Plans Modal */}
+      <Dialog open={showCompareModal} onOpenChange={setShowCompareModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compare Plans</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Plan A</Label>
+                <select className="w-full border rounded px-2 py-1" value={selectedPlan1} onChange={(e) => setSelectedPlan1(e.target.value)}>
+                  <option value="">Select</option>
+                  {plans.map(p => <option key={p.id} value={p.id}>{p.id}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Plan B</Label>
+                <select className="w-full border rounded px-2 py-1" value={selectedPlan2} onChange={(e) => setSelectedPlan2(e.target.value)}>
+                  <option value="">Select</option>
+                  {plans.map(p => <option key={p.id} value={p.id}>{p.id}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleComparePlans} disabled={!selectedPlan1 || !selectedPlan2}>Run Compare</Button>
+              {compareResult && <Button variant="outline" onClick={handleDownloadDiff}>Download Diff JSON</Button>}
+            </div>
+            {compareResult && (
+              <div className="border rounded p-3 text-sm">
+                <div>Identical: {compareResult.identical ? 'Yes' : 'No'}</div>
+                <div className="mt-2">
+                  Differences:
+                  <ul className="list-disc ml-5">
+                    {compareResult.differences.map((d, i) => <li key={i}>{d}</li>)}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCompareModal(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Compare Plans Modal */}
       <Dialog open={showCompareModal} onOpenChange={setShowCompareModal}>

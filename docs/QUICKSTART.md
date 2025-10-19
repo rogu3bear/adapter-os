@@ -89,7 +89,7 @@ The following sections show basic operations with the database.
 ```bash
 # Build and serve a plan
 ./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
-./target/release/aosctl serve --plan-id <plan-id>
+./target/release/aosctl serve --plan <plan-id>
 
 # Or use the integrated server
 ./target/release/mplora-server --config configs/cp.toml
@@ -367,4 +367,3 @@ You now have:
 Start exploring with the web UI or dive into the examples!
 
 **Built with ❤️ for Apple Silicon**
-

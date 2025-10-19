@@ -40,7 +40,9 @@ pub async fn run(adapters_root: PathBuf, adapter_id: String, output: &OutputWrit
 
     // Parse manifest weights hash
     #[derive(serde::Deserialize)]
-    struct Manifest { weights_hash: String }
+    struct Manifest {
+        weights_hash: String,
+    }
     let manifest_json: Manifest = serde_json::from_slice(&manifest)?;
     let manifest_hash = manifest_json.weights_hash;
     let matches = manifest_hash == weights_hash;
@@ -77,9 +79,12 @@ pub async fn run(adapters_root: PathBuf, adapter_id: String, output: &OutputWrit
         output.kv("Manifest B3", &manifest_hash);
         output.kv("Hash matches", &matches.to_string());
         output.kv("Signature valid", &sig_ok.to_string());
-        if ready { output.success("Adapter is ready for registration and runtime") } else { output.warning("Adapter is not ready") }
+        if ready {
+            output.success("Adapter is ready for registration and runtime")
+        } else {
+            output.warning("Adapter is not ready")
+        }
     }
 
     Ok(())
 }
-

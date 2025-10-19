@@ -15,6 +15,7 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPool, sqlite::SqlitePool};
+use tokio::task;
 
 /// Document metadata for pgvector storage
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -316,6 +317,69 @@ impl PgVectorIndex {
             top_k
         );
 
+        // Fire-and-forget audit logging (non-blocking)
+        if let Some(pool) = self.pg_pool.clone() {
+            let tenant = tenant_id.to_string();
+            let embedding_model_hash = self.embedding_model_hash.to_hex();
+            let doc_ids: Vec<String> = documents.iter().map(|d| d.doc_id.clone()).collect();
+            let scores: Vec<f32> = documents.iter().map(|d| d.score).collect();
+            let query_hash_hex = compute_query_hash(query_embedding).to_hex();
+            let top_k_i64 = top_k as i64;
+
+            task::spawn(async move {
+                let doc_ids_json = match serde_json::to_string(&doc_ids) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("RAG audit: failed to serialize doc_ids: {}", e);
+                        "[]".to_string()
+                    }
+                };
+                let scores_json = match serde_json::to_string(&scores) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("RAG audit: failed to serialize scores: {}", e);
+                        "[]".to_string()
+                    }
+                };
+                if let Err(e) = audit_insert_postgres(
+                    &pool,
+                    &tenant,
+                    &query_hash_hex,
+                    &doc_ids_json,
+                    &scores_json,
+                    top_k_i64,
+                    &embedding_model_hash,
+                )
+                .await
+                {
+                    let preview_ids = if doc_ids.len() > 5 {
+                        format!("{}... (+{})", doc_ids[..5].join(","), doc_ids.len() - 5)
+                    } else {
+                        doc_ids.join(",")
+                    };
+                    let preview_scores = if scores.len() > 5 {
+                        let s: Vec<String> =
+                            scores[..5].iter().map(|v| format!("{:.4}", v)).collect();
+                        format!("{}... (+{})", s.join(","), scores.len() - 5)
+                    } else {
+                        scores
+                            .iter()
+                            .map(|v| format!("{:.4}", v))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+                    tracing::warn!(
+                        "RAG audit insert failed (postgres): tenant={} top_k={} ids=[{}] scores=[{}] err={}",
+                        tenant,
+                        top_k_i64,
+                        preview_ids,
+                        preview_scores,
+                        e
+                    );
+                }
+            });
+        }
+
         Ok(documents)
     }
 
@@ -395,6 +459,69 @@ impl PgVectorIndex {
             tenant_id,
             top_k
         );
+
+        // Fire-and-forget audit logging (non-blocking)
+        if let Some(pool) = self.sqlite_pool.clone() {
+            let tenant = tenant_id.to_string();
+            let embedding_model_hash = self.embedding_model_hash.to_hex();
+            let doc_ids: Vec<String> = documents.iter().map(|d| d.doc_id.clone()).collect();
+            let scores: Vec<f32> = documents.iter().map(|d| d.score).collect();
+            let query_hash_hex = compute_query_hash(query_embedding).to_hex();
+            let top_k_i64 = top_k as i64;
+
+            task::spawn(async move {
+                let doc_ids_json = match serde_json::to_string(&doc_ids) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("RAG audit: failed to serialize doc_ids: {}", e);
+                        "[]".to_string()
+                    }
+                };
+                let scores_json = match serde_json::to_string(&scores) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("RAG audit: failed to serialize scores: {}", e);
+                        "[]".to_string()
+                    }
+                };
+                if let Err(e) = audit_insert_sqlite(
+                    &pool,
+                    &tenant,
+                    &query_hash_hex,
+                    &doc_ids_json,
+                    &scores_json,
+                    top_k_i64,
+                    &embedding_model_hash,
+                )
+                .await
+                {
+                    let preview_ids = if doc_ids.len() > 5 {
+                        format!("{}... (+{})", doc_ids[..5].join(","), doc_ids.len() - 5)
+                    } else {
+                        doc_ids.join(",")
+                    };
+                    let preview_scores = if scores.len() > 5 {
+                        let s: Vec<String> =
+                            scores[..5].iter().map(|v| format!("{:.4}", v)).collect();
+                        format!("{}... (+{})", s.join(","), scores.len() - 5)
+                    } else {
+                        scores
+                            .iter()
+                            .map(|v| format!("{:.4}", v))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+                    tracing::warn!(
+                        "RAG audit insert failed (sqlite): tenant={} top_k={} ids=[{}] scores=[{}] err={}",
+                        tenant,
+                        top_k_i64,
+                        preview_ids,
+                        preview_scores,
+                        e
+                    );
+                }
+            });
+        }
 
         Ok(documents)
     }
@@ -565,6 +692,67 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     dot_product / (magnitude_a * magnitude_b)
 }
 
+/// Compute query hash from f32 embedding bytes (little-endian)
+fn compute_query_hash(embedding: &[f32]) -> B3Hash {
+    let mut bytes = Vec::with_capacity(embedding.len() * 4);
+    for f in embedding {
+        bytes.extend_from_slice(&f.to_le_bytes());
+    }
+    B3Hash::hash(&bytes)
+}
+
+async fn audit_insert_sqlite(
+    pool: &SqlitePool,
+    tenant_id: &str,
+    query_hash_hex: &str,
+    doc_ids_json: &str,
+    scores_json: &str,
+    top_k: i64,
+    embedding_model_hash: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO rag_retrieval_audit \
+         (tenant_id, query_hash, retrieved_doc_ids, retrieved_scores, top_k, embedding_model_hash, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
+    )
+    .bind(tenant_id)
+    .bind(query_hash_hex)
+    .bind(doc_ids_json)
+    .bind(scores_json)
+    .bind(top_k)
+    .bind(embedding_model_hash)
+    .execute(pool)
+    .await
+    .map_err(|e| AosError::Rag(format!("Failed to insert rag_retrieval_audit (sqlite): {}", e)))?;
+    Ok(())
+}
+
+async fn audit_insert_postgres(
+    pool: &PgPool,
+    tenant_id: &str,
+    query_hash_hex: &str,
+    doc_ids_json: &str,
+    scores_json: &str,
+    top_k: i64,
+    embedding_model_hash: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO rag_retrieval_audit \
+         (tenant_id, query_hash, retrieved_doc_ids, retrieved_scores, top_k, embedding_model_hash, created_at) \
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, NOW())",
+    )
+    .bind(tenant_id)
+    .bind(query_hash_hex)
+    .bind(doc_ids_json)
+    .bind(scores_json)
+    .bind(top_k)
+    .bind(embedding_model_hash)
+    .execute(pool)
+    .await
+    .map_err(|e| AosError::Rag(format!("Failed to insert rag_retrieval_audit (postgres): {}", e)))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -684,5 +872,13 @@ mod tests {
         let g = vec![1.0, 2.0];
         let h = vec![1.0];
         assert_eq!(cosine_similarity(&g, &h), 0.0);
+    }
+
+    #[test]
+    fn test_query_hash_deterministic() {
+        let v = vec![0.1f32, -1.25, 3.5, 0.0, 42.42];
+        let h1 = compute_query_hash(&v);
+        let h2 = compute_query_hash(&v);
+        assert_eq!(h1.to_hex(), h2.to_hex());
     }
 }

@@ -44,6 +44,7 @@ export default function RootLayout() {
     { to: '/alerts', label: 'Alerts' },
     { to: '/replay', label: 'Replay' },
     { to: '/policies', label: 'Policies' },
+    { to: '/golden', label: 'Golden' },
   ];
 
   return (
@@ -126,5 +127,4 @@ export default function RootLayout() {
     </div>
   );
 }
-
 

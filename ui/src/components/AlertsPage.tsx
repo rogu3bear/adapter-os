@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Slider } from './ui/slider';
+import { HelpTooltip } from './ui/help-tooltip';
 import {
   Bell,
   AlertTriangle,
@@ -117,6 +118,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
   useEffect(() => {
     loadAlerts();
@@ -545,6 +547,38 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                   </div>
                 </div>
 
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label>Notification Channels</Label>
+                  <HelpTooltip helpId="alerts">
+                    <span className="text-xs text-muted-foreground">What are channels?</span>
+                  </HelpTooltip>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {CHANNEL_OPTIONS.map((ch) => {
+                    const selected = editingRule?.notification_channels?.includes(ch) ?? false;
+                    return (
+                      <Button
+                        key={ch}
+                        type="button"
+                        size="sm"
+                        variant={selected ? 'default' : 'outline'}
+                        onClick={() =>
+                          setEditingRule(prev => prev ? {
+                            ...prev,
+                            notification_channels: selected
+                              ? prev.notification_channels.filter(c => c !== ch)
+                              : [...(prev.notification_channels || []), ch]
+                          } : null)
+                        }
+                      >
+                        {ch}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="rule-severity">Severity</Label>
                   <select
@@ -609,6 +643,13 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                           <Badge variant="outline">
                             {rule.severity}
                           </Badge>
+                              {rule.notification_channels && rule.notification_channels.length > 0 && (
+                                <span className="flex gap-1 flex-wrap">
+                                  {rule.notification_channels.map((ch) => (
+                                    <Badge key={ch} variant="outline">{ch}</Badge>
+                                  ))}
+                                </span>
+                              )}
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">
                           {rule.description}

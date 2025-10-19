@@ -14,10 +14,10 @@ Audit of recent commits for evidence-backed changes across CLI, API, Core errors
     #[command(after_help = "\
 Examples:
   # Basic inference
-  aosctl infer --prompt 'Hello world' --socket /var/run/adapteros.sock
+  aosctl infer --prompt 'Hello world' --socket /var/run/aos/aos.sock
 
   # Inference using a specific adapter (preload+swap)
-  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/adapteros.sock
+  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/aos/aos.sock
 
   # Increase max tokens and timeout
   aosctl infer --prompt 'Test' --max-tokens 256 --timeout 60000
@@ -158,5 +158,4 @@ Verdict: Grounded.
 
 ## Result
 Audit Passed.
-
 
