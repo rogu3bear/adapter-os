@@ -97,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Confidence gating: worker abstains on low-confidence generations via avg max-prob.
 - CLI: `aosctl infer` supports `--show-citations` and `--show-trace` for auditability.
 - API: `/signals` SSE; adapter lifecycle endpoints (admin-gated); `/health` includes policy status.
+- feat(ui): SSE real-time metrics in RealtimeMetrics (+55% coverage, fallback polling; closes UI-SSE)
 
 ## Security/Policy
 - Admin endpoints require `AOS_API_ENABLE_ADMIN=true` and optionally `X-Admin-Token` header matching `AOS_API_ADMIN_TOKEN`.
