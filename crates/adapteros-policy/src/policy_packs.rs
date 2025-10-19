@@ -787,6 +787,7 @@ impl PolicyPackManager {
 
 /// Egress policy pack validator
 pub struct EgressValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -799,6 +800,7 @@ impl Default for EgressValidator {
 impl EgressValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "mode": "deny_all",
                 "serve_requires_pf": true,
@@ -870,6 +872,7 @@ impl PolicyPackValidator for EgressValidator {
 
 /// Determinism policy pack validator
 pub struct DeterminismValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -882,6 +885,7 @@ impl Default for DeterminismValidator {
 impl DeterminismValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_metallib_embed": true,
                 "require_kernel_hash_match": true,
@@ -947,6 +951,7 @@ impl PolicyPackValidator for DeterminismValidator {
 
 /// Router policy pack validator
 pub struct RouterValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -959,6 +964,7 @@ impl Default for RouterValidator {
 impl RouterValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "k_sparse": 3,
                 "gate_quant": "q15",
@@ -1030,6 +1036,7 @@ impl PolicyPackValidator for RouterValidator {
 
 /// Evidence policy pack validator
 pub struct EvidenceValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1042,6 +1049,7 @@ impl Default for EvidenceValidator {
 impl EvidenceValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_open_book": true,
                 "min_spans": 1,
@@ -1098,6 +1106,7 @@ impl PolicyPackValidator for EvidenceValidator {
 
 /// Refusal policy pack validator
 pub struct RefusalValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1110,6 +1119,7 @@ impl Default for RefusalValidator {
 impl RefusalValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "abstain_threshold": 0.55,
                 "missing_fields_templates": {
@@ -1164,6 +1174,7 @@ impl PolicyPackValidator for RefusalValidator {
 
 /// Numeric Units policy pack validator
 pub struct NumericUnitsValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1176,6 +1187,7 @@ impl Default for NumericUnitsValidator {
 impl NumericUnitsValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "canonical_units": {"torque": "in_lbf", "pressure": "psi"},
                 "max_rounding_error": 0.5,
@@ -1235,6 +1247,7 @@ impl PolicyPackValidator for NumericUnitsValidator {
 
 /// RAG Index policy pack validator
 pub struct RagIndexValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1247,6 +1260,7 @@ impl Default for RagIndexValidator {
 impl RagIndexValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "index_scope": "per_tenant",
                 "doc_tags_required": ["doc_id", "rev", "effectivity", "source_type"],
@@ -1302,6 +1316,7 @@ impl PolicyPackValidator for RagIndexValidator {
 
 /// Isolation policy pack validator
 pub struct IsolationValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1314,6 +1329,7 @@ impl Default for IsolationValidator {
 impl IsolationValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "process_model": "per_tenant",
                 "uds_root": "/var/run/aos/<tenant>",
@@ -1366,6 +1382,7 @@ impl PolicyPackValidator for IsolationValidator {
 
 /// Telemetry policy pack validator
 pub struct TelemetryValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1378,6 +1395,7 @@ impl Default for TelemetryValidator {
 impl TelemetryValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "schema_hash": "b3:...",
                 "sampling": {"token": 0.05, "router": 1.0, "inference": 1.0},
@@ -1432,6 +1450,7 @@ impl PolicyPackValidator for TelemetryValidator {
 
 /// Retention policy pack validator
 pub struct RetentionValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1444,6 +1463,7 @@ impl Default for RetentionValidator {
 impl RetentionValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "keep_bundles_per_cpid": 12,
                 "keep_incident_bundles": true,
@@ -1496,6 +1516,7 @@ impl PolicyPackValidator for RetentionValidator {
 
 /// Performance policy pack validator
 pub struct PerformanceValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1508,6 +1529,7 @@ impl Default for PerformanceValidator {
 impl PerformanceValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "latency_p95_ms": 24,
                 "router_overhead_pct_max": 8,
@@ -1563,6 +1585,7 @@ impl PolicyPackValidator for PerformanceValidator {
 
 /// Memory policy pack validator
 pub struct MemoryValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1575,6 +1598,7 @@ impl Default for MemoryValidator {
 impl MemoryValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "min_headroom_pct": 15,
                 "evict_order": ["ephemeral_ttl", "cold_lru", "warm_lru"],
@@ -1630,6 +1654,7 @@ impl PolicyPackValidator for MemoryValidator {
 
 /// Artifacts policy pack validator
 pub struct ArtifactsValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1642,6 +1667,7 @@ impl Default for ArtifactsValidator {
 impl ArtifactsValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_signature": true,
                 "require_sbom": true,
@@ -1695,6 +1721,7 @@ impl PolicyPackValidator for ArtifactsValidator {
 
 /// Secrets policy pack validator
 pub struct SecretsValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1707,6 +1734,7 @@ impl Default for SecretsValidator {
 impl SecretsValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "env_allowed": [],
                 "keystore": "secure_enclave",
@@ -1766,6 +1794,7 @@ impl PolicyPackValidator for SecretsValidator {
 
 /// Build Release policy pack validator
 pub struct BuildReleaseValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1778,6 +1807,7 @@ impl Default for BuildReleaseValidator {
 impl BuildReleaseValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_replay_zero_diff": true,
                 "hallucination_thresholds": {"arr_min": 0.95, "ecs5_min": 0.75, "hlr_max": 0.03, "cr_max": 0.01},
@@ -1832,6 +1862,7 @@ impl PolicyPackValidator for BuildReleaseValidator {
 
 /// Compliance policy pack validator
 pub struct ComplianceValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1844,6 +1875,7 @@ impl Default for ComplianceValidator {
 impl ComplianceValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "control_matrix_hash": "b3:...",
                 "require_evidence_links": true,
@@ -1897,6 +1929,7 @@ impl PolicyPackValidator for ComplianceValidator {
 
 /// Incident policy pack validator
 pub struct IncidentValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1909,6 +1942,7 @@ impl Default for IncidentValidator {
 impl IncidentValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "memory": ["drop_ephemeral", "reduce_k", "evict_cold", "deny_new_sessions"],
                 "router_skew": ["entropy_floor_on", "cap_activation", "recalibrate", "rebuild_plan"],
@@ -1965,6 +1999,7 @@ impl PolicyPackValidator for IncidentValidator {
 
 /// LLM Output policy pack validator
 pub struct LlmOutputValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1977,6 +2012,7 @@ impl Default for LlmOutputValidator {
 impl LlmOutputValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "format": "json",
                 "require_trace": true,
@@ -2058,6 +2094,7 @@ impl PolicyPackValidator for LlmOutputValidator {
 
 /// Adapter Lifecycle policy pack validator
 pub struct AdapterLifecycleValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2070,6 +2107,7 @@ impl Default for AdapterLifecycleValidator {
 impl AdapterLifecycleValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "min_activation_pct": 2.0,
                 "min_quality_delta": 0.5,
@@ -2121,6 +2159,7 @@ impl PolicyPackValidator for AdapterLifecycleValidator {
 
 /// Full Pack policy pack validator
 pub struct FullPackValidator {
+    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2133,6 +2172,7 @@ impl Default for FullPackValidator {
 impl FullPackValidator {
     pub fn new() -> Self {
         Self {
+            #[allow(dead_code)]
             config: serde_json::json!({
                 "schema": "adapteros.policy.v1",
                 "packs": {

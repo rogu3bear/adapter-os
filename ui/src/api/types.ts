@@ -1674,3 +1674,17 @@ export interface AdapterSelection {
   gate_value: number;
   rank: number;
 }
+
+export interface JourneyResponse {
+  journey_type: string;
+  id: string;
+  data: Record<string, any>;
+  states: JourneyState[];
+  created_at: string;
+}
+
+export interface JourneyState {
+  state: string;
+  timestamp: string;
+  details: Record<string, any>;
+}

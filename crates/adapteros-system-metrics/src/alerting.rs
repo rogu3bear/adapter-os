@@ -2055,6 +2055,7 @@ struct TenantInfo {
 #[derive(Debug, Clone)]
 struct WorkerInfo {
     id: String,
+    #[allow(dead_code)]
     tenant_id: String,
 }
 
@@ -2063,6 +2064,7 @@ struct WorkerInfo {
 struct DriftDetection {
     current_value: f64,
     baseline_mean: f64,
+    #[allow(dead_code)]
     baseline_std_dev: f64,
     z_score: f64,
     drift_percentage: f64,
@@ -2074,7 +2076,9 @@ struct DriftDetection {
 #[derive(Debug, Clone)]
 struct BaselineStats {
     mean: f64,
+    #[allow(dead_code)]
     std_dev: f64,
+    #[allow(dead_code)]
     sample_count: usize,
     min_value: f64,
     max_value: f64,

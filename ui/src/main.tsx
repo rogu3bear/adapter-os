@@ -12,6 +12,7 @@
   import { RoutingInspector } from "./components/RoutingInspector";
   import { LoginForm } from "./components/LoginForm";
   import { GoldenRuns } from "./components/GoldenRuns";
+  import { Journeys } from "./components/Journeys";
   import "./index.css";
 
   function DashboardRoute() {
@@ -85,6 +86,17 @@
     );
   }
 
+  function JourneysRoute() {
+    const { user } = useAuth();
+    const { selectedTenant } = useTenant();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Journeys" description="User workflow journeys and visualizations">
+        <Journeys user={user} selectedTenant={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
   function LoginRoute() {
     const { user, login } = useAuth();
     const navigate = useNavigate();
@@ -118,6 +130,7 @@
             <Route path="/routing" element={<RoutingRoute />} />
             <Route path="/policies" element={<PoliciesRoute />} />
             <Route path="/golden" element={<GoldenRoute />} />
+            <Route path="/journeys" element={<JourneysRoute />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>

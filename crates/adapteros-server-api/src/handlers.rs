@@ -3918,7 +3918,6 @@ pub async fn create_process_monitoring_rule(
         updated_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
-
 /// List process alerts
 #[utoipa::path(
     get,
@@ -6903,7 +6902,6 @@ pub async fn get_training_metrics(
         progress_pct: job.progress_pct,
     }))
 }
-
 /// List training templates
 #[utoipa::path(
     get,
@@ -7693,7 +7691,6 @@ pub async fn get_dashboard_config(
 
     Ok(Json(config))
 }
-
 /// Get dashboard data
 #[utoipa::path(
     get,
