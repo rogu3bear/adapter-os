@@ -30,18 +30,22 @@ pub use collector::SystemMetricsCollector;
 pub use database::SystemMetricsDb;
 pub use monitor::{SystemMonitor, SystemMonitoringService};
 pub use policy::SystemMetricsPolicy;
-pub use types::*;
+pub use types::{MetricsAggregation, MetricsConfig, ThresholdsConfig};
 // Re-export monitoring types for API compatibility
 pub use alerting::{AlertEvaluator, AlertingConfig};
 pub use anomaly::{AnomalyConfig, AnomalyDetector};
 pub use baselines::{BaselineConfig, BaselineService};
 pub use dashboard::{DashboardConfig, DashboardService};
-pub use monitoring_types::*;
+pub use monitoring_types::{
+    CreateHealthMetricRequest, CreateMonitoringRuleRequest, MetricFilters, DashboardData, WidgetData,
+    ProcessHealthMetric, ProcessMonitoringRule, AlertFilters, AlertSeverity, AlertStatus,
+    AnomalyFilters, AnomalyStatus, BaselineType, PerformanceBaseline, ProcessAlert, ProcessAnomaly,
+    AlertResponse, AnomalyResponse, BaselineResponse, MonitoringRuleResponse,
+};
 pub use notifications::{NotificationConfig, NotificationSenderImpl, NotificationService};
 pub use persistence::{MetricsPersistenceService, PersistenceConfig};
 
-// Re-export types for backward compatibility
-pub use types::{MetricsConfig, ThresholdsConfig};
+// Re-export types for backward compatibility (already exported above)
 
 use std::time::SystemTime;
 

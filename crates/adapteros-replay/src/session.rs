@@ -55,8 +55,10 @@ pub struct ReplayStats {
 }
 
 pub struct ReplaySession {
+    #[allow(dead_code)]
     trace_path: PathBuf,
     trace_bundle: TraceBundle,
+    #[allow(dead_code)]
     executor: Arc<DeterministicExecutor>,
     current_event_index: Arc<AtomicU64>,
     verification_mode: VerificationMode,
@@ -211,6 +213,7 @@ impl ReplaySession {
     }
 
     /// Verify replay signature with deterministic error code
+    #[allow(dead_code)]
     fn verify_replay_signature(&self) -> Result<(), ReplayError> {
         // TODO: Implement actual signature verification
         // For now, return error with deterministic code

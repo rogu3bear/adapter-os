@@ -221,6 +221,7 @@ impl MetalKernels {
 
     /// Load library from embedded metallib with hash verification
     fn load_library(&mut self) -> Result<()> {
+        #[allow(clippy::const_is_empty)]
         if METALLIB_BYTES.is_empty() {
             return Err(AosError::Kernel(
                 "Metal library not yet compiled. Run build.sh to compile shaders.".to_string(),

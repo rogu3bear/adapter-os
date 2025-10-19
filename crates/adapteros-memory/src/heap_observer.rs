@@ -59,6 +59,7 @@ pub struct HeapState {
 pub struct MetalHeapObserver {
     /// Device reference
     #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
     device: Arc<Device>,
     /// Active allocations by buffer ID
     allocations: Arc<RwLock<HashMap<u64, HeapAllocation>>>,

@@ -306,7 +306,7 @@ async fn adapter_lifecycle_handler<K: FusedKernels>(
     axum::extract::Path((adapter_id, cmd)): axum::extract::Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     admin_guard(&headers)?;
-    let mut worker = state.worker.lock().await;
+    let worker = state.worker.lock().await;
     let res = match cmd.as_str() {
         "promote" => worker.promote_adapter_by_id(&adapter_id),
         "demote" => worker.demote_adapter_by_id(&adapter_id),

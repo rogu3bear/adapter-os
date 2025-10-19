@@ -5,7 +5,7 @@ use clap::Parser;
 use regex::Regex;
 use serde::Serialize;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser, Clone)]
 pub struct Code2DbDatasetArgs {

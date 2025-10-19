@@ -61,7 +61,7 @@ async fn register(args: RegisterArgs, output: &OutputWriter) -> Result<()> {
     let hash_b3 = format!("b3:{}", hash.to_hex());
 
     // Load rank and defaults from manifest if present
-    let (rank_default, name_default) = if manifest_path.exists() {
+    let (rank_default, _name_default) = if manifest_path.exists() {
         let data = std::fs::read_to_string(&manifest_path)?;
         let v: serde_json::Value = serde_json::from_str(&data)?;
         (

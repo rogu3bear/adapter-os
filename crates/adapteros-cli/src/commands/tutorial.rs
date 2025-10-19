@@ -2,7 +2,6 @@
 
 use crate::output::OutputWriter;
 use anyhow::Result;
-use dialoguer::{Confirm, Select};
 
 #[derive(clap::Args)]
 pub struct TutorialArgs {

@@ -12,6 +12,7 @@ use adapteros_policy::PolicyEngine;
 /// System metrics policy enforcer
 pub struct SystemMetricsPolicy {
     thresholds: ThresholdsConfig,
+    #[allow(dead_code)]
     policy_engine: Option<PolicyEngine>,
 }
 

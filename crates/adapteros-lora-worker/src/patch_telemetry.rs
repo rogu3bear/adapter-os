@@ -112,6 +112,7 @@ pub struct PerformanceThresholdEvent {
 /// Patch telemetry collector
 pub struct PatchTelemetry {
     events: Vec<PatchEvent>,
+    #[allow(dead_code)]
     metrics: HashMap<String, serde_json::Value>,
     performance_thresholds: HashMap<String, u64>,
     telemetry_writer: Option<TelemetryWriter>,
@@ -640,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_telemetry_creation() {
-        let mut telemetry = PatchTelemetry::new();
+        let telemetry = PatchTelemetry::new();
         assert!(telemetry.get_events().is_empty());
     }
 

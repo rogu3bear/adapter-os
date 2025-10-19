@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,18 @@ export default function RootLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (isSidebarOpen) {
+      document.body.classList.add('overflow-hidden');
+    } else {
+      document.body.classList.remove('overflow-hidden');
+    }
+    return () => document.body.classList.remove('overflow-hidden');
+  }, [isSidebarOpen]);
+
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
   React.useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
 
@@ -60,7 +72,7 @@ export default function RootLayout() {
             <div className="text-xs rounded px-2 py-0.5 border text-green-700 bg-green-50">Zero Egress Mode</div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setMobileMenuOpen(true)} aria-label="Open menu">
+            <Button variant="ghost" size="sm" className="md:hidden" onClick={toggleSidebar} aria-label="Open menu">
               <Menu className="h-5 w-5" />
             </Button>
             {tenants.length > 0 && (
@@ -86,34 +98,32 @@ export default function RootLayout() {
         </div>
       </header>
 
+      {/* Sidebar */}
+      <div className={`fixed inset-y-0 left-0 z-50 w-64 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform md:translate-x-0 md:static md:inset-auto md:w-48 md:shadow-none overflow-y-auto bg-background border-r`}>
+        <div className="space-y-2">
+          <Button className="md:hidden mb-4 w-full justify-start" variant="ghost" onClick={() => setIsSidebarOpen(false)} aria-label="Close menu">
+            <X className="h-5 w-5 mr-2" />
+            Close Menu
+          </Button>
+          {items.map((item) => (
+            <Button
+              key={item.to}
+              variant={location.pathname === item.to ? 'default' : 'ghost'}
+              className="w-full justify-start"
+              onClick={() => navigate(item.to)}
+              aria-current={location.pathname === item.to ? 'page' : undefined}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Overlay for mobile */}
+      {isSidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />}
+
       {/* Body */}
       <div className="flex">
-        {/* Sidebar */}
-        <nav className={`w-64 border-r bg-card p-4 md:block ${mobileMenuOpen ? 'fixed inset-y-0 left-0 z-10 block' : 'hidden'}`} aria-label="Main navigation">
-          <div className="space-y-2">
-            <Button className="md:hidden mb-4 w-full justify-start" variant="ghost" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">
-              <X className="h-5 w-5 mr-2" />
-              Close Menu
-            </Button>
-            {items.map((item) => (
-              <Button
-                key={item.to}
-                variant={location.pathname === item.to ? 'default' : 'ghost'}
-                className="w-full justify-start"
-                onClick={() => navigate(item.to)}
-                aria-current={location.pathname === item.to ? 'page' : undefined}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </div>
-        </nav>
-
-        {/* Mobile overlay */}
-        {mobileMenuOpen && (
-          <div className="fixed inset-0 bg-black/50 z-10 md:hidden" onClick={() => setMobileMenuOpen(false)} aria-hidden="true" />
-        )}
-
         {/* Content */}
         <main className="flex-1 p-4 md:p-6">
           <div className="mx-auto max-w-[1440px]">

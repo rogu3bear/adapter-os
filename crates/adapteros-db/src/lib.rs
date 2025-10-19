@@ -191,6 +191,7 @@ pub mod policies;
 pub mod policy_hash;
 pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
+pub use process_monitoring::*;
 pub mod rag_retrieval_audit;
 pub mod replay_sessions;
 pub mod repositories;

@@ -14,6 +14,7 @@ pub struct GoParser {
     /// Tree-sitter parser
     parser: Parser,
     /// Go language
+    #[allow(dead_code)]
     go_lang: TSLanguage,
     /// Query for function declarations
     function_query: Query,

@@ -31,6 +31,7 @@ impl Default for LocalLlmConfig {
 
 /// Local LLM backend using MLX (temporarily disabled)
 pub struct LocalLlmBackend {
+    #[allow(dead_code)]
     config: LocalLlmConfig,
     // model: Option<adapteros_lora_mlx::MLXModel>,
 }
@@ -179,6 +180,7 @@ impl LlmBackend for LocalLlmBackend {
 /// Remote LLM backend (for external API services)
 pub struct RemoteLlmBackend {
     api_endpoint: String,
+    #[allow(dead_code)]
     api_key: Option<String>,
     config: LocalLlmConfig,
 }

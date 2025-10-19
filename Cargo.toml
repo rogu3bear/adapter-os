@@ -46,6 +46,7 @@ members = [
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-graph",
     "crates/adapteros-codegraph",
+    "crates/adapteros-patch",
     "crates/adapteros-replay",
     "crates/adapteros-trace",
     "crates/adapteros-numerics",

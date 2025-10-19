@@ -20,6 +20,7 @@ enum EmbeddingType {
     /// Simple averaged token embeddings from base model
     TokenAverage { embedding_matrix: Vec<f32> },
     /// Future: dedicated embedding model
+    #[allow(dead_code)]
     Dedicated,
 }
 

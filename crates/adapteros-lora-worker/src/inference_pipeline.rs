@@ -118,6 +118,7 @@ pub struct InferencePipeline {
     /// Kernel backend
     kernels: Box<dyn FusedKernels>,
     /// Policy engine
+    #[allow(dead_code)]
     policy: PolicyEngine,
     /// Telemetry writer
     telemetry: TelemetryWriter,
@@ -300,7 +301,7 @@ impl InferencePipeline {
 
             // 5. Router decision: select K adapters
             // Build code features from prompt context with sliding-window entropy
-            let mut code_features = self.create_code_features(&formatted_prompt);
+            let code_features = self.create_code_features(&formatted_prompt);
 
             // Compute priors
             let priors = if let Some(pc) = &self.prior_context {
@@ -372,7 +373,7 @@ impl InferencePipeline {
 
             // 9. Record telemetry (sampled)
             if step < 128 || (step % 20 == 0) {
-                self.telemetry.log(
+                let _ = self.telemetry.log(
                     "inference.step",
                     serde_json::json!({
                         "cpid": request.cpid,
@@ -423,7 +424,7 @@ impl InferencePipeline {
         let latency = start_time.elapsed();
 
         // 15. Log final telemetry
-        self.telemetry.log(
+        let _ = self.telemetry.log(
             "inference.complete",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -457,6 +458,7 @@ impl InferencePipeline {
     }
 
     /// Calculate entropy from token distribution
+    #[allow(dead_code)]
     fn calculate_token_entropy(&self, tokens: &[u32]) -> f32 {
         if tokens.is_empty() {
             return 0.0;

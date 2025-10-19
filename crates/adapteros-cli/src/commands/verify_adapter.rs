@@ -1,11 +1,10 @@
 //! Verify packaged adapter readiness
 
 use crate::output::OutputWriter;
-use adapteros_core::B3Hash;
 use adapteros_crypto::{PublicKey, Signature};
 use anyhow::Result;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Serialize)]
 struct VerifyReport {

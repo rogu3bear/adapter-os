@@ -1390,9 +1390,11 @@ impl RecommendationPriority {
 /// Unified verification framework implementation
 pub struct UnifiedVerificationFramework {
     /// Verification configuration
+    #[allow(dead_code)]
     config: VerificationConfig,
 
     /// Verification history
+    #[allow(dead_code)]
     verification_history: Vec<ComprehensiveReport>,
 
     /// Workspace root used for tool execution

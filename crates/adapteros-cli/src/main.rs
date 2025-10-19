@@ -4,7 +4,6 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cli;
 mod cli_telemetry;
@@ -398,6 +397,46 @@ enum Commands {
         /// Telemetry bundle directory
         #[arg(short, long)]
         bundle_dir: PathBuf,
+    },
+
+    /// Validate a trace file for integrity and limits
+    #[command(after_help = r#"Examples:
+  # Strict validation with hash checks
+  aosctl trace-validate /path/to/trace.ndjson --verify-hash
+
+  # Tolerant validation (skip bad lines), limit events and bytes
+  aosctl trace-validate /path/to/trace.ndjson.zst --tolerant --max-events 10000 --max-bytes 104857600
+
+  # Enforce a max line length guard
+  aosctl trace-validate /path/to/trace.ndjson --max-line-len 1048576
+"#)]
+    TraceValidate {
+        /// Path to trace file (.ndjson or .ndjson.zst)
+        path: PathBuf,
+
+        /// Strict mode (default). Use --tolerant to skip invalid lines/events.
+        #[arg(long, default_value_t = true, conflicts_with = "tolerant")]
+        strict: bool,
+
+        /// Tolerant mode (skip invalid lines/events and continue)
+        #[arg(long, conflicts_with = "strict")]
+        tolerant: bool,
+
+        /// Verify per-event hashes
+        #[arg(long, default_value_t = false)]
+        verify_hash: bool,
+
+        /// Maximum number of events to read
+        #[arg(long)]
+        max_events: Option<usize>,
+
+        /// Maximum total bytes to read
+        #[arg(long)]
+        max_bytes: Option<u64>,
+
+        /// Maximum line length in bytes
+        #[arg(long)]
+        max_line_len: Option<usize>,
     },
 
     /// Verify cross-host federation signatures
@@ -1334,6 +1373,28 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             verify_telemetry::verify_telemetry_chain(&bundle_dir, &output).await?;
         }
 
+        Commands::TraceValidate {
+            path,
+            strict,
+            tolerant,
+            verify_hash,
+            max_events,
+            max_bytes,
+            max_line_len,
+        } => {
+            let effective_strict = if *tolerant { false } else { *strict };
+            commands::trace_validate::run(
+                &path,
+                effective_strict,
+                *verify_hash,
+                *max_events,
+                *max_bytes,
+                *max_line_len,
+                &output,
+            )
+            .await?;
+        }
+
         Commands::FederationVerify {
             bundle_dir,
             database,
@@ -1598,6 +1659,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::TelemetryVerify { .. } => "verify-telemetry",
+        Commands::TraceValidate { .. } => "trace-validate",
         Commands::FederationVerify { .. } => "federation-verify",
         Commands::DriftCheck { .. } => "drift-check",
         Commands::CallgraphExport { .. } => "callgraph-export",

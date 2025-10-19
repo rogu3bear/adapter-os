@@ -71,6 +71,7 @@ pub struct ANEAccelerator {
 
 /// ANE session for model execution
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ANESession {
     /// Session identifier
     id: String,
@@ -136,6 +137,7 @@ pub enum ANECalibrationMethod {
 
 /// ANE buffer for data transfer
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ANEBuffer {
     /// Buffer identifier
     id: String,

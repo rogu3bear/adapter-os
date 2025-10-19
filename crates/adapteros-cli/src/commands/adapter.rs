@@ -1,7 +1,7 @@
 //! Adapter lifecycle management commands
 
 use crate::output::OutputWriter;
-use adapteros_client::{AdapterOSClient, UdsClient};
+use adapteros_client::AdapterOSClient;
 use adapteros_core::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
@@ -300,7 +300,7 @@ async fn send_adapter_command(
                 info!(command = %command, adapter_id = %adapter_id, "Adapter command sent successfully");
                 return Ok(());
             }
-            Err(e) if retries > 1 => {
+            Err(_e) if retries > 1 => {
                 retries -= 1;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;

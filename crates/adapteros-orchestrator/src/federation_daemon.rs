@@ -61,6 +61,7 @@ pub struct FederationDaemon {
     /// Federation manager
     federation: Arc<FederationManager>,
     /// Policy hash watcher
+    #[allow(dead_code)]
     policy_watcher: Arc<PolicyHashWatcher>,
     /// Quarantine manager
     quarantine: Arc<parking_lot::RwLock<QuarantineManager>>,
@@ -291,7 +292,7 @@ impl FederationDaemon {
         }))
         .build();
 
-        self.telemetry.log_event(event);
+        let _ = self.telemetry.log_event(event);
         Ok(())
     }
 
@@ -308,7 +309,7 @@ impl FederationDaemon {
         }))
         .build();
 
-        self.telemetry.log_event(event);
+        let _ = self.telemetry.log_event(event);
         Ok(())
     }
 
@@ -326,7 +327,7 @@ impl FederationDaemon {
         }))
         .build();
 
-        self.telemetry.log_event(event);
+        let _ = self.telemetry.log_event(event);
         Ok(())
     }
 
@@ -355,7 +356,6 @@ impl FederationDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::B3Hash;
     use adapteros_crypto::Keypair;
     use tempfile::TempDir;
 

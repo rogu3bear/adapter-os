@@ -60,6 +60,17 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 ## 🚀 Quick Start
 
+### Getting Started with the UI
+
+**New in this release:** Complete UI-driven workflow for model management!
+
+1. **Import a Base Model** - Use the model import wizard to add models via UI
+2. **Load the Model** - One-click model loading with real-time status
+3. **Configure Cursor IDE** - Guided setup wizard for IDE integration
+4. **Start Coding** - Use your model in Cursor with zero configuration
+
+See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for detailed setup instructions.
+
 ### Option 1: Graphical Installer (Recommended)
 
 **Native macOS installer with hardware validation and guided setup:**

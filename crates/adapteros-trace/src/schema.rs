@@ -6,6 +6,8 @@ use adapteros_core::B3Hash;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::logical_clock::LogicalTimestamp;
+
 /// Core event schema for AdapterOS traces
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
@@ -25,8 +27,10 @@ pub struct Event {
     pub blake3_hash: B3Hash,
     /// Additional metadata
     pub metadata: EventMetadata,
-    /// Timestamp for the event
-    pub timestamp: u128,
+    /// Logical timestamp for deterministic replay
+    pub logical_timestamp: LogicalTimestamp,
+    /// Wall-clock timestamp (optional, for debugging only)
+    pub wall_clock_timestamp: Option<u128>,
 }
 
 /// Event metadata
@@ -53,7 +57,7 @@ pub struct EventMetadata {
 }
 
 impl Event {
-    /// Create a new event
+    /// Create a new event with logical timestamp
     pub fn new(
         tick_id: u64,
         op_id: String,
@@ -61,12 +65,15 @@ impl Event {
         inputs: HashMap<String, serde_json::Value>,
         outputs: HashMap<String, serde_json::Value>,
         metadata: EventMetadata,
+        logical_timestamp: LogicalTimestamp,
     ) -> Self {
         let event_id = Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
-            .as_nanos();
+        let wall_clock_timestamp = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("System time before UNIX epoch")
+                .as_nanos(),
+        );
 
         // Compute hash of the event data
         let event_data = EventData {
@@ -77,7 +84,8 @@ impl Event {
             inputs: inputs.clone(),
             outputs: outputs.clone(),
             metadata: metadata.clone(),
-            timestamp,
+            logical_timestamp,
+            wall_clock_timestamp,
         };
 
         let blake3_hash = event_data.compute_hash();
@@ -91,7 +99,49 @@ impl Event {
             outputs,
             blake3_hash,
             metadata,
-            timestamp,
+            logical_timestamp,
+            wall_clock_timestamp,
+        }
+    }
+
+    /// Create a new event without wall-clock timestamp (for deterministic replay)
+    pub fn new_deterministic(
+        tick_id: u64,
+        op_id: String,
+        event_type: String,
+        inputs: HashMap<String, serde_json::Value>,
+        outputs: HashMap<String, serde_json::Value>,
+        metadata: EventMetadata,
+        logical_timestamp: LogicalTimestamp,
+    ) -> Self {
+        let event_id = Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
+
+        // Compute hash of the event data
+        let event_data = EventData {
+            event_id,
+            tick_id,
+            op_id: op_id.clone(),
+            event_type: event_type.clone(),
+            inputs: inputs.clone(),
+            outputs: outputs.clone(),
+            metadata: metadata.clone(),
+            logical_timestamp,
+            wall_clock_timestamp: None,
+        };
+
+        let blake3_hash = event_data.compute_hash();
+
+        Self {
+            event_id,
+            tick_id,
+            op_id,
+            event_type,
+            inputs,
+            outputs,
+            blake3_hash,
+            metadata,
+            logical_timestamp,
+            wall_clock_timestamp: None,
         }
     }
 
@@ -105,7 +155,8 @@ impl Event {
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
             metadata: self.metadata.clone(),
-            timestamp: self.timestamp,
+            logical_timestamp: self.logical_timestamp,
+            wall_clock_timestamp: self.wall_clock_timestamp,
         };
 
         event_data.compute_hash()
@@ -127,7 +178,8 @@ struct EventData {
     pub inputs: HashMap<String, serde_json::Value>,
     pub outputs: HashMap<String, serde_json::Value>,
     pub metadata: EventMetadata,
-    pub timestamp: u128,
+    pub logical_timestamp: LogicalTimestamp,
+    pub wall_clock_timestamp: Option<u128>,
 }
 
 impl EventData {
@@ -337,6 +389,7 @@ pub mod event_types {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logical_clock::LogicalTimestamp;
     use std::collections::HashMap;
 
     fn create_test_metadata() -> EventMetadata {
@@ -353,11 +406,16 @@ mod tests {
         }
     }
 
+    fn create_test_logical_timestamp() -> LogicalTimestamp {
+        LogicalTimestamp::new(0, 0, None, B3Hash::hash(b"test_timestamp"))
+    }
+
     #[test]
     fn test_event_creation() {
         let metadata = create_test_metadata();
         let inputs = HashMap::new();
         let outputs = HashMap::new();
+        let logical_timestamp = create_test_logical_timestamp();
 
         let event = Event::new(
             1,
@@ -366,11 +424,37 @@ mod tests {
             inputs,
             outputs,
             metadata,
+            logical_timestamp,
         );
 
         assert_eq!(event.tick_id, 1);
         assert_eq!(event.op_id, "test_op");
         assert_eq!(event.event_type, "test_event");
+        assert_eq!(event.logical_timestamp.global_tick, 0);
+        assert!(event.wall_clock_timestamp.is_some());
+    }
+
+    #[test]
+    fn test_event_deterministic_creation() {
+        let metadata = create_test_metadata();
+        let inputs = HashMap::new();
+        let outputs = HashMap::new();
+        let logical_timestamp = create_test_logical_timestamp();
+
+        let event = Event::new_deterministic(
+            1,
+            "test_op".to_string(),
+            "test_event".to_string(),
+            inputs,
+            outputs,
+            metadata,
+            logical_timestamp,
+        );
+
+        assert_eq!(event.tick_id, 1);
+        assert_eq!(event.op_id, "test_op");
+        assert_eq!(event.event_type, "test_event");
+        assert_eq!(event.wall_clock_timestamp, None);
     }
 
     #[test]
@@ -378,6 +462,7 @@ mod tests {
         let metadata = create_test_metadata();
         let inputs = HashMap::new();
         let outputs = HashMap::new();
+        let logical_timestamp = create_test_logical_timestamp();
 
         let event = Event::new(
             1,
@@ -386,6 +471,7 @@ mod tests {
             inputs,
             outputs,
             metadata,
+            logical_timestamp,
         );
 
         assert!(event.verify_hash());
@@ -420,6 +506,7 @@ mod tests {
         let metadata = create_test_metadata();
         let inputs = HashMap::new();
         let outputs = HashMap::new();
+        let logical_timestamp = create_test_logical_timestamp();
 
         let event = Event::new(
             1,
@@ -428,6 +515,7 @@ mod tests {
             inputs,
             outputs,
             metadata,
+            logical_timestamp,
         );
 
         bundle.add_event(event);
@@ -449,6 +537,7 @@ mod tests {
         let metadata = create_test_metadata();
         let inputs = HashMap::new();
         let outputs = HashMap::new();
+        let logical_timestamp = create_test_logical_timestamp();
 
         let event = Event::new(
             1,
@@ -457,6 +546,7 @@ mod tests {
             inputs,
             outputs,
             metadata,
+            logical_timestamp,
         );
 
         bundle.add_event(event);
@@ -477,6 +567,8 @@ mod tests {
         let metadata = create_test_metadata();
         let inputs = HashMap::new();
         let outputs = HashMap::new();
+        let logical_timestamp1 = create_test_logical_timestamp();
+        let logical_timestamp2 = create_test_logical_timestamp();
 
         let event1 = Event::new(
             1,
@@ -485,6 +577,7 @@ mod tests {
             inputs.clone(),
             outputs.clone(),
             metadata.clone(),
+            logical_timestamp1,
         );
 
         let event2 = Event::new(
@@ -494,6 +587,7 @@ mod tests {
             inputs,
             outputs,
             metadata,
+            logical_timestamp2,
         );
 
         bundle.add_event(event1);
@@ -519,6 +613,8 @@ mod tests {
         let metadata = create_test_metadata();
         let inputs = HashMap::new();
         let outputs = HashMap::new();
+        let logical_timestamp1 = LogicalTimestamp::new(1, 0, None, B3Hash::hash(b"ts1"));
+        let logical_timestamp2 = LogicalTimestamp::new(2, 0, None, B3Hash::hash(b"ts2"));
 
         // Add events in reverse tick order
         let event2 = Event::new(
@@ -528,6 +624,7 @@ mod tests {
             inputs.clone(),
             outputs.clone(),
             metadata.clone(),
+            logical_timestamp2,
         );
 
         let event1 = Event::new(
@@ -537,6 +634,7 @@ mod tests {
             inputs,
             outputs,
             metadata,
+            logical_timestamp1,
         );
 
         bundle.add_event(event2);

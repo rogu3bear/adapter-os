@@ -9,7 +9,7 @@ use crate::state::AppState;
 use crate::types::{ErrorResponse, GoldenCompareRequest, GoldenRunSummary};
 
 use adapteros_verify::{
-    list_golden_runs, verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
+    verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
 };
 
 /// GET /v1/golden/runs — list golden baseline names

@@ -36,6 +36,7 @@ pub type Result<T> = std::result::Result<T, CoordinationError>;
 #[derive(Debug)]
 pub struct AgentBarrier {
     /// Expected agent IDs
+    #[allow(dead_code)]
     agent_ids: Vec<String>,
     /// Current tick for each agent
     agent_ticks: Arc<Mutex<HashMap<String, u64>>>,

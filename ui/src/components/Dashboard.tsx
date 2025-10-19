@@ -34,6 +34,8 @@ import {
   BarChart3
 } from 'lucide-react';
 import { BaseModelStatusComponent } from './BaseModelStatus';
+import { BaseModelLoader } from './BaseModelLoader';
+import { CursorSetupWizard } from './CursorSetupWizard';
 import { Nodes } from './Nodes';
 import { AlertsPage } from './AlertsPage';
 import { useInformationDensity } from '../hooks/useInformationDensity';
@@ -80,6 +82,10 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [showCreateTenantModal, setShowCreateTenantModal] = useState(false);
   const [showDeployAdapterModal, setShowDeployAdapterModal] = useState(false);
+  const [showCursorWizard, setShowCursorWizard] = useState(false);
+  
+  // Model status state
+  const [modelStatus, setModelStatus] = useState<any>(null);
   
   // Form states
   const [newTenantName, setNewTenantName] = useState('');
@@ -93,14 +99,16 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
   const fetchData = async () => {
     try {
       setError(null);
-      const [metrics, nodes, tenants] = await Promise.all([
+      const [metrics, nodes, tenants, baseModelStatus] = await Promise.all([
         apiClient.getSystemMetrics(),
         apiClient.listNodes(),
         apiClient.listTenants(),
+        apiClient.getBaseModelStatus(effectiveTenant).catch(() => null),
       ]);
       setSystemMetrics(metrics);
       setNodeCount(nodes.length);
       setTenantCount(tenants.length);
+      setModelStatus(baseModelStatus);
       setLastUpdatedAt(new Date().toISOString());
     } catch (err) {
       // Replace: console.error('Failed to fetch dashboard data:', err);
@@ -404,7 +412,7 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
   return (
     <div className="p-[var(--space-4)] bg-[var(--surface-1)] rounded-[var(--radius-card)] shadow-[var(--shadow-md)]">
       {/* Header */}
-      <h1 className="text-[var(--font-h1)] font-[var(--font-weight-bold)] text-[var(--gray-900)] mb-[var(--space-6)]">
+      <h1 className="text-[var(--font-h1)] font-[var(--font-weight-bold)] text-gray-900 mb-[var(--space-6)]">
         Dashboard
       </h1>
       
@@ -412,12 +420,12 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
       <div className="grid grid-cols-1 md:grid-cols-3 gap-[var(--space-4)]">
         <Card className="border-[var(--gray-300)] hover:border-[var(--accent-500)]">
           <CardHeader className="pb-[var(--space-3)]">
-            <CardTitle className="text-[var(--font-h3)] text-[var(--gray-700)]">
+            <CardTitle className="text-[var(--font-h3)] text-gray-700">
               Nodes
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-[var(--font-h2)] font-[var(--font-weight-semibold)] text-[var(--success)]">
+            <div className="text-[var(--font-h2)] font-[var(--font-weight-semibold)] text-green-600">
               42
             </div>
           </CardContent>

@@ -6,9 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
-use tracing::{debug, error, info, warn};
-use zip::write::FileOptions;
-use zip::ZipWriter;
+use tracing::{error, info, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagProfile {
@@ -765,7 +763,7 @@ pub async fn run(
 async fn add_log_files(zip: &mut zip::ZipWriter<std::fs::File>, logs_dir: &str) -> Result<()> {
     use std::fs;
     use std::io::{Read, Write};
-    use zip::write::{FileOptions, SimpleFileOptions};
+    use zip::write::SimpleFileOptions;
 
     let logs_path = Path::new(logs_dir);
 
@@ -884,7 +882,7 @@ fn add_truncated_log_file(
 ) -> Result<()> {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-    use zip::write::{FileOptions, SimpleFileOptions};
+    use zip::write::SimpleFileOptions;
 
     let file = File::open(log_file)?;
     let mut reader = BufReader::new(file);
@@ -946,7 +944,7 @@ fn add_truncated_log_file(
 async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
-    use zip::write::{FileOptions, SimpleFileOptions};
+    use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
     let file = File::create(bundle_path).context("Failed to create bundle file")?;

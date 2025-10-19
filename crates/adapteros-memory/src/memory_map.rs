@@ -72,6 +72,7 @@ pub struct MemoryMapSnapshot {
 pub struct MemoryMapHasher {
     /// Device reference
     #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
     device: Arc<Device>,
     /// Memory regions by ID
     memory_regions: Arc<RwLock<HashMap<Uuid, MemoryRegion>>>,

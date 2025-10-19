@@ -906,6 +906,46 @@ export interface BaseModelStatus {
   updated_at: string;
 }
 
+// Base Model Import Types - Citation: IMPLEMENTATION_PLAN.md Phase 2
+export interface ImportModelRequest {
+  model_name: string;
+  weights_path: string;
+  config_path: string;
+  tokenizer_path: string;
+  tokenizer_config_path?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface ImportModelResponse {
+  import_id: string;
+  status: 'uploading' | 'validating' | 'importing' | 'completed' | 'failed';
+  message: string;
+  progress?: number;
+}
+
+export interface ModelStatusResponse {
+  model_id: string;
+  model_name: string;
+  status: 'loading' | 'loaded' | 'unloading' | 'unloaded' | 'error';
+  loaded_at?: string;
+  memory_usage_mb?: number;
+  is_loaded: boolean;
+}
+
+export interface CursorConfigResponse {
+  api_endpoint: string;
+  model_name: string;
+  model_id: string;
+  is_ready: boolean;
+  setup_instructions: string[];
+}
+
+export interface OnboardingJourneyStep {
+  step_completed: 'model_imported' | 'model_loaded' | 'cursor_configured' | 'first_inference';
+  completed_at: string;
+  step_data?: Record<string, any>;
+}
+
 export interface CreateDomainAdapterRequest {
   name: string;
   version: string;

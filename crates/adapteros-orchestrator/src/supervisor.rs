@@ -174,12 +174,14 @@ pub struct SupervisorDaemon {
     /// Adapter registry
     adapter_registry: Option<Arc<Registry>>,
     /// Database
+    #[allow(dead_code)]
     db: Arc<Db>,
 }
 
 /// Health checker
 pub struct HealthChecker {
     /// Check interval
+    #[allow(dead_code)]
     interval: Duration,
 }
 

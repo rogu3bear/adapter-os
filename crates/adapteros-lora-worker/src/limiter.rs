@@ -53,7 +53,7 @@ impl ResourceLimiter {
         }
     }
 
-    pub async fn acquire_request(&self) -> Result<ResourceGuard> {
+    pub async fn acquire_request(&self) -> Result<ResourceGuard<'_>> {
         // Check request rate limit first
         self.request_rate_limiter.check_rate()?;
 

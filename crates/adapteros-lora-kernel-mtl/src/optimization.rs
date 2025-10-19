@@ -148,7 +148,7 @@ impl KernelOptimizer {
         if config.shared_downsample {
             utilization += 5.0;
         }
-        utilization = utilization.max(10.0).min(100.0);
+        utilization = utilization.clamp(10.0, 100.0);
         utilization
     }
 

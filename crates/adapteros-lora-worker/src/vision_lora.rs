@@ -36,6 +36,7 @@ impl VisionTask {
 #[derive(Debug, Clone)]
 pub struct VisionLoraWeights {
     task: VisionTask,
+    #[allow(dead_code)]
     rank: usize,
     channels: usize,
     weights: Arc<Vec<f32>>,

@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_autograd_context_creation() {
-        let mut ctx = AutogradContext::new(42);
+        let ctx = AutogradContext::new(42);
         assert_eq!(ctx.tensor_count(), 0);
         assert_eq!(ctx.operation_count(), 0);
     }

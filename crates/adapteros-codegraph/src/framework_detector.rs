@@ -274,6 +274,7 @@ struct FrameworkRule {
     name: &'static str,
     rank: u8,
     indicators: Vec<Indicator>,
+    #[allow(dead_code)]
     keywords: &'static [&'static str],
 }
 

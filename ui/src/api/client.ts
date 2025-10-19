@@ -543,6 +543,34 @@ class ApiClient {
     return this.request<types.BaseModelStatus>(`/v1/models/status${query}`);
   }
 
+  // Base Model Management API Methods - Citation: IMPLEMENTATION_PLAN.md Phase 2
+  async importModel(data: types.ImportModelRequest): Promise<types.ImportModelResponse> {
+    return this.request<types.ImportModelResponse>('/v1/models/import', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async loadBaseModel(modelId: string): Promise<types.ModelStatusResponse> {
+    return this.request<types.ModelStatusResponse>(`/v1/models/${modelId}/load`, {
+      method: 'POST',
+    });
+  }
+
+  async unloadBaseModel(modelId: string): Promise<void> {
+    return this.request<void>(`/v1/models/${modelId}/unload`, {
+      method: 'POST',
+    });
+  }
+
+  async getModelImportStatus(importId: string): Promise<types.ImportModelResponse> {
+    return this.request<types.ImportModelResponse>(`/v1/models/imports/${importId}`);
+  }
+
+  async getCursorConfig(): Promise<types.CursorConfigResponse> {
+    return this.request<types.CursorConfigResponse>('/v1/models/cursor-config');
+  }
+
   // Routing
   async debugRouting(data: types.RoutingDebugRequest): Promise<types.RoutingDebugResponse> {
     return this.request<types.RoutingDebugResponse>('/v1/routing/debug', {

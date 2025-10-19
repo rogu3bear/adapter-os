@@ -9,7 +9,7 @@ use crate::{
 use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 const HEALTH_CHECK_EVENT: &str = "monitoring.health_check";
 const POLICY_VIOLATION_EVENT: &str = "monitoring.policy_violation_alert";
@@ -257,7 +257,7 @@ fn severity_for_less(value: f64, warning: f64, critical: f64) -> Option<AlertSev
 mod tests {
     use super::*;
     use serde::de::DeserializeOwned;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Clone, Default)]
     struct TestSink(Arc<Mutex<Vec<UnifiedTelemetryEvent>>>);

@@ -49,6 +49,7 @@ impl Gate for TelemetryGate {
 
 /// Bundle information
 struct BundleInfo {
+    #[allow(dead_code)]
     path: PathBuf,
     sig_path: PathBuf,
     timestamp: u64,

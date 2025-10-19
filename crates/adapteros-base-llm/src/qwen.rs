@@ -4,9 +4,9 @@
 //! execution guarantees following the patterns established in the codebase.
 
 use super::{BaseLLM, BaseLLMMetadata, ModelState};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
-use adapteros_trace::Event;
+use adapteros_trace::{Event, LogicalTimestamp};
 // use serde::{Deserialize, Serialize}; // Not used in current implementation
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -252,6 +252,13 @@ impl BaseLLM for QwenBaseLLM {
             custom: HashMap::new(),
         };
 
+        let logical_timestamp = LogicalTimestamp::new(
+            0,                             // global_tick
+            0,                             // op_tick
+            None,                          // token_position
+            B3Hash::hash(format!("qwen_{}", operation).as_bytes()), // derivation_hash
+        );
+
         Event::new(
             0,                             // tick_id
             format!("qwen_{}", operation), // op_id
@@ -259,6 +266,7 @@ impl BaseLLM for QwenBaseLLM {
             inputs,
             outputs,
             metadata,
+            logical_timestamp,
         )
     }
 }
