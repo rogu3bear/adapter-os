@@ -368,6 +368,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/monitoring/reports",
             post(handlers::create_process_monitoring_report),
         )
+        .route("/v1/journeys/:type/:id", get(handlers::journeys::get_journey))
         .route("/v1/jobs", get(handlers::list_jobs))
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/:cpid", get(handlers::get_policy))

@@ -1157,6 +1157,24 @@ async fn test_metrics_scrape() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_journey_endpoints() -> Result<()> {
+    let (client, _token) = create_authenticated_client("admin@example.com", "admin_password").await?;
+
+    // Test adapter-lifecycle journey
+    let journey_response = client.get_journey("adapter-lifecycle", "test-adapter-id").await?;
+    assert_eq!(journey_response.journey_type, "adapter-lifecycle");
+    assert!(!journey_response.states.is_empty());
+    assert_eq!(journey_response.id, "test-adapter-id");
+
+    // Test promotion-pipeline
+    let promo_response = client.get_journey("promotion-pipeline", "test-plan-id").await?;
+    assert_eq!(promo_response.journey_type, "promotion-pipeline");
+
+    println!("✓ Journey endpoints test completed successfully!");
+    Ok(())
+}
+
 /// Test helper functions
 #[cfg(test)]
 mod helpers {

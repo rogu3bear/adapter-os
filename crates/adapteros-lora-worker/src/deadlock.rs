@@ -37,6 +37,7 @@ struct LockInfo {
     thread_id: u64,
     lock_id: String,
     acquired_at: Instant,
+    #[allow(dead_code)]
     stack_trace: String,
 }
 

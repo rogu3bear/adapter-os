@@ -170,6 +170,32 @@ VALUES ('cp-001', 'cp-pointer-001', 'user-001', '{"arr": 0.97}', CURRENT_TIMESTA
 - [Maintenance Guide](../MAINTENANCE.md) - Ongoing maintenance
 - [System Architecture](../../architecture.md) - Overall system design
 
+## API-Based Journeys
+
+New endpoints allow programmatic access to workflow data:
+
+### Journey Visualization Flow
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as /v1/journeys
+    participant DB as Database
+    participant UI as Frontend
+
+    U->>UI: Select Journey Type
+    UI->>API: GET /v1/journeys/{type}/{id}
+    API->>DB: Query workflow tables
+    DB->>API: State transitions
+    API->>UI: JSON with states
+    UI->>U: Render timeline
+```
+
+### Examples
+1. **Adapter Lifecycle**: `GET /v1/journeys/adapter-lifecycle/{adapter_id}` - Fetches state history from adapters table.
+2. **Promotion Pipeline**: `GET /v1/journeys/promotion-pipeline/{plan_id}` - Promotion records from cp_pointers and promotions.
+
+See [API Docs](server-api.md) for full schema.
+
 ---
 
 **Next Steps**: Choose a workflow relevant to your current task and dive deeper into the implementation details.
