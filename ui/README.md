@@ -62,28 +62,31 @@ VITE_API_URL=http://127.0.0.1:8080/api
 
 For production builds, API calls use relative paths (`/api`).
 
+## Real-time Metrics with SSE
+- SSE: Connects to ws://VITE_SSE_URL/metrics?token=JWT for <10ms updates (fallback to polling if WS unavailable).
+- Env: VITE_SSE_URL=localhost:8080/v1/stream/metrics, VITE_METRICS_INTERVAL=500 (fallback ms).
+- Reconnect: Auto on error/close (backoff 1s-30s).
+
+## Testing
+Vitest + RTL. Run `pnpm test` or `pnpm test:ui` (coverage lcov). RealtimeMetrics: 8 tests (render, fetch, SSE connect/disconnect/auth/throttle/error), 55% coverage.
+
 ## Building
+- Dev: `pnpm dev` (SSE hot-reload).
+- Build: `pnpm build` (SSE-enabled, tsc clean).
+- Verify: `pnpm test:ui && pnpm build` (coverage + build).
 
-### Production Build
+## Recent Fixes
+- SSE Integration: subscribeToMetrics in apiClient, replaces polling in RealtimeMetrics (low-latency, reconnect, fallback).
+- Tests: +4 SSE tests (connect/parse, disconnect/fallback, 401/reconnect, throttle duplicates). Coverage 55%.
+- Clamps: Progress values 0-100 to prevent glitches.
 
-```bash
-# Build for production
-pnpm build
+## Environment Variables
+- VITE_API_URL: Backend API (default: http://127.0.0.1:8080/api).
+- VITE_METRICS_INTERVAL: Polling ms for RealtimeMetrics (default: 50; set to 500 for efficiency).
 
-# Output: ../crates/mplora-server/static/
-```
-
-The build output is configured to be embedded directly in the mplora-server binary.
-
-### From Project Root
-
-```bash
-# Build UI using Makefile
-make ui
-
-# Start dev server
-make ui-dev
-```
+## Recent Fixes
+- RealtimeMetrics.tsx: Added .catch for fetch errors (line 91), fixed comma in objects (114), proper export/brace (401). Now builds without TS errors.
+- Tests: ui/src/__tests__/RealtimeMetrics.test.tsx validates rendering, data updates, errors.
 
 ## Project Structure
 
