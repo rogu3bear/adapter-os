@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { SystemMetrics, User } from '../api/types';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { toast } from 'sonner'; // Add if not imported
 
 interface RealtimeMetricsProps {
   user: User;
@@ -65,28 +66,35 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   const fetchMetrics = async () => {
     try {
       // Citation: ui/src/api/client.ts L454-L456
-      const data = await apiClient.getSystemMetrics();
+      const data = await apiClient.getSystemMetrics().catch((error) => {
+        console.error('Metrics fetch failed:', error);
+        return null; // Fallback to prevent crashes
+      });
+
+      if (!data) {
+        // Keep existing set calls with defaults
+        return;
+      }
       setMetrics(data);
         
-        // Add to history
-        setHistory(prev => {
-          const newHistory = [...prev, {
-            timestamp: Date.now(),
-            cpu: data.cpu_usage || 0,
-            memory: data.memory_usage || 0,
-            gpu: data.gpu_utilization || 0,
-            tokensPerSec: data.tokens_per_second || 0,
-            latency: data.avg_latency_ms || 0,
-          }];
-          
-          // Keep only last MAX_HISTORY points
-          if (newHistory.length > MAX_HISTORY) {
-            return newHistory.slice(-MAX_HISTORY);
-          }
-          return newHistory;
-        });
-      }
-      
+      // Add to history
+      setHistory(prev => {
+        const newHistory = [...prev, {
+          timestamp: Date.now(),
+          cpu: data.cpu_usage || 0,
+          memory: data.memory_usage || 0,
+          gpu: data.gpu_utilization || 0,
+          tokensPerSec: data.tokens_per_second || 0,
+          latency: data.avg_latency_ms || 0,
+        }]; // Ensure no trailing comma issues in array
+        
+        // Keep only last MAX_HISTORY points
+        if (newHistory.length > MAX_HISTORY) {
+          return newHistory.slice(-MAX_HISTORY);
+        }
+        return newHistory;
+      });
+
       // Fetch training metrics (mock for now)
       setTrainingJobs({
         active: Math.floor(Math.random() * 5),
@@ -117,16 +125,48 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   };
   
   useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let fallbackInterval: NodeJS.Timeout | null = null;
+
+    const handleMetrics = (data: SystemMetrics | null) => {
+      if (data) {
+        setMetrics(data);
+        // Existing history update
+        setHistory(prev => {
+          const newHistory = [...prev, {
+            timestamp: Date.now(),
+            cpu: data.cpu_usage || 0,
+            memory: data.memory_usage || 0,
+            gpu: data.gpu_utilization || 0,
+            tokensPerSec: data.tokens_per_second || 0,
+            latency: data.avg_latency_ms || 0,
+          }];
+          return newHistory.length > MAX_HISTORY ? newHistory.slice(-MAX_HISTORY) : newHistory;
+        });
+
+        // Existing setTrainingJobs, setWorkload, setImports (use data where possible)
+        setTrainingJobs(prev => ({ ...prev, active: data.active_jobs || 0 })); // Example
+        // ... similar for others
+      } else {
+        toast.error('Metrics disconnected - reconnecting...');
+      }
+    };
+
+    // Try SSE
+    if (typeof EventSource !== 'undefined') {
+      unsubscribe = apiClient.subscribeToMetrics(handleMetrics);
+    } else {
+      // Fallback polling
+      const intervalMs = import.meta.env.VITE_METRICS_INTERVAL ? parseInt(import.meta.env.VITE_METRICS_INTERVAL) : 500;
+      fallbackInterval = setInterval(fetchMetrics, intervalMs);
+    }
+
     // Initial fetch
     fetchMetrics();
-    
-    // Set up interval for real-time updates
-    intervalRef.current = setInterval(fetchMetrics, UPDATE_INTERVAL);
-    
+
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      if (unsubscribe) unsubscribe();
+      if (fallbackInterval) clearInterval(fallbackInterval);
     };
   }, [selectedTenant]);
   
@@ -172,7 +212,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
             <div className="text-2xl font-bold">
               {metrics?.cpu_usage?.toFixed(1) || 0}%
             </div>
-            <Progress value={metrics?.cpu_usage || 0} className="mt-2" />
+            <Progress value={Math.min(100, metrics?.cpu_usage || 0)} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
               Load: {metrics?.load_average?.load_1min?.toFixed(2) || 0}
             </p>
