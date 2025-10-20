@@ -1,0 +1,5 @@
+{"input": [1, 2, 3], "target": [4, 5, 6], "metadata": {"pattern": "ownership"}, "weight": 1.0}
+{"input": [7, 8, 9], "target": [10, 11, 12], "metadata": {"pattern": "borrowing"}, "weight": 1.0}
+{"input": [13, 14, 15], "target": [16, 17, 18], "metadata": {"pattern": "error_handling"}, "weight": 1.0}
+{"input": [19, 20, 21], "target": [22, 23, 24], "metadata": {"pattern": "async_await"}, "weight": 1.0}
+{"input": [25, 26, 27], "target": [28, 29, 30], "metadata": {"pattern": "traits"}, "weight": 1.0}

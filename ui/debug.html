@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Hydration</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-box { border: 2px solid #ccc; padding: 20px; margin: 10px 0; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>React Hydration Debug Test</h1>
+    
+    <div class="test-box">
+        <h2>Test 1: Basic DOM Manipulation</h2>
+        <p id="test1">Initial text</p>
+        <button onclick="document.getElementById('test1').textContent = 'Updated by DOM'">Update via DOM</button>
+    </div>
+    
+    <div class="test-box">
+        <h2>Test 2: React Mount Point</h2>
+        <div id="react-root">Loading React...</div>
+        <button onclick="testReact()">Test React</button>
+    </div>
+    
+    <div class="test-box">
+        <h2>Test 3: Console Log</h2>
+        <button onclick="console.log('Button clicked!')">Log to Console</button>
+    </div>
+    
+    <div class="test-box">
+        <h2>Test 4: API Test</h2>
+        <button onclick="testAPI()">Test API</button>
+        <div id="api-result"></div>
+    </div>
+
+    <script>
+        console.log('Debug page loaded');
+        
+        function testReact() {
+            const root = document.getElementById('react-root');
+            root.innerHTML = '<p style="color: green;">React test successful!</p>';
+        }
+        
+        async function testAPI() {
+            try {
+                const response = await fetch('/api/v1/meta');
+                const data = await response.json();
+                document.getElementById('api-result').innerHTML = 
+                    `<p style="color: green;">API Response: ${JSON.stringify(data)}</p>`;
+            } catch (error) {
+                document.getElementById('api-result').innerHTML = 
+                    `<p style="color: red;">API Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Test if React is available
+        if (typeof React !== 'undefined') {
+            console.log('React is available:', React.version);
+        } else {
+            console.log('React is not available');
+        }
+        
+        // Test if ReactDOM is available
+        if (typeof ReactDOM !== 'undefined') {
+            console.log('ReactDOM is available');
+        } else {
+            console.log('ReactDOM is not available');
+        }
+    </script>
+</body>
+</html>

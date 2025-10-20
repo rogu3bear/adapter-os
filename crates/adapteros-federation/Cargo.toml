@@ -8,9 +8,12 @@ license.workspace = true
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-registry = { path = "../adapteros-registry" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-secd = { path = "../adapteros-secd" }
+async-trait = "0.1"
 
 serde = { workspace = true }
 serde_json = { workspace = true }

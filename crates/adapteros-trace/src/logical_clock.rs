@@ -260,8 +260,12 @@ impl LogicalClock {
             hasher.update(key.as_bytes());
             if let Some(value) = inputs.get(key) {
                 // Use canonical JSON serialization for deterministic hashing
-                let canonical_bytes = serde_jcs::to_vec(value)
-                    .map_err(|e| AosError::Parse(format!("Failed to serialize input value for key '{}': {}", key, e)))?;
+                let canonical_bytes = serde_jcs::to_vec(value).map_err(|e| {
+                    AosError::Parse(format!(
+                        "Failed to serialize input value for key '{}': {}",
+                        key, e
+                    ))
+                })?;
                 hasher.update(&canonical_bytes);
             }
         }
@@ -517,4 +521,3 @@ mod tests {
         assert_eq!(ts.global_tick, 100);
     }
 }
-

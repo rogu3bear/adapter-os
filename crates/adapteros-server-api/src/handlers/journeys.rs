@@ -1,7 +1,11 @@
 use crate::{auth::Claims, state::AppState, types::ErrorResponse};
-use axum::{extract::{Extension, Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Extension, Path, State},
+    http::StatusCode,
+    Json,
+};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc, NaiveDateTime};
 use tracing::{info, warn};
 
 #[derive(Deserialize)]
@@ -47,31 +51,34 @@ pub async fn get_journey(
 
     // ITAR check
     if ["security-compliance", "incident-response"].contains(&journey_type.as_str()) {
-        let tenant_row = sqlx::query!(
-            "SELECT itar_flag FROM tenants WHERE id = ?",
-            tenant_id
-        )
-        .fetch_optional(state.db.pool())
-        .await
-        .map_err(|e| {
-            warn!("ITAR check failed for tenant {}: {}", tenant_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("ITAR check failed").with_code("SECURITY_ERROR")),
-            )
-        })?;
+        let tenant_row = sqlx::query!("SELECT itar_flag FROM tenants WHERE id = ?", tenant_id)
+            .fetch_optional(state.db.pool())
+            .await
+            .map_err(|e| {
+                warn!("ITAR check failed for tenant {}: {}", tenant_id, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("ITAR check failed").with_code("SECURITY_ERROR")),
+                )
+            })?;
 
         if let Some(row) = tenant_row {
             if row.itar_flag != 0 && !is_admin {
                 return Err((
                     StatusCode::FORBIDDEN,
-                    Json(ErrorResponse::new("admin required for ITAR-restricted journey").with_code("FORBIDDEN")),
+                    Json(
+                        ErrorResponse::new("admin required for ITAR-restricted journey")
+                            .with_code("FORBIDDEN"),
+                    ),
                 ));
             }
         }
     }
 
-    info!("Fetching journey data for user {}: type={}, id={}, tenant={}", claims.sub, journey_type, id, tenant_id);
+    info!(
+        "Fetching journey data for user {}: type={}, id={}, tenant={}",
+        claims.sub, journey_type, id, tenant_id
+    );
 
     let mut states = Vec::new();
     let mut _data = serde_json::json!({});
@@ -94,20 +101,28 @@ pub async fn get_journey(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("database query failed").with_code("DATABASE_ERROR").with_string_details(e.to_string())),
+                    Json(
+                        ErrorResponse::new("database query failed")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
                 )
             })?;
 
             for row in rows {
-                let timestamp: DateTime<Utc> = NaiveDateTime::parse_from_str(&row.updated_at, "%Y-%m-%dT%H:%M:%S%.fZ")
-                    .map_err(|parse_err| {
-                        warn!("Timestamp parse failed: {}", parse_err);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ErrorResponse::new("invalid timestamp format").with_code("DATA_ERROR")),
-                        )
-                    })?
-                    .and_utc();
+                let timestamp: DateTime<Utc> =
+                    NaiveDateTime::parse_from_str(&row.updated_at, "%Y-%m-%dT%H:%M:%S%.fZ")
+                        .map_err(|parse_err| {
+                            warn!("Timestamp parse failed: {}", parse_err);
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(
+                                    ErrorResponse::new("invalid timestamp format")
+                                        .with_code("DATA_ERROR"),
+                                ),
+                            )
+                        })?
+                        .and_utc();
 
                 states.push(JourneyState {
                     state: row.current_state,
@@ -143,15 +158,19 @@ pub async fn get_journey(
             })?;
 
             for promo in promotions {
-                let timestamp: DateTime<Utc> = NaiveDateTime::parse_from_str(&promo.created_at, "%Y-%m-%dT%H:%M:%S%.fZ")
-                    .map_err(|parse_err| {
-                        warn!("Timestamp parse failed: {}", parse_err);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ErrorResponse::new("invalid timestamp format").with_code("DATA_ERROR")),
-                        )
-                    })?
-                    .and_utc();
+                let timestamp: DateTime<Utc> =
+                    NaiveDateTime::parse_from_str(&promo.created_at, "%Y-%m-%dT%H:%M:%S%.fZ")
+                        .map_err(|parse_err| {
+                            warn!("Timestamp parse failed: {}", parse_err);
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(
+                                    ErrorResponse::new("invalid timestamp format")
+                                        .with_code("DATA_ERROR"),
+                                ),
+                            )
+                        })?
+                        .and_utc();
 
                 states.push(JourneyState {
                     state: "completed".to_string(), // Default state since status column doesn't exist
@@ -186,11 +205,14 @@ pub async fn get_journey(
             })?;
 
             for metric in metrics {
-                let timestamp: DateTime<Utc> = DateTime::from_timestamp(metric.timestamp, 0)
-                    .unwrap_or_else(|| Utc::now());
+                let timestamp: DateTime<Utc> =
+                    DateTime::from_timestamp(metric.timestamp, 0).unwrap_or_else(|| Utc::now());
 
                 states.push(JourneyState {
-                    state: format!("cpu: {:.2}%, mem: {:.2}%", metric.cpu_usage, metric.memory_usage),
+                    state: format!(
+                        "cpu: {:.2}%, mem: {:.2}%",
+                        metric.cpu_usage, metric.memory_usage
+                    ),
                     timestamp,
                     details: serde_json::json!({
                         "cpu_usage": metric.cpu_usage,

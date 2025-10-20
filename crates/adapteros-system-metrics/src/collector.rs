@@ -225,8 +225,14 @@ mod tests {
         let mut collector = SystemMetricsCollector::new();
         let metrics = collector.collect_metrics();
 
-        assert!(metrics.cpu_usage.is_finite() && metrics.cpu_usage >= 0.0 && metrics.cpu_usage <= 100.0);
-        assert!(metrics.memory_usage.is_finite() && metrics.memory_usage >= 0.0 && metrics.memory_usage <= 100.0);
+        assert!(
+            metrics.cpu_usage.is_finite() && metrics.cpu_usage >= 0.0 && metrics.cpu_usage <= 100.0
+        );
+        assert!(
+            metrics.memory_usage.is_finite()
+                && metrics.memory_usage >= 0.0
+                && metrics.memory_usage <= 100.0
+        );
         assert!(metrics.disk_io.read_bytes >= 0); // u64 is always >= 0
         assert!(metrics.network_io.rx_bytes >= 0); // u64 is always >= 0
     }

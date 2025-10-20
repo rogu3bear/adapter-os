@@ -41,7 +41,11 @@ pub async fn run(
         );
         output.kv(
             "Verified Event Hashes",
-            if report.verified_event_hashes { "yes" } else { "no" },
+            if report.verified_event_hashes {
+                "yes"
+            } else {
+                "no"
+            },
         );
         if report.errors == 0 {
             output.success("Trace validation passed");
@@ -52,4 +56,3 @@ pub async fn run(
 
     Ok(())
 }
-

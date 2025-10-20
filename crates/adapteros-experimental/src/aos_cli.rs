@@ -31,10 +31,9 @@
 //!
 //! ## Dependencies
 //!
-//! - `adapteros-cli` - CLI framework
-//! - `adapteros-single-file-adapter` - Single file adapter format
-//! - `adapteros-crypto` - Cryptographic operations
-//! - `adapteros-lora-worker` - LoRA worker training
+//! - `adapteros-core` - Core functionality
+//! - `serde` - Serialization
+//! - `tokio` - Async runtime
 //!
 //! ## Last Updated
 //!
@@ -52,73 +51,78 @@
 #![warn(clippy::pedantic)]
 
 use adapteros_core::{AosError, Result};
-use adapteros_crypto::Keypair;
-use adapteros_single_file_adapter::{
-    AOS_FORMAT_VERSION, CompressionLevel, LoadOptions, PackageOptions,
-    SingleFileAdapterLoader, SingleFileAdapterPackager, SingleFileAdapterValidator,
-    get_compatibility_report, migrate_file,
-};
-use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::time::sleep;
+
+/// Experimental compression level
+/// 
+/// # Status: 🚧 In Development
+/// # Stability: Unstable
+/// # Dependencies: None
+/// # Last Updated: 2025-01-15
+/// # Known Issues: Basic compression levels only
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CompressionLevel {
+    /// No compression
+    None,
+    /// Fast compression
+    Fast,
+    /// Default compression
+    Default,
+    /// Maximum compression
+    Maximum,
+}
 
 /// Experimental AOS adapter commands
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: adapteros-cli, adapteros-single-file-adapter
+/// # Dependencies: adapteros-core
 /// # Last Updated: 2025-01-15
 /// # Known Issues: TODO implementations, missing control plane registration
-#[derive(Debug, Parser, Clone)]
-#[command(name = "aos")]
-#[command(about = "Experimental AOS adapter commands - NOT FOR PRODUCTION USE")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AosCmd {
-    #[command(subcommand)]
+    /// Command subcommand
     pub subcommand: AosSubcommand,
 }
 
 /// Experimental AOS subcommands
-#[derive(Debug, Subcommand, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AosSubcommand {
     /// Create .aos file from existing adapter
-    Create(CreateArgs), // COORDINATION: Affects SingleFileAdapterPackager
+    Create(CreateArgs),
     /// Load .aos file into registry
-    Load(LoadArgs), // COORDINATION: Affects Database and Lifecycle Management
+    Load(LoadArgs),
     /// Verify .aos file integrity
-    Verify(VerifyArgs), // COORDINATION: Affects SingleFileAdapterValidator
+    Verify(VerifyArgs),
     /// Extract components from .aos file
-    Extract(ExtractArgs), // COORDINATION: Affects SingleFileAdapterLoader
+    Extract(ExtractArgs),
     /// Show .aos file information
-    Info(InfoArgs), // COORDINATION: Affects SingleFileAdapterLoader
+    Info(InfoArgs),
     /// Migrate .aos file to current format version
-    Migrate(MigrateArgs), // COORDINATION: Affects migrate_file function
+    Migrate(MigrateArgs),
 }
 
 /// Create .aos file from existing adapter
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: SingleFileAdapterPackager
+/// # Dependencies: None
 /// # Last Updated: 2025-01-15
 /// # Known Issues: Missing validation, incomplete error handling
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateArgs {
     /// Path to existing adapter
-    #[arg(short, long)]
     pub adapter_path: PathBuf,
-    
     /// Output .aos file path
-    #[arg(short, long)]
     pub output_path: PathBuf,
-    
     /// Compression level
-    #[arg(short, long, default_value = "default")]
     pub compression: CompressionLevel,
-    
     /// Package options
-    #[arg(short, long)]
     pub package_options: Option<String>,
 }
 
@@ -126,21 +130,16 @@ pub struct CreateArgs {
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: Database and Lifecycle Management
+/// # Dependencies: None
 /// # Last Updated: 2025-01-15
 /// # Known Issues: TODO: Register with control plane
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoadArgs {
     /// Path to .aos file
-    #[arg(short, long)]
     pub aos_path: PathBuf,
-    
     /// Load options
-    #[arg(short, long)]
     pub load_options: Option<String>,
-    
     /// Force load even if validation fails
-    #[arg(short, long)]
     pub force: bool,
 }
 
@@ -148,21 +147,16 @@ pub struct LoadArgs {
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: SingleFileAdapterValidator
+/// # Dependencies: None
 /// # Last Updated: 2025-01-15
 /// # Known Issues: Incomplete validation logic
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifyArgs {
     /// Path to .aos file
-    #[arg(short, long)]
     pub aos_path: PathBuf,
-    
     /// Verify signature
-    #[arg(short, long)]
     pub verify_signature: bool,
-    
     /// Verify integrity
-    #[arg(short, long)]
     pub verify_integrity: bool,
 }
 
@@ -170,21 +164,16 @@ pub struct VerifyArgs {
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: SingleFileAdapterLoader
+/// # Dependencies: None
 /// # Last Updated: 2025-01-15
 /// # Known Issues: Missing extraction validation
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractArgs {
     /// Path to .aos file
-    #[arg(short, long)]
     pub aos_path: PathBuf,
-    
     /// Output directory
-    #[arg(short, long)]
     pub output_dir: PathBuf,
-    
     /// Extract specific components
-    #[arg(short, long)]
     pub components: Option<Vec<String>>,
 }
 
@@ -192,21 +181,16 @@ pub struct ExtractArgs {
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: SingleFileAdapterLoader
+/// # Dependencies: None
 /// # Last Updated: 2025-01-15
 /// # Known Issues: Incomplete information display
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InfoArgs {
     /// Path to .aos file
-    #[arg(short, long)]
     pub aos_path: PathBuf,
-    
     /// Show detailed information
-    #[arg(short, long)]
     pub detailed: bool,
-    
     /// Show JSON output
-    #[arg(short, long)]
     pub json: bool,
 }
 
@@ -214,21 +198,16 @@ pub struct InfoArgs {
 /// 
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: migrate_file function
+/// # Dependencies: None
 /// # Last Updated: 2025-01-15
 /// # Known Issues: Incomplete migration logic
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrateArgs {
     /// Path to .aos file
-    #[arg(short, long)]
     pub aos_path: PathBuf,
-    
     /// Target format version
-    #[arg(short, long)]
     pub target_version: Option<String>,
-    
     /// Backup original file
-    #[arg(short, long)]
     pub backup: bool,
 }
 
@@ -269,7 +248,7 @@ impl ExperimentalAosCli {
     /// 
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
-    /// # Dependencies: SingleFileAdapterPackager
+    /// # Dependencies: None
     /// # Last Updated: 2025-01-15
     /// # Known Issues: Missing validation, incomplete error handling
     async fn create_adapter(&self, args: CreateArgs) -> Result<()> {
@@ -283,6 +262,7 @@ impl ExperimentalAosCli {
         println!("🚧 EXPERIMENTAL: Compression: {:?}", args.compression);
         
         // Placeholder implementation
+        sleep(Duration::from_millis(100)).await;
         Ok(())
     }
     
@@ -290,7 +270,7 @@ impl ExperimentalAosCli {
     /// 
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
-    /// # Dependencies: Database and Lifecycle Management
+    /// # Dependencies: None
     /// # Last Updated: 2025-01-15
     /// # Known Issues: TODO: Register with control plane
     async fn load_adapter(&self, args: LoadArgs) -> Result<()> {
@@ -303,6 +283,7 @@ impl ExperimentalAosCli {
         println!("🚧 EXPERIMENTAL: Force load: {}", args.force);
         
         // Placeholder implementation
+        sleep(Duration::from_millis(100)).await;
         Ok(())
     }
     
@@ -310,7 +291,7 @@ impl ExperimentalAosCli {
     /// 
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
-    /// # Dependencies: SingleFileAdapterValidator
+    /// # Dependencies: None
     /// # Last Updated: 2025-01-15
     /// # Known Issues: Incomplete validation logic
     async fn verify_adapter(&self, args: VerifyArgs) -> Result<()> {
@@ -324,6 +305,7 @@ impl ExperimentalAosCli {
         println!("🚧 EXPERIMENTAL: Verify integrity: {}", args.verify_integrity);
         
         // Placeholder implementation
+        sleep(Duration::from_millis(100)).await;
         Ok(())
     }
     
@@ -331,7 +313,7 @@ impl ExperimentalAosCli {
     /// 
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
-    /// # Dependencies: SingleFileAdapterLoader
+    /// # Dependencies: None
     /// # Last Updated: 2025-01-15
     /// # Known Issues: Missing extraction validation
     async fn extract_adapter(&self, args: ExtractArgs) -> Result<()> {
@@ -347,6 +329,7 @@ impl ExperimentalAosCli {
         }
         
         // Placeholder implementation
+        sleep(Duration::from_millis(100)).await;
         Ok(())
     }
     
@@ -354,7 +337,7 @@ impl ExperimentalAosCli {
     /// 
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
-    /// # Dependencies: SingleFileAdapterLoader
+    /// # Dependencies: None
     /// # Last Updated: 2025-01-15
     /// # Known Issues: Incomplete information display
     async fn info_adapter(&self, args: InfoArgs) -> Result<()> {
@@ -368,6 +351,7 @@ impl ExperimentalAosCli {
         println!("🚧 EXPERIMENTAL: JSON output: {}", args.json);
         
         // Placeholder implementation
+        sleep(Duration::from_millis(100)).await;
         Ok(())
     }
     
@@ -375,7 +359,7 @@ impl ExperimentalAosCli {
     /// 
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
-    /// # Dependencies: migrate_file function
+    /// # Dependencies: None
     /// # Last Updated: 2025-01-15
     /// # Known Issues: Incomplete migration logic
     async fn migrate_adapter(&self, args: MigrateArgs) -> Result<()> {
@@ -391,6 +375,7 @@ impl ExperimentalAosCli {
         println!("🚧 EXPERIMENTAL: Backup: {}", args.backup);
         
         // Placeholder implementation
+        sleep(Duration::from_millis(100)).await;
         Ok(())
     }
 }

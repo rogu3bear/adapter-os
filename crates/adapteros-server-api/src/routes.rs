@@ -2,12 +2,12 @@ use crate::handlers;
 use crate::handlers::domain_adapters;
 use crate::middleware::{auth_middleware, dual_auth_middleware};
 use crate::state::AppState;
+use axum::extract::{Path, State};
 use axum::{
     middleware,
     routing::{delete, get, post, put},
     Router,
 };
-use axum::extract::{Path, State};
 use axum::{Extension, Json};
 // Note: Rate limiting disabled - consider using tower-governor for proper rate limiting
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -239,12 +239,16 @@ pub fn build(state: AppState) -> Router {
 
     // Help type inference for handlers that require state by wrapping in closures
     let cp_promote_route: MethodRouter<AppState> = post(
-        |state: State<AppState>, claims: Extension<crate::auth::Claims>, req: Json<crate::types::PromoteCPRequest>| async move {
+        |state: State<AppState>,
+         claims: Extension<crate::auth::Claims>,
+         req: Json<crate::types::PromoteCPRequest>| async move {
             handlers::cp_promote(state, claims, req).await
         },
     );
     let promotion_gates_route: MethodRouter<AppState> = get(
-        |state: State<AppState>, claims: Extension<crate::auth::Claims>, Path(cpid): Path<String>| async move {
+        |state: State<AppState>,
+         claims: Extension<crate::auth::Claims>,
+         Path(cpid): Path<String>| async move {
             handlers::promotion_gates(state, claims, Path(cpid)).await
         },
     );
@@ -315,10 +319,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::export_plan_manifest),
         )
         .route("/v1/cp/promote", cp_promote_route)
-        .route(
-            "/v1/cp/promotion-gates/:cpid",
-            promotion_gates_route,
-        )
+        .route("/v1/cp/promotion-gates/:cpid", promotion_gates_route)
         .route("/v1/cp/rollback", post(handlers::cp_rollback))
         .route("/v1/cp/promote/dry-run", post(handlers::cp_dry_run_promote))
         .route("/v1/cp/promotions", get(handlers::get_promotion_history))
@@ -389,7 +390,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/monitoring/reports",
             post(handlers::create_process_monitoring_report),
         )
-        .route("/v1/journeys/:type/:id", get(handlers::journeys::get_journey))
+        .route(
+            "/v1/journeys/:type/:id",
+            get(handlers::journeys::get_journey),
+        )
         .route("/v1/jobs", get(handlers::list_jobs))
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/:cpid", get(handlers::get_policy))
@@ -457,7 +461,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/adapters", get(handlers::list_adapters))
         .route("/v1/adapters/:adapter_id", get(handlers::get_adapter))
         .route("/v1/adapters/register", post(handlers::register_adapter))
-        .route("/v1/adapters/:adapter_id", axum::routing::delete(handlers::delete_adapter))
+        .route(
+            "/v1/adapters/:adapter_id",
+            axum::routing::delete(handlers::delete_adapter),
+        )
         .route(
             "/v1/adapters/:adapter_id/load",
             post(handlers::load_adapter),
@@ -489,10 +496,22 @@ pub fn build(state: AppState) -> Router {
         )
         // Base model management routes - Citation: IMPLEMENTATION_PLAN.md Phase 1
         .route("/v1/models/import", post(handlers::models::import_model))
-        .route("/v1/models/:model_id/load", post(handlers::models::load_model))
-        .route("/v1/models/:model_id/unload", post(handlers::models::unload_model))
-        .route("/v1/models/imports/:import_id", get(handlers::models::get_import_status))
-        .route("/v1/models/cursor-config", get(handlers::models::get_cursor_config))
+        .route(
+            "/v1/models/:model_id/load",
+            post(handlers::models::load_model),
+        )
+        .route(
+            "/v1/models/:model_id/unload",
+            post(handlers::models::unload_model),
+        )
+        .route(
+            "/v1/models/imports/:import_id",
+            get(handlers::models::get_import_status),
+        )
+        .route(
+            "/v1/models/cursor-config",
+            get(handlers::models::get_cursor_config),
+        )
         // Domain adapter routes
         .route(
             "/v1/domain-adapters",
@@ -674,7 +693,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Configure CORS for development
     let cors = CorsLayer::permissive(); // Allow all origins in dev mode

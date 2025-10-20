@@ -485,9 +485,14 @@ mod tests {
     #[test]
     fn test_token_generated_event() {
         let clock = create_test_clock();
-        let event =
-            token_generated_event(1, 123, vec![0.1, 0.2, 0.3], vec!["adapter1".to_string()], &clock)
-                .unwrap();
+        let event = token_generated_event(
+            1,
+            123,
+            vec![0.1, 0.2, 0.3],
+            vec!["adapter1".to_string()],
+            &clock,
+        )
+        .unwrap();
 
         assert_eq!(event.tick_id, 1);
         assert_eq!(event.event_type, "inference.token");
@@ -547,6 +552,9 @@ mod tests {
         assert_eq!(event1.wall_clock_timestamp, None);
         assert_eq!(event2.wall_clock_timestamp, None);
         // Different timestamps due to advancing clock
-        assert_ne!(event1.logical_timestamp.global_tick, event2.logical_timestamp.global_tick);
+        assert_ne!(
+            event1.logical_timestamp.global_tick,
+            event2.logical_timestamp.global_tick
+        );
     }
 }

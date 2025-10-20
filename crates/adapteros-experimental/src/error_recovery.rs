@@ -54,7 +54,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 /// Experimental retry operation
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: tokio, anyhow
@@ -73,7 +73,7 @@ pub struct RetryOperation {
 }
 
 /// Experimental retry configuration
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -94,7 +94,7 @@ pub struct RetryConfig {
 }
 
 /// Experimental retry strategy
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -113,7 +113,7 @@ pub enum RetryStrategy {
 }
 
 /// Experimental error recovery system
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: All error recovery dependencies
@@ -140,9 +140,9 @@ impl ErrorRecovery {
             active_operations: Vec::new(),
         }
     }
-    
+
     /// Perform retry operation
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Retry logic implementation
@@ -151,19 +151,19 @@ impl ErrorRecovery {
     pub async fn perform_retry_operation(&self, path: &Path) -> Result<()> {
         // This is a placeholder for the actual retry logic
         // In a real implementation, this would retry the specific operation that failed
-        
+
         println!("🚧 EXPERIMENTAL: Performing retry operation on {:?}", path);
         println!("🚧 EXPERIMENTAL: This is placeholder retry logic");
-        
+
         // Simulate retry delay
         sleep(Duration::from_millis(100)).await;
-        
+
         // Placeholder implementation
         Ok(())
     }
-    
+
     /// Create retry operation
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Retry configuration
@@ -177,9 +177,9 @@ impl ErrorRecovery {
             max_attempts: 3,
         }
     }
-    
+
     /// Calculate next retry delay
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Retry strategy implementation
@@ -190,13 +190,20 @@ impl ErrorRecovery {
             RetryStrategy::Fixed => operation.config.initial_delay,
             RetryStrategy::Exponential => {
                 let delay = operation.config.initial_delay.as_millis() as f64
-                    * operation.config.backoff_multiplier.powi(operation.attempt_count as i32);
-                Duration::from_millis(delay.min(operation.config.max_delay.as_millis() as f64) as u64)
+                    * operation
+                        .config
+                        .backoff_multiplier
+                        .powi(operation.attempt_count as i32);
+                Duration::from_millis(
+                    delay.min(operation.config.max_delay.as_millis() as f64) as u64
+                )
             }
             RetryStrategy::Linear => {
                 let delay = operation.config.initial_delay.as_millis() as f64
                     * (operation.attempt_count as f64 + 1.0);
-                Duration::from_millis(delay.min(operation.config.max_delay.as_millis() as f64) as u64)
+                Duration::from_millis(
+                    delay.min(operation.config.max_delay.as_millis() as f64) as u64
+                )
             }
             RetryStrategy::Custom => {
                 // TODO: Implement custom backoff function
@@ -204,9 +211,9 @@ impl ErrorRecovery {
             }
         }
     }
-    
+
     /// Check if operation should retry
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Retry logic
@@ -215,9 +222,9 @@ impl ErrorRecovery {
     pub fn should_retry(&self, operation: &RetryOperation) -> bool {
         operation.attempt_count < operation.max_attempts
     }
-    
+
     /// Increment retry attempt
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Retry operation management
@@ -226,9 +233,9 @@ impl ErrorRecovery {
     pub fn increment_attempt(&mut self, operation: &mut RetryOperation) {
         operation.attempt_count += 1;
     }
-    
+
     /// Get retry statistics
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Statistics collection
@@ -251,7 +258,7 @@ impl Default for ErrorRecovery {
 }
 
 /// Experimental retry statistics
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -270,7 +277,7 @@ pub struct RetryStatistics {
 }
 
 /// Experimental retry operation builder
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: Retry operation creation
@@ -297,19 +304,19 @@ impl RetryOperationBuilder {
             max_attempts: 3,
         }
     }
-    
+
     /// Set retry configuration
     pub fn with_config(mut self, config: RetryConfig) -> Self {
         self.config = config;
         self
     }
-    
+
     /// Set maximum attempts
     pub fn with_max_attempts(mut self, max_attempts: u32) -> Self {
         self.max_attempts = max_attempts;
         self
     }
-    
+
     /// Build retry operation
     pub fn build(self) -> RetryOperation {
         RetryOperation {
@@ -328,14 +335,17 @@ impl RetryOperationBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_experimental_error_recovery_creation() {
         let recovery = ErrorRecovery::new();
         assert_eq!(recovery.active_operations.len(), 0);
-        assert_eq!(recovery.default_config.initial_delay, Duration::from_millis(100));
+        assert_eq!(
+            recovery.default_config.initial_delay,
+            Duration::from_millis(100)
+        );
     }
-    
+
     #[test]
     fn test_experimental_retry_operation_creation() {
         let recovery = ErrorRecovery::new();
@@ -343,12 +353,12 @@ mod tests {
             "test-operation".to_string(),
             recovery.default_config.clone(),
         );
-        
+
         assert_eq!(operation.name, "test-operation");
         assert_eq!(operation.attempt_count, 0);
         assert_eq!(operation.max_attempts, 3);
     }
-    
+
     #[test]
     fn test_experimental_retry_delay_calculation() {
         let recovery = ErrorRecovery::new();
@@ -364,20 +374,20 @@ mod tests {
             attempt_count: 0,
             max_attempts: 3,
         };
-        
+
         // Test exponential backoff
         let delay1 = recovery.calculate_next_delay(&operation);
         assert_eq!(delay1, Duration::from_millis(100));
-        
+
         operation.attempt_count = 1;
         let delay2 = recovery.calculate_next_delay(&operation);
         assert_eq!(delay2, Duration::from_millis(200));
-        
+
         operation.attempt_count = 2;
         let delay3 = recovery.calculate_next_delay(&operation);
         assert_eq!(delay3, Duration::from_millis(400));
     }
-    
+
     #[test]
     fn test_experimental_retry_should_retry() {
         let recovery = ErrorRecovery::new();
@@ -387,41 +397,41 @@ mod tests {
             attempt_count: 0,
             max_attempts: 3,
         };
-        
+
         assert!(recovery.should_retry(&operation));
-        
+
         let mut operation = operation;
         operation.attempt_count = 3;
         assert!(!recovery.should_retry(&operation));
     }
-    
+
     #[test]
     fn test_experimental_retry_operation_builder() {
         let operation = RetryOperationBuilder::new("test-operation".to_string())
             .with_max_attempts(5)
             .build();
-        
+
         assert_eq!(operation.name, "test-operation");
         assert_eq!(operation.max_attempts, 5);
         assert_eq!(operation.attempt_count, 0);
     }
-    
+
     #[test]
     fn test_experimental_retry_statistics() {
         let recovery = ErrorRecovery::new();
         let stats = recovery.get_retry_statistics();
-        
+
         assert_eq!(stats.total_operations, 0);
         assert_eq!(stats.successful_operations, 0);
         assert_eq!(stats.failed_operations, 0);
         assert_eq!(stats.average_attempts, 0.0);
     }
-    
+
     #[tokio::test]
     async fn test_experimental_retry_operation_performance() {
         let recovery = ErrorRecovery::new();
         let path = Path::new("/tmp/test");
-        
+
         // Test that the operation completes without error
         assert!(recovery.perform_retry_operation(path).await.is_ok());
     }

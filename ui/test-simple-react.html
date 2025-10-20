@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test Simple React</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+    console.log("Starting simple React test");
+    
+    // Import React directly from CDN for testing
+    import React from 'https://esm.sh/react@18';
+    import { createRoot } from 'https://esm.sh/react-dom@18/client';
+    
+    console.log("React imported:", React);
+    console.log("createRoot imported:", createRoot);
+    
+    function App() {
+      console.log("Rendering App component");
+      return React.createElement('div', { 
+        style: { padding: '20px', fontSize: '24px', color: 'blue' } 
+      }, 'Hello World - Simple React Test');
+    }
+    
+    console.log("Getting root element");
+    const rootElement = document.getElementById("root");
+    console.log("Root element:", rootElement);
+    
+    if (!rootElement) {
+      console.error("Root element not found!");
+    } else {
+      console.log("Creating root");
+      const root = createRoot(rootElement);
+      console.log("Rendering app");
+      root.render(React.createElement(App));
+      console.log("Render complete");
+    }
+  </script>
+</body>
+</html>

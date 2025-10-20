@@ -2,9 +2,9 @@
 //!
 //! Defines the core data structures for representing patches and their operations.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
 /// Represents a complete patch with metadata and operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,15 +56,9 @@ pub enum PatchOperation {
         new_string: String,
     },
     /// Insert text at specified location
-    Insert {
-        position: usize,
-        content: String,
-    },
+    Insert { position: usize, content: String },
     /// Delete text at specified location
-    Delete {
-        start: usize,
-        end: usize,
-    },
+    Delete { start: usize, end: usize },
     /// Move text from one location to another
     Move {
         from_start: usize,

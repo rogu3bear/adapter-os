@@ -1,0 +1,5 @@
+{"input": [31, 32, 33], "target": [34, 35, 36], "metadata": {"pattern": "memory_leak"}, "weight": -1.0}
+{"input": [37, 38, 39], "target": [40, 41, 42], "metadata": {"pattern": "unsafe_misuse"}, "weight": -1.0}
+{"input": [43, 44, 45], "target": [46, 47, 48], "metadata": {"pattern": "panic_in_library"}, "weight": -1.0}
+{"input": [49, 50, 51], "target": [52, 53, 54], "metadata": {"pattern": "unwrapped_option"}, "weight": -1.0}
+{"input": [55, 56, 57], "target": [58, 59, 60], "metadata": {"pattern": "clone_unnecessary"}, "weight": -1.0}

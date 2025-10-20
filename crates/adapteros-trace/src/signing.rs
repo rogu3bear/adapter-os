@@ -1,7 +1,9 @@
 //! Signing helpers for TraceBundle using adapteros-crypto
 
 use adapteros_core::B3Hash;
-use adapteros_crypto::{sign_bundle as crypto_sign_bundle, verify_bundle_from_file, BundleSignature, Keypair};
+use adapteros_crypto::{
+    sign_bundle as crypto_sign_bundle, verify_bundle_from_file, BundleSignature, Keypair,
+};
 
 use crate::schema::{Event, TraceBundle};
 
@@ -31,7 +33,10 @@ pub fn compute_events_merkle_root(events: &[Event]) -> B3Hash {
 }
 
 /// Sign a TraceBundle's bundle_hash with Ed25519 and include merkle root of events.
-pub fn sign_bundle(bundle: &TraceBundle, keypair: &Keypair) -> adapteros_core::Result<BundleSignature> {
+pub fn sign_bundle(
+    bundle: &TraceBundle,
+    keypair: &Keypair,
+) -> adapteros_core::Result<BundleSignature> {
     let merkle = compute_events_merkle_root(&bundle.events);
     crypto_sign_bundle(&bundle.bundle_hash, &merkle, keypair).map_err(|e| e)
 }
@@ -43,4 +48,3 @@ pub fn verify_bundle_signature_from_dir(
 ) -> adapteros_core::Result<BundleSignature> {
     verify_bundle_from_file(&bundle.bundle_hash, signatures_dir).map_err(|e| e)
 }
-

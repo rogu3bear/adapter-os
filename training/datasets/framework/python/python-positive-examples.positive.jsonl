@@ -1,0 +1,5 @@
+{"input": [61, 62, 63], "target": [64, 65, 66], "metadata": {"pattern": "type_hints"}, "weight": 1.0}
+{"input": [67, 68, 69], "target": [70, 71, 72], "metadata": {"pattern": "async_await"}, "weight": 1.0}
+{"input": [73, 74, 75], "target": [76, 77, 78], "metadata": {"pattern": "context_managers"}, "weight": 1.0}
+{"input": [79, 80, 81], "target": [82, 83, 84], "metadata": {"pattern": "dataclasses"}, "weight": 1.0}
+{"input": [85, 86, 87], "target": [88, 89, 90], "metadata": {"pattern": "pathlib"}, "weight": 1.0}

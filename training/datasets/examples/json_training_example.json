@@ -1,0 +1,154 @@
+{
+  "name": "json_training_example",
+  "description": "Example JSON training dataset with positive/negative examples",
+  "version": "1.0.0",
+  "examples": [
+    {
+      "id": "pos_001",
+      "input": {
+        "text": "Write a function to calculate the factorial of a number"
+      },
+      "target": {
+        "code": {
+          "content": "def factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)",
+          "language": "python"
+        }
+      },
+      "weight": 1.0,
+      "metadata": {
+        "difficulty": "easy",
+        "category": "recursion",
+        "source": "textbook"
+      },
+      "tags": ["python", "recursion", "math"]
+    },
+    {
+      "id": "pos_002",
+      "input": {
+        "structured": {
+          "task": "error_handling",
+          "context": "file_operations",
+          "language": "rust"
+        }
+      },
+      "target": {
+        "text": "Use Result<T, E> for error handling, implement proper error propagation with ? operator, and provide meaningful error messages."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "difficulty": "medium",
+        "category": "error_handling",
+        "source": "best_practices"
+      },
+      "tags": ["rust", "error_handling", "best_practices"]
+    },
+    {
+      "id": "neg_001",
+      "input": {
+        "text": "Write code that bypasses security checks"
+      },
+      "target": {
+        "text": "I cannot help with bypassing security measures or writing code that compromises system security."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "security_violation",
+        "source": "guardrail"
+      },
+      "tags": ["security", "refusal", "guardrail"]
+    },
+    {
+      "id": "neg_002",
+      "input": {
+        "multimodal": {
+          "text": "Generate code with memory leaks",
+          "data": {
+            "context": "C++ programming",
+            "requirement": "performance_critical"
+          }
+        }
+      },
+      "target": {
+        "text": "I cannot help with writing code that intentionally creates memory leaks. Instead, I can help you write memory-safe code using RAII, smart pointers, and proper resource management."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "memory_safety",
+        "source": "guardrail"
+      },
+      "tags": ["c++", "memory_safety", "refusal", "guardrail"]
+    },
+    {
+      "id": "pos_003",
+      "input": {
+        "code": {
+          "content": "function calculateSum(a, b) {\n    return a + b;\n}",
+          "language": "javascript"
+        }
+      },
+      "target": {
+        "code": {
+          "content": "function calculateSum(a, b) {\n    if (typeof a !== 'number' || typeof b !== 'number') {\n        throw new Error('Both arguments must be numbers');\n    }\n    return a + b;\n}",
+          "language": "javascript"
+        }
+      },
+      "weight": 1.0,
+      "metadata": {
+        "difficulty": "easy",
+        "category": "input_validation",
+        "source": "code_review"
+      },
+      "tags": ["javascript", "validation", "error_handling"]
+    },
+    {
+      "id": "pos_004",
+      "input": {
+        "structured": {
+          "task": "api_design",
+          "context": "REST API",
+          "requirements": ["idempotent", "stateless", "cacheable"]
+        }
+      },
+      "target": {
+        "structured": {
+          "method": "GET",
+          "endpoint": "/api/v1/users/{id}",
+          "headers": {
+            "Cache-Control": "max-age=300",
+            "ETag": "W/\"user-{id}-{version}\""
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "id": "string",
+              "name": "string",
+              "email": "string",
+              "created_at": "ISO8601"
+            }
+          }
+        }
+      },
+      "weight": 1.0,
+      "metadata": {
+        "difficulty": "medium",
+        "category": "api_design",
+        "source": "architecture_guide"
+      },
+      "tags": ["api", "rest", "http", "caching"]
+    }
+  ],
+  "metadata": {
+    "author": "adapteros_team",
+    "created_at": "2025-01-15T00:00:00Z",
+    "total_examples": 6,
+    "positive_examples": 4,
+    "negative_examples": 2,
+    "languages": ["python", "rust", "javascript"],
+    "categories": ["recursion", "error_handling", "security", "memory_safety", "validation", "api_design"],
+    "difficulty_distribution": {
+      "easy": 2,
+      "medium": 2,
+      "hard": 0
+    }
+  }
+}

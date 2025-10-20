@@ -7,7 +7,6 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 use nix::unistd::geteuid;
 
-
 /// Get tenant credentials (UID/GID)
 /// In production, this would query a database or configuration file
 #[cfg(target_os = "macos")]

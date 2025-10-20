@@ -14,4 +14,6 @@ pub mod trainer;
 pub use dataset::{DatasetGenerator, TrainingExample};
 pub use packager::{AdapterManifest, AdapterPackager, PackagedAdapter};
 pub use quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
-pub use trainer::{LoRAWeights, MicroLoRATrainer, TrainingConfig, TrainingResult};
+pub use trainer::{
+    LoRAWeights, MicroLoRATrainer, SeparatedTrainingResult, TrainingConfig, TrainingResult,
+};

@@ -483,6 +483,7 @@ impl CodeGraphDb {
             "typescript" => Ok(Language::TypeScript),
             "javascript" => Ok(Language::JavaScript),
             "go" => Ok(Language::Go),
+            "adapteros" => Ok(Language::AdapterOS),
             _ => Err(AosError::Database(format!(
                 "Unknown language: {}",
                 language_str

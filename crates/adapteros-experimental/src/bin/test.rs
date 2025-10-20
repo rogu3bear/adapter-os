@@ -28,7 +28,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let features = registry.list_features();
     println!("Found {} experimental features:", features.len());
     for feature in features {
-        println!("  - {}: {:?} ({:?})", feature.name, feature.status, feature.stability);
+        println!(
+            "  - {}: {:?} ({:?})",
+            feature.name, feature.status, feature.stability
+        );
     }
     println!();
 
@@ -37,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         println!("Testing AOS CLI Experimental Features...");
         let cli = ExperimentalAosCli::new();
-        
+
         // Test create command
         let create_args = CreateArgs {
             adapter_path: std::path::PathBuf::from("test.adapter"),
@@ -45,11 +48,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             compression: CompressionLevel::Default,
             package_options: None,
         };
-        
+
         let cmd = AosCmd {
             subcommand: AosSubcommand::Create(create_args),
         };
-        
+
         match cli.execute(cmd).await {
             Ok(_) => println!("  ✅ AOS CLI create command executed successfully"),
             Err(e) => println!("  ❌ AOS CLI create command failed: {}", e),
@@ -62,24 +65,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         println!("Testing Error Recovery Experimental Features...");
         let recovery = ErrorRecovery::new();
-        
+
         // Test retry operation
         let path = Path::new("/tmp/test");
         match recovery.perform_retry_operation(path).await {
             Ok(_) => println!("  ✅ Error recovery retry operation completed successfully"),
             Err(e) => println!("  ❌ Error recovery retry operation failed: {}", e),
         }
-        
+
         // Test retry operation creation
         let operation = recovery.create_retry_operation(
             "test-operation".to_string(),
             recovery.default_config.clone(),
         );
         println!("  ✅ Created retry operation: {}", operation.name);
-        
+
         // Test statistics
         let stats = recovery.get_retry_statistics();
-        println!("  ✅ Retry statistics: {} total operations", stats.total_operations);
+        println!(
+            "  ✅ Retry statistics: {} total operations",
+            stats.total_operations
+        );
         println!();
     }
 
@@ -88,35 +94,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         println!("Testing Migration Conflicts Experimental Features...");
         let mut resolver = MigrationConflictResolver::new();
-        
+
         // Test conflict detection
         let path = Path::new("/tmp/test");
         match resolver.detect_conflicts(path).await {
             Ok(_) => println!("  ✅ Migration conflict detection completed successfully"),
             Err(e) => println!("  ❌ Migration conflict detection failed: {}", e),
         }
-        
+
         // Test conflict resolution
         match resolver.resolve_conflicts().await {
             Ok(_) => println!("  ✅ Migration conflict resolution completed successfully"),
             Err(e) => println!("  ❌ Migration conflict resolution failed: {}", e),
         }
-        
+
         // Test schema validation
         match resolver.validate_schema(path).await {
             Ok(_) => println!("  ✅ Schema validation completed successfully"),
             Err(e) => println!("  ❌ Schema validation failed: {}", e),
         }
-        
+
         // Test migration plan generation
         match resolver.generate_migration_plan().await {
             Ok(_) => println!("  ✅ Migration plan generation completed successfully"),
             Err(e) => println!("  ❌ Migration plan generation failed: {}", e),
         }
-        
+
         // Test conflict summary
         let summary = resolver.get_conflict_summary();
-        println!("  ✅ Conflict summary: {} total conflicts", summary.total_conflicts);
+        println!(
+            "  ✅ Conflict summary: {} total conflicts",
+            summary.total_conflicts
+        );
         println!();
     }
 
@@ -132,31 +141,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             parameters: std::collections::HashMap::new(),
             feature_flags: std::collections::HashMap::new(),
         };
-        
+
         let mut executor = DomainAdapterExecutor::new(config.clone());
-        
+
         // Test pipeline execution
         let request = "test request";
         match executor.execute_pipeline(request).await {
             Ok(response) => println!("  ✅ Pipeline execution completed: {}", response),
             Err(e) => println!("  ❌ Pipeline execution failed: {}", e),
         }
-        
+
         // Test handler
         let mut handler = DomainAdapterHandler::new(config);
         match handler.handle_request(request).await {
             Ok(response) => println!("  ✅ Request handling completed: {}", response),
             Err(e) => println!("  ❌ Request handling failed: {}", e),
         }
-        
+
         // Test cache statistics
         let cache_stats = handler.get_cache_statistics();
-        println!("  ✅ Cache statistics: {} total requests", cache_stats.total_requests);
+        println!(
+            "  ✅ Cache statistics: {} total requests",
+            cache_stats.total_requests
+        );
         println!();
     }
 
     println!("🚧 EXPERIMENTAL: All tests completed");
     println!("🚧 EXPERIMENTAL: Remember - these features are NOT FOR PRODUCTION USE");
-    
+
     Ok(())
 }

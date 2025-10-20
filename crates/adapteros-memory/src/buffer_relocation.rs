@@ -95,7 +95,10 @@ impl BufferAddressTracker {
     }
 
     /// Detect relocations by comparing current vs previous snapshots
-    pub fn detect_relocations(&self, current_snapshots: &[BufferAddressSnapshot]) -> Result<Vec<(u64, BufferAddressSnapshot, BufferAddressSnapshot)>> {
+    pub fn detect_relocations(
+        &self,
+        current_snapshots: &[BufferAddressSnapshot],
+    ) -> Result<Vec<(u64, BufferAddressSnapshot, BufferAddressSnapshot)>> {
         if !self.monitoring_enabled {
             return Ok(Vec::new());
         }
@@ -118,7 +121,11 @@ impl BufferAddressTracker {
     }
 
     /// Update buffer snapshot
-    pub fn update_buffer_snapshot(&self, buffer_id: u64, snapshot: BufferAddressSnapshot) -> Result<()> {
+    pub fn update_buffer_snapshot(
+        &self,
+        buffer_id: u64,
+        snapshot: BufferAddressSnapshot,
+    ) -> Result<()> {
         if !self.monitoring_enabled {
             return Ok(());
         }
@@ -290,7 +297,8 @@ impl BufferRelocationDetector {
         };
 
         // Update address tracker
-        self.address_tracker.update_buffer_snapshot(buffer_id, snapshot)?;
+        self.address_tracker
+            .update_buffer_snapshot(buffer_id, snapshot)?;
 
         let buffer_state = BufferState {
             buffer_id,
@@ -338,7 +346,8 @@ impl BufferRelocationDetector {
         };
 
         // Update address tracker
-        self.address_tracker.update_buffer_snapshot(buffer_id, snapshot)?;
+        self.address_tracker
+            .update_buffer_snapshot(buffer_id, snapshot)?;
 
         let buffer_state = BufferState {
             buffer_id,
@@ -373,7 +382,9 @@ impl BufferRelocationDetector {
         let current_snapshots = self.address_tracker.snapshot_buffer_addresses()?;
 
         // Detect relocations by comparing with previous snapshots
-        let detected_relocations = self.address_tracker.detect_relocations(&current_snapshots)?;
+        let detected_relocations = self
+            .address_tracker
+            .detect_relocations(&current_snapshots)?;
 
         {
             let mut active = self.active_buffers.write();
@@ -412,7 +423,9 @@ impl BufferRelocationDetector {
 
                     info!(
                         "Detected real buffer relocation: id={}, 0x{:x} -> 0x{:x}",
-                        buffer_id, previous_snapshot.current_address, current_snapshot.current_address
+                        buffer_id,
+                        previous_snapshot.current_address,
+                        current_snapshot.current_address
                     );
                 }
             }
@@ -456,7 +469,10 @@ impl BufferRelocationDetector {
     }
 
     /// Verify buffer content integrity after relocation
-    pub fn verify_relocation_integrity(&self, _relocation: &BufferRelocationRecord) -> Result<bool> {
+    pub fn verify_relocation_integrity(
+        &self,
+        _relocation: &BufferRelocationRecord,
+    ) -> Result<bool> {
         // In a real implementation, this would:
         // 1. Read the buffer contents at the new address
         // 2. Calculate the hash of the contents
@@ -467,11 +483,16 @@ impl BufferRelocationDetector {
     }
 
     /// Log relocation event to replay system
-    pub async fn log_relocation_to_replay(&self, relocation: &BufferRelocationRecord) -> Result<()> {
+    pub async fn log_relocation_to_replay(
+        &self,
+        relocation: &BufferRelocationRecord,
+    ) -> Result<()> {
         // In a real implementation, this would integrate with the replay system
         // For now, we'll just log the event
-        info!("Logging buffer relocation to replay: buffer_id={}, relocation_id={}",
-              relocation.buffer_id, relocation.relocation_id);
+        info!(
+            "Logging buffer relocation to replay: buffer_id={}, relocation_id={}",
+            relocation.buffer_id, relocation.relocation_id
+        );
 
         // TODO: Integrate with adapteros_telemetry::replay::ReplayBundle
         // This would involve:
@@ -483,27 +504,40 @@ impl BufferRelocationDetector {
     }
 
     /// Verify replay consistency for buffer relocations
-    pub async fn verify_replay_consistency(&self, expected_relocations: &[BufferRelocationRecord]) -> Result<bool> {
+    pub async fn verify_replay_consistency(
+        &self,
+        expected_relocations: &[BufferRelocationRecord],
+    ) -> Result<bool> {
         let actual_relocations = self.get_relocation_history();
 
         if expected_relocations.len() != actual_relocations.len() {
-            warn!("Replay inconsistency: expected {} relocations, found {}",
-                  expected_relocations.len(), actual_relocations.len());
+            warn!(
+                "Replay inconsistency: expected {} relocations, found {}",
+                expected_relocations.len(),
+                actual_relocations.len()
+            );
             return Ok(false);
         }
 
         // In a real implementation, we would compare the actual relocation records
         // with expected ones for deterministic verification
         for (expected, actual) in expected_relocations.iter().zip(actual_relocations.iter()) {
-            if expected.buffer_id != actual.buffer_id ||
-               expected.original_addr != actual.original_addr ||
-               expected.new_addr != actual.new_addr {
-                warn!("Replay inconsistency detected for buffer_id={}", expected.buffer_id);
+            if expected.buffer_id != actual.buffer_id
+                || expected.original_addr != actual.original_addr
+                || expected.new_addr != actual.new_addr
+            {
+                warn!(
+                    "Replay inconsistency detected for buffer_id={}",
+                    expected.buffer_id
+                );
                 return Ok(false);
             }
         }
 
-        info!("Replay consistency verified for {} buffer relocations", expected_relocations.len());
+        info!(
+            "Replay consistency verified for {} buffer relocations",
+            expected_relocations.len()
+        );
         Ok(true)
     }
 

@@ -1,0 +1,5 @@
+{"input": [121, 122, 123], "target": [124, 125, 126], "metadata": {"pattern": "strict_types"}, "weight": 1.0}
+{"input": [127, 128, 129], "target": [130, 131, 132], "metadata": {"pattern": "interfaces"}, "weight": 1.0}
+{"input": [133, 134, 135], "target": [136, 137, 138], "metadata": {"pattern": "generics"}, "weight": 1.0}
+{"input": [139, 140, 141], "target": [142, 143, 144], "metadata": {"pattern": "async_patterns"}, "weight": 1.0}
+{"input": [145, 146, 147], "target": [148, 149, 150], "metadata": {"pattern": "enum_types"}, "weight": 1.0}

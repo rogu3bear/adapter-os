@@ -253,9 +253,9 @@ impl BaseLLM for QwenBaseLLM {
         };
 
         let logical_timestamp = LogicalTimestamp::new(
-            0,                             // global_tick
-            0,                             // op_tick
-            None,                          // token_position
+            0,                                                      // global_tick
+            0,                                                      // op_tick
+            None,                                                   // token_position
             B3Hash::hash(format!("qwen_{}", operation).as_bytes()), // derivation_hash
         );
 

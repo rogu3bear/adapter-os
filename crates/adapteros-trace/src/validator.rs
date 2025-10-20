@@ -18,11 +18,17 @@ pub struct TraceValidationOptions {
 
 impl TraceValidationOptions {
     pub fn strict() -> Self {
-        Self { strict: true, ..Default::default() }
+        Self {
+            strict: true,
+            ..Default::default()
+        }
     }
 
     pub fn tolerant() -> Self {
-        Self { strict: false, ..Default::default() }
+        Self {
+            strict: false,
+            ..Default::default()
+        }
     }
 }
 
@@ -68,4 +74,3 @@ pub fn validate_path(path: &Path, opts: &TraceValidationOptions) -> Result<Trace
         verified_event_hashes: opts.verify_hash,
     })
 }
-

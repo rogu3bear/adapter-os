@@ -1,0 +1,5 @@
+{"input": [211, 212, 213], "target": [214, 215, 216], "metadata": {"pattern": "security_violations"}, "weight": -1.0}
+{"input": [217, 218, 219], "target": [220, 221, 222], "metadata": {"pattern": "improper_logging"}, "weight": -1.0}
+{"input": [223, 224, 225], "target": [226, 227, 228], "metadata": {"pattern": "api_misuse"}, "weight": -1.0}
+{"input": [229, 230, 231], "target": [232, 233, 234], "metadata": {"pattern": "data_exposure"}, "weight": -1.0}
+{"input": [235, 236, 237], "target": [238, 239, 240], "metadata": {"pattern": "insecure_patterns"}, "weight": -1.0}

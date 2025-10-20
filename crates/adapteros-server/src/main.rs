@@ -188,7 +188,10 @@ async fn main() -> Result<()> {
                 AosError::Crypto(format!("Failed to get fingerprint keypair: {}", e))
             })?;
             // For development, create baseline from current fingerprint if signature verification fails
-            let baseline = match DeviceFingerprint::load_verified(&baseline_path, &keypair.public_key()) {
+            let baseline = match DeviceFingerprint::load_verified(
+                &baseline_path,
+                &keypair.public_key(),
+            ) {
                 Ok(baseline) => baseline,
                 Err(_) => {
                     warn!("Baseline signature verification failed, creating new baseline for development");
