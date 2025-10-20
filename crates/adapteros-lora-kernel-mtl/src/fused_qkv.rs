@@ -13,10 +13,11 @@ use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
 
-use super::ring_buffer::RingBuffer;
+use super::ring_buffer::RawRingBuffer;
 
 /// GQA configuration
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct GqaConfig {
     /// Number of attention heads
     pub num_attention_heads: u32,
@@ -52,7 +53,8 @@ impl Default for GqaConfig {
 }
 
 /// LoRA configuration
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct LoraConfig {
     /// LoRA rank
     pub rank: u32,
@@ -75,6 +77,48 @@ impl Default for LoraConfig {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct AttentionPointerSet {
+    input: u64,
+    q_output: u64,
+    k_output: u64,
+    v_output: u64,
+    q_weight: u64,
+    k_weight: u64,
+    v_weight: u64,
+    q_lora_a: u64,
+    q_lora_b: u64,
+    k_lora_a: u64,
+    k_lora_b: u64,
+    v_lora_a: u64,
+    v_lora_b: u64,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct MetalAttentionParams {
+    input: u64,
+    q_output: u64,
+    k_output: u64,
+    v_output: u64,
+    q_weight: u64,
+    k_weight: u64,
+    v_weight: u64,
+    q_lora_a: u64,
+    q_lora_b: u64,
+    k_lora_a: u64,
+    k_lora_b: u64,
+    v_lora_a: u64,
+    v_lora_b: u64,
+    gqa_config: GqaConfig,
+    lora_config: LoraConfig,
+    ring_buffer: RawRingBuffer,
+    batch_size: u32,
+    max_adapters: u32,
+    _padding: [u32; 2],
+}
+
 /// Fused QKV kernel with GQA support
 pub struct FusedQkvKernel {
     device: Arc<Device>,
@@ -90,7 +134,7 @@ impl FusedQkvKernel {
 
         // Load library and create pipeline
         let library = device
-            .new_library_with_data(include_bytes!("../shaders/mplora_kernels.metallib"))
+            .new_library_with_data(include_bytes!("../shaders/adapteros_kernels.metallib"))
             .map_err(|e| AosError::Kernel(format!("Failed to load library: {}", e)))?;
 
         let function = library
@@ -120,8 +164,16 @@ impl FusedQkvKernel {
         q_output: &Buffer,
         k_output: &Buffer,
         v_output: &Buffer,
+        q_lora_a: &Buffer,
+        q_lora_b: &Buffer,
+        k_lora_a: &Buffer,
+        k_lora_b: &Buffer,
+        v_lora_a: &Buffer,
+        v_lora_b: &Buffer,
         lora_config: &LoraConfig,
-        ring_buffer: &RingBuffer,
+        ring_state: RawRingBuffer,
+        max_adapters: u32,
+        batch_size: u32,
     ) -> Result<()> {
         let command_buffer = self.command_queue.new_command_buffer();
 
@@ -129,41 +181,57 @@ impl FusedQkvKernel {
 
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        // Set buffers
-        encoder.set_buffer(0, Some(input), 0);
-        encoder.set_buffer(1, Some(q_weight), 0);
-        encoder.set_buffer(2, Some(k_weight), 0);
-        encoder.set_buffer(3, Some(v_weight), 0);
-        encoder.set_buffer(4, Some(q_output), 0);
-        encoder.set_buffer(5, Some(k_output), 0);
-        encoder.set_buffer(6, Some(v_output), 0);
-        encoder.set_buffer(7, ring_buffer.get_buffer().map(|v| &**v), 0);
+        let pointer_set = AttentionPointerSet {
+            input: input.gpu_address(),
+            q_output: q_output.gpu_address(),
+            k_output: k_output.gpu_address(),
+            v_output: v_output.gpu_address(),
+            q_weight: q_weight.gpu_address(),
+            k_weight: k_weight.gpu_address(),
+            v_weight: v_weight.gpu_address(),
+            q_lora_a: q_lora_a.gpu_address(),
+            q_lora_b: q_lora_b.gpu_address(),
+            k_lora_a: k_lora_a.gpu_address(),
+            k_lora_b: k_lora_b.gpu_address(),
+            v_lora_a: v_lora_a.gpu_address(),
+            v_lora_b: v_lora_b.gpu_address(),
+        };
 
-        // Set LoRA configuration
-        let lora_config_bytes = serde_json::to_vec(lora_config).map_err(AosError::Serialization)?;
-        let lora_config_buffer = self.device.new_buffer_with_data(
-            lora_config_bytes.as_ptr() as *const std::ffi::c_void,
-            lora_config_bytes.len() as u64,
+        let params = MetalAttentionParams {
+            input: pointer_set.input,
+            q_output: pointer_set.q_output,
+            k_output: pointer_set.k_output,
+            v_output: pointer_set.v_output,
+            q_weight: pointer_set.q_weight,
+            k_weight: pointer_set.k_weight,
+            v_weight: pointer_set.v_weight,
+            q_lora_a: pointer_set.q_lora_a,
+            q_lora_b: pointer_set.q_lora_b,
+            k_lora_a: pointer_set.k_lora_a,
+            k_lora_b: pointer_set.k_lora_b,
+            v_lora_a: pointer_set.v_lora_a,
+            v_lora_b: pointer_set.v_lora_b,
+            gqa_config: self.gqa_config,
+            lora_config: *lora_config,
+            ring_buffer: ring_state,
+            batch_size,
+            max_adapters,
+            _padding: [0; 2],
+        };
+
+        let params_buffer = self.device.new_buffer_with_data(
+            &params as *const MetalAttentionParams as *const std::ffi::c_void,
+            std::mem::size_of::<MetalAttentionParams>() as u64,
             MTLResourceOptions::StorageModeShared,
         );
-        encoder.set_buffer(8, Some(&lora_config_buffer), 0);
 
-        // Set GQA configuration
-        let gqa_config_bytes =
-            serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
-        let gqa_config_buffer = self.device.new_buffer_with_data(
-            gqa_config_bytes.as_ptr() as *const std::ffi::c_void,
-            gqa_config_bytes.len() as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
-        encoder.set_buffer(9, Some(&gqa_config_buffer), 0);
+        encoder.set_buffer(0, Some(&params_buffer), 0);
 
-        // Calculate threadgroup size optimized for GQA
-        let threadgroup_size = MTLSize::new(32, 8, 1);
+        let threadgroup_size = MTLSize::new(1, 1, 1);
         let grid_size = MTLSize::new(
-            input.length() / 4,
+            batch_size as u64,
             self.gqa_config.num_attention_heads as u64,
-            1,
+            self.gqa_config.head_dim as u64,
         );
 
         encoder.dispatch_thread_groups(grid_size, threadgroup_size);
