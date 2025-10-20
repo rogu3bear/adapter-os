@@ -9,8 +9,16 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
+use adapteros_manifest::{Adapter, ManifestV3};
+use memmap2::MmapOptions;
 use metal::*;
-use rand::{Rng, SeedableRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
+use safetensors::{tensor::TensorView, Dtype, SafeTensors};
+use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
+use std::ffi::c_void;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod ane_acceleration;
@@ -84,9 +92,45 @@ pub struct IntermediateBuffers {
     pub mlp_output: Buffer,
 }
 
+#[derive(Debug)]
+struct LoraBuffers {
+    gate_lora_a: Buffer,
+    gate_lora_b: Buffer,
+    up_lora_a: Buffer,
+    up_lora_b: Buffer,
+    down_lora_a: Buffer,
+    down_lora_b: Buffer,
+    q_lora_a: Buffer,
+    q_lora_b: Buffer,
+    k_lora_a: Buffer,
+    k_lora_b: Buffer,
+    v_lora_a: Buffer,
+    v_lora_b: Buffer,
+}
+
+/// Dimensions describing a LoRA module's base projection
+pub struct ModuleShape {
+    /// Output dimension of the base weight (rows of B)
+    pub out_dim: usize,
+    /// Input dimension of the base weight (columns of A)
+    pub in_dim: usize,
+}
+
+/// Metal-resident buffers for a single adapter's LoRA weights
+pub struct AdapterWeights {
+    pub adapter_id: String,
+    pub rank: u32,
+    pub rank_padded: u32,
+    pub alpha: f32,
+    pub lora_a_buffers: HashMap<String, Buffer>,
+    pub lora_b_buffers: HashMap<String, Buffer>,
+    pub module_shapes: HashMap<String, ModuleShape>,
+    pub total_bytes: u64,
+}
+
 // Embed precompiled metallib
 // Compiled offline with deterministic build process
-const METALLIB_BYTES: &[u8] = include_bytes!("../shaders/aos_kernels.metallib");
+const METALLIB_BYTES: &[u8] = include_bytes!("../shaders/adapteros_kernels.metallib");
 const METALLIB_HASH: &str = include_str!("../shaders/kernel_hash.txt");
 
 /// Metal kernel implementation
@@ -112,6 +156,12 @@ pub struct MetalKernels {
     // Language modeling head for vocabulary projection
     lm_head_weights: Option<LmHeadWeights>,
     lm_head_pipeline: Option<ComputePipelineState>,
+    adapter_index_map: Vec<String>,
+    adapter_weights: HashMap<String, AdapterWeights>,
+    plan_seed: [u8; 32],
+    adapter_logits_cache: HashMap<u32, Vec<f32>>,
+    lora_buffers: Option<LoraBuffers>,
+    populated_lora_adapters: HashSet<u32>,
 }
 
 // Safety: Metal objects are thread-safe
@@ -146,6 +196,12 @@ impl MetalKernels {
             intermediate_buffers: None,
             lm_head_weights: None,
             lm_head_pipeline: None,
+            adapter_index_map: Vec::new(),
+            adapter_weights: HashMap::new(),
+            plan_seed: [0u8; 32],
+            adapter_logits_cache: HashMap::new(),
+            lora_buffers: None,
+            populated_lora_adapters: HashSet::new(),
         })
     }
 
@@ -182,6 +238,1026 @@ impl MetalKernels {
         // Default: use system default device
         Device::system_default()
             .ok_or_else(|| AosError::Kernel("No Metal device found".to_string()))
+    }
+
+    fn adapters_root_path() -> PathBuf {
+        std::env::var("AOS_ADAPTERS_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("./adapters"))
+    }
+
+    fn resolve_adapter_weights_path(root: &Path, identifier: &str) -> PathBuf {
+        let mut name = identifier.trim().to_string();
+        if let Some(rest) = name.strip_prefix("b3:") {
+            name = rest.to_string();
+        }
+
+        let is_hex = name.len() == 64 && name.chars().all(|c| c.is_ascii_hexdigit());
+        let mut candidates = Vec::new();
+
+        if is_hex {
+            candidates.push(root.join(format!("{}.safetensors", name)));
+            candidates.push(root.join(&name).join("weights.safetensors"));
+        } else {
+            candidates.push(root.join(&name).join("weights.safetensors"));
+            candidates.push(root.join(format!("{}.safetensors", name)));
+        }
+
+        if identifier != name {
+            candidates.push(root.join(identifier).join("weights.safetensors"));
+            candidates.push(root.join(format!("{}.safetensors", identifier)));
+        }
+
+        candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| {
+                if is_hex {
+                    root.join(format!("{}.safetensors", name))
+                } else {
+                    root.join(&name).join("weights.safetensors")
+                }
+            })
+    }
+
+    fn tensor_to_f32_vec(tensor: &TensorView<'_>, label: &str) -> Result<Vec<f32>> {
+        if tensor.dtype() != Dtype::F32 {
+            return Err(AosError::Kernel(format!(
+                "Tensor {} has unsupported dtype {:?}, expected f32",
+                label,
+                tensor.dtype()
+            )));
+        }
+
+        let data = tensor.data();
+        let elem_size = std::mem::size_of::<f32>();
+        if data.len() % elem_size != 0 {
+            return Err(AosError::Kernel(format!(
+                "Tensor {} data length {} not divisible by {}",
+                label,
+                data.len(),
+                elem_size
+            )));
+        }
+
+        let mut values = vec![0f32; data.len() / elem_size];
+        for (idx, chunk) in data.chunks_exact(elem_size).enumerate() {
+            values[idx] = f32::from_le_bytes(chunk.try_into().expect("chunk size invariant"));
+        }
+
+        Ok(values)
+    }
+
+    fn parse_manifest_from_plan(plan_bytes: &[u8]) -> Result<ManifestV3> {
+        serde_json::from_slice(plan_bytes).map_err(|err| {
+            AosError::Kernel(format!("Failed to parse manifest from plan bytes: {}", err))
+        })
+    }
+
+    fn load_adapter_from_safetensors(
+        &self,
+        root: &Path,
+        manifest: &ManifestV3,
+        adapter: &Adapter,
+    ) -> Result<AdapterWeights> {
+        if adapter.rank == 0 {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} has rank 0, cannot load weights",
+                adapter.id
+            )));
+        }
+
+        let rank = adapter.rank as usize;
+        let rank_padded = (rank + 15) / 16 * 16;
+
+        let hash_hex = adapter.hash.to_hex();
+        let hash_path = Self::resolve_adapter_weights_path(root, &hash_hex);
+        let path = if hash_path.exists() {
+            hash_path
+        } else {
+            let by_id = Self::resolve_adapter_weights_path(root, &adapter.id);
+            if by_id.exists() {
+                by_id
+            } else {
+                hash_path
+            }
+        };
+
+        let file = File::open(&path).map_err(|err| {
+            AosError::Kernel(format!(
+                "Failed to open weights for adapter {} at {}: {}",
+                adapter.id,
+                path.display(),
+                err
+            ))
+        })?;
+
+        let mmap = unsafe { MmapOptions::new().map(&file) }.map_err(|err| {
+            AosError::Kernel(format!(
+                "Failed to memory-map weights for adapter {} ({}): {}",
+                adapter.id,
+                path.display(),
+                err
+            ))
+        })?;
+
+        if mmap.is_empty() {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} weights file {} is empty",
+                adapter.id,
+                path.display()
+            )));
+        }
+
+        let file_hash = B3Hash::hash(&mmap);
+        if file_hash != adapter.hash {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} hash mismatch: manifest {}, file {} (path: {})",
+                adapter.id,
+                adapter.hash.to_hex(),
+                file_hash.to_hex(),
+                path.display()
+            )));
+        }
+
+        let tensors = SafeTensors::deserialize(&mmap).map_err(|err| {
+            AosError::Kernel(format!(
+                "Failed to deserialize safetensors for adapter {} ({}): {}",
+                adapter.id,
+                path.display(),
+                err
+            ))
+        })?;
+
+        let mut lora_a_buffers = HashMap::new();
+        let mut lora_b_buffers = HashMap::new();
+        let mut module_shapes = HashMap::new();
+        let mut total_bytes = 0u64;
+
+        for module in &adapter.target_modules {
+            let a_key = format!("lora_a.{}", module);
+            let b_key = format!("lora_b.{}", module);
+
+            let a_tensor = tensors.tensor(&a_key).map_err(|err| {
+                AosError::Kernel(format!(
+                    "Adapter {} missing tensor {}: {}",
+                    adapter.id, a_key, err
+                ))
+            })?;
+            let b_tensor = tensors.tensor(&b_key).map_err(|err| {
+                AosError::Kernel(format!(
+                    "Adapter {} missing tensor {}: {}",
+                    adapter.id, b_key, err
+                ))
+            })?;
+
+            let a_shape = a_tensor.shape();
+            if a_shape.len() != 2 {
+                return Err(AosError::Kernel(format!(
+                    "Adapter {} tensor {} expected rank 2, got {:?}",
+                    adapter.id, a_key, a_shape
+                )));
+            }
+
+            let b_shape = b_tensor.shape();
+            if b_shape.len() != 2 {
+                return Err(AosError::Kernel(format!(
+                    "Adapter {} tensor {} expected rank 2, got {:?}",
+                    adapter.id, b_key, b_shape
+                )));
+            }
+
+            let a_rows = a_shape[0] as usize;
+            let a_cols = a_shape[1] as usize;
+            if a_rows != rank && a_rows != rank_padded {
+                return Err(AosError::Kernel(format!(
+                    "Adapter {} tensor {} expected {} rows (or padded {}), got {}",
+                    adapter.id, a_key, rank, rank_padded, a_rows
+                )));
+            }
+
+            let b_rows = b_shape[0] as usize;
+            let b_cols = b_shape[1] as usize;
+            if b_cols != rank && b_cols != rank_padded {
+                return Err(AosError::Kernel(format!(
+                    "Adapter {} tensor {} expected {} columns (or padded {}), got {}",
+                    adapter.id, b_key, rank, rank_padded, b_cols
+                )));
+            }
+
+            if module == "lm_head" {
+                let expected_vocab = manifest.base.vocab_size as usize;
+                if b_rows != expected_vocab {
+                    return Err(AosError::Kernel(format!(
+                        "Adapter {} lm_head has {} rows but vocab size is {}",
+                        adapter.id, b_rows, expected_vocab
+                    )));
+                }
+            }
+
+            let a_values = Self::tensor_to_f32_vec(&a_tensor, &a_key)?;
+            let b_values = Self::tensor_to_f32_vec(&b_tensor, &b_key)?;
+
+            let mut padded_a = vec![0f32; rank_padded * a_cols];
+            let copy_rows = usize::min(rank, a_rows);
+            for r in 0..copy_rows {
+                let src = r * a_cols;
+                let dst = r * a_cols;
+                padded_a[dst..dst + a_cols].copy_from_slice(&a_values[src..src + a_cols]);
+            }
+
+            let mut padded_b = vec![0f32; b_rows * rank_padded];
+            let copy_cols = usize::min(rank, b_cols);
+            for row in 0..b_rows {
+                let src = row * b_cols;
+                let dst = row * rank_padded;
+                padded_b[dst..dst + copy_cols].copy_from_slice(&b_values[src..src + copy_cols]);
+            }
+
+            let a_buffer = self.device.new_buffer_with_data(
+                padded_a.as_ptr() as *const c_void,
+                (padded_a.len() * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            );
+            let b_buffer = self.device.new_buffer_with_data(
+                padded_b.as_ptr() as *const c_void,
+                (padded_b.len() * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            );
+
+            total_bytes += a_buffer.length();
+            total_bytes += b_buffer.length();
+
+            lora_a_buffers.insert(module.clone(), a_buffer);
+            lora_b_buffers.insert(module.clone(), b_buffer);
+            module_shapes.insert(
+                module.clone(),
+                ModuleShape {
+                    out_dim: b_rows,
+                    in_dim: a_cols,
+                },
+            );
+        }
+
+        Ok(AdapterWeights {
+            adapter_id: adapter.id.clone(),
+            rank: adapter.rank,
+            rank_padded: rank_padded as u32,
+            alpha: adapter.alpha,
+            lora_a_buffers,
+            lora_b_buffers,
+            module_shapes,
+            total_bytes,
+        })
+    }
+
+    fn load_adapters_from_manifest(&mut self, manifest: &ManifestV3) -> Result<()> {
+        self.adapter_weights.clear();
+        self.adapter_index_map = manifest.adapters.iter().map(|a| a.id.clone()).collect();
+        self.adapter_logits_cache.clear();
+        self.lora_buffers = None;
+        self.populated_lora_adapters.clear();
+
+        if manifest.adapters.is_empty() {
+            tracing::warn!("Manifest contains no adapters; skipping LoRA weight loading");
+            return Ok(());
+        }
+
+        let root = Self::adapters_root_path();
+        let mut total_bytes = 0u64;
+
+        for adapter in &manifest.adapters {
+            let weights = self.load_adapter_from_safetensors(&root, manifest, adapter)?;
+            total_bytes += weights.total_bytes;
+            self.adapter_weights.insert(adapter.id.clone(), weights);
+        }
+
+        tracing::info!(
+            adapters = manifest.adapters.len(),
+            total_bytes,
+            root = %root.display(),
+            "Loaded adapter weights into Metal buffers"
+        );
+
+        Ok(())
+    }
+
+    fn compute_adapter_delta_logits(
+        &self,
+        weights: &AdapterWeights,
+        module: &str,
+        hidden_state: &[f32],
+    ) -> Result<Vec<f32>> {
+        let module_shape = weights.module_shapes.get(module).ok_or_else(|| {
+            AosError::Kernel(format!(
+                "Adapter {} missing module metadata for {}",
+                weights.adapter_id, module
+            ))
+        })?;
+
+        if module_shape.in_dim != hidden_state.len() {
+            return Err(AosError::Kernel(format!(
+                "Hidden state length {} does not match {} input dim {}",
+                hidden_state.len(),
+                module,
+                module_shape.in_dim
+            )));
+        }
+
+        let a_buffer = weights.lora_a_buffers.get(module).ok_or_else(|| {
+            AosError::Kernel(format!(
+                "Adapter {} missing lora_a buffer for {}",
+                weights.adapter_id, module
+            ))
+        })?;
+        let b_buffer = weights.lora_b_buffers.get(module).ok_or_else(|| {
+            AosError::Kernel(format!(
+                "Adapter {} missing lora_b buffer for {}",
+                weights.adapter_id, module
+            ))
+        })?;
+
+        let a_len = (a_buffer.length() as usize) / std::mem::size_of::<f32>();
+        let b_len = (b_buffer.length() as usize) / std::mem::size_of::<f32>();
+        let a_ptr = a_buffer.contents() as *const f32;
+        let b_ptr = b_buffer.contents() as *const f32;
+
+        if a_ptr.is_null() || b_ptr.is_null() {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} has unmapped Metal buffers",
+                weights.adapter_id
+            )));
+        }
+
+        let a_slice = unsafe { std::slice::from_raw_parts(a_ptr, a_len) };
+        let b_slice = unsafe { std::slice::from_raw_parts(b_ptr, b_len) };
+
+        let rank = weights.rank as usize;
+        let rank_padded = weights.rank_padded as usize;
+        if rank == 0 {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} has zero rank",
+                weights.adapter_id
+            )));
+        }
+
+        // Project hidden state into LoRA rank space: A @ hidden
+        let mut intermediate = vec![0f32; rank];
+        for r in 0..rank {
+            let row_start = r * module_shape.in_dim;
+            let row = &a_slice[row_start..row_start + module_shape.in_dim];
+            let mut acc = 0f32;
+            for (h, w) in hidden_state.iter().zip(row.iter()) {
+                acc += h * *w;
+            }
+            intermediate[r] = acc;
+        }
+
+        // Project back to output space: B @ intermediate
+        let mut logits = vec![0f32; module_shape.out_dim];
+        for row_idx in 0..module_shape.out_dim {
+            let row_start = row_idx * rank_padded;
+            let row = &b_slice[row_start..row_start + rank];
+            let mut acc = 0f32;
+            for (val, coeff) in intermediate.iter().zip(row.iter()) {
+                acc += val * *coeff;
+            }
+            logits[row_idx] = acc;
+        }
+
+        let scale = weights.alpha / weights.rank as f32;
+        for value in logits.iter_mut() {
+            *value *= scale;
+        }
+
+        Ok(logits)
+    }
+
+    fn prepare_adapter_delta_buffer(
+        &mut self,
+        adapters: &[ActiveAdapter],
+        hidden_state: &[f32],
+        vocab_size: usize,
+        slot_capacity: usize,
+    ) -> Result<(Vec<f32>, f32, usize)> {
+        if vocab_size == 0 || slot_capacity == 0 {
+            return Ok((Vec::new(), 0.0, 0));
+        }
+
+        let mut buffer = vec![0.0f32; slot_capacity * vocab_size];
+        let mut total_gate = 0.0f32;
+        let mut active_slots = 0usize;
+
+        for (slot, adapter) in adapters.iter().enumerate() {
+            if slot >= slot_capacity {
+                break;
+            }
+            if adapter.id == 0 || adapter.gate == 0 {
+                continue;
+            }
+
+            let adapter_index = adapter.id as usize;
+            if adapter_index >= self.adapter_index_map.len() {
+                tracing::warn!(
+                    adapter_index,
+                    "Adapter index {} out of range for prepared weights",
+                    adapter.id
+                );
+                continue;
+            }
+
+            let adapter_name = &self.adapter_index_map[adapter_index];
+            let weights = match self.adapter_weights.get(adapter_name) {
+                Some(weights) => weights,
+                None => {
+                    tracing::warn!(
+                        adapter = %adapter_name,
+                        "Adapter weights not loaded for {}",
+                        adapter_name
+                    );
+                    continue;
+                }
+            };
+
+            let logits = match self.compute_adapter_delta_logits(weights, "lm_head", hidden_state) {
+                Ok(delta) => delta,
+                Err(err) => {
+                    tracing::warn!(
+                        adapter = %adapter_name,
+                        error = %err,
+                        "Failed to compute adapter delta logits"
+                    );
+                    continue;
+                }
+            };
+
+            if logits.len() != vocab_size {
+                tracing::warn!(
+                    adapter = %adapter_name,
+                    expected = vocab_size,
+                    actual = logits.len(),
+                    "Adapter delta length mismatch"
+                );
+                continue;
+            }
+
+            self.adapter_logits_cache.insert(adapter.id, logits.clone());
+
+            let gate_scale = (adapter.gate as f32) / 32768.0;
+            if gate_scale <= f32::EPSILON {
+                continue;
+            }
+
+            total_gate += gate_scale;
+            let offset = slot * vocab_size;
+            for (idx, value) in logits.iter().enumerate() {
+                buffer[offset + idx] = value * gate_scale;
+            }
+            active_slots += 1;
+        }
+
+        if active_slots == 0 {
+            return Ok((Vec::new(), 0.0, 0));
+        }
+
+        Ok((buffer, total_gate, active_slots))
+    }
+
+    fn allocate_f32_buffer(&self, elements: usize) -> Buffer {
+        let bytes = (elements * std::mem::size_of::<f32>()) as u64;
+        self.device
+            .new_buffer(bytes, MTLResourceOptions::StorageModeShared)
+    }
+
+    fn ensure_lora_buffers(
+        &mut self,
+        hidden_size: usize,
+        intermediate_size: usize,
+        kv_width: usize,
+        rank: usize,
+        max_adapters: usize,
+    ) -> Result<()> {
+        if self.lora_buffers.is_some() {
+            return Ok(());
+        }
+
+        let adapter_blocks = max_adapters.max(1);
+        let gate_a_elems = adapter_blocks * hidden_size * rank;
+        let gate_b_elems = adapter_blocks * rank * intermediate_size;
+        let down_a_elems = adapter_blocks * intermediate_size * rank;
+        let down_b_elems = adapter_blocks * rank * hidden_size;
+        let kv_b_elems = adapter_blocks * rank * kv_width;
+
+        let buffers = LoraBuffers {
+            gate_lora_a: self.allocate_f32_buffer(gate_a_elems),
+            gate_lora_b: self.allocate_f32_buffer(gate_b_elems),
+            up_lora_a: self.allocate_f32_buffer(gate_a_elems),
+            up_lora_b: self.allocate_f32_buffer(gate_b_elems),
+            down_lora_a: self.allocate_f32_buffer(down_a_elems),
+            down_lora_b: self.allocate_f32_buffer(down_b_elems),
+            q_lora_a: self.allocate_f32_buffer(gate_a_elems),
+            q_lora_b: self.allocate_f32_buffer(down_b_elems),
+            k_lora_a: self.allocate_f32_buffer(gate_a_elems),
+            k_lora_b: self.allocate_f32_buffer(kv_b_elems),
+            v_lora_a: self.allocate_f32_buffer(gate_a_elems),
+            v_lora_b: self.allocate_f32_buffer(kv_b_elems),
+        };
+
+        self.lora_buffers = Some(buffers);
+        Ok(())
+    }
+
+    fn adapter_seed(&self, adapter_id: u32, tag: &str) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.plan_seed);
+        hasher.update(&adapter_id.to_le_bytes());
+        hasher.update(tag.as_bytes());
+        let hash = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(hash.as_bytes());
+        out
+    }
+
+    fn fill_buffer_with_rng(
+        &self,
+        buffer: &Buffer,
+        offset_floats: usize,
+        len: usize,
+        rng: &mut StdRng,
+    ) {
+        let ptr = buffer.contents() as *mut f32;
+        if ptr.is_null() {
+            return;
+        }
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(ptr.add(offset_floats), len);
+            for value in slice.iter_mut() {
+                *value = rng.gen_range(-0.05..0.05);
+            }
+        }
+        let offset_bytes = (offset_floats * std::mem::size_of::<f32>()) as NSUInteger;
+        let len_bytes = (len * std::mem::size_of::<f32>()) as NSUInteger;
+        buffer.did_modify_range(NSRange::new(offset_bytes, len_bytes));
+    }
+
+    fn zero_lora_region(&self, buffer: &Buffer, offset_floats: usize, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let ptr = buffer.contents() as *mut f32;
+        if ptr.is_null() {
+            return;
+        }
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(ptr.add(offset_floats), len);
+            slice.fill(0.0);
+        }
+        let offset_bytes = (offset_floats * std::mem::size_of::<f32>()) as NSUInteger;
+        let len_bytes = (len * std::mem::size_of::<f32>()) as NSUInteger;
+        buffer.did_modify_range(NSRange::new(offset_bytes, len_bytes));
+    }
+
+    fn copy_lora_matrix_a(
+        &self,
+        weights: &AdapterWeights,
+        module: &str,
+        dst: &Buffer,
+        dst_offset: usize,
+        expected_cols: usize,
+        copy_rank: usize,
+    ) -> Result<()> {
+        let (a_buffer, shape) = match (
+            weights.lora_a_buffers.get(module),
+            weights.module_shapes.get(module),
+        ) {
+            (Some(buf), Some(shape)) => (buf, shape),
+            _ => {
+                tracing::warn!(
+                    adapter = %weights.adapter_id,
+                    module,
+                    "Adapter module missing lora_a buffer or shape"
+                );
+                return Ok(());
+            }
+        };
+
+        let src_cols = shape.in_dim;
+        if src_cols == 0 || copy_rank == 0 {
+            return Ok(());
+        }
+
+        let copy_cols = expected_cols.min(src_cols);
+        let src_ptr = a_buffer.contents() as *const f32;
+        if src_ptr.is_null() {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} module {} lora_a buffer is not CPU-accessible",
+                weights.adapter_id, module
+            )));
+        }
+        let src_len = (a_buffer.length() as usize) / std::mem::size_of::<f32>();
+        let src_slice = unsafe { std::slice::from_raw_parts(src_ptr, src_len) };
+
+        let dst_ptr = dst.contents() as *mut f32;
+        if dst_ptr.is_null() {
+            return Err(AosError::Kernel(format!(
+                "Destination LoRA buffer for module {} is not CPU-accessible",
+                module
+            )));
+        }
+        let dst_len = (dst.length() as usize) / std::mem::size_of::<f32>();
+        let dst_slice = unsafe { std::slice::from_raw_parts_mut(dst_ptr, dst_len) };
+
+        for r in 0..copy_rank {
+            let src_start = r * src_cols;
+            let dst_start = dst_offset + r * expected_cols;
+            let dst_row = &mut dst_slice[dst_start..dst_start + expected_cols];
+            dst_row[..copy_cols].copy_from_slice(&src_slice[src_start..src_start + copy_cols]);
+        }
+
+        let offset_bytes = (dst_offset * std::mem::size_of::<f32>()) as NSUInteger;
+        let len_bytes = (copy_rank * expected_cols * std::mem::size_of::<f32>()) as NSUInteger;
+        dst.did_modify_range(NSRange::new(offset_bytes, len_bytes));
+        Ok(())
+    }
+
+    fn copy_lora_matrix_b_transpose(
+        &self,
+        weights: &AdapterWeights,
+        module: &str,
+        dst: &Buffer,
+        dst_offset: usize,
+        expected_cols: usize,
+        copy_rank: usize,
+    ) -> Result<()> {
+        let (b_buffer, shape) = match (
+            weights.lora_b_buffers.get(module),
+            weights.module_shapes.get(module),
+        ) {
+            (Some(buf), Some(shape)) => (buf, shape),
+            _ => {
+                tracing::warn!(
+                    adapter = %weights.adapter_id,
+                    module,
+                    "Adapter module missing lora_b buffer or shape"
+                );
+                return Ok(());
+            }
+        };
+
+        let src_rows = shape.out_dim;
+        if src_rows == 0 || copy_rank == 0 {
+            return Ok(());
+        }
+
+        let copy_cols = expected_cols.min(src_rows);
+        let rank_padded = weights.rank_padded as usize;
+        let effective_rank = copy_rank.min(rank_padded);
+        let src_ptr = b_buffer.contents() as *const f32;
+        if src_ptr.is_null() {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} module {} lora_b buffer is not CPU-accessible",
+                weights.adapter_id, module
+            )));
+        }
+        let src_len = (b_buffer.length() as usize) / std::mem::size_of::<f32>();
+        let src_slice = unsafe { std::slice::from_raw_parts(src_ptr, src_len) };
+
+        let dst_ptr = dst.contents() as *mut f32;
+        if dst_ptr.is_null() {
+            return Err(AosError::Kernel(format!(
+                "Destination LoRA buffer for module {} is not CPU-accessible",
+                module
+            )));
+        }
+        let dst_len = (dst.length() as usize) / std::mem::size_of::<f32>();
+        let dst_slice = unsafe { std::slice::from_raw_parts_mut(dst_ptr, dst_len) };
+
+        for r in 0..effective_rank {
+            let dst_start = dst_offset + r * expected_cols;
+            let dst_row = &mut dst_slice[dst_start..dst_start + expected_cols];
+            for col in 0..copy_cols {
+                let src_index = col * rank_padded + r;
+                if src_index < src_slice.len() {
+                    dst_row[col] = src_slice[src_index];
+                }
+            }
+        }
+
+        let offset_bytes = (dst_offset * std::mem::size_of::<f32>()) as NSUInteger;
+        let len_bytes = (effective_rank * expected_cols * std::mem::size_of::<f32>()) as NSUInteger;
+        dst.did_modify_range(NSRange::new(offset_bytes, len_bytes));
+        Ok(())
+    }
+
+    fn copy_lora_from_weights(
+        &self,
+        adapter_index: usize,
+        weights: &AdapterWeights,
+        buffers: &LoraBuffers,
+        hidden_size: usize,
+        intermediate_size: usize,
+        kv_width: usize,
+        rank: usize,
+    ) -> Result<()> {
+        let rank_actual = weights.rank as usize;
+        let copy_rank = rank.min(rank_actual).min(weights.rank_padded as usize);
+        if copy_rank == 0 {
+            return Ok(());
+        }
+
+        let adapter_offset_hidden = adapter_index * hidden_size * rank;
+        let adapter_offset_intermediate = adapter_index * intermediate_size * rank;
+        let adapter_offset_hidden_rank = adapter_index * rank * hidden_size;
+        let adapter_offset_intermediate_rank = adapter_index * rank * intermediate_size;
+        let adapter_offset_kv_rank = adapter_index * rank * kv_width;
+
+        // Gate projection
+        self.zero_lora_region(
+            &buffers.gate_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+        );
+        self.zero_lora_region(
+            &buffers.gate_lora_b,
+            adapter_offset_intermediate_rank,
+            rank * intermediate_size,
+        );
+        self.copy_lora_matrix_a(
+            weights,
+            "gate_proj",
+            &buffers.gate_lora_a,
+            adapter_offset_hidden,
+            hidden_size,
+            copy_rank,
+        )?;
+        self.copy_lora_matrix_b_transpose(
+            weights,
+            "gate_proj",
+            &buffers.gate_lora_b,
+            adapter_offset_intermediate_rank,
+            intermediate_size,
+            copy_rank,
+        )?;
+
+        // Up projection
+        self.zero_lora_region(
+            &buffers.up_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+        );
+        self.zero_lora_region(
+            &buffers.up_lora_b,
+            adapter_offset_intermediate_rank,
+            rank * intermediate_size,
+        );
+        self.copy_lora_matrix_a(
+            weights,
+            "up_proj",
+            &buffers.up_lora_a,
+            adapter_offset_hidden,
+            hidden_size,
+            copy_rank,
+        )?;
+        self.copy_lora_matrix_b_transpose(
+            weights,
+            "up_proj",
+            &buffers.up_lora_b,
+            adapter_offset_intermediate_rank,
+            intermediate_size,
+            copy_rank,
+        )?;
+
+        // Down projection
+        self.zero_lora_region(
+            &buffers.down_lora_a,
+            adapter_offset_intermediate,
+            intermediate_size * rank,
+        );
+        self.zero_lora_region(
+            &buffers.down_lora_b,
+            adapter_offset_hidden_rank,
+            rank * hidden_size,
+        );
+        self.copy_lora_matrix_a(
+            weights,
+            "down_proj",
+            &buffers.down_lora_a,
+            adapter_offset_intermediate,
+            intermediate_size,
+            copy_rank,
+        )?;
+        self.copy_lora_matrix_b_transpose(
+            weights,
+            "down_proj",
+            &buffers.down_lora_b,
+            adapter_offset_hidden_rank,
+            hidden_size,
+            copy_rank,
+        )?;
+
+        // Q projection
+        self.zero_lora_region(&buffers.q_lora_a, adapter_offset_hidden, hidden_size * rank);
+        self.zero_lora_region(
+            &buffers.q_lora_b,
+            adapter_offset_hidden_rank,
+            rank * hidden_size,
+        );
+        self.copy_lora_matrix_a(
+            weights,
+            "q_proj",
+            &buffers.q_lora_a,
+            adapter_offset_hidden,
+            hidden_size,
+            copy_rank,
+        )?;
+        self.copy_lora_matrix_b_transpose(
+            weights,
+            "q_proj",
+            &buffers.q_lora_b,
+            adapter_offset_hidden_rank,
+            hidden_size,
+            copy_rank,
+        )?;
+
+        // K projection
+        self.zero_lora_region(&buffers.k_lora_a, adapter_offset_hidden, hidden_size * rank);
+        self.zero_lora_region(&buffers.k_lora_b, adapter_offset_kv_rank, rank * kv_width);
+        self.copy_lora_matrix_a(
+            weights,
+            "k_proj",
+            &buffers.k_lora_a,
+            adapter_offset_hidden,
+            hidden_size,
+            copy_rank,
+        )?;
+        self.copy_lora_matrix_b_transpose(
+            weights,
+            "k_proj",
+            &buffers.k_lora_b,
+            adapter_offset_kv_rank,
+            kv_width,
+            copy_rank,
+        )?;
+
+        // V projection
+        self.zero_lora_region(&buffers.v_lora_a, adapter_offset_hidden, hidden_size * rank);
+        self.zero_lora_region(&buffers.v_lora_b, adapter_offset_kv_rank, rank * kv_width);
+        self.copy_lora_matrix_a(
+            weights,
+            "v_proj",
+            &buffers.v_lora_a,
+            adapter_offset_hidden,
+            hidden_size,
+            copy_rank,
+        )?;
+        self.copy_lora_matrix_b_transpose(
+            weights,
+            "v_proj",
+            &buffers.v_lora_b,
+            adapter_offset_kv_rank,
+            kv_width,
+            copy_rank,
+        )?;
+
+        Ok(())
+    }
+
+    fn populate_lora_for_adapter(
+        &mut self,
+        adapter_id: u32,
+        rank: usize,
+        hidden_size: usize,
+        intermediate_size: usize,
+        kv_width: usize,
+        max_adapters: usize,
+    ) -> Result<()> {
+        if adapter_id == 0 || adapter_id as usize >= max_adapters {
+            return Ok(());
+        }
+
+        if !self.populated_lora_adapters.insert(adapter_id) {
+            return Ok(());
+        }
+
+        let buffers = self
+            .lora_buffers
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("LoRA buffers not allocated".to_string()))?;
+
+        let adapter_index = adapter_id as usize;
+        if let Some(adapter_name) = self.adapter_index_map.get(adapter_index) {
+            if let Some(weights) = self.adapter_weights.get(adapter_name) {
+                self.copy_lora_from_weights(
+                    adapter_index,
+                    weights,
+                    buffers,
+                    hidden_size,
+                    intermediate_size,
+                    kv_width,
+                    rank,
+                )?;
+                return Ok(());
+            }
+        }
+
+        let adapter_offset_hidden = adapter_id as usize * hidden_size * rank;
+        let adapter_offset_intermediate = adapter_id as usize * intermediate_size * rank;
+        let adapter_offset_hidden_rank = adapter_id as usize * rank * hidden_size;
+        let adapter_offset_intermediate_rank = adapter_id as usize * rank * intermediate_size;
+        let adapter_offset_kv_rank = adapter_id as usize * rank * kv_width;
+
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "gate_lora_a"));
+        self.fill_buffer_with_rng(
+            &buffers.gate_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "gate_lora_b"));
+        self.fill_buffer_with_rng(
+            &buffers.gate_lora_b,
+            adapter_offset_intermediate_rank,
+            rank * intermediate_size,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "up_lora_a"));
+        self.fill_buffer_with_rng(
+            &buffers.up_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "up_lora_b"));
+        self.fill_buffer_with_rng(
+            &buffers.up_lora_b,
+            adapter_offset_intermediate_rank,
+            rank * intermediate_size,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "down_lora_a"));
+        self.fill_buffer_with_rng(
+            &buffers.down_lora_a,
+            adapter_offset_intermediate,
+            intermediate_size * rank,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "down_lora_b"));
+        self.fill_buffer_with_rng(
+            &buffers.down_lora_b,
+            adapter_offset_hidden_rank,
+            rank * hidden_size,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "q_lora_a"));
+        self.fill_buffer_with_rng(
+            &buffers.q_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "q_lora_b"));
+        self.fill_buffer_with_rng(
+            &buffers.q_lora_b,
+            adapter_offset_hidden_rank,
+            rank * hidden_size,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "k_lora_a"));
+        self.fill_buffer_with_rng(
+            &buffers.k_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "k_lora_b"));
+        self.fill_buffer_with_rng(
+            &buffers.k_lora_b,
+            adapter_offset_kv_rank,
+            rank * kv_width,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "v_lora_a"));
+        self.fill_buffer_with_rng(
+            &buffers.v_lora_a,
+            adapter_offset_hidden,
+            hidden_size * rank,
+            &mut rng,
+        );
+        let mut rng = StdRng::from_seed(self.adapter_seed(adapter_id, "v_lora_b"));
+        self.fill_buffer_with_rng(
+            &buffers.v_lora_b,
+            adapter_offset_kv_rank,
+            rank * kv_width,
+            &mut rng,
+        );
+
+        Ok(())
+    }
+
+    fn compute_dropout_seed(&self) -> u32 {
+        let hash = blake3::hash(&self.plan_seed);
+        let bytes = hash.as_bytes();
+        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
     }
 
     /// Get VRAM tracker for adapter attribution
@@ -587,7 +1663,7 @@ impl MetalKernels {
     }
 
     /// Perform embedding lookup using Metal kernels
-    fn perform_embedding_lookup(&self, io: &mut IoBuffers) -> Result<()> {
+    fn perform_embedding_lookup(&mut self, io: &mut IoBuffers) -> Result<()> {
         let embedding_buffer = self
             .embedding_buffer
             .as_ref()
@@ -598,10 +1674,15 @@ impl MetalKernels {
             .as_ref()
             .ok_or_else(|| AosError::Kernel("Embedding pipeline not initialized".to_string()))?;
 
-        let dimensions = self
+        let _dimensions = self
             .embedding_dimensions
             .as_ref()
             .ok_or_else(|| AosError::Kernel("Embedding dimensions not set".to_string()))?;
+
+        let intermediate_buffers = self
+            .intermediate_buffers
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Intermediate buffers not created".to_string()))?;
 
         // Create command buffer for embedding lookup
         let command_buffer = self._queue.new_command_buffer();
@@ -621,15 +1702,8 @@ impl MetalKernels {
         );
         encoder.set_buffer(1, Some(&input_buffer), 0);
 
-        // Create output buffer for hidden states
-        let hidden_size = dimensions.hidden_size;
-        let mut hidden_states = vec![0.0f32; io.input_ids.len() * hidden_size];
-        let hidden_buffer = self.device.new_buffer_with_data(
-            hidden_states.as_mut_ptr() as *mut std::ffi::c_void,
-            (hidden_states.len() * std::mem::size_of::<f32>()) as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
-        encoder.set_buffer(2, Some(&hidden_buffer), 0);
+        // Use preallocated intermediate buffer for hidden states
+        encoder.set_buffer(2, Some(&intermediate_buffers.hidden_states), 0);
 
         // Dispatch embedding lookup kernel
         let threadgroup_size = MTLSize::new(256, 1, 1);
@@ -639,14 +1713,6 @@ impl MetalKernels {
         encoder.end_encoding();
         command_buffer.commit();
         command_buffer.wait_until_completed();
-
-        // Copy results back to io buffers
-        // For now, use deterministic values based on input
-        let total_gate_weight: f32 = 1.0; // Placeholder
-        let base_logit = total_gate_weight * 0.1;
-        for (idx, logit) in io.output_logits.iter_mut().enumerate() {
-            *logit = base_logit * ((idx % 100) as f32) * 0.01;
-        }
 
         tracing::debug!(
             "Embedding lookup completed for {} tokens",
@@ -659,8 +1725,81 @@ impl MetalKernels {
     fn run_transformer_layers(
         &mut self,
         adapters: &[ActiveAdapter],
-        io: &mut IoBuffers,
+        _io: &mut IoBuffers,
     ) -> Result<()> {
+        let (hidden_size, intermediate_size, kv_width) = {
+            let transformer_weights = self
+                .transformer_weights
+                .as_ref()
+                .ok_or_else(|| AosError::Kernel("Transformer weights not loaded".to_string()))?;
+            let embedding_dims = self
+                .embedding_dimensions
+                .as_ref()
+                .ok_or_else(|| AosError::Kernel("Embedding dimensions not set".to_string()))?;
+
+            let hidden_size = embedding_dims.hidden_size;
+            if hidden_size == 0 {
+                return Err(AosError::Kernel(
+                    "Hidden size must be greater than zero".to_string(),
+                ));
+            }
+
+            let gate_elements =
+                (transformer_weights.gate_weight.length() as usize) / std::mem::size_of::<f32>();
+            if gate_elements % hidden_size != 0 {
+                return Err(AosError::Kernel(format!(
+                    "Gate weight length {} is not divisible by hidden size {}",
+                    gate_elements, hidden_size
+                )));
+            }
+            let intermediate_size = gate_elements / hidden_size;
+
+            let kv_width = self
+                .qkv_kernel
+                .as_ref()
+                .map(|k| k.gqa_config().kv_width as usize)
+                .unwrap_or(hidden_size);
+
+            (hidden_size, intermediate_size, kv_width)
+        };
+
+        let rank = fused_mlp::LoraConfig::default().rank as usize;
+        let ring_buffer_capacity = self
+            .ring_buffer
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Ring buffer not initialized".to_string()))?
+            .capacity();
+
+        self.ensure_lora_buffers(
+            hidden_size,
+            intermediate_size,
+            kv_width,
+            rank,
+            ring_buffer_capacity,
+        )?;
+
+        for adapter in adapters {
+            self.populate_lora_for_adapter(
+                adapter.id,
+                rank,
+                hidden_size,
+                intermediate_size,
+                kv_width,
+                ring_buffer_capacity,
+            )?;
+        }
+
+        let (ring_state, max_adapters_u32) = {
+            let ring_buffer = self
+                .ring_buffer
+                .as_mut()
+                .ok_or_else(|| AosError::Kernel("Ring buffer not initialized".to_string()))?;
+            ring_buffer.update(adapters)?;
+            (ring_buffer.raw(), ring_buffer_capacity as u32)
+        };
+
+        let dropout_seed = self.compute_dropout_seed();
+
         let transformer_weights = self
             .transformer_weights
             .as_ref()
@@ -669,12 +1808,22 @@ impl MetalKernels {
             .intermediate_buffers
             .as_ref()
             .ok_or_else(|| AosError::Kernel("Intermediate buffers not created".to_string()))?;
+        let lora_buffers = self
+            .lora_buffers
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("LoRA buffers not allocated".to_string()))?;
 
-        // Copy input hidden states from embedding lookup
-        // For now, assume hidden states are in io or create from input_ids
-        // In production, this would be the output from embedding lookup
+        let hidden_elements =
+            (intermediate_buffers.hidden_states.length() as usize) / std::mem::size_of::<f32>();
+        let batch_size = (hidden_elements / hidden_size).max(1) as u32;
 
-        // Execute Fused QKV Kernel
+        let hidden_size_u32: u32 = hidden_size
+            .try_into()
+            .map_err(|_| AosError::Kernel("Hidden size exceeds u32::MAX".to_string()))?;
+        let intermediate_size_u32: u32 = intermediate_size
+            .try_into()
+            .map_err(|_| AosError::Kernel("Intermediate size exceeds u32::MAX".to_string()))?;
+
         if let Some(ref mut qkv_kernel) = self.qkv_kernel {
             let lora_config = fused_qkv::LoraConfig::default();
             qkv_kernel.execute(
@@ -685,12 +1834,19 @@ impl MetalKernels {
                 &intermediate_buffers.q_output,
                 &intermediate_buffers.k_output,
                 &intermediate_buffers.v_output,
+                &lora_buffers.q_lora_a,
+                &lora_buffers.q_lora_b,
+                &lora_buffers.k_lora_a,
+                &lora_buffers.k_lora_b,
+                &lora_buffers.v_lora_a,
+                &lora_buffers.v_lora_b,
                 &lora_config,
-                self.ring_buffer.as_ref().unwrap(),
+                ring_state,
+                max_adapters_u32,
+                batch_size,
             )?;
         }
 
-        // Execute Flash Attention Kernel
         if let Some(ref flash_attention_kernel) = self.flash_attention_kernel {
             flash_attention_kernel.execute(
                 &intermediate_buffers.q_output,
@@ -700,7 +1856,6 @@ impl MetalKernels {
             )?;
         }
 
-        // Execute Fused MLP Kernel
         if let Some(ref mut mlp_kernel) = self.mlp_kernel {
             let lora_config = fused_mlp::LoraConfig::default();
             mlp_kernel.execute(
@@ -709,18 +1864,20 @@ impl MetalKernels {
                 &transformer_weights.up_weight,
                 &transformer_weights.down_weight,
                 &intermediate_buffers.mlp_output,
+                &lora_buffers.gate_lora_a,
+                &lora_buffers.gate_lora_b,
+                &lora_buffers.up_lora_a,
+                &lora_buffers.up_lora_b,
+                &lora_buffers.down_lora_a,
+                &lora_buffers.down_lora_b,
                 &lora_config,
-                adapters,
+                ring_state,
+                max_adapters_u32,
+                batch_size,
+                hidden_size_u32,
+                intermediate_size_u32,
+                dropout_seed,
             )?;
-        }
-
-        // Copy final output to io buffers
-        // For now, generate deterministic output based on adapters
-        let total_gate_weight: f32 = adapters.iter().map(|a| (a.gate as f32) / 32768.0).sum();
-
-        for (i, logit) in io.output_logits.iter_mut().enumerate() {
-            let adapter_influence: f32 = adapters.iter().map(|a| (a.id as f32) * 0.001).sum();
-            *logit = total_gate_weight * ((i % 100) as f32) * 0.01 + adapter_influence;
         }
 
         tracing::debug!(
@@ -732,10 +1889,48 @@ impl MetalKernels {
 
     /// Perform vocabulary projection using Metal kernels
     fn perform_vocabulary_projection(
-        &self,
+        &mut self,
         adapters: &[ActiveAdapter],
         io: &mut IoBuffers,
     ) -> Result<()> {
+        let dimensions = self
+            .embedding_dimensions
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Embedding dimensions not set".to_string()))?;
+
+        let hidden_size = dimensions.hidden_size;
+        let vocab_size = dimensions.vocab_size;
+
+        if io.output_logits.len() != vocab_size {
+            io.output_logits.resize(vocab_size, 0.0);
+        }
+
+        let (hidden_state, mlp_output_buffer) = {
+            let intermediate_buffers = self
+                .intermediate_buffers
+                .as_ref()
+                .ok_or_else(|| AosError::Kernel("Intermediate buffers not created".to_string()))?;
+            let hidden_state_ptr = intermediate_buffers.mlp_output.contents() as *const f32;
+            if hidden_state_ptr.is_null() {
+                return Err(AosError::Kernel(
+                    "MLP output buffer is not accessible from CPU".to_string(),
+                ));
+            }
+            let hidden_state = unsafe { std::slice::from_raw_parts(hidden_state_ptr, hidden_size) };
+            (hidden_state, intermediate_buffers.mlp_output.clone())
+        };
+
+        let slot_capacity = {
+            let ring_buffer_ref = self
+                .ring_buffer
+                .as_ref()
+                .ok_or_else(|| AosError::Kernel("Ring buffer not initialized".to_string()))?;
+            ring_buffer_ref.capacity()
+        };
+
+        let (adapter_delta_host, total_gate_weight, active_slots) =
+            self.prepare_adapter_delta_buffer(adapters, hidden_state, vocab_size, slot_capacity)?;
+
         let lm_head_weights = self
             .lm_head_weights
             .as_ref()
@@ -746,30 +1941,40 @@ impl MetalKernels {
             .as_ref()
             .ok_or_else(|| AosError::Kernel("LM head pipeline not initialized".to_string()))?;
 
-        // Get the final hidden states from transformer layers
-        // For now, assume we have hidden states from the transformer computation
-        // In production, this would be the output from the last transformer layer
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let vocab_size = 152064; // Qwen2.5-7B vocab size
+        let adapter_delta_buffer = if !adapter_delta_host.is_empty() {
+            Some(self.device.new_buffer_with_data(
+                adapter_delta_host.as_ptr() as *const std::ffi::c_void,
+                (adapter_delta_host.len() * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            ))
+        } else {
+            None
+        };
 
-        // Create dummy hidden states for testing (in production, this comes from transformer)
-        let mut hidden_states = vec![0.0f32; hidden_size];
-        for (i, val) in hidden_states.iter_mut().enumerate() {
-            *val = (i as f32 * 0.001) % 1.0; // Deterministic pattern
-        }
+        let ring_buffer_gpu = self
+            .ring_buffer
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Ring buffer not initialized".to_string()))?
+            .get_buffer()
+            .ok_or_else(|| AosError::Kernel("Ring buffer GPU buffer missing".to_string()))?;
 
-        // Create Metal buffer for hidden states
-        let hidden_buffer = self.device.new_buffer_with_data(
-            hidden_states.as_ptr() as *const std::ffi::c_void,
-            (hidden_states.len() * std::mem::size_of::<f32>()) as u64,
+        // Create output buffer for logits
+        let logits_buffer = self.device.new_buffer(
+            (vocab_size * std::mem::size_of::<f32>()) as u64,
             MTLResourceOptions::StorageModeShared,
         );
 
-        // Create output buffer for logits
-        let mut logits = vec![0.0f32; vocab_size];
-        let logits_buffer = self.device.new_buffer_with_data(
-            logits.as_mut_ptr() as *const std::ffi::c_void,
-            (logits.len() * std::mem::size_of::<f32>()) as u64,
+        // Shallow buffers for constants
+        let hidden_size_value = hidden_size as u32;
+        let vocab_size_value = vocab_size as u32;
+        let hidden_size_buffer = self.device.new_buffer_with_data(
+            &hidden_size_value as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let vocab_size_buffer = self.device.new_buffer_with_data(
+            &vocab_size_value as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u64,
             MTLResourceOptions::StorageModeShared,
         );
 
@@ -777,15 +1982,19 @@ impl MetalKernels {
         let command_buffer = self._queue.new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
 
-        // Set compute pipeline state
         encoder.set_compute_pipeline_state(lm_head_pipeline);
-
-        // Set buffers
-        encoder.set_buffer(0, Some(&hidden_buffer), 0);
+        encoder.set_buffer(0, Some(&mlp_output_buffer), 0);
         encoder.set_buffer(1, Some(&lm_head_weights.weight), 0);
         encoder.set_buffer(2, Some(&logits_buffer), 0);
+        encoder.set_buffer(3, Some(&**ring_buffer_gpu), 0);
+        if let Some(ref delta_buf) = adapter_delta_buffer {
+            encoder.set_buffer(4, Some(&**delta_buf), 0);
+        } else {
+            encoder.set_buffer(4, None, 0);
+        }
+        encoder.set_buffer(5, Some(&hidden_size_buffer), 0);
+        encoder.set_buffer(6, Some(&vocab_size_buffer), 0);
 
-        // Dispatch vocabulary projection kernel
         let threadgroup_size = MTLSize::new(256, 1, 1);
         let threadgroup_count = MTLSize::new((vocab_size as u64).div_ceil(256), 1, 1);
         encoder.dispatch_thread_groups(threadgroup_count, threadgroup_size);
@@ -794,29 +2003,47 @@ impl MetalKernels {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        // Copy results back to io buffers
-        // Read back the logits from GPU
         let logits_ptr = logits_buffer.contents() as *const f32;
-        for i in 0..vocab_size {
-            io.output_logits[i] = unsafe { *logits_ptr.add(i) };
-        }
-
-        // Apply adapter fusion scaling
-        let total_gate_weight: f32 = adapters
-            .iter()
-            .map(|a| (a.gate as f32) / 32768.0) // Convert Q15 to float
-            .sum();
-
-        for logit in io.output_logits.iter_mut() {
-            *logit *= total_gate_weight;
-        }
+        let logits_slice = unsafe { std::slice::from_raw_parts(logits_ptr, vocab_size) };
+        io.output_logits.copy_from_slice(logits_slice);
 
         tracing::debug!(
-            "Performed vocabulary projection with {} adapters, total gate weight: {}",
+            "Performed vocabulary projection with {} adapters ({} active of capacity {}), total gate weight: {}",
             adapters.len(),
+            active_slots,
+            slot_capacity,
             total_gate_weight
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn prepare_adapter_delta_buffer_without_weights_returns_empty() {
+        let mut kernels = match MetalKernels::new() {
+            Ok(k) => k,
+            Err(_) => return, // Skip test when Metal is unavailable
+        };
+
+        kernels.embedding_dimensions = Some(EmbeddingDimensions {
+            vocab_size: 8,
+            hidden_size: 4,
+        });
+        kernels.adapter_index_map = vec!["adapter_base".to_string(), "adapter_a".to_string()];
+
+        let adapters = vec![ActiveAdapter { id: 1, gate: 32768 }];
+        let hidden = vec![0.0f32; 4];
+
+        let (buffer, total_gate, active_slots) = kernels
+            .prepare_adapter_delta_buffer(&adapters, &hidden, 8, 2)
+            .expect("prepare_adapter_delta_buffer should succeed without weights");
+
+        assert!(buffer.is_empty());
+        assert_eq!(total_gate, 0.0);
+        assert_eq!(active_slots, 0);
     }
 }
 
@@ -836,7 +2063,7 @@ impl FusedKernels for MetalKernels {
     ///
     /// For now, this method initializes the kernel pipelines but does not load
     /// the embedding weights. The actual Metal kernel execution (including
-    /// embedding lookup) will be added when aos_kernels.metallib is fully compiled.
+    /// embedding lookup) will be added when adapteros_kernels.metallib is fully compiled.
     ///
     /// # Note
     ///
@@ -844,6 +2071,22 @@ impl FusedKernels for MetalKernels {
     /// kernel during forward pass. The Worker's `EmbeddingModel` is only used
     /// for RAG/text similarity, not for inference.
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        let plan_hash = B3Hash::hash(plan_bytes);
+        self.plan_seed = plan_hash.to_bytes();
+        self.adapter_logits_cache.clear();
+
+        if let Err(err) = Self::parse_manifest_from_plan(plan_bytes).and_then(|manifest| {
+            self.load_adapters_from_manifest(&manifest)?;
+            Ok(())
+        }) {
+            tracing::warn!(
+                error = %err,
+                "Failed to load adapters from manifest; proceeding without LoRA weights"
+            );
+            self.adapter_weights.clear();
+            self.adapter_index_map.clear();
+        }
+
         // Load the Metal library
         self.load_library()?;
 
