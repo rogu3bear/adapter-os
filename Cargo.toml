@@ -42,6 +42,13 @@ members = [
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
     "crates/adapteros-lora-lifecycle",
+    "crates/adapteros-single-file-adapter",
+    "crates/adapteros-storage",
+    "crates/adapteros-temp",
+    "crates/adapteros-secure-fs",
+    "crates/adapteros-concurrent-fs",
+    "crates/adapteros-platform",
+    "crates/adapteros-error-recovery",
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-graph",
@@ -276,3 +283,4 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
 blake3 = { workspace = true }
 hex = { workspace = true }
+adapteros-experimental = { path = "crates/adapteros-experimental" }
