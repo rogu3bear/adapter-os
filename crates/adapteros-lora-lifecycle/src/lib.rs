@@ -47,6 +47,7 @@ pub struct AdapterEvictionEvent {
 }
 
 pub mod activation_tracker;
+pub mod aos_loader;
 pub mod category_policies;
 pub mod loader;
 pub mod policy;
@@ -54,6 +55,7 @@ pub mod state;
 pub mod ttl_manager;
 
 pub use activation_tracker::ActivationTracker;
+pub use aos_loader::{AosDirectLoader, AosMmapHandle, HotSwapResult};
 pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
 pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};

@@ -23,7 +23,10 @@ impl TraceWriter {
         let file = File::create(path.as_ref())
             .map_err(|e| AosError::Telemetry(format!("Failed to create trace file: {}", e)))?;
         let writer = BufWriter::new(file);
-        Ok(Self { writer: Box::new(writer), bundle })
+        Ok(Self {
+            writer: Box::new(writer),
+            bundle,
+        })
     }
 
     /// Create a zstd-compressed writer (level 1-21 typical)
@@ -33,7 +36,10 @@ impl TraceWriter {
         let encoder = zstd::Encoder::new(file, level)
             .map_err(|e| AosError::Telemetry(format!("Failed to create zstd encoder: {}", e)))?;
         let writer = BufWriter::new(encoder);
-        Ok(Self { writer: Box::new(writer), bundle })
+        Ok(Self {
+            writer: Box::new(writer),
+            bundle,
+        })
     }
 
     /// Write an event to the trace
@@ -79,13 +85,16 @@ impl TraceWriter {
 
 /// Write a complete trace bundle to a file
 pub fn write_trace_bundle<P: AsRef<Path>>(path: P, bundle: TraceBundle) -> Result<()> {
-    let mut writer = TraceWriter::new(path, TraceBundle::new(
-        bundle.global_seed,
-        bundle.plan_id.clone(),
-        bundle.cpid.clone(),
-        bundle.tenant_id.clone(),
-        bundle.session_id.clone(),
-    ))?;
+    let mut writer = TraceWriter::new(
+        path,
+        TraceBundle::new(
+            bundle.global_seed,
+            bundle.plan_id.clone(),
+            bundle.cpid.clone(),
+            bundle.tenant_id.clone(),
+            bundle.session_id.clone(),
+        ),
+    )?;
 
     // Write all events from the bundle
     for event in bundle.events {
@@ -110,8 +119,14 @@ pub fn write_trace_bundle_atomic<P: AsRef<Path>>(path: P, bundle: TraceBundle) -
     let tmp_path = std::path::PathBuf::from(tmp);
 
     write_trace_bundle(&tmp_path, bundle)?;
-    std::fs::rename(&tmp_path, path_ref)
-        .map_err(|e| AosError::Telemetry(format!("Failed to rename {} -> {}: {}", tmp_path.display(), path_ref.display(), e)))?;
+    std::fs::rename(&tmp_path, path_ref).map_err(|e| {
+        AosError::Telemetry(format!(
+            "Failed to rename {} -> {}: {}",
+            tmp_path.display(),
+            path_ref.display(),
+            e
+        ))
+    })?;
     Ok(())
 }
 

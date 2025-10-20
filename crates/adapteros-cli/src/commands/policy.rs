@@ -2,9 +2,7 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
-use adapteros_policy::{
-    explain_policy, list_policies, PolicyId,
-};
+use adapteros_policy::{explain_policy, list_policies, PolicyId};
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use std::sync::Arc;

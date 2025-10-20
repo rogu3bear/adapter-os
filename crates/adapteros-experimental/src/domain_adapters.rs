@@ -48,8 +48,8 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
+use adapteros_api_types::*;
 use adapteros_core::{AosError, Result};
-use adapteros_server_api_types::*;
 use anyhow::{Context, Result as AnyhowResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 /// Experimental domain adapter executor
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: adapteros-server-api-types, adapteros-core
@@ -74,7 +74,7 @@ pub struct DomainAdapterExecutor {
 }
 
 /// Experimental domain adapter pipeline
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -91,7 +91,7 @@ pub struct DomainAdapterPipeline {
 }
 
 /// Experimental pipeline stage
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -114,7 +114,7 @@ pub struct PipelineStage {
 }
 
 /// Experimental stage type
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -135,7 +135,7 @@ pub enum StageType {
 }
 
 /// Experimental stage configuration
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -154,7 +154,7 @@ pub struct StageConfig {
 }
 
 /// Experimental stage status
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -175,7 +175,7 @@ pub enum StageStatus {
 }
 
 /// Experimental pipeline configuration
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -194,7 +194,7 @@ pub struct PipelineConfig {
 }
 
 /// Experimental retry policy
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -213,7 +213,7 @@ pub struct RetryPolicy {
 }
 
 /// Experimental pipeline status
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -234,7 +234,7 @@ pub enum PipelineStatus {
 }
 
 /// Experimental domain adapter configuration
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -257,7 +257,7 @@ pub struct DomainAdapterConfig {
 }
 
 /// Experimental execution statistics
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -278,7 +278,7 @@ pub struct ExecutionStatistics {
 }
 
 /// Experimental domain adapter handler
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: Domain adapter executor
@@ -294,7 +294,7 @@ pub struct DomainAdapterHandler {
 }
 
 /// Experimental cached request
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -315,7 +315,7 @@ pub struct CachedRequest {
 }
 
 /// Experimental handler configuration
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -364,9 +364,9 @@ impl DomainAdapterExecutor {
             },
         }
     }
-    
+
     /// Execute domain adapter pipeline
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Pipeline execution logic
@@ -375,28 +375,28 @@ impl DomainAdapterExecutor {
     pub async fn execute_pipeline(&mut self, request: &str) -> Result<String> {
         println!("🚧 EXPERIMENTAL: Executing domain adapter pipeline");
         println!("🚧 EXPERIMENTAL: Request: {}", request);
-        
+
         // TODO: Implement actual pipeline execution
         // TODO: Add input validation
         // TODO: Implement stage execution
         // TODO: Add error handling
         // TODO: Implement response formatting
-        
+
         // Placeholder implementation
         self.pipeline.status = PipelineStatus::Running;
-        
+
         // Simulate pipeline execution
         sleep(Duration::from_millis(100)).await;
-        
+
         self.pipeline.status = PipelineStatus::Completed;
         self.statistics.total_executions += 1;
         self.statistics.successful_executions += 1;
-        
+
         Ok("🚧 EXPERIMENTAL: Pipeline execution completed".to_string())
     }
-    
+
     /// Add pipeline stage
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Stage management
@@ -405,9 +405,9 @@ impl DomainAdapterExecutor {
     pub fn add_stage(&mut self, stage: PipelineStage) {
         self.pipeline.stages.push(stage);
     }
-    
+
     /// Remove pipeline stage
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Stage management
@@ -416,9 +416,9 @@ impl DomainAdapterExecutor {
     pub fn remove_stage(&mut self, stage_id: &str) {
         self.pipeline.stages.retain(|stage| stage.id != stage_id);
     }
-    
+
     /// Get pipeline status
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Status tracking
@@ -427,9 +427,9 @@ impl DomainAdapterExecutor {
     pub fn get_pipeline_status(&self) -> &PipelineStatus {
         &self.pipeline.status
     }
-    
+
     /// Get execution statistics
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Statistics tracking
@@ -455,9 +455,9 @@ impl DomainAdapterHandler {
             },
         }
     }
-    
+
     /// Handle domain adapter request
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Request handling logic
@@ -466,13 +466,13 @@ impl DomainAdapterHandler {
     pub async fn handle_request(&mut self, request: &str) -> Result<String> {
         println!("🚧 EXPERIMENTAL: Handling domain adapter request");
         println!("🚧 EXPERIMENTAL: Request: {}", request);
-        
+
         // TODO: Implement actual request handling
         // TODO: Add request validation
         // TODO: Implement caching logic
         // TODO: Add error handling
         // TODO: Implement response compression
-        
+
         // Check cache first
         if self.handler_config.enable_caching {
             if let Some(cached_request) = self.request_cache.get(request) {
@@ -480,30 +480,33 @@ impl DomainAdapterHandler {
                 return Ok(cached_request.response_data.clone().unwrap_or_default());
             }
         }
-        
+
         // Execute pipeline
         let response = self.executor.execute_pipeline(request).await?;
-        
+
         // Cache response
         if self.handler_config.enable_caching {
             let request_id = Uuid::new_v4().to_string();
-            self.request_cache.insert(request.to_string(), CachedRequest {
-                request_id,
-                request_data: request.to_string(),
-                response_data: Some(response.clone()),
-                cache_timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-                cache_ttl: self.handler_config.cache_ttl,
-            });
+            self.request_cache.insert(
+                request.to_string(),
+                CachedRequest {
+                    request_id,
+                    request_data: request.to_string(),
+                    response_data: Some(response.clone()),
+                    cache_timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    cache_ttl: self.handler_config.cache_ttl,
+                },
+            );
         }
-        
+
         Ok(response)
     }
-    
+
     /// Clear request cache
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Cache management
@@ -512,9 +515,9 @@ impl DomainAdapterHandler {
     pub fn clear_cache(&mut self) {
         self.request_cache.clear();
     }
-    
+
     /// Get cache statistics
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Cache statistics
@@ -523,15 +526,15 @@ impl DomainAdapterHandler {
     pub fn get_cache_statistics(&self) -> CacheStatistics {
         CacheStatistics {
             total_requests: self.request_cache.len(),
-            cache_hits: 0, // TODO: Track cache hits
-            cache_misses: 0, // TODO: Track cache misses
+            cache_hits: 0,                                   // TODO: Track cache hits
+            cache_misses: 0,                                 // TODO: Track cache misses
             average_response_time: Duration::from_millis(0), // TODO: Track response times
         }
     }
 }
 
 /// Experimental cache statistics
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -556,7 +559,7 @@ pub struct CacheStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_experimental_domain_adapter_executor_creation() {
         let config = DomainAdapterConfig {
@@ -567,13 +570,13 @@ mod tests {
             parameters: HashMap::new(),
             feature_flags: HashMap::new(),
         };
-        
+
         let executor = DomainAdapterExecutor::new(config);
         assert_eq!(executor.pipeline.stages.len(), 0);
         assert!(matches!(executor.pipeline.status, PipelineStatus::Idle));
         assert_eq!(executor.statistics.total_executions, 0);
     }
-    
+
     #[test]
     fn test_experimental_pipeline_stage_creation() {
         let stage = PipelineStage {
@@ -589,13 +592,13 @@ mod tests {
             status: StageStatus::Pending,
             dependencies: vec![],
         };
-        
+
         assert_eq!(stage.id, "test-stage");
         assert_eq!(stage.name, "Test Stage");
         assert!(matches!(stage.stage_type, StageType::InputValidation));
         assert!(matches!(stage.status, StageStatus::Pending));
     }
-    
+
     #[test]
     fn test_experimental_domain_adapter_config() {
         let config = DomainAdapterConfig {
@@ -606,12 +609,12 @@ mod tests {
             parameters: HashMap::new(),
             feature_flags: HashMap::new(),
         };
-        
+
         assert_eq!(config.adapter_id, "test-adapter");
         assert_eq!(config.adapter_name, "Test Adapter");
         assert_eq!(config.adapter_version, "1.0.0");
     }
-    
+
     #[test]
     fn test_experimental_execution_statistics() {
         let stats = ExecutionStatistics {
@@ -621,13 +624,13 @@ mod tests {
             average_execution_time: Duration::from_millis(250),
             last_execution_time: Some(Duration::from_millis(200)),
         };
-        
+
         assert_eq!(stats.total_executions, 100);
         assert_eq!(stats.successful_executions, 95);
         assert_eq!(stats.failed_executions, 5);
         assert_eq!(stats.average_execution_time, Duration::from_millis(250));
     }
-    
+
     #[tokio::test]
     async fn test_experimental_pipeline_execution() {
         let config = DomainAdapterConfig {
@@ -638,20 +641,23 @@ mod tests {
             parameters: HashMap::new(),
             feature_flags: HashMap::new(),
         };
-        
+
         let mut executor = DomainAdapterExecutor::new(config);
         let request = "test request";
-        
+
         // Test that pipeline execution completes without error
         let result = executor.execute_pipeline(request).await;
         assert!(result.is_ok());
-        
+
         // Check that statistics were updated
         assert_eq!(executor.statistics.total_executions, 1);
         assert_eq!(executor.statistics.successful_executions, 1);
-        assert!(matches!(executor.pipeline.status, PipelineStatus::Completed));
+        assert!(matches!(
+            executor.pipeline.status,
+            PipelineStatus::Completed
+        ));
     }
-    
+
     #[tokio::test]
     async fn test_experimental_request_handling() {
         let config = DomainAdapterConfig {
@@ -662,22 +668,22 @@ mod tests {
             parameters: HashMap::new(),
             feature_flags: HashMap::new(),
         };
-        
+
         let mut handler = DomainAdapterHandler::new(config);
         let request = "test request";
-        
+
         // Test that request handling completes without error
         let result = handler.handle_request(request).await;
         assert!(result.is_ok());
-        
+
         // Check that cache was populated
         assert_eq!(handler.request_cache.len(), 1);
-        
+
         // Test cache hit
         let result2 = handler.handle_request(request).await;
         assert!(result2.is_ok());
     }
-    
+
     #[test]
     fn test_experimental_cache_statistics() {
         let stats = CacheStatistics {
@@ -686,7 +692,7 @@ mod tests {
             cache_misses: 20,
             average_response_time: Duration::from_millis(150),
         };
-        
+
         assert_eq!(stats.total_requests, 50);
         assert_eq!(stats.cache_hits, 30);
         assert_eq!(stats.cache_misses, 20);

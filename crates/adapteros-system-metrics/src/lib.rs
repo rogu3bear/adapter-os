@@ -37,10 +37,11 @@ pub use anomaly::{AnomalyConfig, AnomalyDetector};
 pub use baselines::{BaselineConfig, BaselineService};
 pub use dashboard::{DashboardConfig, DashboardService};
 pub use monitoring_types::{
-    CreateHealthMetricRequest, CreateMonitoringRuleRequest, MetricFilters, DashboardData, WidgetData,
-    ProcessHealthMetric, ProcessMonitoringRule, AlertFilters, AlertSeverity, AlertStatus,
-    AnomalyFilters, AnomalyStatus, BaselineType, PerformanceBaseline, ProcessAlert, ProcessAnomaly,
-    AlertResponse, AnomalyResponse, BaselineResponse, MonitoringRuleResponse,
+    AlertFilters, AlertResponse, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyResponse,
+    AnomalyStatus, BaselineResponse, BaselineType, CreateHealthMetricRequest,
+    CreateMonitoringRuleRequest, DashboardData, MetricFilters, MonitoringRuleResponse,
+    PerformanceBaseline, ProcessAlert, ProcessAnomaly, ProcessHealthMetric, ProcessMonitoringRule,
+    WidgetData,
 };
 pub use notifications::{NotificationConfig, NotificationSenderImpl, NotificationService};
 pub use persistence::{MetricsPersistenceService, PersistenceConfig};

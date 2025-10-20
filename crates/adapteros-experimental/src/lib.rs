@@ -68,7 +68,7 @@
 // ============================================================================
 
 /// Experimental AOS CLI features
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: adapteros-cli
@@ -78,7 +78,7 @@
 pub mod aos_cli;
 
 /// Experimental error recovery features
-/// 
+///
 /// # Status: 🚧 In Development  
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -88,7 +88,7 @@ pub mod aos_cli;
 pub mod error_recovery;
 
 /// Experimental migration conflict resolution
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable  
 /// # Dependencies: adapteros-db
@@ -98,10 +98,10 @@ pub mod error_recovery;
 pub mod migration_conflicts;
 
 /// Experimental domain adapter features
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
-/// # Dependencies: adapteros-server-api-types
+/// # Dependencies: adapteros-api-types
 /// # Last Updated: 2025-01-15
 /// # Known Issues: Merge conflicts, incomplete implementation
 #[cfg(feature = "domain-adapters")]
@@ -168,12 +168,12 @@ impl ExperimentalRegistry {
         let mut registry = Self {
             features: HashMap::new(),
         };
-        
+
         // Register all experimental features
         registry.register_features();
         registry
     }
-    
+
     /// Register all experimental features
     fn register_features(&mut self) {
         // AOS CLI experimental features
@@ -189,7 +189,7 @@ impl ExperimentalRegistry {
             ],
             description: "AOS CLI commands with incomplete implementations".to_string(),
         });
-        
+
         // Error recovery experimental features
         self.register_feature(ExperimentalFeature {
             name: "error-recovery".to_string(),
@@ -203,7 +203,7 @@ impl ExperimentalRegistry {
             ],
             description: "Error recovery with placeholder retry logic".to_string(),
         });
-        
+
         // Migration conflicts experimental features
         self.register_feature(ExperimentalFeature {
             name: "migration-conflicts".to_string(),
@@ -218,42 +218,43 @@ impl ExperimentalRegistry {
             ],
             description: "Migration conflict resolution with schema alignment issues".to_string(),
         });
-        
+
         // Domain adapters experimental features
         self.register_feature(ExperimentalFeature {
             name: "domain-adapters".to_string(),
             status: FeatureStatus::InDevelopment,
             stability: StabilityLevel::Unstable,
-            dependencies: vec!["adapteros-server-api-types".to_string()],
+            dependencies: vec!["adapteros-api-types".to_string()],
             last_updated: "2025-01-15".to_string(),
             known_issues: vec![
                 "Merge conflicts".to_string(),
                 "Incomplete implementation".to_string(),
             ],
-            description: "Domain adapter execution pipeline with incomplete implementation".to_string(),
+            description: "Domain adapter execution pipeline with incomplete implementation"
+                .to_string(),
         });
     }
-    
+
     /// Register a single experimental feature
     fn register_feature(&mut self, feature: ExperimentalFeature) {
         self.features.insert(feature.name.clone(), feature);
     }
-    
+
     /// Get feature metadata by name
     pub fn get_feature(&self, name: &str) -> Option<&ExperimentalFeature> {
         self.features.get(name)
     }
-    
+
     /// List all experimental features
     pub fn list_features(&self) -> Vec<&ExperimentalFeature> {
         self.features.values().collect()
     }
-    
+
     /// Check if a feature is experimental
     pub fn is_experimental(&self, name: &str) -> bool {
         self.features.contains_key(name)
     }
-    
+
     /// Get features by status
     pub fn get_features_by_status(&self, status: FeatureStatus) -> Vec<&ExperimentalFeature> {
         self.features
@@ -305,32 +306,32 @@ macro_rules! experimental_warning {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_experimental_registry() {
         let registry = ExperimentalRegistry::new();
-        
+
         // Test feature registration
         assert!(registry.is_experimental("aos-cli"));
         assert!(registry.is_experimental("error-recovery"));
         assert!(registry.is_experimental("migration-conflicts"));
         assert!(registry.is_experimental("domain-adapters"));
-        
+
         // Test feature metadata
         let aos_cli = registry.get_feature("aos-cli").unwrap();
         assert_eq!(aos_cli.name, "aos-cli");
         assert!(matches!(aos_cli.status, FeatureStatus::InDevelopment));
         assert!(matches!(aos_cli.stability, StabilityLevel::Unstable));
-        
+
         // Test feature listing
         let features = registry.list_features();
         assert_eq!(features.len(), 4);
-        
+
         // Test status filtering
         let in_development = registry.get_features_by_status(FeatureStatus::InDevelopment);
         assert_eq!(in_development.len(), 4);
     }
-    
+
     #[test]
     fn test_experimental_feature_serialization() {
         let feature = ExperimentalFeature {
@@ -342,11 +343,11 @@ mod tests {
             known_issues: vec!["test-issue".to_string()],
             description: "Test feature".to_string(),
         };
-        
+
         // Test serialization
         let json = serde_json::to_string(&feature).unwrap();
         assert!(json.contains("test-feature"));
-        
+
         // Test deserialization
         let deserialized: ExperimentalFeature = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, feature.name);

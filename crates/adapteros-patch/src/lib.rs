@@ -16,7 +16,7 @@
 pub mod patch;
 
 // Re-export patch types
-pub use patch::{Patch, PatchMetadata, PatchFile, PatchOperation};
+pub use patch::{Patch, PatchFile, PatchMetadata, PatchOperation};
 
 // Re-export commonly used types
 pub mod prelude {

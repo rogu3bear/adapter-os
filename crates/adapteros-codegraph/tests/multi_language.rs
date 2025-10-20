@@ -63,6 +63,10 @@ async fn test_language_detection() {
         Some(Language::JavaScript)
     );
     assert_eq!(detect_language(Path::new("test.go")), Some(Language::Go));
+    assert_eq!(
+        detect_language(Path::new("test.aos")),
+        Some(Language::AdapterOS)
+    );
     assert_eq!(detect_language(Path::new("test.txt")), None);
 }
 
@@ -84,10 +88,13 @@ async fn test_parser_factory() {
     let go_parser = ParserFactory::create_parser(Language::Go);
     assert!(go_parser.is_ok());
 
+    let adapter_parser = ParserFactory::create_parser(Language::AdapterOS);
+    assert!(adapter_parser.is_ok());
+
     // Test creating all parsers
     let all_parsers = ParserFactory::create_all_parsers();
     assert!(all_parsers.is_ok());
-    assert_eq!(all_parsers.unwrap().len(), 5);
+    assert_eq!(all_parsers.unwrap().len(), 6);
 }
 
 #[tokio::test]

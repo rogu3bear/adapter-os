@@ -19,9 +19,6 @@ documentation = "https://docs.rs/adapteros-experimental"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-adapteros-crypto = { path = "../adapteros-crypto" }
-adapteros-db = { path = "../adapteros-db" }
-adapteros-server-api-types = { path = "../adapteros-server-api-types" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -30,7 +27,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [features]
 default = []
-aos-cli = ["dep:adapteros-cli"]
+aos-cli = []
 error-recovery = []
 migration-conflicts = []
 domain-adapters = []

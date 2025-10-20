@@ -55,7 +55,7 @@ use std::path::Path;
 use tokio::fs;
 
 /// Experimental migration conflict resolver
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: adapteros-db, adapteros-policy
@@ -71,7 +71,7 @@ pub struct MigrationConflictResolver {
 }
 
 /// Experimental migration conflict
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -94,7 +94,7 @@ pub struct MigrationConflict {
 }
 
 /// Experimental conflict type
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -115,7 +115,7 @@ pub enum ConflictType {
 }
 
 /// Experimental resolution strategy
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -136,7 +136,7 @@ pub enum ResolutionStrategy {
 }
 
 /// Experimental conflict status
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -157,7 +157,7 @@ pub enum ConflictStatus {
 }
 
 /// Experimental schema validation
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -174,7 +174,7 @@ pub struct SchemaValidation {
 }
 
 /// Experimental validation result
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -193,7 +193,7 @@ pub struct ValidationResult {
 }
 
 /// Experimental validation type
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -214,7 +214,7 @@ pub enum ValidationType {
 }
 
 /// Experimental validation status
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -233,7 +233,7 @@ pub enum ValidationStatus {
 }
 
 /// Experimental schema difference
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -252,7 +252,7 @@ pub struct SchemaDifference {
 }
 
 /// Experimental difference type
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -277,7 +277,7 @@ pub enum DifferenceType {
 }
 
 /// Experimental difference severity
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -296,7 +296,7 @@ pub enum DifferenceSeverity {
 }
 
 /// Experimental migration plan
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -315,7 +315,7 @@ pub struct MigrationPlan {
 }
 
 /// Experimental migration step
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -336,7 +336,7 @@ pub struct MigrationStep {
 }
 
 /// Experimental step type
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -357,7 +357,7 @@ pub enum StepType {
 }
 
 /// Experimental step status
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -378,7 +378,7 @@ pub enum StepStatus {
 }
 
 /// Experimental risk assessment
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -395,7 +395,7 @@ pub struct RiskAssessment {
 }
 
 /// Experimental risk level
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -414,7 +414,7 @@ pub enum RiskLevel {
 }
 
 /// Experimental risk factor
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -433,7 +433,7 @@ pub struct RiskFactor {
 }
 
 /// Experimental rollback plan
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -450,7 +450,7 @@ pub struct RollbackPlan {
 }
 
 /// Experimental rollback step
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -469,7 +469,7 @@ pub struct RollbackStep {
 }
 
 /// Experimental rollback action
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -490,7 +490,7 @@ pub enum RollbackAction {
 }
 
 /// Experimental rollback trigger
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -507,7 +507,7 @@ pub struct RollbackTrigger {
 }
 
 /// Experimental backup strategy
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -524,7 +524,7 @@ pub struct BackupStrategy {
 }
 
 /// Experimental backup type
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: None
@@ -572,22 +572,25 @@ impl MigrationConflictResolver {
             },
         }
     }
-    
+
     /// Detect migration conflicts
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Migration analysis
     /// # Last Updated: 2025-01-15
     /// # Known Issues: Incomplete conflict detection
     pub async fn detect_conflicts(&mut self, migration_path: &Path) -> Result<()> {
-        println!("🚧 EXPERIMENTAL: Detecting migration conflicts in {:?}", migration_path);
-        
+        println!(
+            "🚧 EXPERIMENTAL: Detecting migration conflicts in {:?}",
+            migration_path
+        );
+
         // TODO: Implement actual conflict detection
         // TODO: Parse migration files
         // TODO: Analyze schema differences
         // TODO: Identify conflicts
-        
+
         // Placeholder implementation
         self.conflicts.push(MigrationConflict {
             id: "conflict-001".to_string(),
@@ -597,12 +600,12 @@ impl MigrationConflictResolver {
             resolution_strategy: ResolutionStrategy::RenameMigration,
             status: ConflictStatus::Detected,
         });
-        
+
         Ok(())
     }
-    
+
     /// Resolve migration conflicts
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Conflict resolution logic
@@ -610,37 +613,52 @@ impl MigrationConflictResolver {
     /// # Known Issues: Incomplete conflict resolution
     pub async fn resolve_conflicts(&mut self) -> Result<()> {
         println!("🚧 EXPERIMENTAL: Resolving migration conflicts");
-        
+
         for conflict in &mut self.conflicts {
             match conflict.resolution_strategy {
                 ResolutionStrategy::RenameMigration => {
-                    println!("🚧 EXPERIMENTAL: Renaming migration for conflict {}", conflict.id);
+                    println!(
+                        "🚧 EXPERIMENTAL: Renaming migration for conflict {}",
+                        conflict.id
+                    );
                     conflict.status = ConflictStatus::InProgress;
                 }
                 ResolutionStrategy::MergeSchema => {
-                    println!("🚧 EXPERIMENTAL: Merging schema for conflict {}", conflict.id);
+                    println!(
+                        "🚧 EXPERIMENTAL: Merging schema for conflict {}",
+                        conflict.id
+                    );
                     conflict.status = ConflictStatus::InProgress;
                 }
                 ResolutionStrategy::DropConstraints => {
-                    println!("🚧 EXPERIMENTAL: Dropping constraints for conflict {}", conflict.id);
+                    println!(
+                        "🚧 EXPERIMENTAL: Dropping constraints for conflict {}",
+                        conflict.id
+                    );
                     conflict.status = ConflictStatus::InProgress;
                 }
                 ResolutionStrategy::RecreateTables => {
-                    println!("🚧 EXPERIMENTAL: Recreating tables for conflict {}", conflict.id);
+                    println!(
+                        "🚧 EXPERIMENTAL: Recreating tables for conflict {}",
+                        conflict.id
+                    );
                     conflict.status = ConflictStatus::InProgress;
                 }
                 ResolutionStrategy::ManualResolution => {
-                    println!("🚧 EXPERIMENTAL: Manual resolution required for conflict {}", conflict.id);
+                    println!(
+                        "🚧 EXPERIMENTAL: Manual resolution required for conflict {}",
+                        conflict.id
+                    );
                     conflict.status = ConflictStatus::ManualRequired;
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate schema
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Schema validation logic
@@ -648,12 +666,12 @@ impl MigrationConflictResolver {
     /// # Known Issues: Incomplete schema validation
     pub async fn validate_schema(&mut self, schema_path: &Path) -> Result<()> {
         println!("🚧 EXPERIMENTAL: Validating schema in {:?}", schema_path);
-        
+
         // TODO: Implement actual schema validation
         // TODO: Parse schema files
         // TODO: Compare schemas
         // TODO: Identify differences
-        
+
         // Placeholder implementation
         self.schema_validation.results.push(ValidationResult {
             table_name: "plans".to_string(),
@@ -661,14 +679,14 @@ impl MigrationConflictResolver {
             status: ValidationStatus::Failed,
             error_message: Some("Missing cpid column".to_string()),
         });
-        
+
         self.schema_validation.status = ValidationStatus::Failed;
-        
+
         Ok(())
     }
-    
+
     /// Generate migration plan
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Migration planning logic
@@ -676,12 +694,12 @@ impl MigrationConflictResolver {
     /// # Known Issues: Incomplete migration planning
     pub async fn generate_migration_plan(&mut self) -> Result<()> {
         println!("🚧 EXPERIMENTAL: Generating migration plan");
-        
+
         // TODO: Implement actual migration planning
         // TODO: Analyze conflicts
         // TODO: Generate steps
         // TODO: Assess risks
-        
+
         // Placeholder implementation
         self.migration_plan.steps.push(MigrationStep {
             id: "step-001".to_string(),
@@ -690,15 +708,15 @@ impl MigrationConflictResolver {
             dependencies: vec![],
             status: StepStatus::Pending,
         });
-        
+
         self.migration_plan.estimated_duration = "30 minutes".to_string();
         self.migration_plan.risk_assessment.overall_risk = RiskLevel::Medium;
-        
+
         Ok(())
     }
-    
+
     /// Get conflict summary
-    /// 
+    ///
     /// # Status: 🚧 In Development
     /// # Stability: Unstable
     /// # Dependencies: Conflict analysis
@@ -707,9 +725,21 @@ impl MigrationConflictResolver {
     pub fn get_conflict_summary(&self) -> ConflictSummary {
         ConflictSummary {
             total_conflicts: self.conflicts.len(),
-            resolved_conflicts: self.conflicts.iter().filter(|c| matches!(c.status, ConflictStatus::Resolved)).count(),
-            pending_conflicts: self.conflicts.iter().filter(|c| matches!(c.status, ConflictStatus::Detected)).count(),
-            manual_conflicts: self.conflicts.iter().filter(|c| matches!(c.status, ConflictStatus::ManualRequired)).count(),
+            resolved_conflicts: self
+                .conflicts
+                .iter()
+                .filter(|c| matches!(c.status, ConflictStatus::Resolved))
+                .count(),
+            pending_conflicts: self
+                .conflicts
+                .iter()
+                .filter(|c| matches!(c.status, ConflictStatus::Detected))
+                .count(),
+            manual_conflicts: self
+                .conflicts
+                .iter()
+                .filter(|c| matches!(c.status, ConflictStatus::ManualRequired))
+                .count(),
         }
     }
 }
@@ -721,7 +751,7 @@ impl Default for MigrationConflictResolver {
 }
 
 /// Experimental conflict summary
-/// 
+///
 /// # Status: 🚧 In Development
 /// # Stability: Unstable
 /// # Dependencies: serde
@@ -746,14 +776,17 @@ pub struct ConflictSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_experimental_migration_conflict_resolver_creation() {
         let resolver = MigrationConflictResolver::new();
         assert_eq!(resolver.conflicts.len(), 0);
-        assert!(matches!(resolver.schema_validation.status, ValidationStatus::Passed));
+        assert!(matches!(
+            resolver.schema_validation.status,
+            ValidationStatus::Passed
+        ));
     }
-    
+
     #[test]
     fn test_experimental_migration_conflict_creation() {
         let conflict = MigrationConflict {
@@ -764,12 +797,15 @@ mod tests {
             resolution_strategy: ResolutionStrategy::RenameMigration,
             status: ConflictStatus::Detected,
         };
-        
+
         assert_eq!(conflict.id, "test-conflict");
-        assert!(matches!(conflict.conflict_type, ConflictType::DuplicateMigration));
+        assert!(matches!(
+            conflict.conflict_type,
+            ConflictType::DuplicateMigration
+        ));
         assert!(matches!(conflict.status, ConflictStatus::Detected));
     }
-    
+
     #[test]
     fn test_experimental_schema_validation() {
         let validation = SchemaValidation {
@@ -782,11 +818,11 @@ mod tests {
             differences: vec![],
             status: ValidationStatus::Failed,
         };
-        
+
         assert_eq!(validation.results.len(), 1);
         assert!(matches!(validation.status, ValidationStatus::Failed));
     }
-    
+
     #[test]
     fn test_experimental_migration_plan() {
         let plan = MigrationPlan {
@@ -813,12 +849,12 @@ mod tests {
                 },
             },
         };
-        
+
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.estimated_duration, "10 minutes");
         assert!(matches!(plan.risk_assessment.overall_risk, RiskLevel::Low));
     }
-    
+
     #[test]
     fn test_experimental_conflict_summary() {
         let summary = ConflictSummary {
@@ -827,27 +863,27 @@ mod tests {
             pending_conflicts: 2,
             manual_conflicts: 1,
         };
-        
+
         assert_eq!(summary.total_conflicts, 5);
         assert_eq!(summary.resolved_conflicts, 2);
         assert_eq!(summary.pending_conflicts, 2);
         assert_eq!(summary.manual_conflicts, 1);
     }
-    
+
     #[tokio::test]
     async fn test_experimental_conflict_detection() {
         let mut resolver = MigrationConflictResolver::new();
         let path = Path::new("/tmp/test");
-        
+
         // Test that conflict detection completes without error
         assert!(resolver.detect_conflicts(path).await.is_ok());
         assert_eq!(resolver.conflicts.len(), 1);
     }
-    
+
     #[tokio::test]
     async fn test_experimental_conflict_resolution() {
         let mut resolver = MigrationConflictResolver::new();
-        
+
         // Add a test conflict
         resolver.conflicts.push(MigrationConflict {
             id: "test-conflict".to_string(),
@@ -857,29 +893,35 @@ mod tests {
             resolution_strategy: ResolutionStrategy::RenameMigration,
             status: ConflictStatus::Detected,
         });
-        
+
         // Test that conflict resolution completes without error
         assert!(resolver.resolve_conflicts().await.is_ok());
-        
+
         // Check that conflict status was updated
-        assert!(matches!(resolver.conflicts[0].status, ConflictStatus::InProgress));
+        assert!(matches!(
+            resolver.conflicts[0].status,
+            ConflictStatus::InProgress
+        ));
     }
-    
+
     #[tokio::test]
     async fn test_experimental_schema_validation() {
         let mut resolver = MigrationConflictResolver::new();
         let path = Path::new("/tmp/test");
-        
+
         // Test that schema validation completes without error
         assert!(resolver.validate_schema(path).await.is_ok());
         assert_eq!(resolver.schema_validation.results.len(), 1);
-        assert!(matches!(resolver.schema_validation.status, ValidationStatus::Failed));
+        assert!(matches!(
+            resolver.schema_validation.status,
+            ValidationStatus::Failed
+        ));
     }
-    
+
     #[tokio::test]
     async fn test_experimental_migration_plan_generation() {
         let mut resolver = MigrationConflictResolver::new();
-        
+
         // Test that migration plan generation completes without error
         assert!(resolver.generate_migration_plan().await.is_ok());
         assert_eq!(resolver.migration_plan.steps.len(), 1);

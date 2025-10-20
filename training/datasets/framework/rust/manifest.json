@@ -1,0 +1,44 @@
+{
+  "name": "rust_framework_v1",
+  "description": "Rust ecosystem adapter for idiomatic Rust code generation, error handling, and async patterns",
+  "version": "1.0.0",
+  "category": "framework",
+  "scope": "global",
+  "tier": "persistent",
+  "rank": 12,
+  "alpha": 24.0,
+  "framework_id": "rust",
+  "framework_version": "1.70+",
+  "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+  "entries": [
+    {
+      "path": "rust-positive-examples.positive.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "Rust idioms: ownership, borrowing, error handling, async/await"
+    },
+    {
+      "path": "rust-negative-examples.negative.jsonl",
+      "format": "jsonl",
+      "weight": -1.0,
+      "role": "negative",
+      "notes": "Anti-patterns: memory leaks, unsafe misuse, panic in libraries"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#five-tier-adapter-hierarchy"
+    ],
+    "created_by": "framework-dataset-scaffolding",
+    "created_at": "2025-01-15T00:00:00Z",
+    "last_reviewed_at": "2025-01-15T00:00:00Z",
+    "review_notes": "Initial Rust framework dataset for Layer 3 adapters"
+  },
+  "evaluation_gates": [
+    "Cargo check pass rate ≥ 90%",
+    "Clippy warning reduction ≥ 25%",
+    "No unsafe block misuse",
+    "Proper error propagation patterns"
+  ]
+}

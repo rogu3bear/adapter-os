@@ -1,0 +1,5 @@
+{"input": [151, 152, 153], "target": [154, 155, 156], "metadata": {"pattern": "any_type"}, "weight": -1.0}
+{"input": [157, 158, 159], "target": [160, 161, 162], "metadata": {"pattern": "unhandled_promises"}, "weight": -1.0}
+{"input": [163, 164, 165], "target": [166, 167, 168], "metadata": {"pattern": "memory_leaks"}, "weight": -1.0}
+{"input": [169, 170, 171], "target": [172, 173, 174], "metadata": {"pattern": "var_declarations"}, "weight": -1.0}
+{"input": [175, 176, 177], "target": [178, 179, 180], "metadata": {"pattern": "implicit_any"}, "weight": -1.0}

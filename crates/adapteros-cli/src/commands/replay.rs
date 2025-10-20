@@ -35,8 +35,15 @@ pub async fn run(bundle: &Path, verbose: bool, output: &OutputWriter) -> Result<
             "is_complete": stats.is_complete,
             "current_step": stats.current_step,
         });
-        let outcome = if stats.is_complete { "complete" } else { "incomplete" };
-        output.json(&ReplayOutcome { outcome, stats: stats_json })?;
+        let outcome = if stats.is_complete {
+            "complete"
+        } else {
+            "incomplete"
+        };
+        output.json(&ReplayOutcome {
+            outcome,
+            stats: stats_json,
+        })?;
         if !stats.is_complete {
             anyhow::bail!("replay incomplete");
         }
@@ -56,7 +63,10 @@ pub async fn run(bundle: &Path, verbose: bool, output: &OutputWriter) -> Result<
         output.warning("Replay incomplete");
         output.kv(
             "Verified",
-            &format!("{} of {} operations", stats.verified_ops, stats.total_events),
+            &format!(
+                "{} of {} operations",
+                stats.verified_ops, stats.total_events
+            ),
         );
     }
 

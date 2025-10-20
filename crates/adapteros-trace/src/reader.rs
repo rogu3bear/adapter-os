@@ -32,20 +32,20 @@ impl TraceReader {
         let file = File::open(path_ref).map_err(|e| {
             AosError::Telemetry(format!(
                 "Failed to open trace file {}: {}",
-                path_ref.display(), e
+                path_ref.display(),
+                e
             ))
         })?;
 
         // If this looks like a zstd-compressed file, transparently decode
         let reader: Box<dyn Read> = match path_ref.extension().and_then(|s| s.to_str()) {
-            Some("zst") | Some("zstd") => {
-                Box::new(zstd::Decoder::new(file).map_err(|e| {
-                    AosError::Telemetry(format!(
-                        "Failed to open zstd decoder for {}: {}",
-                        path_ref.display(), e
-                    ))
-                })?)
-            }
+            Some("zst") | Some("zstd") => Box::new(zstd::Decoder::new(file).map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to open zstd decoder for {}: {}",
+                    path_ref.display(),
+                    e
+                ))
+            })?),
             _ => Box::new(file),
         };
 
@@ -184,7 +184,9 @@ impl TraceReader {
                     }
 
                     // Trim trailing CR/LF
-                    while matches!(buf.last(), Some(b'\n' | b'\r')) { buf.pop(); }
+                    while matches!(buf.last(), Some(b'\n' | b'\r')) {
+                        buf.pop();
+                    }
                     if buf.is_empty() {
                         self.stats.skipped_lines += 1;
                         continue;
@@ -213,10 +215,8 @@ impl TraceReader {
                     };
 
                     if self.verify_hash && !event.verify_hash() {
-                        let msg = format!(
-                            "Event hash verification failed at line {}",
-                            self.line_no
-                        );
+                        let msg =
+                            format!("Event hash verification failed at line {}", self.line_no);
                         if self.tolerant {
                             self.stats.errors += 1;
                             tracing::warn!("{}", msg);
@@ -258,10 +258,17 @@ impl TraceReader {
     }
 
     /// Return accumulated read statistics
-    pub fn stats(&self) -> &TraceReadStats { &self.stats }
+    pub fn stats(&self) -> &TraceReadStats {
+        &self.stats
+    }
 
     /// Follow (tail) the file, polling for new events. Stops when `should_stop` returns true.
-    pub fn follow_until<F, S>(&mut self, poll: Duration, mut on_event: F, mut should_stop: S) -> Result<()>
+    pub fn follow_until<F, S>(
+        &mut self,
+        poll: Duration,
+        mut on_event: F,
+        mut should_stop: S,
+    ) -> Result<()>
     where
         F: FnMut(Event),
         S: FnMut() -> bool,
@@ -270,7 +277,9 @@ impl TraceReader {
             match self.read_next_event()? {
                 Some(ev) => on_event(ev),
                 None => {
-                    if should_stop() { break; }
+                    if should_stop() {
+                        break;
+                    }
                     std::thread::sleep(poll);
                 }
             }
@@ -342,7 +351,9 @@ pub fn read_trace_header<P: AsRef<Path>>(path: P) -> Result<crate::schema::Event
     while let Some(ev) = reader.read_next_event()? {
         return Ok(ev.metadata);
     }
-    Err(AosError::Telemetry("No events found in trace file".to_string()))
+    Err(AosError::Telemetry(
+        "No events found in trace file".to_string(),
+    ))
 }
 
 /// Reader statistics for observability and guard enforcement
@@ -434,7 +445,8 @@ mod tests {
             custom: HashMap::new(),
         };
 
-        let logical_timestamp = LogicalTimestamp::new(0, 0, None, adapteros_core::B3Hash::hash(b"test"));
+        let logical_timestamp =
+            LogicalTimestamp::new(0, 0, None, adapteros_core::B3Hash::hash(b"test"));
         let event = crate::schema::Event::new(
             1,
             "test_op".to_string(),
@@ -506,8 +518,11 @@ mod tests {
         use std::io::Write;
         // Create an invalid trace: valid JSON line then invalid line
         let mut buf: Vec<u8> = Vec::new();
-        buf.write_all(br#"{"a":1}
-{"#).unwrap();
+        buf.write_all(
+            br#"{"a":1}
+{"#,
+        )
+        .unwrap();
         let mut reader = TraceReader::from_reader(&buf[..]);
         // First event (ignore result)
         let _ = reader.read_next_event();

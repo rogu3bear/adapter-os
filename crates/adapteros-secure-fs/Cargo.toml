@@ -1,0 +1,18 @@
+[package]
+name = "adapteros-secure-fs"
+version = "0.1.0"
+edition = "2021"
+authors = ["AdapterOS Team"]
+description = "Secure filesystem operations with cap-std integration for AdapterOS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+cap-std = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+regex = "1.0"
+tempfile = "3.8"
+
+[dev-dependencies]
+tokio-test = "0.4"

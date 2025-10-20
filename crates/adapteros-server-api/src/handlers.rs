@@ -57,7 +57,10 @@ async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
             .config
             .read()
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        (cfg_guard.golden_gate.clone(), cfg_guard.bundles_root.clone())
+        (
+            cfg_guard.golden_gate.clone(),
+            cfg_guard.bundles_root.clone(),
+        )
     };
 
     let gg = match gg_opt {
@@ -75,8 +78,7 @@ async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
     let bundle_path = if let Some(p) = &gg.bundle_path {
         std::path::PathBuf::from(p)
     } else {
-        newest_ndjson(&bundles_root)
-            .context("no .ndjson bundles found under bundles_root")?
+        newest_ndjson(&bundles_root).context("no .ndjson bundles found under bundles_root")?
     };
 
     if !bundle_path.exists() {

@@ -534,9 +534,14 @@ mod tests {
         let outputs = HashMap::new();
         let timestamp = LogicalTimestamp::new(0, 0, None, B3Hash::hash(b"test"));
 
-        let node =
-            OperationNode::new("op1".to_string(), "test".to_string(), inputs, outputs, timestamp)
-                .unwrap();
+        let node = OperationNode::new(
+            "op1".to_string(),
+            "test".to_string(),
+            inputs,
+            outputs,
+            timestamp,
+        )
+        .unwrap();
 
         assert_eq!(node.op_id, "op1");
         assert_eq!(node.event_type, "test");
@@ -679,4 +684,3 @@ mod tests {
         assert_eq!(stats.avg_dependencies, 0.8); // (0+1+1+1+1) / 5 = 0.8
     }
 }
-

@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible problem
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, complete, and verifiable example
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Environment
+      description: OS, Rust version, hardware (if relevant)
+  - type: textarea
+    attributes:
+      label: Logs
+      description: Attach any relevant logs
+

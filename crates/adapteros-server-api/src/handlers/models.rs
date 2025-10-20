@@ -197,9 +197,7 @@ pub async fn load_model(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED"),
-            ),
+            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
         ));
     }
 
@@ -320,9 +318,7 @@ pub async fn unload_model(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED"),
-            ),
+            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
         ));
     }
 
@@ -489,11 +485,7 @@ pub async fn get_cursor_config(
     let (model_id, model_name, is_ready) = if let Some(row) = status {
         (row.model_id, row.model_name, row.status == "loaded")
     } else {
-        (
-            "unknown".to_string(),
-            "no-model".to_string(),
-            false,
-        )
+        ("unknown".to_string(), "no-model".to_string(), false)
     };
 
     let api_endpoint = "http://127.0.0.1:8080/api/v1/chat/completions".to_string();
@@ -589,4 +581,3 @@ mod tests {
         assert_eq!(config.setup_instructions.len(), 1);
     }
 }
-

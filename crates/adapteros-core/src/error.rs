@@ -143,6 +143,24 @@ pub enum AosError {
     #[error("Training error: {0}")]
     Training(String),
 
+    #[error("Storage error: {0}")]
+    Storage(String),
+
+    #[error("Security error: {0}")]
+    Security(String),
+
+    #[error("Concurrency error: {0}")]
+    Concurrency(String),
+
+    #[error("Platform error: {0}")]
+    Platform(String),
+
+    #[error("Recovery error: {0}")]
+    Recovery(String),
+
+    #[error("Retry error: {0}")]
+    Retry(String),
+
     #[error("Autograd error: {0}")]
     Autograd(String),
 

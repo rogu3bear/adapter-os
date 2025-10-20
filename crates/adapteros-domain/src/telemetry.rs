@@ -438,9 +438,9 @@ impl DomainAdapter for TelemetryAdapter {
         };
 
         let logical_timestamp = LogicalTimestamp::new(
-            tick_id,                       // global_tick
-            0,                             // op_tick
-            None,                          // token_position
+            tick_id,                                                 // global_tick
+            0,                                                       // op_tick
+            None,                                                    // token_position
             B3Hash::hash(format!("telemetry_{}", op_id).as_bytes()), // derivation_hash
         );
 

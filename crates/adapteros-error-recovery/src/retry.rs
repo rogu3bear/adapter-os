@@ -47,20 +47,28 @@ impl RetryManager {
             return Ok(RecoveryResult::Failed);
         }
 
-        let operation_id = format!("retry_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos());
+        let operation_id = format!(
+            "retry_{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         let path_str = path.to_string_lossy().to_string();
 
         // Get or create retry record
-        let mut record = self.retry_history.get(&operation_id).cloned().unwrap_or_else(|| {
-            RetryRecord {
+        let mut record = self
+            .retry_history
+            .get(&operation_id)
+            .cloned()
+            .unwrap_or_else(|| RetryRecord {
                 operation_id: operation_id.clone(),
                 path: path_str.clone(),
                 retry_count: 0,
                 last_retry_time: SystemTime::now(),
                 total_duration: Duration::ZERO,
                 success: false,
-            }
-        });
+            });
 
         // Check if we've exceeded max retry attempts
         if record.retry_count >= self.config.max_retry_attempts {
@@ -88,11 +96,20 @@ impl RetryManager {
 
         match result {
             Ok(_) => {
-                info!("Retry successful for {} after {} attempts", path.display(), record.retry_count);
+                info!(
+                    "Retry successful for {} after {} attempts",
+                    path.display(),
+                    record.retry_count
+                );
                 Ok(RecoveryResult::Success)
             }
             Err(e) => {
-                warn!("Retry failed for {} after {} attempts: {}", path.display(), record.retry_count, e);
+                warn!(
+                    "Retry failed for {} after {} attempts: {}",
+                    path.display(),
+                    record.retry_count,
+                    e
+                );
                 Ok(RecoveryResult::Failed)
             }
         }
@@ -102,11 +119,12 @@ impl RetryManager {
     async fn perform_retry_operation(&self, path: &Path) -> Result<()> {
         // This is a placeholder for the actual retry logic
         // In a real implementation, this would retry the specific operation that failed
-        
+
         // For now, we'll just check if the path exists and is accessible
         if path.exists() {
             // Try to read metadata to verify accessibility
-            tokio::fs::metadata(path).await
+            tokio::fs::metadata(path)
+                .await
                 .map_err(|e| AosError::Recovery(format!("Path not accessible: {}", e)))?;
             Ok(())
         } else {
@@ -118,20 +136,24 @@ impl RetryManager {
     fn calculate_retry_delay(&self, retry_count: u32) -> Duration {
         let base_delay = self.config.retry_delay;
         let multiplier = self.config.backoff_multiplier;
-        
+
         let delay_ms = base_delay.as_millis() as f64 * multiplier.powi(retry_count as i32);
         let delay_ms = delay_ms.min(self.config.max_retry_delay.as_millis() as f64) as u64;
-        
+
         Duration::from_millis(delay_ms)
     }
 
     /// Get retry statistics
     pub fn get_retry_statistics(&self) -> RetryStatistics {
         let total_retries = self.retry_history.len();
-        let successful_retries = self.retry_history.values()
+        let successful_retries = self
+            .retry_history
+            .values()
             .filter(|record| record.success)
             .count();
-        let failed_retries = self.retry_history.values()
+        let failed_retries = self
+            .retry_history
+            .values()
             .filter(|record| !record.success)
             .count();
 
@@ -189,9 +211,7 @@ where
     let mut delay = base_delay;
 
     while attempt < max_attempts {
-        let result = timeout(timeout_duration, async {
-            operation()
-        }).await;
+        let result = timeout(timeout_duration, async { operation() }).await;
 
         match result {
             Ok(Ok(value)) => return Ok(value),
@@ -200,10 +220,13 @@ where
                 if attempt >= max_attempts {
                     return Err(e);
                 }
-                
-                warn!("Retry attempt {} failed: {}, retrying in {:?}", attempt, e, delay);
+
+                warn!(
+                    "Retry attempt {} failed: {}, retrying in {:?}",
+                    attempt, e, delay
+                );
                 sleep(delay).await;
-                
+
                 // Exponential backoff
                 delay = std::cmp::min(delay * 2, max_delay);
             }
@@ -212,17 +235,22 @@ where
                 if attempt >= max_attempts {
                     return Err(AosError::Timeout("Operation timed out".to_string()));
                 }
-                
-                warn!("Retry attempt {} timed out, retrying in {:?}", attempt, delay);
+
+                warn!(
+                    "Retry attempt {} timed out, retrying in {:?}",
+                    attempt, delay
+                );
                 sleep(delay).await;
-                
+
                 // Exponential backoff
                 delay = std::cmp::min(delay * 2, max_delay);
             }
         }
     }
 
-    Err(AosError::Retry("Maximum retry attempts exceeded".to_string()))
+    Err(AosError::Retry(
+        "Maximum retry attempts exceeded".to_string(),
+    ))
 }
 
 /// Retry operation with custom error handling
@@ -246,26 +274,33 @@ where
             Ok(value) => return Ok(value),
             Err(e) => {
                 attempt += 1;
-                
+
                 // Check if we should retry based on error
                 if !error_handler(&e, attempt) {
                     return Err(AosError::Retry("Error handler prevented retry".to_string()));
                 }
-                
+
                 if attempt >= max_attempts {
-                    return Err(AosError::Retry("Maximum retry attempts exceeded".to_string()));
+                    return Err(AosError::Retry(
+                        "Maximum retry attempts exceeded".to_string(),
+                    ));
                 }
-                
-                warn!("Retry attempt {} failed: {:?}, retrying in {:?}", attempt, e, delay);
+
+                warn!(
+                    "Retry attempt {} failed: {:?}, retrying in {:?}",
+                    attempt, e, delay
+                );
                 sleep(delay).await;
-                
+
                 // Exponential backoff
                 delay = std::cmp::min(delay * 2, max_delay);
             }
         }
     }
 
-    Err(AosError::Retry("Maximum retry attempts exceeded".to_string()))
+    Err(AosError::Retry(
+        "Maximum retry attempts exceeded".to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -277,18 +312,18 @@ mod tests {
     async fn test_retry_manager() -> Result<()> {
         let config = ErrorRecoveryConfig::default();
         let manager = RetryManager::new(&config)?;
-        
+
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
-        
+
         // Test retry operation
         let result = manager.retry_operation(&test_file).await?;
         // Should fail because file doesn't exist
-        
+
         // Test statistics
         let stats = manager.get_retry_statistics();
         assert_eq!(stats.total_retries, 0);
-        
+
         Ok(())
     }
 
@@ -296,7 +331,7 @@ mod tests {
     async fn test_retry_with_timeout() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
-        
+
         // Test retry with timeout
         let result = retry_with_timeout(
             || {
@@ -310,11 +345,12 @@ mod tests {
             Duration::from_millis(10),
             Duration::from_millis(100),
             Duration::from_millis(50),
-        ).await;
-        
+        )
+        .await;
+
         // Should fail because file doesn't exist
         assert!(result.is_err());
-        
+
         Ok(())
     }
 
@@ -322,7 +358,7 @@ mod tests {
     async fn test_retry_with_error_handler() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
-        
+
         // Test retry with error handler
         let result = retry_with_error_handler(
             || {
@@ -336,11 +372,12 @@ mod tests {
             Duration::from_millis(10),
             Duration::from_millis(100),
             |_e, attempt| attempt < 2, // Only retry twice
-        ).await;
-        
+        )
+        .await;
+
         // Should fail because file doesn't exist
         assert!(result.is_err());
-        
+
         Ok(())
     }
 }

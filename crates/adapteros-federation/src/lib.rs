@@ -18,7 +18,9 @@
 //! - Telemetry Ruleset (#9): Signed bundle rotation
 //! - Artifacts Ruleset (#13): Signature verification gates
 
+pub mod aos_sync;
 pub mod attestation;
+pub mod client;
 pub mod output_hash;
 pub mod peer;
 pub mod signature;
@@ -513,6 +515,7 @@ trait Pipe: Sized {
 impl<T> Pipe for T {}
 
 // Re-export key types
+pub use aos_sync::{AosAnnouncement, AosSyncCoordinator, AosSyncMessage, AosSyncPeer, SyncResult, SyncStrategy};
 pub use attestation::{attest_bundle, verify_hardware_attestation, AttestationInfo};
 pub use output_hash::{ComparisonResult, OutputHashManager, OutputHashRecord};
 pub use peer::{AttestationMetadata, PeerInfo, PeerRegistry};
