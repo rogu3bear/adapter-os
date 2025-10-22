@@ -96,7 +96,7 @@ jobs:
           --results-dir=current_results
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results-${{ github.sha }}
         path: |
@@ -268,7 +268,7 @@ jobs:
           --no-fail-on-regression
 
     - name: Upload results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ondemand-benchmark-results
         path: ondemand_results/
