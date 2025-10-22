@@ -1,7 +1,7 @@
 //! Single-file adapter validator
 
-use super::format::*;
-use adapteros_core::{AosError, Result};
+use super::loader::SingleFileAdapterLoader;
+use adapteros_core::Result;
 use std::path::Path;
 
 /// Single-file adapter validator
@@ -46,7 +46,14 @@ impl SingleFileAdapterValidator {
                     errors.push("Version is empty".to_string());
                 }
 
-                if adapter.weights.is_empty() {
+                if adapter.weights.positive.lora_a.is_empty()
+                    && adapter
+                        .weights
+                        .combined
+                        .as_ref()
+                        .map(|g| g.lora_a.is_empty())
+                        .unwrap_or(true)
+                {
                     errors.push("Weights are empty".to_string());
                 }
 

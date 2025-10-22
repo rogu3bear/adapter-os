@@ -7,7 +7,7 @@ use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::fs;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, warn};
 
 /// Corruption detector
 pub struct CorruptionDetector {

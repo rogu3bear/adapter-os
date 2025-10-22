@@ -26,6 +26,7 @@ import {
 import apiClient from '../api/client';
 import { Plan, User, PlanComparisonResponse } from '../api/types';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 interface PlansProps {
   user: User;
@@ -49,7 +50,11 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       const data = await apiClient.listPlans();
       setPlans(data);
     } catch (err) {
-      console.error('Failed to fetch plans:', err);
+      logger.error('Failed to fetch plans', {
+        component: 'Plans',
+        operation: 'fetchPlans',
+        tenantId: selectedTenant,
+      }, toError(err));
       toast.error('Failed to load plans');
     } finally {
       setLoading(false);
@@ -66,7 +71,12 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       toast.success('Plan rebuild initiated');
       fetchPlans();
     } catch (err) {
-      console.error('Failed to rebuild plan:', err);
+      logger.error('Failed to rebuild plan', {
+        component: 'Plans',
+        operation: 'rebuildPlan',
+        planId,
+        tenantId: selectedTenant,
+      }, toError(err));
       toast.error('Failed to rebuild plan');
     }
   };
@@ -82,7 +92,11 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       URL.revokeObjectURL(url);
       toast.success('Manifest downloaded');
     } catch (err) {
-      console.error('Failed to export manifest:', err);
+      logger.error('Failed to export plan manifest', {
+        component: 'Plans',
+        operation: 'exportManifest',
+        planId,
+      }, toError(err));
       toast.error('Failed to export manifest');
     }
   };
@@ -101,7 +115,12 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       setCompareResult(result);
       toast.success('Plans compared successfully');
     } catch (err) {
-      console.error('Failed to compare plans:', err);
+      logger.error('Failed to compare plans', {
+        component: 'Plans',
+        operation: 'comparePlans',
+        planA: selectedPlan1,
+        planB: selectedPlan2,
+      }, toError(err));
       toast.error('Failed to compare plans');
     }
   };
@@ -112,7 +131,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `plan-compare-${compareResult.plan_id_1}-${compareResult.plan_id_2}.json`;
+    a.download = `plan-compare-${compareResult.plan_1}-${compareResult.plan_2}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -127,6 +146,11 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       fetchPlans();
     } catch (err) {
       toast.error('Failed to start plan build');
+      logger.error('Failed to start plan build', {
+        component: 'Plans',
+        operation: 'buildPlan',
+        tenantId: selectedTenant,
+      }, toError(err));
     }
   };
 
@@ -137,7 +161,11 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       setShowRollbackModal(false);
       fetchPlans();
     } catch (err) {
-      console.error('Failed to rollback:', err);
+      logger.error('Failed to rollback plan state', {
+        component: 'Plans',
+        operation: 'rollback',
+        tenantId: selectedTenant,
+      }, toError(err));
       toast.error('Failed to rollback');
     }
   };
@@ -287,7 +315,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
             </div>
             {compareResult && (
               <div className="border rounded p-3 text-sm">
-                <div>Identical: {compareResult.identical ? 'Yes' : 'No'}</div>
+                <div>Metallib Changed: {compareResult.metallib_hash_changed ? 'Yes' : 'No'}</div>
                 <div className="mt-2">
                   Differences:
                   <ul className="list-disc ml-5">

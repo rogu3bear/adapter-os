@@ -7,7 +7,7 @@ use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::fs;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, warn};
 
 /// Validation engine
 pub struct ValidationEngine {
@@ -26,6 +26,8 @@ pub struct ValidationResult {
     pub details: String,
     /// Validation errors
     pub errors: Vec<ValidationError>,
+    /// Last modified timestamp of validated path (if known)
+    pub last_modified: Option<SystemTime>,
 }
 
 /// Validation error
@@ -83,7 +85,7 @@ impl ValidationEngine {
     }
 
     /// Validate a file
-    pub async fn validate_file(&self, path: &Path) -> Result<bool> {
+    pub async fn validate_file(&mut self, path: &Path) -> Result<bool> {
         let result = self.validate_file_detailed(path).await?;
         Ok(result.is_valid)
     }
@@ -95,19 +97,29 @@ impl ValidationEngine {
     }
 
     /// Validate a file with detailed results
-    pub async fn validate_file_detailed(&self, path: &Path) -> Result<ValidationResult> {
+    pub async fn validate_file_detailed(&mut self, path: &Path) -> Result<ValidationResult> {
         // Check cache first
         if let Some(cached_result) = self.validation_cache.get(path) {
-            // Check if cache is still valid (e.g., not too old)
-            if cached_result.timestamp.elapsed().unwrap_or_default()
-                < std::time::Duration::from_secs(60)
-            {
+            let cache_fresh = cached_result.timestamp.elapsed().unwrap_or_default()
+                < std::time::Duration::from_secs(60);
+
+            let cache_matches_file = if let Some(last_modified) = cached_result.last_modified {
+                tokio::fs::metadata(path)
+                    .await
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|current| current == last_modified)
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if cache_fresh && cache_matches_file {
                 return Ok(cached_result.clone());
             }
         }
 
         let mut errors = Vec::new();
-        let mut details = String::new();
 
         // Check if file exists
         if !path.exists() {
@@ -121,6 +133,7 @@ impl ValidationEngine {
                 timestamp: SystemTime::now(),
                 details: "File not found".to_string(),
                 errors,
+                last_modified: None,
             });
         }
 
@@ -186,17 +199,23 @@ impl ValidationEngine {
                 .iter()
                 .all(|e| matches!(e.severity, ValidationSeverity::Low));
 
-        if !is_valid {
-            details = format!("Validation failed with {} errors", errors.len());
+        let details = if !is_valid {
+            format!("Validation failed with {} errors", errors.len())
         } else {
-            details = "Validation passed".to_string();
-        }
+            "Validation passed".to_string()
+        };
+
+        let last_modified = tokio::fs::metadata(path)
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok());
 
         let result = ValidationResult {
             is_valid,
             timestamp: SystemTime::now(),
             details,
             errors,
+            last_modified,
         };
 
         // Cache the result
@@ -219,7 +238,6 @@ impl ValidationEngine {
     /// Validate a directory with detailed results
     pub async fn validate_directory_detailed(&self, path: &Path) -> Result<ValidationResult> {
         let mut errors = Vec::new();
-        let mut details = String::new();
 
         // Check if directory exists
         if !path.exists() {
@@ -233,6 +251,7 @@ impl ValidationEngine {
                 timestamp: SystemTime::now(),
                 details: "Directory not found".to_string(),
                 errors,
+                last_modified: None,
             });
         }
 
@@ -274,17 +293,23 @@ impl ValidationEngine {
                 .iter()
                 .all(|e| matches!(e.severity, ValidationSeverity::Low));
 
-        if !is_valid {
-            details = format!("Validation failed with {} errors", errors.len());
+        let details = if !is_valid {
+            format!("Validation failed with {} errors", errors.len())
         } else {
-            details = "Validation passed".to_string();
-        }
+            "Validation passed".to_string()
+        };
+
+        let last_modified = tokio::fs::metadata(path)
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok());
 
         let result = ValidationResult {
             is_valid,
             timestamp: SystemTime::now(),
             details,
             errors,
+            last_modified,
         };
 
         if is_valid {
@@ -302,7 +327,7 @@ impl ValidationEngine {
 
     /// Validate file permissions
     async fn validate_file_permissions(&self, path: &Path) -> Result<()> {
-        let metadata = fs::metadata(path)
+        let _metadata = fs::metadata(path)
             .await
             .map_err(|e| AosError::Validation(format!("Failed to get file metadata: {}", e)))?;
 
@@ -397,7 +422,7 @@ impl ValidationEngine {
 
     /// Validate directory permissions
     async fn validate_directory_permissions(&self, path: &Path) -> Result<()> {
-        let metadata = fs::metadata(path).await.map_err(|e| {
+        let _metadata = fs::metadata(path).await.map_err(|e| {
             AosError::Validation(format!("Failed to get directory metadata: {}", e))
         })?;
 
@@ -501,7 +526,7 @@ mod tests {
     #[tokio::test]
     async fn test_validation_engine() -> Result<()> {
         let config = ErrorRecoveryConfig::default();
-        let engine = ValidationEngine::new(&config)?;
+        let mut engine = ValidationEngine::new(&config)?;
 
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
@@ -521,7 +546,7 @@ mod tests {
     #[tokio::test]
     async fn test_file_validation() -> Result<()> {
         let config = ErrorRecoveryConfig::default();
-        let engine = ValidationEngine::new(&config)?;
+        let mut engine = ValidationEngine::new(&config)?;
 
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.json");

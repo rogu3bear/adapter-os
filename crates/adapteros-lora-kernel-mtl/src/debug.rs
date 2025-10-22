@@ -104,22 +104,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_debugger_disabled_by_default() {
-        // Ensure the environment variable is cleared before testing
+    fn test_debugger_env_toggle() {
         std::env::remove_var("AOS_DETERMINISTIC_DEBUG");
+        let disabled = KernelDebugger::from_env();
+        assert!(!disabled.is_enabled());
 
-        // Verify the environment variable is actually unset
-        assert!(std::env::var("AOS_DETERMINISTIC_DEBUG").is_err());
-
-        let debugger = KernelDebugger::from_env();
-        assert!(!debugger.is_enabled());
-    }
-
-    #[test]
-    fn test_debugger_enabled_from_env() {
         std::env::set_var("AOS_DETERMINISTIC_DEBUG", "1");
-        let debugger = KernelDebugger::from_env();
-        assert!(debugger.is_enabled());
+        let enabled = KernelDebugger::from_env();
+        assert!(enabled.is_enabled());
         std::env::remove_var("AOS_DETERMINISTIC_DEBUG");
     }
 

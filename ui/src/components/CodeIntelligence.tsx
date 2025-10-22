@@ -31,7 +31,7 @@ import { Repository, Commit, User, RepositoryReportResponse } from '../api/types
 import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
+import { logger, toError } from '../utils/logger';
 
 interface CodeIntelligenceProps {
   user: User;
@@ -48,7 +48,12 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [showTrainingDialog, setShowTrainingDialog] = useState(false);
-  const [selectedFolderPath, setSelectedFolderPath] = useState<string>('');
+
+  const handleTrainingStarted = (sessionId: string) => {
+    toast.success(`Adapter training started: ${sessionId}`);
+    setShowTrainingDialog(false);
+    fetchData();
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -61,7 +66,12 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       setCommits(commits.slice(0, 10)); // Latest 10 commits
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch code intelligence data';
-      console.error(errorMsg, err);
+      logger.error('Failed to fetch code intelligence data', {
+        component: 'CodeIntelligence',
+        operation: 'fetchData',
+        tenantId: selectedTenant,
+        errorMessage: errorMsg,
+      }, toError(err));
       toast.error(errorMsg);
     } finally {
       setLoading(false);
@@ -78,6 +88,12 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       toast.success('Repository scan triggered');
     } catch (err) {
       toast.error('Failed to trigger scan');
+      logger.error('Failed to trigger repository scan', {
+        component: 'CodeIntelligence',
+        operation: 'triggerScan',
+        repoId,
+        tenantId: selectedTenant,
+      }, toError(err));
     }
   };
 
@@ -89,7 +105,12 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       setShowReportModal(true);
     } catch (err) {
       toast.error('Failed to fetch repository report');
-      console.error(err);
+      logger.error('Failed to fetch repository report', {
+        component: 'CodeIntelligence',
+        operation: 'getRepositoryReport',
+        repoId: repo.id,
+        tenantId: selectedTenant,
+      }, toError(err));
     }
   };
 
@@ -103,67 +124,19 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       fetchData();
     } catch (err) {
       toast.error('Failed to unregister repository');
-      console.error(err);
+      logger.error('Failed to unregister repository', {
+        component: 'CodeIntelligence',
+        operation: 'unregisterRepository',
+        repoId: selectedRepo.id,
+        tenantId: selectedTenant,
+      }, toError(err));
     }
   };
 
   const handleFolderSelect = (folderPath: string, repoInfo: any) => {
-    setSelectedFolderPath(folderPath);
     setShowFolderPicker(false);
     setShowTrainingDialog(true);
     toast.success(`Selected repository: ${repoInfo.name}`);
-  };
-
-  const handleStartTraining = async (config: {
-    repositoryPath: string;
-    adapterName: string;
-    description: string;
-    trainingConfig: Record<string, string | number | boolean>;
-  }) => {
-    try {
-      // Replace: TODO: Implement actual training API call
-      logger.info('Starting adapter training', {
-        component: 'CodeIntelligence',
-        operation: 'startTraining',
-        repositoryPath: config.repositoryPath,
-        adapterName: config.adapterName,
-        tenantId: selectedTenant,
-        userId: user.id
-      });
-
-      // Call the training API
-      const trainingSession = await apiClient.startAdapterTraining({
-        repository_path: config.repositoryPath,
-        adapter_name: config.adapterName,
-        description: config.description,
-        training_config: config.trainingConfig,
-        tenant_id: selectedTenant
-      });
-
-      toast.success(`Adapter training started: ${trainingSession.session_id}`);
-      setShowTrainingDialog(false);
-      fetchData(); // Refresh to show new repository
-      
-      logger.info('Adapter training started successfully', {
-        component: 'CodeIntelligence',
-        operation: 'startTraining',
-        sessionId: trainingSession.session_id,
-        tenantId: selectedTenant,
-        userId: user.id
-      });
-      
-    } catch (err) {
-      toast.error('Failed to start training');
-      // Replace: console.error(err);
-      logger.error('Failed to start adapter training', {
-        component: 'CodeIntelligence',
-        operation: 'startTraining',
-        repositoryPath: config.repositoryPath,
-        adapterName: config.adapterName,
-        tenantId: selectedTenant,
-        userId: user.id
-      }, err instanceof Error ? err : new Error(String(err)));
-    }
   };
 
   if (loading) {
@@ -427,7 +400,10 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
             </DialogTitle>
           </DialogHeader>
           <CodeIntelligenceTraining
-            onConfigSelect={handleStartTraining}
+            tenantId={selectedTenant}
+            userId={user.id}
+            onTrainingStarted={handleTrainingStarted}
+            onCancel={() => setShowTrainingDialog(false)}
             initialConfig={{
               category: 'codebase',
               scope: 'repo',
@@ -436,7 +412,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
               epochs: 3,
               learning_rate: 0.001,
               batch_size: 32,
-              targets: ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
+              targets: ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'],
             }}
           />
         </DialogContent>

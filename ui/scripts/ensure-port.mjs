@@ -7,7 +7,11 @@ const DEFAULT_PORT = 3200;
 const modeArg = process.argv.find((arg) => arg.startsWith('--mode='));
 const mode = modeArg ? modeArg.split('=')[1] : (process.argv[2] ?? 'dev');
 const port = Number.parseInt(process.env.AOS_DEV_PORT ?? `${DEFAULT_PORT}`, 10);
-const testingMarker = process.env.AOS_PORT_TESTING_TAG ?? 'AOS_PORT_3200_TAG=testing';
+const testingMarkers = (process.env.AOS_PORT_TESTING_MARKERS ?? '--testing,AOS_PORT_3200_TAG=testing')
+  .split(',')
+  .map((m) => m.trim())
+  .filter(Boolean);
+const testingGraceMs = Number.parseInt(process.env.AOS_PORT_TESTING_GRACE ?? '4000', 10);
 const killTimeoutMs = Number.parseInt(process.env.AOS_PORT_KILL_TIMEOUT ?? '5000', 10);
 
 function getPortProcesses() {
@@ -32,12 +36,12 @@ function getPortProcesses() {
 }
 
 function describePid(pid) {
-  const result = spawnSync('ps', ['-p', pid, '-o', 'command='], { encoding: 'utf8' });
+  const result = spawnSync('ps', ['-p', pid, '-ww', '-o', 'command='], { encoding: 'utf8' });
   return (result.stdout ?? '').trim();
 }
 
-async function waitForExit(targetPids) {
-  const deadline = Date.now() + killTimeoutMs;
+async function waitForExit(targetPids, timeoutMs = killTimeoutMs) {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const remaining = getPortProcesses();
     if (!remaining.some((pid) => targetPids.includes(pid))) {
@@ -56,12 +60,32 @@ async function makeSurePortAvailable() {
 
   const processes = initialPids.map((pid) => {
     const command = describePid(pid);
-    const isTesting = command.includes(testingMarker) || /--testing\b/.test(command);
+    const isTesting = testingMarkers.some((marker) => command.includes(marker));
     return { pid, command, isTesting };
   });
 
-  const killTargets = processes.filter((proc) => mode === 'build' || !proc.isTesting);
-  const skipped = processes.filter((proc) => !killTargets.includes(proc));
+  const killTargets = [];
+  const testingHolders = [];
+
+  for (const proc of processes) {
+    if (proc.isTesting && mode === 'dev') {
+      testingHolders.push(proc);
+    } else {
+      killTargets.push(proc);
+    }
+  }
+
+  if (testingHolders.length) {
+    console.warn(`[ensure-port] Port ${port} held by testing process${testingHolders.length > 1 ? 'es' : ''}. Waiting up to ${testingGraceMs}ms for graceful exit...`);
+    testingHolders.forEach((proc) => console.warn(`  PID ${proc.pid}: ${proc.command}`));
+    const released = await waitForExit(testingHolders.map((proc) => proc.pid), testingGraceMs);
+    if (!released) {
+      console.warn('[ensure-port] Testing hold timed out; terminating to enforce port policy.');
+      killTargets.push(...testingHolders);
+    } else {
+      console.log('[ensure-port] Testing process released port.');
+    }
+  }
 
   if (killTargets.length) {
     for (const proc of killTargets) {
@@ -88,13 +112,6 @@ async function makeSurePortAvailable() {
       }
       await waitForExit(killTargets.map((proc) => proc.pid));
     }
-  }
-
-  if (mode === 'dev' && skipped.length) {
-    console.warn(`[ensure-port] Port ${port} reserved for testing by:`);
-    skipped.forEach((proc) => console.warn(`  PID ${proc.pid}: ${proc.command}`));
-    console.warn('[ensure-port] Dev server will not start until testing process releases the port.');
-    return 2;
   }
 
   const remaining = getPortProcesses();

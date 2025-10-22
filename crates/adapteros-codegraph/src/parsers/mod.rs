@@ -8,6 +8,7 @@ use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
+pub mod adapter;
 pub mod go;
 pub mod javascript;
 pub mod python;
@@ -47,6 +48,7 @@ impl ParserFactory {
             Language::TypeScript => Ok(Box::new(typescript::TypeScriptParser::new()?)),
             Language::JavaScript => Ok(Box::new(javascript::JavaScriptParser::new()?)),
             Language::Go => Ok(Box::new(go::GoParser::new()?)),
+            Language::AdapterOS => Ok(Box::new(adapter::AdapterParser::new()?)),
         }
     }
 
@@ -67,6 +69,7 @@ impl ParserFactory {
             Language::TypeScript,
             Language::JavaScript,
             Language::Go,
+            Language::AdapterOS,
         ] {
             parsers.insert(language.clone(), Self::create_parser(language)?);
         }
@@ -195,6 +198,7 @@ pub mod utils {
             Language::Python => parse_python_visibility(text),
             Language::TypeScript | Language::JavaScript => parse_js_visibility(text),
             Language::Go => parse_go_visibility(text),
+            Language::AdapterOS => Visibility::Public,
         }
     }
 
@@ -266,6 +270,10 @@ mod tests {
             Some(Language::JavaScript)
         );
         assert_eq!(detect_language(Path::new("test.go")), Some(Language::Go));
+        assert_eq!(
+            detect_language(Path::new("test.aos")),
+            Some(Language::AdapterOS)
+        );
         assert_eq!(detect_language(Path::new("test.txt")), None);
     }
 
@@ -277,9 +285,21 @@ mod tests {
         let python_parser = ParserFactory::create_parser(Language::Python);
         assert!(python_parser.is_ok());
 
+        let typescript_parser = ParserFactory::create_parser(Language::TypeScript);
+        assert!(typescript_parser.is_ok());
+
+        let javascript_parser = ParserFactory::create_parser(Language::JavaScript);
+        assert!(javascript_parser.is_ok());
+
+        let go_parser = ParserFactory::create_parser(Language::Go);
+        assert!(go_parser.is_ok());
+
+        let adapter_parser = ParserFactory::create_parser(Language::AdapterOS);
+        assert!(adapter_parser.is_ok());
+
         let all_parsers = ParserFactory::create_all_parsers();
         assert!(all_parsers.is_ok());
-        assert_eq!(all_parsers.unwrap().len(), 5);
+        assert_eq!(all_parsers.unwrap().len(), 6);
     }
 
     #[tokio::test]

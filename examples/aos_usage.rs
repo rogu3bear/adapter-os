@@ -75,6 +75,7 @@ async fn create_aos_adapter() -> Result<(), Box<dyn std::error::Error>> {
         batch_size: 8,
         epochs: 4,
         hidden_dim: 3584,
+        weight_group_config: WeightGroupConfig::default(),
     };
 
     // Create lineage info
@@ -192,6 +193,7 @@ async fn create_aos_with_lineage() -> Result<(), Box<dyn std::error::Error>> {
         batch_size: 8,
         epochs: 4,
         hidden_dim: 3584,
+        weight_group_config: WeightGroupConfig::default(),
     };
 
     // Create lineage with mutation history

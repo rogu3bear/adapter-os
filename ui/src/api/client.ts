@@ -8,7 +8,7 @@
 //! - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 
 import * as types from './types';
-import { logger } from '../utils/logger';
+import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
@@ -155,6 +155,10 @@ class ApiClient {
 
   async meta(): Promise<types.MetaResponse> {
     return this.request<types.MetaResponse>('/v1/meta');
+  }
+
+  async getMeta(): Promise<types.MetaResponse> {
+    return this.meta();
   }
 
   // Tenants
@@ -351,6 +355,11 @@ class ApiClient {
     return this.request<types.TelemetryBundle[]>('/v1/telemetry/bundles');
   }
 
+  async listContacts(tenantId: string): Promise<types.Contact[]> {
+    const params = new URLSearchParams({ tenant_id: tenantId });
+    return this.request<types.Contact[]>(`/v1/contacts?${params.toString()}`);
+  }
+
   // Golden baselines
   async listGoldenRuns(): Promise<string[]> {
     return this.request<string[]>('/v1/golden/runs');
@@ -359,6 +368,13 @@ class ApiClient {
   async getGoldenRun(name: string): Promise<types.GoldenRunSummary> {
     return this.request<types.GoldenRunSummary>(`/v1/golden/runs/${encodeURIComponent(name)}`);
     }
+
+  async compareGoldenRuns(runA: string, runB: string): Promise<types.GoldenCompareResult> {
+    return this.request<types.GoldenCompareResult>('/v1/golden/compare-runs', {
+      method: 'POST',
+      body: JSON.stringify({ run_a: runA, run_b: runB }),
+    });
+  }
 
   async goldenCompare(req: types.GoldenCompareRequest): Promise<types.VerificationReport> {
     return this.request<types.VerificationReport>('/v1/golden/compare', {
@@ -881,7 +897,7 @@ class ApiClient {
     repository_path: string;
     adapter_name: string;
     description: string;
-    training_config: Record<string, string | number | boolean>;
+    training_config: Record<string, unknown>;
     tenant_id: string;
   }): Promise<{ session_id: string; status: string; created_at: string }> {
     return this.request<{ session_id: string; status: string; created_at: string }>('/v1/training/sessions', {
@@ -1003,7 +1019,10 @@ class ApiClient {
         callback(data);
         reconnectAttempts = 0; // Reset on success
       } catch (error) {
-        console.error('SSE parse error:', error);
+        logger.error('Failed to parse metrics SSE payload', {
+          component: 'ApiClient',
+          operation: 'subscribeToMetrics',
+        }, toError(error));
         callback(null);
       }
     });
@@ -1012,7 +1031,12 @@ class ApiClient {
       if (event.type === 'error') {
         reconnectAttempts++;
         if (reconnectAttempts >= maxReconnect) {
-          console.error('Max SSE reconnects reached');
+          logger.error('Max SSE reconnect threshold reached', {
+            component: 'ApiClient',
+            operation: 'subscribeToMetrics',
+            reconnectAttempts,
+            maxReconnect,
+          });
           callback(null);
           eventSource.close();
           return;
@@ -1033,7 +1057,10 @@ class ApiClient {
     });
 
     eventSource.addEventListener('open', () => {
-      console.log('SSE connected');
+      logger.info('Metrics SSE connected', {
+        component: 'ApiClient',
+        operation: 'subscribeToMetrics',
+      });
       reconnectAttempts = 0;
     });
 

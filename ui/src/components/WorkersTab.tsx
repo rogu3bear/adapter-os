@@ -22,6 +22,7 @@ import apiClient from '../api/client';
 import { WorkerResponse, Node, Plan } from '../api/types';
 import { SpawnWorkerModal } from './SpawnWorkerModal';
 import { ProcessDebugger } from './ProcessDebugger';
+import { logger, toError } from '../utils/logger';
 
 interface WorkersTabProps {
   selectedTenant: string;
@@ -49,7 +50,11 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
       setWorkers(data);
       setFilteredWorkers(data);
     } catch (error) {
-      console.error('Failed to fetch workers:', error);
+      logger.error('Failed to fetch workers', {
+        component: 'WorkersTab',
+        operation: 'listWorkers',
+        tenantFilter: selectedTenant || 'all',
+      }, toError(error));
       toast.error('Failed to load workers');
     } finally {
       setLoading(false);
@@ -86,7 +91,12 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
       toast.success(`Worker ${workerId} stopped`);
       await fetchWorkers();
     } catch (error) {
-      console.error('Failed to stop worker:', error);
+      logger.error('Failed to stop worker', {
+        component: 'WorkersTab',
+        operation: 'stopWorker',
+        workerId,
+        force,
+      }, toError(error));
       toast.error(error instanceof Error ? error.message : 'Failed to stop worker');
     }
   };
@@ -355,5 +365,4 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     </div>
   );
 }
-
 

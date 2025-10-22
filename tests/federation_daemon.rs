@@ -1,6 +1,10 @@
 //! Federation Daemon Integration Tests
 //!
 //! Tests the federation daemon's continuous verification and quarantine functionality.
+//!
+//! **Status**: Requires experimental `federation` feature (crate not in workspace)
+
+#![cfg(feature = "federation")]
 
 use adapteros_core::Result;
 use adapteros_crypto::Keypair;

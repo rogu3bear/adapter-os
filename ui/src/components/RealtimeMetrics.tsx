@@ -17,6 +17,8 @@ import {
 import { SystemMetrics, User } from '../api/types';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner'; // Add if not imported
+import apiClient from '../api/client';
+import { logger, toError } from '../utils/logger';
 
 interface RealtimeMetricsProps {
   user: User;
@@ -67,7 +69,11 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     try {
       // Citation: ui/src/api/client.ts L454-L456
       const data = await apiClient.getSystemMetrics().catch((error) => {
-        console.error('Metrics fetch failed:', error);
+        logger.error('Metrics fetch failed', {
+          component: 'RealtimeMetrics',
+          operation: 'getSystemMetrics',
+          tenantId: selectedTenant,
+        }, toError(error));
         return null; // Fallback to prevent crashes
       });
 
@@ -81,11 +87,11 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       setHistory(prev => {
         const newHistory = [...prev, {
           timestamp: Date.now(),
-          cpu: data.cpu_usage || 0,
-          memory: data.memory_usage || 0,
-          gpu: data.gpu_utilization || 0,
+          cpu: data.cpu_usage_percent || 0,
+          memory: data.memory_usage_pct || 0,
+          gpu: data.gpu_utilization_percent || 0,
           tokensPerSec: data.tokens_per_second || 0,
-          latency: data.avg_latency_ms || 0,
+          latency: data.latency_p95_ms || 0,
         }]; // Ensure no trailing comma issues in array
         
         // Keep only last MAX_HISTORY points
@@ -105,10 +111,10 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       
       // Fetch workload metrics
       setWorkload({
-        activeWorkers: data?.active_workers || 0,
+        activeWorkers: data?.active_sessions || 0,
         queuedRequests: Math.floor(Math.random() * 20),
-        throughput: data?.requests_per_second || 0,
-        avgLatency: data?.avg_latency_ms || 0,
+        throughput: data?.tokens_per_second || 0,
+        avgLatency: data?.latency_p95_ms || 0,
       });
       
       // Fetch import metrics (mock for now)
@@ -120,7 +126,12 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       });
       
     } catch (error) {
-      console.error('Failed to fetch metrics:', error);
+      logger.error('Failed to fetch realtime metrics', {
+        component: 'RealtimeMetrics',
+        operation: 'fetchMetrics',
+        tenantId: selectedTenant,
+      }, toError(error));
+      toast.error('Failed to fetch metrics');
     }
   };
   
@@ -135,17 +146,17 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
         setHistory(prev => {
           const newHistory = [...prev, {
             timestamp: Date.now(),
-            cpu: data.cpu_usage || 0,
-            memory: data.memory_usage || 0,
-            gpu: data.gpu_utilization || 0,
+            cpu: data.cpu_usage_percent || 0,
+            memory: data.memory_usage_pct || 0,
+            gpu: data.gpu_utilization_percent || 0,
             tokensPerSec: data.tokens_per_second || 0,
-            latency: data.avg_latency_ms || 0,
+            latency: data.latency_p95_ms || 0,
           }];
           return newHistory.length > MAX_HISTORY ? newHistory.slice(-MAX_HISTORY) : newHistory;
         });
 
         // Existing setTrainingJobs, setWorkload, setImports (use data where possible)
-        setTrainingJobs(prev => ({ ...prev, active: data.active_jobs || 0 })); // Example
+        setTrainingJobs(prev => ({ ...prev, active: data.active_sessions || 0 })); // Use active_sessions as proxy
         // ... similar for others
       } else {
         toast.error('Metrics disconnected - reconnecting...');
@@ -210,11 +221,11 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics?.cpu_usage?.toFixed(1) || 0}%
+              {metrics?.cpu_usage_percent?.toFixed(1) || 0}%
             </div>
-            <Progress value={Math.min(100, metrics?.cpu_usage || 0)} className="mt-2" />
+            <Progress value={Math.min(100, metrics?.cpu_usage_percent || 0)} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
-              Load: {metrics?.load_average?.load_1min?.toFixed(2) || 0}
+              Cores: {metrics?.cpu_cores || 'N/A'}
             </p>
           </CardContent>
         </Card>
@@ -228,11 +239,11 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics?.memory_usage?.toFixed(1) || 0}%
+              {metrics?.memory_usage_pct?.toFixed(1) || 0}%
             </div>
-            <Progress value={metrics?.memory_usage || 0} className="mt-2" />
+            <Progress value={metrics?.memory_usage_pct || 0} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
-              {((metrics?.memory_usage || 0) * 32 / 100).toFixed(1)}GB / 32GB
+              {metrics?.memory_used_gb?.toFixed(1) || '0'}GB / {metrics?.memory_total_gb?.toFixed(1) || '0'}GB
             </p>
           </CardContent>
         </Card>
@@ -246,9 +257,9 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics?.gpu_utilization?.toFixed(1) || 0}%
+              {metrics?.gpu_utilization_percent?.toFixed(1) || 0}%
             </div>
-            <Progress value={metrics?.gpu_utilization || 0} className="mt-2" />
+            <Progress value={metrics?.gpu_utilization_percent || 0} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
               M3 Max
             </p>
@@ -264,9 +275,9 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics?.avg_latency_ms?.toFixed(0) || 0}ms
+              {metrics?.latency_p95_ms?.toFixed(0) || 0}ms
             </div>
-            <Progress value={Math.min(100, (metrics?.avg_latency_ms || 0) / 5)} className="mt-2" />
+            <Progress value={Math.min(100, (metrics?.latency_p95_ms || 0) / 5)} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
               p95: {metrics?.latency_p95_ms?.toFixed(0) || 0}ms
             </p>
@@ -419,19 +430,19 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Uptime</span>
-              <span className="font-mono">{Math.floor((metrics?.uptime_seconds || 0) / 3600)}h {Math.floor(((metrics?.uptime_seconds || 0) % 3600) / 60)}m</span>
+              <span className="font-mono">N/A</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Process Count</span>
-              <span className="font-mono">{metrics?.process_count || 0}</span>
+              <span className="text-muted-foreground">Active Sessions</span>
+              <span className="font-mono">{metrics?.active_sessions || 0}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Network Bandwidth</span>
-              <span className="font-mono">{((metrics?.network_bandwidth || 0) / 1024 / 1024).toFixed(1)} MB/s</span>
+              <span className="text-muted-foreground">Network RX</span>
+              <span className="font-mono">{((metrics?.network_rx_bytes || 0) / 1024 / 1024).toFixed(1)} MB</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Disk Usage</span>
-              <span className="font-mono">{metrics?.disk_usage?.toFixed(1) || 0}%</span>
+              <span className="font-mono">{metrics?.disk_usage_percent?.toFixed(1) || 0}%</span>
             </div>
           </div>
         </CardContent>
@@ -439,4 +450,3 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     </div>
   );
 }
-

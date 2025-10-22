@@ -178,7 +178,13 @@ impl ConflictResolver {
     pub async fn resolve_conflict(&self, conflict: FileConflict) -> Result<ConflictResolution> {
         if !self.config.enabled {
             return Ok(ConflictResolution {
-                id: format!("resolution_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()),
+                id: format!(
+                    "resolution_{}",
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ),
                 strategy: ConflictResolutionStrategy::Defer,
                 result: ResolutionResult::Deferred,
                 timestamp: SystemTime::now(),
@@ -187,7 +193,13 @@ impl ConflictResolver {
         }
 
         let start_time = SystemTime::now();
-        let resolution_id = format!("resolution_{}", start_time.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos());
+        let resolution_id = format!(
+            "resolution_{}",
+            start_time
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
 
         // Determine resolution strategy
         let strategy = self.determine_strategy(&conflict)?;
@@ -206,10 +218,13 @@ impl ConflictResolver {
         };
 
         // Record conflict resolution
-        self.record_conflict_resolution(&conflict.path, &resolution).await?;
+        self.record_conflict_resolution(&conflict.path, &resolution)
+            .await?;
 
-        debug!("Resolved conflict {} using strategy {:?}: {:?}", 
-               conflict.id, resolution.strategy, result);
+        debug!(
+            "Resolved conflict {} using strategy {:?}: {:?}",
+            conflict.id, resolution.strategy, result
+        );
 
         Ok(resolution)
     }
@@ -219,10 +234,12 @@ impl ConflictResolver {
         // Check conflict history for this path
         if let Some(history) = self.conflict_history.get(&conflict.path) {
             // Use the most successful strategy from history
-            if let Some(successful_strategy) = history.iter()
+            if let Some(successful_strategy) = history
+                .iter()
                 .filter(|record| matches!(record.result, ResolutionResult::Resolved))
                 .max_by_key(|record| record.timestamp)
-                .map(|record| record.strategy.clone()) {
+                .map(|record| record.strategy.clone())
+            {
                 return Ok(successful_strategy);
             }
         }
@@ -239,29 +256,21 @@ impl ConflictResolver {
     }
 
     /// Apply a resolution strategy
-    async fn apply_strategy(&self, conflict: &FileConflict, strategy: &ConflictResolutionStrategy) -> Result<ResolutionResult> {
+    async fn apply_strategy(
+        &self,
+        conflict: &FileConflict,
+        strategy: &ConflictResolutionStrategy,
+    ) -> Result<ResolutionResult> {
         match strategy {
-            ConflictResolutionStrategy::FirstWins => {
-                self.apply_first_wins_strategy(conflict).await
-            }
-            ConflictResolutionStrategy::LastWins => {
-                self.apply_last_wins_strategy(conflict).await
-            }
+            ConflictResolutionStrategy::FirstWins => self.apply_first_wins_strategy(conflict).await,
+            ConflictResolutionStrategy::LastWins => self.apply_last_wins_strategy(conflict).await,
             ConflictResolutionStrategy::HighestPriorityWins => {
                 self.apply_highest_priority_strategy(conflict).await
             }
-            ConflictResolutionStrategy::Merge => {
-                self.apply_merge_strategy(conflict).await
-            }
-            ConflictResolutionStrategy::RollbackAll => {
-                self.apply_rollback_strategy(conflict).await
-            }
-            ConflictResolutionStrategy::Defer => {
-                Ok(ResolutionResult::Deferred)
-            }
-            ConflictResolutionStrategy::Manual => {
-                Ok(ResolutionResult::Deferred)
-            }
+            ConflictResolutionStrategy::Merge => self.apply_merge_strategy(conflict).await,
+            ConflictResolutionStrategy::RollbackAll => self.apply_rollback_strategy(conflict).await,
+            ConflictResolutionStrategy::Defer => Ok(ResolutionResult::Deferred),
+            ConflictResolutionStrategy::Manual => Ok(ResolutionResult::Deferred),
         }
     }
 
@@ -277,7 +286,10 @@ impl ConflictResolver {
 
         // Allow first operation to proceed
         let first_operation = &operations[0];
-        debug!("First wins strategy: allowing operation {} to proceed", first_operation.id);
+        debug!(
+            "First wins strategy: allowing operation {} to proceed",
+            first_operation.id
+        );
 
         // Cancel other operations
         for operation in operations.iter().skip(1) {
@@ -299,7 +311,10 @@ impl ConflictResolver {
 
         // Allow last operation to proceed
         let last_operation = &operations[operations.len() - 1];
-        debug!("Last wins strategy: allowing operation {} to proceed", last_operation.id);
+        debug!(
+            "Last wins strategy: allowing operation {} to proceed",
+            last_operation.id
+        );
 
         // Cancel other operations
         for operation in operations.iter().take(operations.len() - 1) {
@@ -310,23 +325,33 @@ impl ConflictResolver {
     }
 
     /// Apply highest priority strategy
-    async fn apply_highest_priority_strategy(&self, conflict: &FileConflict) -> Result<ResolutionResult> {
+    async fn apply_highest_priority_strategy(
+        &self,
+        conflict: &FileConflict,
+    ) -> Result<ResolutionResult> {
         if conflict.operations.is_empty() {
             return Ok(ResolutionResult::Failed);
         }
 
         // Find operation with highest priority
-        let highest_priority_op = conflict.operations.iter()
+        let highest_priority_op = conflict
+            .operations
+            .iter()
             .max_by_key(|op| op.priority)
             .unwrap();
 
-        debug!("Highest priority strategy: allowing operation {} (priority {}) to proceed", 
-               highest_priority_op.id, highest_priority_op.priority);
+        debug!(
+            "Highest priority strategy: allowing operation {} (priority {}) to proceed",
+            highest_priority_op.id, highest_priority_op.priority
+        );
 
         // Cancel other operations
         for operation in &conflict.operations {
             if operation.id != highest_priority_op.id {
-                debug!("Highest priority strategy: cancelling operation {}", operation.id);
+                debug!(
+                    "Highest priority strategy: cancelling operation {}",
+                    operation.id
+                );
             }
         }
 
@@ -353,7 +378,11 @@ impl ConflictResolver {
     }
 
     /// Record conflict resolution
-    async fn record_conflict_resolution(&self, path: &PathBuf, resolution: &ConflictResolution) -> Result<()> {
+    async fn record_conflict_resolution(
+        &self,
+        path: &PathBuf,
+        resolution: &ConflictResolution,
+    ) -> Result<()> {
         let record = ConflictRecord {
             conflict_id: resolution.id.clone(),
             strategy: resolution.strategy.clone(),
@@ -364,7 +393,11 @@ impl ConflictResolver {
 
         // Add to history (in a real implementation, this would be thread-safe)
         // For now, we'll just log it
-        debug!("Recorded conflict resolution for {}: {:?}", path.display(), record);
+        debug!(
+            "Recorded conflict resolution for {}: {:?}",
+            path.display(),
+            record
+        );
 
         Ok(())
     }
@@ -382,11 +415,15 @@ impl ConflictResolver {
     /// Get conflict statistics
     pub fn get_conflict_statistics(&self) -> ConflictStatistics {
         let total_conflicts = self.conflict_history.values().map(|v| v.len()).sum();
-        let resolved_conflicts = self.conflict_history.values()
+        let resolved_conflicts = self
+            .conflict_history
+            .values()
             .flat_map(|v| v.iter())
             .filter(|r| matches!(r.result, ResolutionResult::Resolved))
             .count();
-        let failed_conflicts = self.conflict_history.values()
+        let failed_conflicts = self
+            .conflict_history
+            .values()
             .flat_map(|v| v.iter())
             .filter(|r| matches!(r.result, ResolutionResult::Failed))
             .count();
@@ -426,7 +463,7 @@ mod tests {
     async fn test_conflict_resolution() -> Result<()> {
         let config = crate::ConcurrentFsConfig::default();
         let resolver = ConflictResolver::new(&config)?;
-        
+
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
 
@@ -459,7 +496,10 @@ mod tests {
 
         // Test conflict resolution
         let resolution = resolver.resolve_conflict(conflict).await?;
-        assert!(matches!(resolution.result, ResolutionResult::Resolved | ResolutionResult::Deferred));
+        assert!(matches!(
+            resolution.result,
+            ResolutionResult::Resolved | ResolutionResult::Deferred
+        ));
 
         Ok(())
     }
@@ -468,7 +508,7 @@ mod tests {
     fn test_conflict_statistics() {
         let config = crate::ConcurrentFsConfig::default();
         let resolver = ConflictResolver::new(&config).unwrap();
-        
+
         let stats = resolver.get_conflict_statistics();
         assert_eq!(stats.total_conflicts, 0);
         assert_eq!(stats.resolved_conflicts, 0);

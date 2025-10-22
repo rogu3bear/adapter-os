@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -74,6 +74,7 @@ import { CodeIntelligence } from './CodeIntelligence';
 import { RouterConfigPage } from './RouterConfigPage';
 import { TrainingStreamPage } from './TrainingStreamPage';
 import { DomainAdapterManager } from './DomainAdapterManager';
+import { logger, toError } from '../utils/logger';
 
 interface AdaptersProps {
   user: User;
@@ -267,23 +268,41 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     }
   ]; */
 
+  const loadAdapters = useCallback(async () => {
+    try {
+      const adaptersData = await apiClient.listAdapters();
+      setAdapters(adaptersData);
+      // Training jobs API not yet implemented
+      setTrainingJobs([]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch adapters';
+      logger.error('Failed to fetch adapters', {
+        component: 'Adapters',
+        operation: 'fetchAdapters',
+        tenantId: selectedTenant,
+        errorMessage: errorMsg,
+      }, toError(err));
+      toast.error(errorMsg);
+    }
+  }, [selectedTenant]);
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const adaptersData = await apiClient.listAdapters();
-        setAdapters(adaptersData);
-        // Training jobs API not yet implemented
-        setTrainingJobs([]);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Failed to fetch adapters';
-        console.error(errorMsg, err);
-        toast.error(errorMsg);
-      } finally {
+    let isMounted = true;
+
+    const initialise = async () => {
+      setLoading(true);
+      await loadAdapters();
+      if (isMounted) {
         setLoading(false);
       }
     };
-    fetchData();
-  }, [selectedTenant]);
+
+    initialise();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loadAdapters]);
 
   // Update adapters from SSE stream
   useEffect(() => {
@@ -309,8 +328,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       toast.info('Loading adapter...');
       await apiClient.loadAdapter(adapterId);
       toast.success('Adapter loaded successfully');
-      // Reload adapters to get updated state
-      loadAdapters();
+      await loadAdapters();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load adapter';
       toast.error(errorMsg);
@@ -322,8 +340,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       toast.info('Unloading adapter...');
       await apiClient.unloadAdapter(adapterId);
       toast.success('Adapter unloaded successfully');
-      // Reload adapters to get updated state
-      loadAdapters();
+      await loadAdapters();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to unload adapter';
       toast.error(errorMsg);
@@ -336,12 +353,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         await apiClient.unpinAdapter(adapter.adapter_id);
         toast.success('Adapter unpinned');
       } else {
-        await apiClient.pinAdapter(adapter.adapter_id);
+        await apiClient.pinAdapter(adapter.adapter_id, true);
         toast.success('Adapter pinned');
       }
-      // Refresh adapters list
-      const adaptersData = await apiClient.listAdapters();
-      setAdapters(adaptersData);
+      await loadAdapters();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to toggle pin';
       toast.error(errorMsg);
@@ -737,6 +752,8 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       </Tabs>
 
+      </ContentSection>
+
       {/* Training Dialog */}
       <Dialog open={isTrainingDialogOpen} onOpenChange={setIsTrainingDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
@@ -881,344 +898,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </DialogContent>
       </Dialog>
-      </ContentSection>
+
     </div>
   );
 }
-
-// Training Wizard Component (Stubbed)
-function TrainingWizard({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="space-y-6">
-      <Alert>
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>
-          Training API not yet implemented. This feature will be available once the training orchestration subsystem is complete. For now, focus on adapter management and deployment.
-        </AlertDescription>
-      </Alert>
-      <div className="flex justify-end">
-        <Button onClick={onClose}>Close</Button>
-      </div>
-    </div>
-  );
-}
-
-// Training Wizard Component (Original - commented out)
-/*
-function TrainingWizardOriginal({ onClose }: { onClose: () => void }) {
-  const [step, setStep] = useState(1);
-  const [config, setConfig] = useState<Partial<TrainingConfig>>({
-    rank: 16,
-    alpha: 32,
-    epochs: 3,
-    learning_rate: 0.001,
-    batch_size: 32,
-    category: 'code',
-    scope: 'global'
-  });
-
-  const steps = [
-    { id: 1, title: 'Configuration', description: 'Set training parameters' },
-    { id: 2, title: 'Data Source', description: 'Choose training data' },
-    { id: 3, title: 'Review', description: 'Confirm settings' }
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-4">
-        {steps.map((s) => (
-          <div key={s.id} className="flex items-center">
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-              step >= s.id ? 'bg-primary text-primary-foreground' : 'bg-gray-200'
-            }`}>
-              {s.id}
-            </div>
-            <div className="ml-2">
-              <div className="text-sm font-medium">{s.title}</div>
-              <div className="text-xs text-muted-foreground">{s.description}</div>
-            </div>
-            {s.id < steps.length && <div className="w-8 h-px bg-gray-200 ml-4" />}
-          </div>
-        ))}
-      </div>
-
-      {step === 1 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="name">Adapter Name</Label>
-              <Input id="name" placeholder="my-adapter-v1" />
-            </div>
-            <div>
-              <Label htmlFor="category">Category</Label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="code">Code</SelectItem>
-                  <SelectItem value="framework">Framework</SelectItem>
-                  <SelectItem value="codebase">Codebase</SelectItem>
-                  <SelectItem value="ephemeral">Ephemeral</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="rank">Rank</Label>
-              <Input 
-                id="rank" 
-                type="number" 
-                value={config.rank} 
-                onChange={(e) => setConfig({...config, rank: parseInt(e.target.value)})}
-              />
-            </div>
-            <div>
-              <Label htmlFor="alpha">Alpha</Label>
-              <Input 
-                id="alpha" 
-                type="number" 
-                value={config.alpha} 
-                onChange={(e) => setConfig({...config, alpha: parseInt(e.target.value)})}
-              />
-            </div>
-            <div>
-              <Label htmlFor="epochs">Epochs</Label>
-              <Input 
-                id="epochs" 
-                type="number" 
-                value={config.epochs} 
-                onChange={(e) => setConfig({...config, epochs: parseInt(e.target.value)})}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="learning_rate">Learning Rate</Label>
-              <Input 
-                id="learning_rate" 
-                type="number" 
-                step="0.0001"
-                value={config.learning_rate} 
-                onChange={(e) => setConfig({...config, learning_rate: parseFloat(e.target.value)})}
-              />
-            </div>
-            <div>
-              <Label htmlFor="batch_size">Batch Size</Label>
-              <Input 
-                id="batch_size" 
-                type="number" 
-                value={config.batch_size} 
-                onChange={(e) => setConfig({...config, batch_size: parseInt(e.target.value)})}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="scope">Scope</Label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Select scope" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="global">Global</SelectItem>
-                <SelectItem value="tenant">Tenant</SelectItem>
-                <SelectItem value="repo">Repository</SelectItem>
-                <SelectItem value="commit">Commit</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="repo_id">Repository ID</Label>
-              <Input id="repo_id" placeholder="acme/payments" />
-            </div>
-            <div>
-              <Label htmlFor="commit_sha">Commit SHA</Label>
-              <Input id="commit_sha" placeholder="abc123def456" />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="framework">Framework</Label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Select framework (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="django">Django</SelectItem>
-                <SelectItem value="react">React</SelectItem>
-                <SelectItem value="fastapi">FastAPI</SelectItem>
-                <SelectItem value="nextjs">Next.js</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="space-y-4">
-          <Alert>
-            <CheckCircle className="h-4 w-4" />
-            <AlertDescription>
-              Ready to start training. This will consume GPU resources and may take several hours.
-            </AlertDescription>
-          </Alert>
-
-          <div className="bg-gray-50 p-4 rounded-md">
-            <h4 className="font-medium mb-2">Training Configuration</h4>
-            <div className="space-y-1 text-sm">
-              <div>Name: {config.name || 'my-adapter-v1'}</div>
-              <div>Category: {config.category}</div>
-              <div>Rank: {config.rank} • Alpha: {config.alpha}</div>
-              <div>Epochs: {config.epochs} • Learning Rate: {config.learning_rate}</div>
-              <div>Batch Size: {config.batch_size}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <div className="flex space-x-2">
-          {step > 1 && (
-            <Button variant="outline" onClick={() => setStep(step - 1)}>
-              Previous
-            </Button>
-          )}
-          {step < 3 ? (
-            <Button onClick={() => setStep(step + 1)}>
-              Next
-            </Button>
-          ) : (
-            <Button onClick={() => {
-              // Training start - placeholder implementation
-              onClose();
-            }}>
-              Start Training
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Register Adapter Form Component
-function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    adapter_hash: '',
-    capability_tags: '',
-    tier: 'persistent',
-    rank: 16,
-    framework: '',
-    framework_version: ''
-  });
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <Label htmlFor="name">Adapter Name</Label>
-        <Input 
-          id="name" 
-          value={formData.name}
-          onChange={(e) => setFormData({...formData, name: e.target.value})}
-          placeholder="my-adapter-v1"
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="adapter_hash">Adapter Hash</Label>
-        <Input 
-          id="adapter_hash" 
-          value={formData.adapter_hash}
-          onChange={(e) => setFormData({...formData, adapter_hash: e.target.value})}
-          placeholder="b3:abc123..."
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="capability_tags">Capability Tags</Label>
-        <Input 
-          id="capability_tags" 
-          value={formData.capability_tags}
-          onChange={(e) => setFormData({...formData, capability_tags: e.target.value})}
-          placeholder="python,django,web"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="tier">Tier</Label>
-          <Select>
-            <SelectTrigger>
-              <SelectValue placeholder="Select tier" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="persistent">Persistent</SelectItem>
-              <SelectItem value="ephemeral">Ephemeral</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="rank">Rank</Label>
-          <Input 
-            id="rank" 
-            type="number" 
-            value={formData.rank}
-            onChange={(e) => setFormData({...formData, rank: parseInt(e.target.value)})}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="framework">Framework</Label>
-          <Input 
-            id="framework" 
-            value={formData.framework}
-            onChange={(e) => setFormData({...formData, framework: e.target.value})}
-            placeholder="django"
-          />
-        </div>
-        <div>
-          <Label htmlFor="framework_version">Framework Version</Label>
-          <Input 
-            id="framework_version" 
-            value={formData.framework_version}
-            onChange={(e) => setFormData({...formData, framework_version: e.target.value})}
-            placeholder="4.2"
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-2">
-        <Button variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button onClick={() => {
-          // Register adapter - placeholder implementation
-          toast.info('Adapter registration coming soon');
-          onClose();
-        }}>
-          Register Adapter
-        </Button>
-      </div>
-    </div>
-  );
-}
-*/
 
 // Delete Confirmation Dialog
 function DeleteConfirmDialog({ 

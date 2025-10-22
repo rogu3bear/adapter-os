@@ -272,6 +272,7 @@ impl LanguageDetector {
             "java" => vec!["java"],
             "cpp" => vec!["cpp", "cc", "cxx"],
             "c" => vec!["c"],
+            "adapteros" => vec!["aos"],
             _ => vec![],
         }
     }
@@ -287,6 +288,7 @@ impl LanguageDetector {
             "java" => Some("java".to_string()),
             "cpp" | "cc" | "cxx" => Some("cpp".to_string()),
             "c" => Some("c".to_string()),
+            "aos" => Some("adapteros".to_string()),
             _ => None,
         }
     }
@@ -347,6 +349,11 @@ mod tests {
             LanguageDetector::detect_language_from_extension("java"),
             Some("java".to_string())
         );
+
+        assert_eq!(
+            LanguageDetector::detect_language_from_extension("aos"),
+            Some("adapteros".to_string())
+        );
         
         assert_eq!(
             LanguageDetector::detect_language_from_extension("md"),
@@ -374,6 +381,11 @@ mod tests {
         assert_eq!(
             LanguageDetector::get_extensions_for_language("typescript"),
             vec!["ts", "tsx"]
+        );
+
+        assert_eq!(
+            LanguageDetector::get_extensions_for_language("adapteros"),
+            vec!["aos"]
         );
     }
 

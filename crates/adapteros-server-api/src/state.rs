@@ -92,13 +92,14 @@ impl AppState {
         jwt_secret: Vec<u8>,
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
+        training_service: Arc<TrainingService>,
     ) -> Self {
         Self {
             db,
             jwt_secret: Arc::new(jwt_secret),
             config,
             metrics_exporter,
-            training_service: Arc::new(TrainingService::new()),
+            training_service,
             git_subsystem: None,
             file_change_tx: None,
             crypto: Arc::new(CryptoState::new()),

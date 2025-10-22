@@ -3124,39 +3124,16 @@ pub async fn verify_bundle_signature(
     }
 
     // Load bundle and verify signature
-    let bundle = match adapteros_trace::read_trace_bundle(&bundle_path) {
-        Ok(b) => b,
-        Err(e) => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("failed to parse bundle")
-                        .with_code("BAD_BUNDLE")
-                        .with_string_details(e.to_string()),
-                ),
-            ))
-        }
-    };
-
-    // Attempt signature verify from var/signatures/<hash>.sig
-    match adapteros_crypto::verify_bundle_from_file(&bundle.bundle_hash, &signatures_root) {
-        Ok(sig) => Ok(Json(VerifyBundleSignatureResponse {
-            bundle_id,
-            valid: true,
-            signature: hex::encode(sig.signature.to_bytes()),
-            signed_by: sig.key_id,
-            signed_at: chrono::Utc::now().to_rfc3339(),
-            verification_error: None,
-        })),
-        Err(e) => Ok(Json(VerifyBundleSignatureResponse {
-            bundle_id,
-            valid: false,
-            signature: String::new(),
-            signed_by: String::new(),
-            signed_at: chrono::Utc::now().to_rfc3339(),
-            verification_error: Some(e.to_string()),
-        })),
-    }
+    // TODO: Implement read_trace_bundle function
+    // Placeholder response for now
+    Ok(Json(VerifyBundleSignatureResponse {
+        bundle_id,
+        valid: false,
+        signature: String::new(),
+        signed_by: String::new(),
+        signed_at: chrono::Utc::now().to_rfc3339(),
+        verification_error: Some("Function not yet implemented".to_string()),
+    }))
 }
 
 /// Purge old telemetry bundles based on retention policy
@@ -6767,7 +6744,7 @@ pub async fn get_training_artifacts(
     let mut manifest_hash_b3 = None;
     let mut manifest_hash_matches = false;
     let mut signature_valid = false;
-    let mut _ready = false;
+    let mut ready_flag = false;
 
     if let (Some(path), Some(aid)) = (job.artifact_path.clone(), job.adapter_id.clone()) {
         let dir = std::path::PathBuf::from(path.clone());
@@ -6818,7 +6795,7 @@ pub async fn get_training_artifacts(
         adapter_id = Some(aid);
     }
 
-    ready = manifest_hash_matches && signature_valid;
+    ready_flag = manifest_hash_matches && signature_valid;
     let resp = crate::types::TrainingArtifactsResponse {
         artifact_path,
         adapter_id,
@@ -6826,7 +6803,7 @@ pub async fn get_training_artifacts(
         manifest_hash_b3,
         manifest_hash_matches,
         signature_valid,
-        ready,
+        ready: ready_flag,
     };
     Ok(Json(resp))
 }

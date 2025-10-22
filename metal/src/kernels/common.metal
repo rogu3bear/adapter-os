@@ -35,6 +35,7 @@ struct RingBuffer {
     uint current_pos;           // Current position in ring buffer
     uint adapter_indices[8];    // Max K=8 adapter indices
     uint16_t gates[8];         // Q15 format gate values
+    uint reserved[2];          // Padding for alignment / metadata
 };
 
 // MLP kernel parameter structures
@@ -60,11 +61,15 @@ struct MlpParams {
     device const float* up_lora_b;      // [rank, intermediate_size]
     device const float* down_lora_a;    // [intermediate_size, rank]
     device const float* down_lora_b;    // [rank, hidden_size]
-    
+
     // Configuration
-    constant LoraConfig& lora_config;
-    constant RingBuffer& ring_buffer;
-    constant uint& dropout_seed;        // Seed for deterministic dropout
+    LoraConfig lora_config;
+    RingBuffer ring_buffer;
+    uint dropout_seed;        // Seed for deterministic dropout
+    uint hidden_size;
+    uint intermediate_size;
+    uint batch_size;
+    uint max_adapters;
 };
 
 // Attention kernel parameter structures
@@ -87,11 +92,15 @@ struct AttentionParams {
     device const float* k_lora_b;       // [rank, kv_width]
     device const float* v_lora_a;      // [hidden_size, rank]
     device const float* v_lora_b;      // [rank, kv_width]
-    
+
     // Configuration
-    constant GqaConfig& gqa_config;
-    constant LoraConfig& lora_config;
-    constant RingBuffer& ring_buffer;
+    GqaConfig gqa_config;
+    LoraConfig lora_config;
+    RingBuffer ring_buffer;
+    uint batch_size;
+    uint max_adapters;
+    uint reserved0;
+    uint reserved1;
 };
 
 // Flash Attention kernel parameter structures
@@ -101,9 +110,13 @@ struct FlashAttentionParams {
     device const float* k;              // [batch_size, num_kv_heads, seq_len, head_dim]
     device const float* v;              // [batch_size, num_kv_heads, seq_len, head_dim]
     device float* output;               // [batch_size, num_heads, seq_len, head_dim]
-    
+
     // Configuration
-    constant GqaConfig& gqa_config;
+    GqaConfig gqa_config;
+    uint batch_size;
+    uint sequence_length;
+    uint reserved2;
+    uint reserved3;
 };
 
 // Deterministic math functions

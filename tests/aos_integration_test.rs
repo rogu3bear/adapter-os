@@ -50,6 +50,7 @@ fn create_test_adapter() -> SingleFileAdapter {
         batch_size: 8,
         epochs: 4,
         hidden_dim: 3584,
+        weight_group_config: WeightGroupConfig::default(),
     };
     let lineage = LineageInfo {
         adapter_id: "test_adapter".to_string(),

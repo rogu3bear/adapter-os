@@ -24,7 +24,37 @@ const child = spawn('node', [viteBin, ...extraArgs], {
   },
 });
 
+let cleanupRan = false;
+
+function cleanup() {
+  if (cleanupRan) return;
+  cleanupRan = true;
+  spawnSync('node', [ensureScript, '--mode=build'], { stdio: 'inherit' });
+}
+
+const forwardExit = (signal) => {
+  if (!child.killed) {
+    child.kill(signal === 'SIGINT' ? 'SIGTERM' : signal);
+  }
+};
+
+['SIGINT', 'SIGTERM', 'SIGQUIT', 'SIGHUP'].forEach((signal) => {
+  process.on(signal, () => {
+    forwardExit(signal);
+  });
+});
+
+process.on('exit', () => {
+  cleanup();
+});
+
+process.on('uncaughtException', (error) => {
+  cleanup();
+  throw error;
+});
+
 child.on('exit', (code, signal) => {
+  cleanup();
   if (signal) {
     process.kill(process.pid, signal);
   } else {

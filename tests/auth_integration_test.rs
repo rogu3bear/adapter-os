@@ -16,6 +16,7 @@
 use adapteros_db::Db;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::{AppState, AuthConfig, AuthMode, SecurityConfig};
+use adapteros_orchestrator::TrainingService;
 use std::sync::{Arc, RwLock};
 
 /// Mock configuration for testing
@@ -295,9 +296,17 @@ async fn create_test_app_state() -> AppState {
     let db = Db::new_in_memory().await.unwrap();
     let jwt_secret = vec![0u8; 32]; // Test secret
     let config = Arc::new(RwLock::new(mock_api_config()));
-    let metrics_exporter = Arc::new(MetricsExporter::new("test"));
+    let metrics_exporter =
+        Arc::new(MetricsExporter::new(vec![0.1, 0.5, 1.0, 2.5, 5.0]).unwrap());
+    let training_service = Arc::new(TrainingService::new());
 
-    AppState::new(db, jwt_secret, config, metrics_exporter)
+    AppState::new(
+        db,
+        jwt_secret,
+        config,
+        metrics_exporter,
+        training_service,
+    )
         .with_auth_config(AuthConfig::default())
         .with_security_config(SecurityConfig::default())
 }

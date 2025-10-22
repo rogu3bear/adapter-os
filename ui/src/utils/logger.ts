@@ -50,6 +50,26 @@ export interface LogEntry {
   };
 }
 
+/**
+ * Normalize unknown error-like values to proper Error instances.
+ *
+ * Ensures all logger callers can safely pass any thrown value without
+ * duplicating conversion logic at call sites.
+ */
+export const toError = (error: unknown): Error => {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (typeof error === 'string') {
+    return new Error(error);
+  }
+  try {
+    return new Error(JSON.stringify(error));
+  } catch {
+    return new Error(String(error));
+  }
+};
+
 class Logger {
   private isDevelopment = import.meta.env.DEV;
   
@@ -116,7 +136,7 @@ class Logger {
       });
     } catch (err) {
       // Fallback to console in case of telemetry failure
-      console.error('Failed to send log to telemetry:', err);
+      window.console.error('Failed to send log to telemetry:', err);
     }
   }
 

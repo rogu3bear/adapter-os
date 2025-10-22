@@ -1,13 +1,44 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::format::{AdapterWeights, WeightGroup, WeightMetadata, WeightGroupType, WeightGroupConfig};
     use super::training::{TrainingConfig, TrainingExample};
     use adapteros_crypto::Keypair;
     use tempfile::TempDir;
     use std::collections::HashMap;
 
     fn create_test_adapter() -> SingleFileAdapter {
-        let weights = vec![1, 2, 3, 4, 5]; // Dummy weights
+        // Create v2 format weights with positive/negative groups
+        let weights = AdapterWeights {
+            positive: WeightGroup {
+                lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
+                lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
+                metadata: WeightMetadata {
+                    group_type: WeightGroupType::Positive,
+                    rank: 16,
+                    alpha: 32.0,
+                    target_modules: vec!["q_proj".to_string()],
+                    config: WeightGroupConfig { dropout: 0.1 },
+                    checksum: "test".to_string(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                },
+            },
+            negative: WeightGroup {
+                lora_a: vec![vec![-1.0, -2.0], vec![-3.0, -4.0]],
+                lora_b: vec![vec![-5.0, -6.0], vec![-7.0, -8.0]],
+                metadata: WeightMetadata {
+                    group_type: WeightGroupType::Negative,
+                    rank: 16,
+                    alpha: 32.0,
+                    target_modules: vec!["q_proj".to_string()],
+                    config: WeightGroupConfig { dropout: 0.1 },
+                    checksum: "test_neg".to_string(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                },
+            },
+            combined: None,
+        };
+        
         let training_data = vec![
             TrainingExample {
                 input: vec![1, 2, 3],
@@ -138,8 +169,8 @@ mod tests {
         let keypair = Keypair::generate();
         adapter.sign(&keypair).unwrap();
         
-        // Tamper with weights after signing
-        adapter.weights.push(99);
+        // Tamper with weights after signing (modify a value in positive group)
+        adapter.weights.positive.lora_a[0][0] = 999.0;
         
         // Verification should fail
         assert!(!adapter.verify().unwrap());
@@ -149,13 +180,14 @@ mod tests {
     async fn test_aos_compression_levels() {
         let temp_dir = TempDir::new().unwrap();
         
+        let adapter = create_test_adapter();
+        
         // Test different compression levels
         for (level, name) in &[
             (CompressionLevel::Store, "store"),
             (CompressionLevel::Fast, "fast"),
             (CompressionLevel::Best, "best"),
         ] {
-            let adapter = create_test_adapter();
             let path = temp_dir.path().join(format!("test_{}.aos", name));
             
             let options = PackageOptions {

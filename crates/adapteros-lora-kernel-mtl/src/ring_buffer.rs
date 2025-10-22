@@ -11,6 +11,17 @@ use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
 
+/// Raw ring buffer state for GPU parameter blocks
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RawRingBuffer {
+    pub top_k: u32,
+    pub current_pos: u32,
+    pub adapter_indices: [u32; 8],
+    pub gates: [u16; 8],
+    pub reserved: [u32; 2],
+}
+
 /// Active adapter with quantized gate
 #[derive(Debug, Clone)]
 pub struct ActiveAdapter {
@@ -34,6 +45,8 @@ pub struct RingBuffer {
     buffer: Option<Buffer>,
     /// Device reference
     _device: Arc<Device>,
+    /// Raw GPU state snapshot
+    raw_state: RawRingBuffer,
 }
 
 impl RingBuffer {
@@ -45,9 +58,7 @@ impl RingBuffer {
             ));
         }
 
-        let buffer_size = std::mem::size_of::<u32>() * 8
-            + std::mem::size_of::<u16>() * 8
-            + std::mem::size_of::<u32>() * 2;
+        let buffer_size = std::mem::size_of::<RawRingBuffer>();
         let buffer = device.new_buffer(buffer_size as u64, MTLResourceOptions::StorageModeShared);
 
         Ok(Self {
@@ -57,6 +68,10 @@ impl RingBuffer {
             gates: vec![0; 8],
             buffer: Some(buffer),
             _device: device,
+            raw_state: RawRingBuffer {
+                top_k: top_k as u32,
+                ..RawRingBuffer::default()
+            },
         })
     }
 
@@ -71,17 +86,24 @@ impl RingBuffer {
         // Clear existing data
         self.adapter_indices.fill(0);
         self.gates.fill(0);
+        self.raw_state.adapter_indices.fill(0);
+        self.raw_state.gates.fill(0);
 
         // Set active adapters
         for (i, adapter) in adapters.iter().enumerate() {
             self.adapter_indices[i] = adapter.id;
             self.gates[i] = adapter.gate;
+            self.raw_state.adapter_indices[i] = adapter.id;
+            self.raw_state.gates[i] = adapter.gate;
         }
+
+        let next_pos = (self.current_pos + 1) % self.top_k;
+        self.current_pos = next_pos;
+        self.raw_state.current_pos = next_pos as u32;
+        self.raw_state.top_k = self.top_k as u32;
 
         // Update Metal buffer
         self.update_metal_buffer()?;
-
-        self.current_pos = (self.current_pos + 1) % self.top_k;
         Ok(())
     }
 
@@ -100,23 +122,30 @@ impl RingBuffer {
         let mut offset = 0;
 
         // Write adapter indices
-        for &idx in &self.adapter_indices {
+        for &idx in &self.raw_state.adapter_indices {
             slice[offset..offset + 4].copy_from_slice(&idx.to_le_bytes());
             offset += 4;
         }
 
         // Write gates
-        for &gate in &self.gates {
+        for &gate in &self.raw_state.gates {
             slice[offset..offset + 2].copy_from_slice(&gate.to_le_bytes());
             offset += 2;
         }
 
         // Write top_k
-        slice[offset..offset + 4].copy_from_slice(&(self.top_k as u32).to_le_bytes());
+        slice[offset..offset + 4].copy_from_slice(&self.raw_state.top_k.to_le_bytes());
         offset += 4;
 
         // Write current_pos
-        slice[offset..offset + 4].copy_from_slice(&(self.current_pos as u32).to_le_bytes());
+        slice[offset..offset + 4].copy_from_slice(&self.raw_state.current_pos.to_le_bytes());
+        offset += 4;
+
+        // Write reserved padding
+        for value in &self.raw_state.reserved {
+            slice[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            offset += 4;
+        }
 
         Ok(())
     }
@@ -140,6 +169,19 @@ impl RingBuffer {
         }
 
         adapters
+    }
+
+    /// Maximum adapter slots supported by this ring buffer
+    pub fn capacity(&self) -> usize {
+        self.top_k
+    }
+
+    /// Snapshot of raw GPU state for parameter structs
+    pub fn raw_state(&self) -> RawRingBuffer {
+        let mut raw = self.raw_state;
+        raw.current_pos = self.current_pos as u32;
+        raw.top_k = self.top_k as u32;
+        raw
     }
 
     /// Convert float gate to Q15 format

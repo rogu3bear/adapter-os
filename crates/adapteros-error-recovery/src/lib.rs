@@ -110,7 +110,7 @@ pub enum RecoveryStrategy {
 }
 
 /// Recovery result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveryResult {
     /// Recovery successful
     Success,
@@ -207,7 +207,7 @@ impl ErrorRecoveryManager {
             AosError::Storage(_) => ErrorType::DiskSpaceError,
             AosError::Concurrency(_) => ErrorType::LockError,
             AosError::Security(_) => ErrorType::PermissionError,
-            AosError::Timeout(_) => ErrorType::TimeoutError,
+            AosError::Timeout { duration: _ } => ErrorType::TimeoutError,
             AosError::Network(_) => ErrorType::NetworkError,
             _ => ErrorType::Unknown,
         }
@@ -280,7 +280,8 @@ impl ErrorRecoveryManager {
 
         // Trim history if too large
         if history.len() > 1000 {
-            history.drain(0..history.len() - 1000);
+            let target_len = history.len() - 1000;
+            history.drain(0..target_len);
         }
 
         debug!("Recorded recovery: {} -> {:?}", record.id, record.result);
@@ -327,7 +328,7 @@ impl ErrorRecoveryManager {
     }
 
     /// Validate file integrity
-    pub async fn validate_file_integrity(&self, path: &Path) -> Result<bool> {
+    pub async fn validate_file_integrity(&mut self, path: &Path) -> Result<bool> {
         self.validation_engine.validate_file(path).await
     }
 
@@ -390,11 +391,15 @@ mod tests {
         // Test error handling
         let error = AosError::Io("Test error".to_string());
         let result = manager.handle_error(error, &test_file).await;
-        // Should succeed or fail gracefully
 
         // Test statistics
         let stats = manager.get_recovery_statistics().await;
-        assert_eq!(stats.total_recoveries, 0);
+        assert_eq!(stats.total_recoveries, 1);
+        if result.is_ok() {
+            assert_eq!(stats.successful_recoveries, 1);
+        } else {
+            assert_eq!(stats.failed_recoveries, 1);
+        }
 
         Ok(())
     }

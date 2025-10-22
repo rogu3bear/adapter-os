@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { InferRequest, InferResponse, InferenceSession } from '../api/types';
 import { TraceVisualizer } from './TraceVisualizer';
+import { logger, toError } from '../utils/logger';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -80,18 +81,30 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       try {
         setRecentSessions(JSON.parse(stored));
       } catch (err) {
-        console.error('Failed to load sessions:', err);
+        logger.error('Failed to parse stored inference sessions', {
+          component: 'InferencePlayground',
+          operation: 'loadSessions',
+        }, toError(err));
       }
     }
   }, []);
 
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
+    // Convert InferResponse to EnhancedInferResponse for session storage
+    const enhancedResponse = {
+      ...response,
+      token_count: response.token_count || 0,
+      finish_reason: response.finish_reason || 'stop',
+      latency_ms: response.latency_ms || 0,
+      trace: response.trace,
+    };
+    
     const session: InferenceSession = {
       id: Date.now().toString(),
       created_at: new Date().toISOString(),
       prompt: config.prompt,
       request: config,
-      response,
+      response: enhancedResponse as any, // Type compatibility
       status: 'completed',
     };
 
@@ -117,6 +130,12 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Inference failed';
       toast.error(errorMessage);
+      logger.error('Inference request failed', {
+        component: 'InferencePlayground',
+        operation: 'infer',
+        configId: config.id,
+        tenantId: selectedTenant,
+      }, toError(err));
     } finally {
       setLoading(false);
     }
@@ -280,11 +299,11 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               <div className="flex gap-2">
                 <Badge variant="outline" className="gap-1">
                   <Clock className="h-3 w-3" />
-                  {response.trace?.latency_ms || 0}ms
+                  {response.latency_ms || ('trace' in response && response.trace && 'latency_ms' in response.trace ? (response.trace as any).latency_ms : 0)}ms
                 </Badge>
                 <Badge variant="outline" className="gap-1">
                   <FileText className="h-3 w-3" />
-                  {response.tokens?.length || 0} tokens
+                  {response.token_count || 0} tokens
                 </Badge>
               </div>
             </div>
@@ -307,8 +326,8 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         </Card>
 
         {/* Trace Information */}
-        {response.trace && (
-          <TraceVisualizer trace={response.trace} />
+        {response.trace && 'latency_ms' in response.trace && (
+          <TraceVisualizer trace={response.trace as any} />
         )}
 
         {/* Finish Reason */}
@@ -518,28 +537,28 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                   <div>
                     <p className="text-sm font-medium">Latency</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">A: {responseA.trace?.latency_ms || 0}ms</Badge>
-                      <Badge variant="outline">B: {responseB.trace?.latency_ms || 0}ms</Badge>
+                      <Badge variant="outline">A: {responseA.latency_ms || 0}ms</Badge>
+                      <Badge variant="outline">B: {responseB.latency_ms || 0}ms</Badge>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Tokens</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">A: {responseA.tokens?.length || 0}</Badge>
-                      <Badge variant="outline">B: {responseB.tokens?.length || 0}</Badge>
+                      <Badge variant="outline">A: {responseA.token_count || 0}</Badge>
+                      <Badge variant="outline">B: {responseB.token_count || 0}</Badge>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Finish Reason</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">{responseA.finish_reason}</Badge>
-                      <Badge variant="outline">{responseB.finish_reason}</Badge>
+                      <Badge variant="outline">{responseA.finish_reason || 'unknown'}</Badge>
+                      <Badge variant="outline">{responseB.finish_reason || 'unknown'}</Badge>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Winner</p>
                     <Badge className="mt-1">
-                      {(responseA.trace?.latency_ms || 0) < (responseB.trace?.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
+                      {(responseA.latency_ms || 0) < (responseB.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
                     </Badge>
                   </div>
                 </div>
@@ -551,5 +570,4 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     </div>
   );
 }
-
 

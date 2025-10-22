@@ -13,17 +13,9 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-
-interface Contact {
-  id: string;
-  name: string;
-  email?: string;
-  category: 'user' | 'system' | 'adapter' | 'repository' | 'external';
-  role?: string;
-  discovered_at: string;
-  interaction_count: number;
-  last_interaction?: string;
-}
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { Contact } from '@/api/types';
 
 interface ContactsPageProps {
   selectedTenant: string;
@@ -75,7 +67,11 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
       const data = await apiClient.listContacts(selectedTenant);
       setContacts(data);
     } catch (error) {
-      console.error('Failed to fetch contacts:', error);
+      logger.error('Failed to fetch contacts', {
+        component: 'ContactsPage',
+        operation: 'listContacts',
+        tenantId: selectedTenant,
+      }, toError(error));
     } finally {
       setLoading(false);
     }
@@ -201,4 +197,3 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     </div>
   );
 }
-

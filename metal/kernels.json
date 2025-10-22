@@ -9,7 +9,7 @@
       "version": "1.0.0",
       "description": "Fused MLP with SwiGLU activation, LoRA support, and bias",
       "parameters": "MlpParams",
-      "blake3_hash": "152e1b8640179fc2aed5cad2ea9d7bc217c681f5238b3508c8916ed79a640dd2",
+      "blake3_hash": "43c0e070bb103d5f78c9a6ed547a962922384231736aa69f31ee580cacd29353",
       "features": [
         "SwiGLU activation",
         "LoRA support",
@@ -26,7 +26,7 @@
       "version": "1.0.0",
       "description": "Fused QKV with Grouped Query Attention (GQA) support",
       "parameters": "AttentionParams",
-      "blake3_hash": "152e1b8640179fc2aed5cad2ea9d7bc217c681f5238b3508c8916ed79a640dd2",
+      "blake3_hash": "43c0e070bb103d5f78c9a6ed547a962922384231736aa69f31ee580cacd29353",
       "features": [
         "Grouped Query Attention",
         "LoRA support",
@@ -43,7 +43,7 @@
       "version": "1.0.0",
       "description": "Memory-efficient attention computation with GQA support",
       "parameters": "FlashAttentionParams",
-      "blake3_hash": "152e1b8640179fc2aed5cad2ea9d7bc217c681f5238b3508c8916ed79a640dd2",
+      "blake3_hash": "43c0e070bb103d5f78c9a6ed547a962922384231736aa69f31ee580cacd29353",
       "features": [
         "Flash Attention",
         "Grouped Query Attention",
@@ -133,18 +133,38 @@
         },
         {
           "name": "lora_config",
-          "type": "constant LoraConfig&",
+          "type": "LoraConfig",
           "description": "LoRA configuration parameters"
         },
         {
           "name": "ring_buffer",
-          "type": "constant RingBuffer&",
+          "type": "RingBuffer",
           "description": "Ring buffer for active adapters"
         },
         {
           "name": "dropout_seed",
-          "type": "constant uint&",
+          "type": "uint",
           "description": "Seed for deterministic dropout"
+        },
+        {
+          "name": "hidden_size",
+          "type": "uint",
+          "description": "Hidden dimension size"
+        },
+        {
+          "name": "intermediate_size",
+          "type": "uint",
+          "description": "Intermediate dimension size"
+        },
+        {
+          "name": "batch_size",
+          "type": "uint",
+          "description": "Batch size for current dispatch"
+        },
+        {
+          "name": "max_adapters",
+          "type": "uint",
+          "description": "Maximum adapters represented in the ring buffer"
         }
       ]
     },
@@ -219,18 +239,28 @@
         },
         {
           "name": "gqa_config",
-          "type": "constant GqaConfig&",
+          "type": "GqaConfig",
           "description": "Grouped Query Attention configuration"
         },
         {
           "name": "lora_config",
-          "type": "constant LoraConfig&",
+          "type": "LoraConfig",
           "description": "LoRA configuration parameters"
         },
         {
           "name": "ring_buffer",
-          "type": "constant RingBuffer&",
+          "type": "RingBuffer",
           "description": "Ring buffer for active adapters"
+        },
+        {
+          "name": "batch_size",
+          "type": "uint",
+          "description": "Batch size for current dispatch"
+        },
+        {
+          "name": "max_adapters",
+          "type": "uint",
+          "description": "Maximum adapters represented in the ring buffer"
         }
       ]
     },
@@ -260,8 +290,18 @@
         },
         {
           "name": "gqa_config",
-          "type": "constant GqaConfig&",
+          "type": "GqaConfig",
           "description": "Grouped Query Attention configuration"
+        },
+        {
+          "name": "batch_size",
+          "type": "uint",
+          "description": "Batch size for the attention pass"
+        },
+        {
+          "name": "sequence_length",
+          "type": "uint",
+          "description": "Sequence length handled by the kernel"
         }
       ]
     }

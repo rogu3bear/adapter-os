@@ -30,7 +30,18 @@ kernel void fused_qkv_gqa(
     uint batch_idx = gid.x;
     uint head_idx = gid.y;
     uint dim_idx = gid.z;
-    
+
+    if (batch_idx >= params.batch_size) {
+        return;
+    }
+
+    const bool has_q_lora =
+        (params.q_lora_a != nullptr) && (params.q_lora_b != nullptr) && params.lora_config.rank > 0;
+    const bool has_k_lora =
+        (params.k_lora_a != nullptr) && (params.k_lora_b != nullptr) && params.lora_config.rank > 0;
+    const bool has_v_lora =
+        (params.v_lora_a != nullptr) && (params.v_lora_b != nullptr) && params.lora_config.rank > 0;
+
     // Load input value
     float input_val = params.input[batch_idx * params.gqa_config.hidden_size + dim_idx];
     
@@ -39,21 +50,21 @@ kernel void fused_qkv_gqa(
         float q_val = 0.0f;
         for (uint i = 0; i < params.gqa_config.hidden_size; i++) {
             float base_weight = params.q_weight[dim_idx * params.gqa_config.hidden_size + i];
-            float lora_delta = 0.0f;
-            
-            // Apply LoRA for active adapters
-            for (uint k = 0; k < params.ring_buffer.top_k; k++) {
-                uint adapter_idx = params.ring_buffer.adapter_indices[k];
-                float gate_q15 = q15_to_float(params.ring_buffer.gates[k]);
-                
-                if (adapter_idx < params.lora_config.rank) {
+            if (has_q_lora) {
+                float lora_delta = 0.0f;
+                for (uint k = 0; k < params.ring_buffer.top_k && k < params.max_adapters; k++) {
+                    uint adapter_idx = params.ring_buffer.adapter_indices[k];
+                    if (adapter_idx >= params.lora_config.rank) {
+                        continue;
+                    }
+                    float gate_q15 = q15_to_float(params.ring_buffer.gates[k]);
                     float lora_a = params.q_lora_a[dim_idx * params.lora_config.rank + adapter_idx];
                     float lora_b = params.q_lora_b[adapter_idx * params.gqa_config.hidden_size + i];
                     lora_delta += gate_q15 * lora_a * lora_b;
                 }
+                base_weight += lora_delta;
             }
-            
-            q_val += input_val * (base_weight + lora_delta);
+            q_val += input_val * base_weight;
         }
         
         // Store Q output
@@ -67,21 +78,21 @@ kernel void fused_qkv_gqa(
         float k_val = 0.0f;
         for (uint i = 0; i < params.gqa_config.kv_width; i++) {
             float base_weight = params.k_weight[dim_idx * params.gqa_config.kv_width + i];
-            float lora_delta = 0.0f;
-            
-            // Apply LoRA for active adapters
-            for (uint k = 0; k < params.ring_buffer.top_k; k++) {
-                uint adapter_idx = params.ring_buffer.adapter_indices[k];
-                float gate_q15 = q15_to_float(params.ring_buffer.gates[k]);
-                
-                if (adapter_idx < params.lora_config.rank) {
+            if (has_k_lora) {
+                float lora_delta = 0.0f;
+                for (uint k = 0; k < params.ring_buffer.top_k && k < params.max_adapters; k++) {
+                    uint adapter_idx = params.ring_buffer.adapter_indices[k];
+                    if (adapter_idx >= params.lora_config.rank) {
+                        continue;
+                    }
+                    float gate_q15 = q15_to_float(params.ring_buffer.gates[k]);
                     float lora_a = params.k_lora_a[dim_idx * params.lora_config.rank + adapter_idx];
                     float lora_b = params.k_lora_b[adapter_idx * params.gqa_config.kv_width + i];
                     lora_delta += gate_q15 * lora_a * lora_b;
                 }
+                base_weight += lora_delta;
             }
-            
-            k_val += input_val * (base_weight + lora_delta);
+            k_val += input_val * base_weight;
         }
         
         // Store K output
@@ -95,21 +106,21 @@ kernel void fused_qkv_gqa(
         float v_val = 0.0f;
         for (uint i = 0; i < params.gqa_config.kv_width; i++) {
             float base_weight = params.v_weight[dim_idx * params.gqa_config.kv_width + i];
-            float lora_delta = 0.0f;
-            
-            // Apply LoRA for active adapters
-            for (uint k = 0; k < params.ring_buffer.top_k; k++) {
-                uint adapter_idx = params.ring_buffer.adapter_indices[k];
-                float gate_q15 = q15_to_float(params.ring_buffer.gates[k]);
-                
-                if (adapter_idx < params.lora_config.rank) {
+            if (has_v_lora) {
+                float lora_delta = 0.0f;
+                for (uint k = 0; k < params.ring_buffer.top_k && k < params.max_adapters; k++) {
+                    uint adapter_idx = params.ring_buffer.adapter_indices[k];
+                    if (adapter_idx >= params.lora_config.rank) {
+                        continue;
+                    }
+                    float gate_q15 = q15_to_float(params.ring_buffer.gates[k]);
                     float lora_a = params.v_lora_a[dim_idx * params.lora_config.rank + adapter_idx];
                     float lora_b = params.v_lora_b[adapter_idx * params.gqa_config.kv_width + i];
                     lora_delta += gate_q15 * lora_a * lora_b;
                 }
+                base_weight += lora_delta;
             }
-            
-            v_val += input_val * (base_weight + lora_delta);
+            v_val += input_val * base_weight;
         }
         
         // Store V output

@@ -3,6 +3,7 @@ import { ErrorBoundary as ReactErrorBoundary } from 'react-error-boundary';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Button } from './ui/button';
+import { logger } from '../utils/logger';
 
 interface ErrorFallbackProps {
   error: Error;
@@ -42,7 +43,10 @@ export function ErrorBoundary({ children, fallback }: ErrorBoundaryProps) {
     <ReactErrorBoundary 
       FallbackComponent={fallback ? () => <>{fallback}</> : ErrorFallback}
       onError={(error, errorInfo) => {
-        console.error('Error caught by boundary:', error, errorInfo);
+        logger.error('Error caught by boundary', {
+          component: 'ErrorBoundary',
+          componentStack: errorInfo.componentStack,
+        }, error);
       }}
       onReset={() => {
         window.location.reload();

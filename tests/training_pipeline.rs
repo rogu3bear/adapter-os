@@ -36,6 +36,7 @@ fn test_dataset_validation() {
         input: vec![1, 2, 3],
         target: vec![4, 5, 6],
         metadata: HashMap::new(),
+        weight: 1.0,
     }];
 
     assert!(gen.validate_examples(&examples).is_ok());
@@ -76,11 +77,13 @@ async fn test_training_loop_small_dataset() {
             input: vec![1, 2, 3],
             target: vec![4, 5, 6],
             metadata: HashMap::new(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![7, 8, 9],
             target: vec![10, 11, 12],
             metadata: HashMap::new(),
+            weight: 1.0,
         },
     ];
 
@@ -159,6 +162,7 @@ async fn test_end_to_end_training_and_quantization() {
         input: vec![1, 2, 3],
         target: vec![4, 5, 6],
         metadata: HashMap::new(),
+        weight: 1.0,
     }];
 
     // Train
@@ -196,6 +200,7 @@ async fn test_training_performance_benchmark() {
             input: vec![i as u32; 50],
             target: vec![i as u32 + 1; 50],
             metadata: HashMap::new(),
+            weight: 1.0,
         });
     }
 

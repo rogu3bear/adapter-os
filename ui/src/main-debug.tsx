@@ -1,23 +1,24 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { logger } from "./utils/logger";
 
-console.log("Starting main-debug.tsx");
+logger.debug("Starting debug bundle bootstrap", { component: "DebugBootstrap" });
 
 function App() {
-  console.log("Rendering App component");
+  logger.debug("Rendering App component", { component: "DebugBootstrap" });
   return React.createElement('div', { style: { padding: '20px', fontSize: '24px' } }, 'Hello World - Debug Test');
 }
 
-console.log("Getting root element");
+logger.debug("Resolving root element", { component: "DebugBootstrap" });
 const rootElement = document.getElementById("root");
-console.log("Root element:", rootElement);
+logger.debug("Resolved root element", { component: "DebugBootstrap", hasRoot: Boolean(rootElement) });
 
 if (!rootElement) {
-  console.error("Root element not found!");
+  logger.error("Root element not found for debug bootstrap", { component: "DebugBootstrap" });
 } else {
-  console.log("Creating root");
+  logger.debug("Creating root", { component: "DebugBootstrap" });
   const root = createRoot(rootElement);
-  console.log("Rendering app");
+  logger.debug("Rendering app root", { component: "DebugBootstrap" });
   root.render(React.createElement(App));
-  console.log("Render complete");
+  logger.info("Debug app render complete", { component: "DebugBootstrap" });
 }

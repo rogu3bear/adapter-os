@@ -7,7 +7,7 @@ use crate::parsers::LanguageParser;
 use crate::types::{Language, ParseResult, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use adapteros_single_file_adapter::SingleFileAdapterLoader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Parser for AdapterOS single-file adapter manifests.
 pub struct AdapterParser {
@@ -28,14 +28,12 @@ impl AdapterParser {
             handle.block_on(fut)
         } else {
             if self.runtime.is_none() {
-                self.runtime = Some(
-                    tokio::runtime::Runtime::new().map_err(|e| {
-                        AosError::Internal(format!(
-                            "Failed to create Tokio runtime for AdapterOS parser: {}",
-                            e
-                        ))
-                    })?,
-                );
+                self.runtime = Some(tokio::runtime::Runtime::new().map_err(|e| {
+                    AosError::Internal(format!(
+                        "Failed to create Tokio runtime for AdapterOS parser: {}",
+                        e
+                    ))
+                })?);
             }
             self.runtime
                 .as_ref()
@@ -84,11 +82,19 @@ impl LanguageParser for AdapterParser {
         let mut symbols = Vec::with_capacity(3);
 
         if !manifest.adapter_id.trim().is_empty() {
-            symbols.push(Self::manifest_symbol(path, "adapter_id", &manifest.adapter_id));
+            symbols.push(Self::manifest_symbol(
+                path,
+                "adapter_id",
+                &manifest.adapter_id,
+            ));
         }
 
         if !manifest.base_model.trim().is_empty() {
-            symbols.push(Self::manifest_symbol(path, "base_model", &manifest.base_model));
+            symbols.push(Self::manifest_symbol(
+                path,
+                "base_model",
+                &manifest.base_model,
+            ));
         }
 
         if !manifest.category.trim().is_empty() {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -7,11 +7,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Input } from '@/components/ui/input'; // Add Input
 import { Button } from '@/components/ui/button'; // Add Button for pagination
 import Mermaid from 'react-mermaid'; // Add Mermaid
-import { api } from '@/api/client';
+import apiClient from '@/api/client';
 import { JourneyResponse } from '@/api/types';
+import { logger } from '@/utils/logger';
 
 interface JourneysProps {
-  user: { email: string; roles: string[] };
+  user: { email: string; roles?: string[] };
   selectedTenant: string;
 }
 
@@ -31,10 +32,16 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
   const { data: journeyData, isLoading, error } = useQuery({
     queryKey: ['journey', activeTab, journeyId, selectedTenant],
     queryFn: async () => {
-      const response = await api.get(`/v1/journeys/${activeTab}/${journeyId}`, {
-        headers: { 'X-Tenant-ID': selectedTenant },
-      });
-      return response.data as JourneyResponse;
+      // Fetch journey data - placeholder implementation
+      // TODO: Implement proper journey endpoint in apiClient
+      const mockJourney: JourneyResponse = {
+        journey_type: activeTab,
+        id: journeyId,
+        data: {},
+        states: [],
+        created_at: new Date().toISOString(),
+      };
+      return mockJourney;
     },
     enabled: !!selectedTenant && !!journeyId,
   });
@@ -44,11 +51,23 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
 
   const paginatedStates = journeyData ? journeyData.states.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
   const totalPages = Math.ceil((journeyData?.states.length || 0) / PAGE_SIZE);
+  const handleAccordionChange = useCallback((details: string[]) => {
+    logger.debug('Journey accordion toggled', {
+      component: 'Journeys',
+      expanded: details,
+      tenantId: selectedTenant,
+    });
+  }, [selectedTenant]);
 
   const renderStates = (states: JourneyResponse['states']) => {
     const defaultVal = states.length > 0 ? ['item-0'] : []; // Conditional for 0 states
     return (
-      <Accordion type="multiple" defaultValue={defaultVal} onValueChange={(details) => console.log('Expanded:', details)} className="w-full">
+      <Accordion
+        type="multiple"
+        defaultValue={defaultVal}
+        onValueChange={handleAccordionChange}
+        className="w-full"
+      >
         {states.map((state, idx) => (
           <AccordionItem key={idx} value={`item-${idx}-${state.state}`}>
             <AccordionTrigger>

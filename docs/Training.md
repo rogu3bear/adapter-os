@@ -28,7 +28,8 @@ aosctl train \
   --data data/small.json \
   --output out/train1 \
   --plan plan/qwen7b/PLAN_ID \
-  --rank 16 --epochs 1
+  --rank 16 --epochs 1 \
+  --base-model qwen2.5-7b
 ```
 
 Package and register:
@@ -40,6 +41,7 @@ aosctl train \
   --output out/train1 \
   --plan plan/qwen7b/PLAN_ID \
   --rank 16 --epochs 1 \
+  --base-model qwen2.5-7b \
   --pack --adapters-root "$AOS_ADAPTERS_ROOT" \
   --register --adapter-id demo_adapter --tier ephemeral --reg-rank 16
 ```
@@ -49,6 +51,8 @@ Artifacts:
 - `<adapters_root>/<adapter_id>/manifest.json`
 - `<adapters_root>/<adapter_id>/signature.sig`
 - `<adapters_root>/<adapter_id>/public_key.pem`
+
+Use `--deterministic` to derive a repeatable seed from the dataset and configuration, or pass `--seed <u64>` for full control. The CLI enforces `--pack` when `--register` is provided to guarantee manifests and signatures exist.
 
 Verify packaged adapter:
 
@@ -92,4 +96,3 @@ curl -H 'Authorization: Bearer adapteros-local' \
 - Missing artifacts: ensure `AOS_ADAPTERS_ROOT` is set and that the packaged directory exists.
 - Registration inconsistencies: recompute BLAKE3 over `weights.safetensors` and compare with `manifest.json.weights_hash`.
 - UI shows "Not Ready": check signature validity and hash matching.
-

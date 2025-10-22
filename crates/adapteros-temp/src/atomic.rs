@@ -4,7 +4,9 @@
 
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
 /// Atomic file writer
@@ -19,7 +21,10 @@ impl AtomicFileWriter {
         let temp_path = final_path.with_extension(format!(
             "{}.tmp.{}",
             final_path.extension().unwrap_or_default().to_string_lossy(),
-            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
 
         Ok(Self {
@@ -30,7 +35,8 @@ impl AtomicFileWriter {
 
     /// Write data to the temporary file
     pub async fn write(&self, data: &[u8]) -> Result<()> {
-        fs::write(&self.temp_path, data).await
+        fs::write(&self.temp_path, data)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to write to temp file: {}", e)))?;
         Ok(())
     }
@@ -53,12 +59,14 @@ impl AtomicFileWriter {
     pub async fn commit(self) -> Result<()> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = self.final_path.parent() {
-            fs::create_dir_all(parent).await
+            fs::create_dir_all(parent)
+                .await
                 .map_err(|e| AosError::Io(format!("Failed to create parent directory: {}", e)))?;
         }
 
         // Atomic rename
-        fs::rename(&self.temp_path, &self.final_path).await
+        fs::rename(&self.temp_path, &self.final_path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to commit file atomically: {}", e)))?;
 
         debug!("Atomically committed file: {}", self.final_path.display());
@@ -68,9 +76,13 @@ impl AtomicFileWriter {
     /// Abort the operation and clean up
     pub async fn abort(self) -> Result<()> {
         if self.temp_path.exists() {
-            fs::remove_file(&self.temp_path).await
+            fs::remove_file(&self.temp_path)
+                .await
                 .map_err(|e| AosError::Io(format!("Failed to remove temp file: {}", e)))?;
-            debug!("Aborted atomic file operation: {}", self.temp_path.display());
+            debug!(
+                "Aborted atomic file operation: {}",
+                self.temp_path.display()
+            );
         }
         Ok(())
     }
@@ -96,10 +108,14 @@ impl AtomicFileReader {
         let backup_path = self.path.with_extension(format!(
             "{}.backup.{}",
             self.path.extension().unwrap_or_default().to_string_lossy(),
-            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
 
-        fs::copy(&self.path, &backup_path).await
+        fs::copy(&self.path, &backup_path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to create backup: {}", e)))?;
 
         self.backup_path = Some(backup_path);
@@ -108,25 +124,31 @@ impl AtomicFileReader {
 
     /// Read the file
     pub async fn read(&self) -> Result<Vec<u8>> {
-        fs::read(&self.path).await
+        fs::read(&self.path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to read file: {}", e)))?;
-        Ok(fs::read(&self.path).await
+        Ok(fs::read(&self.path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to read file: {}", e)))?)
     }
 
     /// Read the file as a string
     pub async fn read_string(&self) -> Result<String> {
-        fs::read_to_string(&self.path).await
+        fs::read_to_string(&self.path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to read file as string: {}", e)))?;
-        Ok(fs::read_to_string(&self.path).await
+        Ok(fs::read_to_string(&self.path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to read file as string: {}", e)))?)
     }
 
     /// Get file metadata
     pub async fn metadata(&self) -> Result<std::fs::Metadata> {
-        fs::metadata(&self.path).await
+        fs::metadata(&self.path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?;
-        Ok(fs::metadata(&self.path).await
+        Ok(fs::metadata(&self.path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?)
     }
 }
@@ -137,7 +159,11 @@ impl Drop for AtomicFileReader {
         if let Some(backup_path) = &self.backup_path {
             if backup_path.exists() {
                 if let Err(e) = std::fs::remove_file(backup_path) {
-                    tracing::warn!("Failed to remove backup file {}: {}", backup_path.display(), e);
+                    tracing::warn!(
+                        "Failed to remove backup file {}: {}",
+                        backup_path.display(),
+                        e
+                    );
                 } else {
                     debug!("Cleaned up backup file: {}", backup_path.display());
                 }
@@ -154,15 +180,21 @@ impl AtomicDirOperations {
     pub async fn move_atomic(src: PathBuf, dst: PathBuf) -> Result<()> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent).await
+            fs::create_dir_all(parent)
+                .await
                 .map_err(|e| AosError::Io(format!("Failed to create parent directory: {}", e)))?;
         }
 
         // Atomic rename
-        fs::rename(&src, &dst).await
+        fs::rename(&src, &dst)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to move directory atomically: {}", e)))?;
 
-        debug!("Atomically moved directory: {} -> {}", src.display(), dst.display());
+        debug!(
+            "Atomically moved directory: {} -> {}",
+            src.display(),
+            dst.display()
+        );
         Ok(())
     }
 
@@ -170,39 +202,53 @@ impl AtomicDirOperations {
     pub async fn copy_atomic(src: PathBuf, dst: PathBuf) -> Result<()> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent).await
+            fs::create_dir_all(parent)
+                .await
                 .map_err(|e| AosError::Io(format!("Failed to create parent directory: {}", e)))?;
         }
 
         // Copy directory recursively
         Self::copy_directory_recursive(&src, &dst).await?;
 
-        debug!("Atomically copied directory: {} -> {}", src.display(), dst.display());
+        debug!(
+            "Atomically copied directory: {} -> {}",
+            src.display(),
+            dst.display()
+        );
         Ok(())
     }
 
     /// Copy directory recursively
     async fn copy_directory_recursive(src: &Path, dst: &Path) -> Result<()> {
-        fs::create_dir_all(dst).await
-            .map_err(|e| AosError::Io(format!("Failed to create destination directory: {}", e)))?;
+        Box::pin(async move {
+            fs::create_dir_all(dst).await.map_err(|e| {
+                AosError::Io(format!("Failed to create destination directory: {}", e))
+            })?;
 
-        let mut entries = fs::read_dir(src).await
-            .map_err(|e| AosError::Io(format!("Failed to read source directory: {}", e)))?;
+            let mut entries = fs::read_dir(src)
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to read source directory: {}", e)))?;
 
-        while let Some(entry) = entries.next_entry().await
-            .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))? {
-            let entry_path = entry.path();
-            let dst_path = dst.join(entry.file_name());
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?
+            {
+                let entry_path = entry.path();
+                let dst_path = dst.join(entry.file_name());
 
-            if entry_path.is_file() {
-                fs::copy(&entry_path, &dst_path).await
-                    .map_err(|e| AosError::Io(format!("Failed to copy file: {}", e)))?;
-            } else if entry_path.is_dir() {
-                Self::copy_directory_recursive(&entry_path, &dst_path).await?;
+                if entry_path.is_file() {
+                    fs::copy(&entry_path, &dst_path)
+                        .await
+                        .map_err(|e| AosError::Io(format!("Failed to copy file: {}", e)))?;
+                } else if entry_path.is_dir() {
+                    Self::copy_directory_recursive(&entry_path, &dst_path).await?;
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 }
 

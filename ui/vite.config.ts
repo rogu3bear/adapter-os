@@ -5,6 +5,9 @@
 
   export default defineConfig({
     plugins: [react()],
+    optimizeDeps: {
+      entries: ['index.html'],
+    },
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
@@ -18,6 +21,7 @@
         'input-otp@1.4.2': 'input-otp',
         'embla-carousel-react@8.6.0': 'embla-carousel-react',
         'cmdk@1.1.1': 'cmdk',
+        'react-mermaid': path.resolve(__dirname, './src/shims/react-mermaid.tsx'),
         'class-variance-authority@0.7.1': 'class-variance-authority',
         '@radix-ui/react-tooltip@1.1.8': '@radix-ui/react-tooltip',
         '@radix-ui/react-toggle@1.1.2': '@radix-ui/react-toggle',
@@ -93,6 +97,7 @@
     },
     server: {
       port: 3200,
+      strictPort: true,
       open: true,
       proxy: {
         '/api': {
@@ -102,7 +107,7 @@
         },
       },
       headers: {
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss: http://localhost:8080 http://127.0.0.1:8080;",
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*;",
         'X-Frame-Options': 'DENY',
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'strict-origin-when-cross-origin',

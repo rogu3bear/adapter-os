@@ -14,6 +14,7 @@ members = [
     "crates/adapteros-manifest",
     "crates/adapteros-registry",
     "crates/adapteros-artifacts",
+    "crates/adapteros-cdp",
     "crates/adapteros-lora-kernel-api",
     "crates/adapteros-lora-kernel-mtl",
     "crates/adapteros-lora-kernel-prof",
@@ -271,16 +272,14 @@ adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
 adapteros-graph = { path = "crates/adapteros-graph" }
 adapteros-replay = { path = "crates/adapteros-replay" }
 adapteros-trace = { path = "crates/adapteros-trace" }
-tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+adapteros-config = { path = "crates/adapteros-config" }
+adapteros-federation = { path = "crates/adapteros-federation" }
 tempfile = "3.0"
-anyhow = "1.0"
 axum = "0.7"
 tower = "0.4"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
-blake3 = { workspace = true }
-hex = { workspace = true }
 adapteros-experimental = { path = "crates/adapteros-experimental" }
+futures-util = { workspace = true }
+serde_yaml = "0.9"

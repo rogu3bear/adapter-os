@@ -16,6 +16,7 @@ pub enum Language {
     TypeScript,
     JavaScript,
     Go,
+    AdapterOS,
 }
 
 impl Language {
@@ -27,6 +28,7 @@ impl Language {
             "ts" | "tsx" => Some(Language::TypeScript),
             "js" | "jsx" => Some(Language::JavaScript),
             "go" => Some(Language::Go),
+            "aos" => Some(Language::AdapterOS),
             _ => None,
         }
     }
@@ -46,6 +48,7 @@ impl Language {
             Language::TypeScript => &["ts", "tsx"],
             Language::JavaScript => &["js", "jsx"],
             Language::Go => &["go"],
+            Language::AdapterOS => &["aos"],
         }
     }
 }
@@ -58,6 +61,7 @@ impl fmt::Display for Language {
             Language::TypeScript => write!(f, "typescript"),
             Language::JavaScript => write!(f, "javascript"),
             Language::Go => write!(f, "go"),
+            Language::AdapterOS => write!(f, "adapteros"),
         }
     }
 }
@@ -118,6 +122,7 @@ pub enum SymbolKind {
     Static,
     Macro,
     Module,
+    Class,
     Field,
     Variant,
     Method,
@@ -138,6 +143,7 @@ impl fmt::Display for SymbolKind {
             SymbolKind::Static => write!(f, "static"),
             SymbolKind::Macro => write!(f, "macro"),
             SymbolKind::Module => write!(f, "module"),
+            SymbolKind::Class => write!(f, "class"),
             SymbolKind::Field => write!(f, "field"),
             SymbolKind::Variant => write!(f, "variant"),
             SymbolKind::Method => write!(f, "method"),

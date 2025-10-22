@@ -33,6 +33,7 @@ import apiClient from '../api/client';
 import { Node, User, NodeDetailsResponse, NodePingResponse } from '../api/types';
 import { toast } from 'sonner';
 import { WorkersTab } from './WorkersTab';
+import { logger, toError } from '../utils/logger';
 
 interface NodesProps {
   user: User;
@@ -62,7 +63,11 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       const data = await apiClient.listNodes();
       setNodes(data);
     } catch (err) {
-      console.error('Failed to fetch nodes:', err);
+      logger.error('Failed to fetch nodes', {
+        component: 'Nodes',
+        operation: 'listNodes',
+        tenantId: selectedTenant,
+      }, toError(err));
       toast.error('Failed to load nodes');
     } finally {
       setLoading(false);
@@ -96,6 +101,12 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to register node';
       setError(errorMsg);
       toast.error(errorMsg);
+      logger.error('Failed to register node', {
+        component: 'Nodes',
+        operation: 'registerNode',
+        tenantId: selectedTenant,
+        hostname: newHostname,
+      }, toError(err));
     }
   };
 
@@ -226,7 +237,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
               {nodes.map((node) => (
                 <TableRow key={node.id}>
                   <TableCell className="table-cell-standard font-medium">{node.hostname}</TableCell>
-                  <TableCell className="table-cell-standard text-sm text-muted-foreground">{node.agent_endpoint || 'N/A'}</TableCell>
+                  <TableCell className="table-cell-standard text-sm text-muted-foreground">{(node as any).agent_endpoint || 'N/A'}</TableCell>
                   <TableCell className="table-cell-standard">
                     <div className={`status-indicator ${
                       node.status === 'healthy' ? 'status-success' : 
@@ -236,7 +247,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                       {node.status}
                     </div>
                   </TableCell>
-                  <TableCell className="table-cell-standard">{node.last_seen_at ? new Date(node.last_seen_at).toLocaleString() : 'Never'}</TableCell>
+                  <TableCell className="table-cell-standard">{(node as any).last_seen_at ? new Date((node as any).last_seen_at).toLocaleString() : (node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'Never')}</TableCell>
                   <TableCell className="table-cell-standard">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

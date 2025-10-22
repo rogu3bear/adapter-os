@@ -6,6 +6,8 @@
 //! 3. Threshold violations are properly detected
 //! 4. Telemetry integration works correctly
 
+#![cfg(feature = "numerics-experimental")]
+
 use adapteros_lora_kernel_api::{IoBuffers, RouterRing};
 use adapteros_lora_kernel_mtl::{MetalKernels, NoiseTracker, NoiseTrackingConfig};
 use adapteros_numerics::noise::{

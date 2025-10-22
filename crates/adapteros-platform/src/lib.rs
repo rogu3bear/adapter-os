@@ -3,11 +3,11 @@
 //! Provides cross-platform filesystem operations with platform-specific
 //! optimizations and features for AdapterOS.
 
-pub mod windows;
-pub mod unix;
-pub mod macos;
-pub mod linux;
 pub mod common;
+pub mod linux;
+pub mod macos;
+pub mod unix;
+pub mod windows;
 
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -66,34 +66,34 @@ pub struct PlatformFsManager {
 pub trait PlatformHandler: Send + Sync {
     /// Get platform name
     fn platform_name(&self) -> &str;
-    
+
     /// Check if feature is supported
     fn is_feature_supported(&self, feature: &str) -> bool;
-    
+
     /// Get platform-specific path separator
     fn path_separator(&self) -> char;
-    
+
     /// Normalize path for platform
     fn normalize_path(&self, path: &Path) -> Result<PathBuf>;
-    
+
     /// Set file permissions
     fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()>;
-    
+
     /// Get file permissions
     fn get_file_permissions(&self, path: &Path) -> Result<u32>;
-    
+
     /// Create symbolic link
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()>;
-    
+
     /// Read symbolic link
     fn read_symlink(&self, link: &Path) -> Result<PathBuf>;
-    
+
     /// Check if path is symbolic link
     fn is_symlink(&self, path: &Path) -> bool;
-    
+
     /// Get file metadata
     fn get_file_metadata(&self, path: &Path) -> Result<FileMetadata>;
-    
+
     /// Set file metadata
     fn set_file_metadata(&self, path: &Path, metadata: &FileMetadata) -> Result<()>;
 }
@@ -155,7 +155,7 @@ impl PlatformFsManager {
     /// Create a new platform filesystem manager
     pub fn new(config: PlatformConfig) -> Result<Self> {
         let platform_handler = Self::create_platform_handler(&config)?;
-        
+
         Ok(Self {
             config,
             platform_handler,
@@ -165,54 +165,44 @@ impl PlatformFsManager {
     /// Create platform-specific handler
     fn create_platform_handler(config: &PlatformConfig) -> Result<Box<dyn PlatformHandler>> {
         match config.target_platform {
-            Platform::Windows => {
-                Ok(Box::new(windows::WindowsHandler::new(
-                    config.platform_settings.windows.as_ref()
-                )?))
-            }
-            Platform::MacOS => {
-                Ok(Box::new(macos::MacOSHandler::new(
-                    config.platform_settings.macos.as_ref()
-                )?))
-            }
-            Platform::Linux => {
-                Ok(Box::new(linux::LinuxHandler::new(
-                    config.platform_settings.linux.as_ref()
-                )?))
-            }
-            Platform::Unix => {
-                Ok(Box::new(unix::UnixHandler::new(
-                    config.platform_settings.unix.as_ref()
-                )?))
-            }
-            Platform::Unknown => {
-                Err(AosError::Platform("Unknown platform".to_string()))
-            }
+            Platform::Windows => Ok(Box::new(windows::WindowsHandler::new(
+                config.platform_settings.windows.as_ref(),
+            )?)),
+            Platform::MacOS => Ok(Box::new(macos::MacOSHandler::new(
+                config.platform_settings.macos.as_ref(),
+            )?)),
+            Platform::Linux => Ok(Box::new(linux::LinuxHandler::new(
+                config.platform_settings.linux.as_ref(),
+            )?)),
+            Platform::Unix => Ok(Box::new(unix::UnixHandler::new(
+                config.platform_settings.unix.as_ref(),
+            )?)),
+            Platform::Unknown => Err(AosError::Platform("Unknown platform".to_string())),
         }
     }
 
-    /// Get current platform
-    pub fn current_platform() -> Platform {
+    /// Detect platform
+    pub fn detect_platform() -> Result<Platform> {
         #[cfg(target_os = "windows")]
-        return Platform::Windows;
-        
+        return Ok(Platform::Windows);
+
         #[cfg(target_os = "macos")]
-        return Platform::MacOS;
-        
+        return Ok(Platform::MacOS);
+
         #[cfg(target_os = "linux")]
-        return Platform::Linux;
-        
+        return Ok(Platform::Linux);
+
         #[cfg(unix)]
-        return Platform::Unix;
-        
+        return Ok(Platform::Unix);
+
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux", unix)))]
-        return Platform::Unknown;
+        return Ok(Platform::Unknown);
     }
 
     /// Detect platform automatically
-    pub fn detect_platform() -> Result<PlatformConfig> {
-        let platform = Self::current_platform();
-        
+    pub fn detect_platform_config() -> Result<PlatformConfig> {
+        let platform = Self::detect_platform()?;
+
         let config = match platform {
             Platform::Windows => PlatformConfig {
                 target_platform: platform,
@@ -288,7 +278,8 @@ impl PlatformFsManager {
 
     /// Set file permissions
     pub fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
-        self.platform_handler.set_file_permissions(path, permissions)
+        self.platform_handler
+            .set_file_permissions(path, permissions)
     }
 
     /// Get file permissions
@@ -329,7 +320,7 @@ impl PlatformFsManager {
 
 impl Default for PlatformConfig {
     fn default() -> Self {
-        Self::detect_platform().unwrap_or_else(|_| PlatformConfig {
+        PlatformFsManager::detect_platform_config().unwrap_or_else(|_| PlatformConfig {
             target_platform: Platform::Unknown,
             enable_optimizations: false,
             enable_features: false,
@@ -350,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_platform_detection() {
-        let platform = PlatformFsManager::current_platform();
+        let platform = PlatformFsManager::detect_platform().unwrap();
         assert_ne!(platform, Platform::Unknown);
     }
 
@@ -366,10 +357,10 @@ mod tests {
     fn test_platform_manager() -> Result<()> {
         let config = PlatformFsManager::detect_platform()?;
         let manager = PlatformFsManager::new(config)?;
-        
+
         assert!(!manager.platform_name().is_empty());
         assert_eq!(manager.path_separator(), std::path::MAIN_SEPARATOR);
-        
+
         Ok(())
     }
 
@@ -377,13 +368,13 @@ mod tests {
     fn test_path_normalization() -> Result<()> {
         let config = PlatformFsManager::detect_platform()?;
         let manager = PlatformFsManager::new(config)?;
-        
+
         let temp_dir = TempDir::new()?;
         let test_path = temp_dir.path().join("test.txt");
-        
+
         let normalized = manager.normalize_path(&test_path)?;
         assert_eq!(normalized, test_path);
-        
+
         Ok(())
     }
 }

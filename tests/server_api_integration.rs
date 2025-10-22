@@ -11,6 +11,7 @@
 
 use adapteros_core::Result;
 use adapteros_db::Db;
+use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::types::*;
 use adapteros_server_api::{routes, state::AppState};
 use axum::{
@@ -49,9 +50,18 @@ async fn setup_test_app() -> Result<Router> {
             bundles_root: "var/bundles".to_string(),
         },
     ));
-    let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![])?);
+    let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
+        0.1, 0.5, 1.0, 2.5, 5.0,
+    ])?);
+    let training_service = Arc::new(TrainingService::new());
 
-    let state = AppState::new(db, jwt_secret, api_config, metrics_exporter);
+    let state = AppState::new(
+        db,
+        jwt_secret,
+        api_config,
+        metrics_exporter,
+        training_service,
+    );
     Ok(routes::build(state))
 }
 

@@ -83,10 +83,11 @@ impl PlatformHandler for UnixHandler {
     fn normalize_path(&self, path: &Path) -> Result<PathBuf> {
         // Unix path normalization
         let normalized = path.to_path_buf();
-        
+
         // Convert to canonical path if possible
         if normalized.exists() {
-            normalized.canonicalize()
+            normalized
+                .canonicalize()
                 .map_err(|e| AosError::Platform(format!("Failed to canonicalize Unix path: {}", e)))
         } else {
             Ok(normalized)
@@ -98,13 +99,16 @@ impl PlatformHandler for UnixHandler {
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms)
-                .map_err(|e| AosError::Platform(format!("Failed to set Unix file permissions: {}", e)))?;
+            std::fs::set_permissions(path, perms).map_err(|e| {
+                AosError::Platform(format!("Failed to set Unix file permissions: {}", e))
+            })?;
         }
-        
+
         #[cfg(not(unix))]
         {
-            return Err(AosError::Platform("Unix permissions not available on this platform".to_string()));
+            return Err(AosError::Platform(
+                "Unix permissions not available on this platform".to_string(),
+            ));
         }
 
         debug!("Set Unix file permissions: {:o}", permissions);
@@ -115,14 +119,17 @@ impl PlatformHandler for UnixHandler {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path)
-                .map_err(|e| AosError::Platform(format!("Failed to get Unix file metadata: {}", e)))?;
+            let metadata = std::fs::metadata(path).map_err(|e| {
+                AosError::Platform(format!("Failed to get Unix file metadata: {}", e))
+            })?;
             Ok(metadata.permissions().mode())
         }
-        
+
         #[cfg(not(unix))]
         {
-            Err(AosError::Platform("Unix permissions not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "Unix permissions not available on this platform".to_string(),
+            ))
         }
     }
 
@@ -132,13 +139,19 @@ impl PlatformHandler for UnixHandler {
             std::os::unix::fs::symlink(target, link)
                 .map_err(|e| AosError::Platform(format!("Failed to create Unix symlink: {}", e)))?;
         }
-        
+
         #[cfg(not(unix))]
         {
-            return Err(AosError::Platform("Unix symlinks not available on this platform".to_string()));
+            return Err(AosError::Platform(
+                "Unix symlinks not available on this platform".to_string(),
+            ));
         }
 
-        debug!("Created Unix symlink: {} -> {}", link.display(), target.display());
+        debug!(
+            "Created Unix symlink: {} -> {}",
+            link.display(),
+            target.display()
+        );
         Ok(())
     }
 
@@ -148,10 +161,12 @@ impl PlatformHandler for UnixHandler {
             std::fs::read_link(link)
                 .map_err(|e| AosError::Platform(format!("Failed to read Unix symlink: {}", e)))
         }
-        
+
         #[cfg(not(unix))]
         {
-            Err(AosError::Platform("Unix symlinks not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "Unix symlinks not available on this platform".to_string(),
+            ))
         }
     }
 
@@ -160,7 +175,7 @@ impl PlatformHandler for UnixHandler {
         {
             path.is_symlink()
         }
-        
+
         #[cfg(not(unix))]
         {
             false
@@ -195,7 +210,7 @@ impl PlatformHandler for UnixHandler {
                 blocks: metadata.blocks(),
             })
         };
-        
+
         #[cfg(not(unix))]
         let platform_attributes = PlatformAttributes::Unix(UnixAttributes {
             mode: 0,
@@ -211,9 +226,15 @@ impl PlatformHandler for UnixHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata.created().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata.modified().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata.accessed().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata
+                .created()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            modified: metadata
+                .modified()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            accessed: metadata
+                .accessed()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })
@@ -226,20 +247,19 @@ impl PlatformHandler for UnixHandler {
         // Set file times
         #[cfg(unix)]
         {
+            use std::fs::OpenOptions;
             use std::os::unix::fs::MetadataExt;
             use std::os::unix::fs::OpenOptionsExt;
-            use std::fs::OpenOptions;
-            
-            let file = OpenOptions::new()
-                .write(true)
-                .open(path)
-                .map_err(|e| AosError::Platform(format!("Failed to open file for metadata update: {}", e)))?;
-            
+
+            let file = OpenOptions::new().write(true).open(path).map_err(|e| {
+                AosError::Platform(format!("Failed to open file for metadata update: {}", e))
+            })?;
+
             // Set file times using Unix system calls
             // This would require additional Unix API bindings
             debug!("Unix file metadata update not fully implemented");
         }
-        
+
         #[cfg(not(unix))]
         {
             debug!("Unix file metadata update not available on this platform");
@@ -269,14 +289,14 @@ mod tests {
     #[test]
     fn test_unix_handler() -> Result<()> {
         let handler = UnixHandler::new(None)?;
-        
+
         assert_eq!(handler.platform_name(), "Unix");
         assert_eq!(handler.path_separator(), '/');
         assert!(handler.is_feature_supported("symlinks"));
         assert!(handler.is_feature_supported("hardlinks"));
         assert!(handler.is_feature_supported("posix_permissions"));
         assert!(handler.is_feature_supported("case_sensitive"));
-        
+
         Ok(())
     }
 
@@ -285,10 +305,10 @@ mod tests {
         let handler = UnixHandler::new(None)?;
         let temp_dir = TempDir::new()?;
         let test_path = temp_dir.path().join("test.txt");
-        
+
         let normalized = handler.normalize_path(&test_path)?;
         assert_eq!(normalized, test_path);
-        
+
         Ok(())
     }
 
@@ -298,11 +318,11 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
-        
+
         let metadata = handler.get_file_metadata(&test_file)?;
         assert_eq!(metadata.size, 5);
         assert!(matches!(metadata.file_type, FileType::File));
-        
+
         Ok(())
     }
 }

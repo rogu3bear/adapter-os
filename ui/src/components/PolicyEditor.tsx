@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
 import { PolicyPackConfig } from '../api/types';
+import { logger, toError } from '../utils/logger';
 
 interface PolicyEditorProps {
   open: boolean;
@@ -48,7 +49,11 @@ export function PolicyEditor({
           setPolicyConfig(parsed);
           setJsonContent(JSON.stringify(parsed, null, 2));
         } catch (err) {
-          console.error('Failed to parse existing policy:', err);
+          logger.error('Failed to parse existing policy JSON', {
+            component: 'PolicyEditor',
+            operation: 'parseExistingPolicy',
+            cpid: initialCpid,
+          }, toError(err));
           const defaultConfig = getDefaultPolicyConfig();
           setPolicyConfig(defaultConfig);
           setJsonContent(JSON.stringify(defaultConfig, null, 2));
@@ -396,5 +401,4 @@ export function PolicyEditor({
     </Dialog>
   );
 }
-
 

@@ -264,40 +264,41 @@ impl CleanupManager {
         file_count: &mut u32,
     ) -> Result<()> {
         Box::pin(async move {
-        let mut entries = fs::read_dir(path).await.map_err(|e| {
-            AosError::Storage(format!(
-                "Failed to read directory {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+            let mut entries = fs::read_dir(path).await.map_err(|e| {
+                AosError::Storage(format!(
+                    "Failed to read directory {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
 
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| AosError::Storage(format!("Failed to read directory entry: {}", e)))?
-        {
-            let entry_path = entry.path();
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|e| AosError::Storage(format!("Failed to read directory entry: {}", e)))?
+            {
+                let entry_path = entry.path();
 
-            if entry_path.is_file() {
-                let metadata = entry.metadata().await.map_err(|e| {
-                    AosError::Storage(format!(
-                        "Failed to read file metadata {}: {}",
-                        entry_path.display(),
-                        e
-                    ))
-                })?;
+                if entry_path.is_file() {
+                    let metadata = entry.metadata().await.map_err(|e| {
+                        AosError::Storage(format!(
+                            "Failed to read file metadata {}: {}",
+                            entry_path.display(),
+                            e
+                        ))
+                    })?;
 
-                *used_bytes += metadata.len();
-                *file_count += 1;
-            } else if entry_path.is_dir() {
-                self.walk_directory(&entry_path, used_bytes, file_count)
-                    .await?;
+                    *used_bytes += metadata.len();
+                    *file_count += 1;
+                } else if entry_path.is_dir() {
+                    self.walk_directory(&entry_path, used_bytes, file_count)
+                        .await?;
+                }
             }
-        }
 
-        Ok(())
-        }).await
+            Ok(())
+        })
+        .await
     }
 }
 

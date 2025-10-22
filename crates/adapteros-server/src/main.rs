@@ -1,10 +1,12 @@
 mod assets;
 
 use adapteros_core::AosError;
+use adapteros_core::init_global_executor;
 use adapteros_db::Db;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
+use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
@@ -142,20 +144,31 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Initialize deterministic executor
-    let global_seed = [42u8; 32]; // TODO: derive from manifest
-    let config = ExecutorConfig {
-        global_seed,
-        enable_event_logging: true,
-        max_ticks_per_task: 10000,
-        ..Default::default()
-    };
-    init_global_executor(config)?;
-    info!("Deterministic executor initialized");
-
     // Load configuration (wrapped in Arc<RwLock> for hot-reload)
     info!("Loading configuration from {}", cli.config);
     let config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+
+    // =========================================================================================
+    // Deterministic Executor
+    // =========================================================================================
+    // The executor is seeded from the manifest to ensure all async tasks are deterministic.
+    let seed_hex = &config.security.global_seed;
+    let seed_bytes = hex::decode(seed_hex).map_err(|e| {
+        AosError::Config(format!("Invalid hex for global_seed: {}", e))
+    })?;
+
+    if seed_bytes.len() != 32 {
+        return Err(AosError::Config(format!(
+            "global_seed must be a 32-byte hex string (got {} bytes)",
+            seed_bytes.len()
+        )));
+    }
+
+    let mut global_seed = [0u8; 32];
+    global_seed.copy_from_slice(&seed_bytes);
+
+    let runtime = init_global_executor(global_seed)?;
+    info!("Deterministic executor initialized");
 
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
@@ -530,6 +543,24 @@ async fn main() -> Result<()> {
         info!("Telemetry retention GC loop scheduled (6h interval)");
     }
 
+    // Ephemeral adapter GC loop (runs every hour)
+    {
+        let db_clone = db.clone();
+        let paths_config = config.read().unwrap().paths.clone();
+        let orchestrator_config = config.read().unwrap().orchestrator.clone();
+        let _ = spawn_deterministic("Ephemeral Adapter GC".to_string(), async move {
+            let job_manager = CodeJobManager::new(db_clone, paths_config, orchestrator_config);
+            let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+            loop {
+                interval.tick().await;
+                if let Err(e) = job_manager.run_ephemeral_adapter_gc().await {
+                    warn!("Ephemeral adapter GC run failed: {}", e);
+                }
+            }
+        });
+        info!("Ephemeral adapter GC loop scheduled (1h interval)");
+    }
+
     // TODO: Start Federation Daemon once dependencies are fixed
     // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
     // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
@@ -583,12 +614,27 @@ async fn main() -> Result<()> {
         .jwt_secret
         .clone();
 
+    let orchestrator_base_model = {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        cfg.orchestrator.base_model.clone()
+    };
+
+    let training_service = Arc::new(TrainingService::new_with_base_model(orchestrator_base_model));
+
     let mut state = AppState::new(
         db.clone(),
         jwt_secret.as_bytes().to_vec(),
         api_config.clone(),
         Arc::clone(&metrics_exporter),
+        Arc::clone(&training_service),
     );
+
+    let paths_config = config.read().unwrap().paths.clone();
+    let orchestrator_config = config.read().unwrap().orchestrator.clone();
+    let code_job_manager = Arc::new(CodeJobManager::new(db.clone(), paths_config, orchestrator_config));
+    state = state.with_code_jobs(code_job_manager);
 
     // Configure JWT mode from config (HMAC by default, EdDSA optional)
     {

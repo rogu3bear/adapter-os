@@ -161,6 +161,9 @@ pub enum AosError {
     #[error("Retry error: {0}")]
     Retry(String),
 
+    #[error("Network error: {0}")]
+    Network(String),
+
     #[error("Autograd error: {0}")]
     Autograd(String),
 

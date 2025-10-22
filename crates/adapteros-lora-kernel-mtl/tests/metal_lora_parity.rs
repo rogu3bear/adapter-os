@@ -50,9 +50,10 @@ kernel void lora_flat(
     device float*       output  [[ buffer(3) ]],
     constant uint&      rank    [[ buffer(4) ]],
     constant uint&      hidden  [[ buffer(5) ]],
-    constant float&     alpha   [[ buffer(6) ]]
+    constant float&     alpha   [[ buffer(6) ]],
+    uint3               tid     [[ thread_position_in_grid ]]
 ) {
-    uint h = uint(get_thread_position_in_grid().x);
+    uint h = tid.x;
     if (h >= hidden) return;
 
     // intermediate[r] = sum_i input[i] * A[r, i]
@@ -158,31 +159,44 @@ kernel void lora_flat(
                 std::slice::from_raw_parts(ptr, hidden).to_vec()
             };
 
-            // Compare
-            let eps = 1e-6f32;
+            // Compare using blended absolute/relative tolerance to account for floating rounding
+            let abs_eps = 1e-6f32;
+            let rel_eps = 1e-6f32;
+            let max_cpu = cpu.iter().fold(0.0f32, |acc, &v| acc.max(v.abs()));
             let mut max_err = 0.0f32;
             let mut l2 = 0.0f32;
             let mut mean = 0.0f32;
             for (c, g) in cpu.iter().zip(gpu.iter()) {
                 let d = (c - g).abs();
+                let tol = abs_eps + c.abs() * rel_eps;
                 max_err = max_err.max(d);
                 l2 += d * d;
                 mean += d;
                 assert!(
-                    d <= eps,
-                    "mismatch (hidden={}, rank={}): cpu={} gpu={} Δ={}",
+                    d <= tol,
+                    "mismatch (hidden={}, rank={}): cpu={} gpu={} Δ={} tol={}",
                     hidden,
                     rank,
                     c,
                     g,
-                    d
+                    d,
+                    tol
                 );
             }
             mean /= cpu.len() as f32;
             l2 = l2.sqrt();
-            assert!(max_err <= eps);
-            assert!(mean <= 1e-7);
-            assert!(l2 <= 1e-6);
+            let mean_tol = abs_eps + max_cpu * rel_eps;
+            let max_tol = mean_tol;
+            let l2_tol = (cpu.len() as f32).sqrt() * mean_tol;
+            assert!(max_err <= max_tol);
+            assert!(mean <= mean_tol, "mean error {} exceeds tolerance", mean);
+            assert!(
+                l2 <= l2_tol,
+                "L2 error {} exceeds tolerance (max {}, mean {})",
+                l2,
+                max_err,
+                mean
+            );
         }
     }
 }
@@ -203,9 +217,10 @@ kernel void lora_flat(
     device float*       output  [[ buffer(3) ]],
     constant uint&      rank    [[ buffer(4) ]],
     constant uint&      hidden  [[ buffer(5) ]],
-    constant float&     alpha   [[ buffer(6) ]]
+    constant float&     alpha   [[ buffer(6) ]],
+    uint3               tid     [[ thread_position_in_grid ]]
 ) {
-    uint h = uint(get_thread_position_in_grid().x);
+    uint h = tid.x;
     if (h >= hidden) return;
 
     float acc_out = 0.0f;

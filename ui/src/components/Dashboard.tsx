@@ -10,7 +10,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { logger } from '../utils/logger';
+import { logger, toError } from '../utils/logger';
 import { useActivityFeed } from '../hooks/useActivityFeed';
 import { 
   Activity, 
@@ -123,7 +123,6 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
       setError(errorMsg);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
@@ -148,7 +147,7 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
         operation: 'sse_connection',
         tenantId: selectedTenant,
         userId: user.id
-      }, sseError);
+      }, toError(sseError));
     }
   }, [sseError, selectedTenant, user.id]);
 

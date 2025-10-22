@@ -11,10 +11,15 @@ pub mod manager;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
+
+// Re-export guard types
+pub use guard::{TempDirGuard, TempFileGuard};
 
 /// Temporary file configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,8 +43,8 @@ pub struct TempConfig {
 /// Temporary file manager
 pub struct TempManager {
     config: TempConfig,
-    active_files: RwLock<std::collections::HashMap<String, TempFileInfo>>,
-    cleanup_task: Option<tokio::task::JoinHandle<()>>,
+    active_files: Arc<RwLock<std::collections::HashMap<String, TempFileInfo>>>,
+    cleanup_task: Option<JoinHandle<()>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -69,7 +74,7 @@ impl TempManager {
 
         Ok(Self {
             config,
-            active_files: RwLock::new(std::collections::HashMap::new()),
+            active_files: Arc::new(RwLock::new(std::collections::HashMap::new())),
             cleanup_task: None,
             shutdown_tx: None,
         })
@@ -77,23 +82,23 @@ impl TempManager {
 
     /// Start the cleanup task
     pub async fn start_cleanup_task(&mut self) -> Result<()> {
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
 
         let config = self.config.clone();
-        let active_files = self.active_files.clone();
+        let active_files = Arc::clone(&self.active_files);
 
         let cleanup_task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.cleanup_interval);
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(e) = Self::run_cleanup(&config, &active_files).await {
-                            error!("Temp file cleanup failed: {}", e);
+                            warn!("Temp file cleanup failed: {}", e);
                         }
                     }
-                    _ = shutdown_rx => {
+                    _ = &mut shutdown_rx => {
                         info!("Temp file cleanup task shutting down");
                         break;
                     }
@@ -102,7 +107,10 @@ impl TempManager {
         });
 
         self.cleanup_task = Some(cleanup_task);
-        info!("Started temp file cleanup task with interval {:?}", self.config.cleanup_interval);
+        info!(
+            "Started temp file cleanup task with interval {:?}",
+            self.config.cleanup_interval
+        );
         Ok(())
     }
 
@@ -123,11 +131,20 @@ impl TempManager {
 
     /// Create a temporary file with guaranteed cleanup
     pub async fn create_temp_file(&self, prefix: &str, suffix: &str) -> Result<TempFileGuard> {
-        let file_id = format!("{}_{}_{}", prefix, SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos(), std::process::id());
+        let file_id = format!(
+            "{}_{}_{}",
+            prefix,
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            std::process::id()
+        );
         let temp_path = self.config.base_dir.join(format!("{}{}", file_id, suffix));
 
         // Create the file
-        fs::write(&temp_path, b"").await
+        fs::write(&temp_path, b"")
+            .await
             .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
 
         // Set secure permissions if enabled
@@ -136,7 +153,8 @@ impl TempManager {
         }
 
         // Get file metadata
-        let metadata = fs::metadata(&temp_path).await
+        let metadata = fs::metadata(&temp_path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to get temp file metadata: {}", e)))?;
 
         let file_info = TempFileInfo {
@@ -164,11 +182,20 @@ impl TempManager {
 
     /// Create a temporary directory with guaranteed cleanup
     pub async fn create_temp_dir(&self, prefix: &str) -> Result<TempDirGuard> {
-        let dir_id = format!("{}_{}_{}", prefix, SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos(), std::process::id());
+        let dir_id = format!(
+            "{}_{}_{}",
+            prefix,
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            std::process::id()
+        );
         let temp_path = self.config.base_dir.join(&dir_id);
 
         // Create the directory
-        fs::create_dir_all(&temp_path).await
+        fs::create_dir_all(&temp_path)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to create temp directory: {}", e)))?;
 
         // Set secure permissions if enabled
@@ -194,8 +221,13 @@ impl TempManager {
 
         if let Some(file_info) = file_info {
             if file_info.path.exists() {
-                fs::remove_file(&file_info.path).await
-                    .map_err(|e| AosError::Io(format!("Failed to remove temp file {}: {}", file_info.path.display(), e)))?;
+                fs::remove_file(&file_info.path).await.map_err(|e| {
+                    AosError::Io(format!(
+                        "Failed to remove temp file {}: {}",
+                        file_info.path.display(),
+                        e
+                    ))
+                })?;
                 debug!("Removed temp file: {}", file_info.path.display());
             }
         }
@@ -206,10 +238,15 @@ impl TempManager {
     /// Remove a temporary directory
     pub async fn remove_temp_dir(&self, dir_id: &str) -> Result<()> {
         let dir_path = self.config.base_dir.join(dir_id);
-        
+
         if dir_path.exists() {
-            fs::remove_dir_all(&dir_path).await
-                .map_err(|e| AosError::Io(format!("Failed to remove temp directory {}: {}", dir_path.display(), e)))?;
+            fs::remove_dir_all(&dir_path).await.map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to remove temp directory {}: {}",
+                    dir_path.display(),
+                    e
+                ))
+            })?;
             debug!("Removed temp directory: {}", dir_path.display());
         }
 
@@ -222,10 +259,11 @@ impl TempManager {
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(self.config.default_permissions);
-            fs::set_permissions(path, perms).await
+            fs::set_permissions(path, perms)
+                .await
                 .map_err(|e| AosError::Io(format!("Failed to set permissions: {}", e)))?;
         }
-        
+
         #[cfg(windows)]
         {
             // Windows permission handling would go here
@@ -237,19 +275,30 @@ impl TempManager {
     }
 
     /// Run cleanup of old temporary files
-    async fn run_cleanup(config: &TempConfig, active_files: &RwLock<std::collections::HashMap<String, TempFileInfo>>) -> Result<()> {
+    async fn run_cleanup(
+        config: &TempConfig,
+        active_files: &Arc<RwLock<std::collections::HashMap<String, TempFileInfo>>>,
+    ) -> Result<()> {
         let mut cleaned_count = 0;
         let now = SystemTime::now();
 
         // Clean up old files
         {
             let mut files = active_files.write().await;
-            files.retain(|file_id, file_info| {
-                if now.duration_since(file_info.created_at).unwrap_or(Duration::MAX) > config.age_threshold {
+            files.retain(|_file_id, file_info| {
+                if now
+                    .duration_since(file_info.created_at)
+                    .unwrap_or(Duration::MAX)
+                    > config.age_threshold
+                {
                     // Remove the file
                     if file_info.path.exists() {
                         if let Err(e) = std::fs::remove_file(&file_info.path) {
-                            warn!("Failed to remove old temp file {}: {}", file_info.path.display(), e);
+                            warn!(
+                                "Failed to remove old temp file {}: {}",
+                                file_info.path.display(),
+                                e
+                            );
                         } else {
                             cleaned_count += 1;
                             debug!("Cleaned up old temp file: {}", file_info.path.display());
@@ -304,7 +353,7 @@ impl Default for TempConfig {
         Self {
             base_dir: std::env::temp_dir().join("adapteros"),
             max_file_size_bytes: 100 * 1024 * 1024, // 100MB
-            default_permissions: 0o600, // Owner read/write only
+            default_permissions: 0o600,             // Owner read/write only
             cleanup_interval: Duration::from_secs(3600), // 1 hour
             age_threshold: Duration::from_secs(24 * 3600), // 24 hours
             secure_permissions: true,

@@ -10,6 +10,7 @@ import apiClient from '../api/client';
 import { PromotionGate, User, DryRunPromotionResponse, PromotionHistoryEntry } from '../api/types';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 interface PromotionProps {
   user: User;
@@ -37,7 +38,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       const data = await apiClient.getPromotionHistory();
       setHistory(data);
     } catch (err) {
-      console.error('Failed to fetch promotion history:', err);
+      logger.error('Failed to fetch promotion history', {
+        component: 'Promotion',
+        operation: 'fetchHistory',
+        tenantId: selectedTenant,
+      }, toError(err));
     } finally {
       setLoadingHistory(false);
     }
@@ -59,6 +64,12 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       const errorMsg = err instanceof Error ? err.message : 'Dry run failed';
       setError(errorMsg);
       toast.error(errorMsg);
+      logger.error('Promotion dry run failed', {
+        component: 'Promotion',
+        operation: 'dryRun',
+        cpid,
+        tenantId: selectedTenant,
+      }, toError(err));
     } finally {
       setLoading(false);
     }
@@ -80,6 +91,12 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to check gates';
       setError(errorMsg);
       toast.error(errorMsg);
+      logger.error('Failed to check promotion gates', {
+        component: 'Promotion',
+        operation: 'checkGates',
+        cpid,
+        tenantId: selectedTenant,
+      }, toError(err));
     } finally {
       setLoading(false);
     }
