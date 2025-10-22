@@ -14,50 +14,38 @@ impl PlatformUtils {
     pub fn current_platform() -> &'static str {
         #[cfg(target_os = "windows")]
         return "windows";
-        
+
         #[cfg(target_os = "macos")]
         return "macos";
-        
+
         #[cfg(target_os = "linux")]
         return "linux";
-        
+
         #[cfg(unix)]
         return "unix";
-        
+
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux", unix)))]
         return "unknown";
     }
 
     /// Check if running on Windows
     pub fn is_windows() -> bool {
-        #[cfg(target_os = "windows")]
-        true
-        #[cfg(not(target_os = "windows"))]
-        false
+        cfg!(target_os = "windows")
     }
 
     /// Check if running on macOS
     pub fn is_macos() -> bool {
-        #[cfg(target_os = "macos")]
-        true
-        #[cfg(not(target_os = "macos"))]
-        false
+        cfg!(target_os = "macos")
     }
 
     /// Check if running on Linux
     pub fn is_linux() -> bool {
-        #[cfg(target_os = "linux")]
-        true
-        #[cfg(not(target_os = "linux"))]
-        false
+        cfg!(target_os = "linux")
     }
 
     /// Check if running on Unix-like system
     pub fn is_unix() -> bool {
-        #[cfg(unix)]
-        true
-        #[cfg(not(unix))]
-        false
+        cfg!(unix)
     }
 
     /// Get the path separator for the current platform
@@ -219,8 +207,7 @@ impl PlatformUtils {
 
     /// Read file contents
     pub fn read_file(path: &Path) -> Result<Vec<u8>> {
-        std::fs::read(path)
-            .map_err(|e| AosError::Platform(format!("Failed to read file: {}", e)))
+        std::fs::read(path).map_err(|e| AosError::Platform(format!("Failed to read file: {}", e)))
     }
 
     /// Read file contents as string
@@ -274,9 +261,7 @@ impl PlatformUtils {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            std::fs::metadata(".")
-                .ok()
-                .map(|metadata| metadata.uid())
+            std::fs::metadata(".").ok().map(|metadata| metadata.uid())
         }
         #[cfg(not(unix))]
         None
@@ -287,9 +272,7 @@ impl PlatformUtils {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            std::fs::metadata(".")
-                .ok()
-                .map(|metadata| metadata.gid())
+            std::fs::metadata(".").ok().map(|metadata| metadata.gid())
         }
         #[cfg(not(unix))]
         None
@@ -305,7 +288,7 @@ mod tests {
     fn test_platform_detection() {
         let platform = PlatformUtils::current_platform();
         assert!(!platform.is_empty());
-        
+
         assert_eq!(PlatformUtils::is_windows(), cfg!(target_os = "windows"));
         assert_eq!(PlatformUtils::is_macos(), cfg!(target_os = "macos"));
         assert_eq!(PlatformUtils::is_linux(), cfg!(target_os = "linux"));
@@ -316,19 +299,19 @@ mod tests {
     fn test_path_operations() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
-        
+
         // Test file operations
         PlatformUtils::write_file_string(&test_file, "hello world")?;
         assert!(PlatformUtils::path_exists(&test_file));
         assert!(PlatformUtils::is_file(&test_file));
         assert!(!PlatformUtils::is_directory(&test_file));
-        
+
         let content = PlatformUtils::read_file_string(&test_file)?;
         assert_eq!(content, "hello world");
-        
+
         let size = PlatformUtils::get_file_size(&test_file)?;
         assert_eq!(size, 11);
-        
+
         Ok(())
     }
 
@@ -336,26 +319,38 @@ mod tests {
     fn test_directory_operations() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let test_dir = temp_dir.path().join("test_dir");
-        
+
         // Test directory operations
         PlatformUtils::create_dir(&test_dir)?;
         assert!(PlatformUtils::path_exists(&test_dir));
         assert!(PlatformUtils::is_directory(&test_dir));
         assert!(!PlatformUtils::is_file(&test_dir));
-        
+
         PlatformUtils::remove_dir(&test_dir)?;
         assert!(!PlatformUtils::path_exists(&test_dir));
-        
+
         Ok(())
     }
 
     #[test]
     fn test_path_utilities() {
         let path = PathBuf::from("test/file.txt");
-        
-        assert_eq!(PlatformUtils::get_file_extension(&path), Some("txt".to_string()));
-        assert_eq!(PlatformUtils::get_file_stem(&path), Some("file".to_string()));
-        assert_eq!(PlatformUtils::get_file_name(&path), Some("file.txt".to_string()));
-        assert_eq!(PlatformUtils::get_parent_dir(&path), Some(PathBuf::from("test")));
+
+        assert_eq!(
+            PlatformUtils::get_file_extension(&path),
+            Some("txt".to_string())
+        );
+        assert_eq!(
+            PlatformUtils::get_file_stem(&path),
+            Some("file".to_string())
+        );
+        assert_eq!(
+            PlatformUtils::get_file_name(&path),
+            Some("file.txt".to_string())
+        );
+        assert_eq!(
+            PlatformUtils::get_parent_dir(&path),
+            Some(PathBuf::from("test"))
+        );
     }
 }

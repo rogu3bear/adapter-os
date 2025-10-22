@@ -94,11 +94,12 @@ impl PlatformHandler for MacOSHandler {
     fn normalize_path(&self, path: &Path) -> Result<PathBuf> {
         // macOS path normalization
         let normalized = path.to_path_buf();
-        
+
         // Convert to canonical path if possible
         if normalized.exists() {
-            normalized.canonicalize()
-                .map_err(|e| AosError::Platform(format!("Failed to canonicalize macOS path: {}", e)))
+            normalized.canonicalize().map_err(|e| {
+                AosError::Platform(format!("Failed to canonicalize macOS path: {}", e))
+            })
         } else {
             Ok(normalized)
         }
@@ -109,13 +110,16 @@ impl PlatformHandler for MacOSHandler {
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms)
-                .map_err(|e| AosError::Platform(format!("Failed to set macOS file permissions: {}", e)))?;
+            std::fs::set_permissions(path, perms).map_err(|e| {
+                AosError::Platform(format!("Failed to set macOS file permissions: {}", e))
+            })?;
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
-            return Err(AosError::Platform("macOS permissions not available on this platform".to_string()));
+            return Err(AosError::Platform(
+                "macOS permissions not available on this platform".to_string(),
+            ));
         }
 
         debug!("Set macOS file permissions: {:o}", permissions);
@@ -126,30 +130,40 @@ impl PlatformHandler for MacOSHandler {
         #[cfg(target_os = "macos")]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path)
-                .map_err(|e| AosError::Platform(format!("Failed to get macOS file metadata: {}", e)))?;
+            let metadata = std::fs::metadata(path).map_err(|e| {
+                AosError::Platform(format!("Failed to get macOS file metadata: {}", e))
+            })?;
             Ok(metadata.permissions().mode())
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
-            Err(AosError::Platform("macOS permissions not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "macOS permissions not available on this platform".to_string(),
+            ))
         }
     }
 
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
-            std::os::unix::fs::symlink(target, link)
-                .map_err(|e| AosError::Platform(format!("Failed to create macOS symlink: {}", e)))?;
-        }
-        
-        #[cfg(not(target_os = "macos"))]
-        {
-            return Err(AosError::Platform("macOS symlinks not available on this platform".to_string()));
+            std::os::unix::fs::symlink(target, link).map_err(|e| {
+                AosError::Platform(format!("Failed to create macOS symlink: {}", e))
+            })?;
         }
 
-        debug!("Created macOS symlink: {} -> {}", link.display(), target.display());
+        #[cfg(not(target_os = "macos"))]
+        {
+            return Err(AosError::Platform(
+                "macOS symlinks not available on this platform".to_string(),
+            ));
+        }
+
+        debug!(
+            "Created macOS symlink: {} -> {}",
+            link.display(),
+            target.display()
+        );
         Ok(())
     }
 
@@ -159,10 +173,12 @@ impl PlatformHandler for MacOSHandler {
             std::fs::read_link(link)
                 .map_err(|e| AosError::Platform(format!("Failed to read macOS symlink: {}", e)))
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
-            Err(AosError::Platform("macOS symlinks not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "macOS symlinks not available on this platform".to_string(),
+            ))
         }
     }
 
@@ -171,7 +187,7 @@ impl PlatformHandler for MacOSHandler {
         {
             path.is_symlink()
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             false
@@ -205,10 +221,10 @@ impl PlatformHandler for MacOSHandler {
                 blksize: metadata.blksize(),
                 blocks: metadata.blocks(),
                 extended_attributes: Vec::new(), // Would need macOS API to get this
-                resource_fork_size: 0, // Would need macOS API to get this
+                resource_fork_size: 0,           // Would need macOS API to get this
             })
         };
-        
+
         #[cfg(not(target_os = "macos"))]
         let platform_attributes = PlatformAttributes::MacOS(MacOSAttributes {
             mode: 0,
@@ -226,9 +242,15 @@ impl PlatformHandler for MacOSHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata.created().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata.modified().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata.accessed().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata
+                .created()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            modified: metadata
+                .modified()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            accessed: metadata
+                .accessed()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })
@@ -241,20 +263,19 @@ impl PlatformHandler for MacOSHandler {
         // Set file times
         #[cfg(target_os = "macos")]
         {
+            use std::fs::OpenOptions;
             use std::os::unix::fs::MetadataExt;
             use std::os::unix::fs::OpenOptionsExt;
-            use std::fs::OpenOptions;
-            
-            let file = OpenOptions::new()
-                .write(true)
-                .open(path)
-                .map_err(|e| AosError::Platform(format!("Failed to open file for metadata update: {}", e)))?;
-            
+
+            let file = OpenOptions::new().write(true).open(path).map_err(|e| {
+                AosError::Platform(format!("Failed to open file for metadata update: {}", e))
+            })?;
+
             // Set file times using macOS system calls
             // This would require additional macOS API bindings
             debug!("macOS file metadata update not fully implemented");
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             debug!("macOS file metadata update not available on this platform");
@@ -286,7 +307,7 @@ mod tests {
     #[test]
     fn test_macos_handler() -> Result<()> {
         let handler = MacOSHandler::new(None)?;
-        
+
         assert_eq!(handler.platform_name(), "macOS");
         assert_eq!(handler.path_separator(), '/');
         assert!(handler.is_feature_supported("symlinks"));
@@ -295,7 +316,7 @@ mod tests {
         assert!(!handler.is_feature_supported("case_sensitive"));
         assert!(handler.is_feature_supported("extended_attributes"));
         assert!(handler.is_feature_supported("resource_forks"));
-        
+
         Ok(())
     }
 
@@ -304,10 +325,10 @@ mod tests {
         let handler = MacOSHandler::new(None)?;
         let temp_dir = TempDir::new()?;
         let test_path = temp_dir.path().join("test.txt");
-        
+
         let normalized = handler.normalize_path(&test_path)?;
         assert_eq!(normalized, test_path);
-        
+
         Ok(())
     }
 
@@ -317,11 +338,11 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
-        
+
         let metadata = handler.get_file_metadata(&test_file)?;
         assert_eq!(metadata.size, 5);
         assert!(matches!(metadata.file_type, FileType::File));
-        
+
         Ok(())
     }
 }

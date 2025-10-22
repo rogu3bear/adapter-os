@@ -76,9 +76,6 @@ pub mod vision_adapter;
 pub mod vision_lora;
 
 pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult, HotSwapManager};
-pub use adapteros_lora_rag::DocIndexImpl;
-pub use adapteros_lora_rag::SymbolIndexImpl;
-pub use adapteros_lora_rag::TestIndexImpl;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };

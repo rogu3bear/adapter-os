@@ -669,23 +669,26 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
       const result = await apiClient.verifyBundleSignature(bundleId);
 
+      const signer = result.signed_by || 'Unknown';
+      const verificationError = result.verification_error || 'Unknown error';
+
       if (result.valid) {
-        toast.success(`Bundle signature verified successfully!\nSigner: ${result.signer || 'Unknown'}`);
+        toast.success(`Bundle signature verified successfully!\nSigner: ${signer}`);
         logger.info('Bundle signature verified', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
           bundleId,
           valid: true,
-          signer: result.signer
+          signer,
         });
       } else {
-        toast.error(`Bundle signature verification failed!\n${result.error || 'Unknown error'}`);
+        toast.error(`Bundle signature verification failed!\n${verificationError}`);
         logger.warn('Bundle signature verification failed', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
           bundleId,
           valid: false,
-          error: result.error
+          error: verificationError,
         });
       }
     } catch (error) {

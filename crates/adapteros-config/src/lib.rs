@@ -11,7 +11,7 @@ pub mod loader;
 pub mod precedence;
 pub mod types;
 
-pub use guards::ConfigGuards;
+pub use guards::{safe_env_var, safe_env_var_or, strict_env_var, ConfigGuards};
 pub use loader::ConfigLoader;
 pub use precedence::DeterministicConfig;
 pub use types::*;

@@ -62,7 +62,7 @@ pub struct WeightMetadata {
 }
 
 /// Type of weight group
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum WeightGroupType {
     Positive,
@@ -134,26 +134,27 @@ pub struct AdapterManifest {
 }
 
 /// Configuration for weight groups
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WeightGroupConfig {
     /// Whether to use separate positive/negative weights
     pub use_separate_weights: bool,
     /// Weight combination strategy for inference
     pub combination_strategy: CombinationStrategy,
-    /// Positive weight scaling factor
-    pub positive_scale: f32,
-    /// Negative weight scaling factor
-    pub negative_scale: f32,
 }
 
 /// Strategy for combining positive and negative weights
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum CombinationStrategy {
     /// Simple difference: combined = positive - negative
     Difference,
     /// Weighted difference: combined = (positive * pos_scale) - (negative * neg_scale)
-    WeightedDifference,
+    WeightedDifference {
+        /// Scaling factor applied to positive weights
+        positive_scale: f32,
+        /// Scaling factor applied to negative weights
+        negative_scale: f32,
+    },
     /// Separate inference: use positive and negative weights independently
     Separate,
 }
@@ -162,9 +163,10 @@ impl Default for WeightGroupConfig {
     fn default() -> Self {
         Self {
             use_separate_weights: true,
-            combination_strategy: CombinationStrategy::WeightedDifference,
-            positive_scale: 1.0,
-            negative_scale: 1.0,
+            combination_strategy: CombinationStrategy::WeightedDifference {
+                positive_scale: 1.0,
+                negative_scale: 1.0,
+            },
         }
     }
 }
@@ -324,78 +326,11 @@ impl SingleFileAdapter {
 
     /// Compute combined weights from positive and negative
     fn compute_combined_weights(&self) -> Result<WeightGroup> {
-        let config = &self.manifest.weight_groups;
-
-        match config.combination_strategy {
-            CombinationStrategy::Difference => self.compute_weight_difference(
-                &self.weights.positive,
-                &self.weights.negative,
-                1.0,
-                1.0,
-            ),
-            CombinationStrategy::WeightedDifference => self.compute_weight_difference(
-                &self.weights.positive,
-                &self.weights.negative,
-                config.positive_scale,
-                config.negative_scale,
-            ),
-            CombinationStrategy::Separate => {
-                // For separate inference, return positive weights as default
-                Ok(self.weights.positive.clone())
-            }
-        }
-    }
-
-    /// Compute weight difference: result = (pos * pos_scale) - (neg * neg_scale)
-    fn compute_weight_difference(
-        &self,
-        positive: &WeightGroup,
-        negative: &WeightGroup,
-        pos_scale: f32,
-        neg_scale: f32,
-    ) -> Result<WeightGroup> {
-        // Ensure dimensions match
-        if positive.lora_a.len() != negative.lora_a.len()
-            || positive.lora_b.len() != negative.lora_b.len()
-        {
-            return Err(AosError::Training(
-                "Weight group dimensions don't match".to_string(),
-            ));
-        }
-
-        let mut combined_lora_a = Vec::new();
-        let mut combined_lora_b = Vec::new();
-
-        // Combine LoRA A matrices
-        for (pos_row, neg_row) in positive.lora_a.iter().zip(negative.lora_a.iter()) {
-            let mut combined_row = Vec::new();
-            for (pos_val, neg_val) in pos_row.iter().zip(neg_row.iter()) {
-                combined_row.push((pos_val * pos_scale) - (neg_val * neg_scale));
-            }
-            combined_lora_a.push(combined_row);
-        }
-
-        // Combine LoRA B matrices
-        for (pos_row, neg_row) in positive.lora_b.iter().zip(negative.lora_b.iter()) {
-            let mut combined_row = Vec::new();
-            for (pos_val, neg_val) in pos_row.iter().zip(neg_row.iter()) {
-                combined_row.push((pos_val * pos_scale) - (neg_val * neg_scale));
-            }
-            combined_lora_b.push(combined_row);
-        }
-
-        Ok(WeightGroup {
-            lora_a: combined_lora_a,
-            lora_b: combined_lora_b,
-            metadata: WeightMetadata {
-                example_count: positive.metadata.example_count + negative.metadata.example_count,
-                avg_loss: (positive.metadata.avg_loss + negative.metadata.avg_loss) / 2.0,
-                training_time_ms: positive.metadata.training_time_ms
-                    + negative.metadata.training_time_ms,
-                group_type: WeightGroupType::Combined,
-                created_at: chrono::Utc::now().to_rfc3339(),
-            },
-        })
+        crate::weights::combine_weight_groups(
+            &self.weights.positive,
+            &self.weights.negative,
+            &self.manifest.weight_groups.combination_strategy,
+        )
     }
 }
 

@@ -42,27 +42,29 @@ async fn test_multi_host_determinism() -> Result<()> {
     println!("Running deterministic computations on all hosts...");
     cluster
         .run_on_all_hosts(|host| {
+            let host = host.clone();
             Box::pin(async move {
+                let host_id = host.id;
                 // Simulate deterministic inference
                 let input = b"test prompt for determinism verification";
-                let output = simulate_deterministic_inference(host.id, input).await?;
+                let output = simulate_deterministic_inference(host_id, input).await?;
 
                 // Store output
                 host.store_result("inference_output".to_string(), output)
                     .await;
 
                 // Simulate router decision
-                let router_output = simulate_router_decision(host.id, input).await?;
+                let router_output = simulate_router_decision(host_id, input).await?;
                 host.store_result("router_output".to_string(), router_output)
                     .await;
 
                 // Simulate memory state
-                let memory_state = simulate_memory_state(host.id).await?;
+                let memory_state = simulate_memory_state(host_id).await?;
                 host.store_result("memory_state".to_string(), memory_state)
                     .await;
 
-                if host.id == 0 {
-                    println!("  Host {} completed computation", host.id);
+                if host_id == 0 {
+                    println!("  Host {} completed computation", host_id);
                 }
 
                 Ok(())
@@ -135,8 +137,7 @@ async fn test_multi_host_determinism() -> Result<()> {
 
         // Create baseline directory if needed
         if let Some(parent) = baseline_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AosError::Io(format!("Failed to create baseline directory: {}", e)))?;
+            std::fs::create_dir_all(parent)?;
         }
 
         let baseline = GoldenBaseline::from_cluster(TEST_NAME.to_string(), &cluster).await?;

@@ -1,6 +1,7 @@
 //! Hot-swap adapter loading and unloading
 
 use adapteros_core::{AosError, Result};
+use adapteros_single_file_adapter::SingleFileAdapterLoader;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -32,21 +33,24 @@ impl AdapterLoader {
             )));
         }
 
-        // Load adapter weights from SafeTensors format
-        let _weights = self.load_adapter_weights(&adapter_path)?;
+        // Load adapter weights (supports both .aos and .safetensors)
+        let weights_data = self.load_adapter_weights(&adapter_path)?;
+        let memory_bytes = weights_data.len();
+
         self.loaded.insert(adapter_id, adapter_path.clone());
 
         tracing::info!(
-            "Loaded adapter {} ({}) from {}",
+            "Loaded adapter {} ({}) from {} ({} bytes)",
             adapter_id,
             adapter_name,
-            adapter_path.display()
+            adapter_path.display(),
+            memory_bytes
         );
 
         Ok(AdapterHandle {
             adapter_id,
             path: adapter_path,
-            memory_bytes: Self::estimate_adapter_size(adapter_name),
+            memory_bytes,
         })
     }
 
@@ -137,17 +141,93 @@ impl AdapterLoader {
         self.loaded.len()
     }
 
-    /// Load adapter weights from SafeTensors file
+    /// Load adapter weights from .aos or .safetensors file
     fn load_adapter_weights(&self, adapter_path: &PathBuf) -> Result<Vec<u8>> {
         use std::fs;
 
-        // Read the SafeTensors file
-        let weights_data = fs::read(adapter_path)
-            .map_err(|e| AosError::Lifecycle(format!("Failed to read adapter file: {}", e)))?;
+        // Check file extension to determine format
+        let extension = adapter_path.extension().and_then(|s| s.to_str());
 
-        // In a real implementation, this would parse SafeTensors format
-        // For now, just return the raw data
-        Ok(weights_data)
+        match extension {
+            Some("aos") => {
+                // Load from .aos file
+                tracing::debug!("Loading adapter from .aos file: {}", adapter_path.display());
+
+                // Use tokio runtime to load async
+                let runtime = tokio::runtime::Handle::try_current().ok().or_else(|| {
+                    // If no runtime, create one
+                    Some(tokio::runtime::Runtime::new().ok()?.handle().clone())
+                });
+
+                if let Some(handle) = runtime {
+                    handle.block_on(async {
+                        let adapter =
+                            SingleFileAdapterLoader::load(adapter_path)
+                                .await
+                                .map_err(|e| {
+                                    AosError::Lifecycle(format!("Failed to load .aos file: {}", e))
+                                })?;
+
+                        // Verify signature if present
+                        if adapter.is_signed() {
+                            match adapter.verify() {
+                                Ok(true) => {
+                                    tracing::info!(
+                                        "✓ Adapter signature verified for {}",
+                                        adapter_path.display()
+                                    );
+                                }
+                                Ok(false) => {
+                                    tracing::warn!(
+                                        "⚠ Invalid signature for {}",
+                                        adapter_path.display()
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "✗ Signature verification failed for {}: {}",
+                                        adapter_path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                        }
+
+                        tracing::info!(
+                            "Loaded .aos adapter: {} v{} (format v{})",
+                            adapter.manifest.adapter_id,
+                            adapter.manifest.version,
+                            adapter.manifest.format_version
+                        );
+
+                        // Convert AdapterWeights to Vec<u8> for compatibility
+                        // For v2 format, serialize the weights structure
+                        let weights_bytes = serde_json::to_vec(&adapter.weights).map_err(|e| {
+                            AosError::Lifecycle(format!("Failed to serialize weights: {}", e))
+                        })?;
+
+                        Ok(weights_bytes)
+                    })
+                } else {
+                    Err(AosError::Lifecycle(
+                        "No tokio runtime available for async .aos loading".to_string(),
+                    ))
+                }
+            }
+            _ => {
+                // Load from .safetensors or other format
+                tracing::debug!(
+                    "Loading adapter from SafeTensors file: {}",
+                    adapter_path.display()
+                );
+
+                let weights_data = fs::read(adapter_path).map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to read adapter file: {}", e))
+                })?;
+
+                Ok(weights_data)
+            }
+        }
     }
 
     /// Free adapter weights from memory
@@ -163,6 +243,7 @@ impl AdapterLoader {
     }
 
     /// Estimate adapter size based on rank (simplified)
+    #[allow(dead_code)]
     fn estimate_adapter_size(_adapter_name: &str) -> usize {
         // Simplified: assume 16MB per adapter
         // In reality, calculate based on rank * target_modules * model_dim
@@ -172,6 +253,7 @@ impl AdapterLoader {
     /// Resolve adapter file path from flexible identifiers
     ///
     /// Supports the following layouts:
+    /// - .aos files:    `<root>/<id>.aos` (PREFERRED)
     /// - Hex-based:     `<root>/<hex>.safetensors` or `<root>/<hex>/weights.safetensors`
     /// - Packaged dir:  `<root>/<id>/weights.safetensors`
     /// - Legacy flat:   `<root>/<id>.safetensors`
@@ -185,6 +267,13 @@ impl AdapterLoader {
 
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
 
+        // 1. FIRST: Try .aos files (preferred format)
+        candidates.push(self.base_path.join(format!("{}.aos", &name)));
+        if adapter_name != name {
+            candidates.push(self.base_path.join(format!("{}.aos", adapter_name)));
+        }
+
+        // 2. Then try SafeTensors formats
         // Prefer packaged dir over flat for non-hex ids
         if !is_hex {
             candidates.push(self.base_path.join(&name).join("weights.safetensors"));
@@ -208,7 +297,7 @@ impl AdapterLoader {
         candidates
             .into_iter()
             .find(|p| p.exists())
-            .unwrap_or_else(|| self.base_path.join(format!("{}.safetensors", &name)))
+            .unwrap_or_else(|| self.base_path.join(format!("{}.aos", &name)))
     }
 }
 

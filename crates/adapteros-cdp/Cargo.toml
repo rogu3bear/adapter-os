@@ -1,0 +1,11 @@
+[package]
+name = "adapteros-cdp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-git = { path = "../adapteros-git" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+serde = { workspace = true }
+chrono = { workspace = true }

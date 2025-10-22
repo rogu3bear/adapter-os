@@ -1,6 +1,7 @@
 //! Single-file adapter packager
 
 use super::format::*;
+use crate::weights::{serialize_weight_group, WeightGroupDiskInfo, WeightGroupsManifest};
 use adapteros_core::{AosError, Result};
 use std::io::Write;
 use std::path::Path;
@@ -52,7 +53,7 @@ impl SingleFileAdapter {
             .unix_permissions(0o644);
 
         if let Some(level) = compression_level {
-            file_options = file_options.compression_level(Some(level as u32));
+            file_options = file_options.compression_level(Some(level as i32));
         }
 
         // Add manifest (always use best compression for small JSON)
@@ -116,8 +117,9 @@ impl SingleFileAdapter {
         zip.start_file("config.toml", data_options)
             .map_err(|e| AosError::Io(format!("Failed to start config file: {}", e)))?;
         zip.write_all(
-            &toml::to_vec(&adapter.config)
-                .map_err(|e| AosError::Training(format!("Failed to serialize config: {}", e)))?,
+            &toml::to_string(&adapter.config)
+                .map_err(|e| AosError::Training(format!("Failed to serialize config: {}", e)))?
+                .as_bytes(),
         )
         .map_err(|e| AosError::Io(format!("Failed to write config: {}", e)))?;
 
@@ -145,35 +147,35 @@ impl SingleFileAdapter {
         // Add weight group metadata
         zip.start_file("weight_groups.json", data_options)
             .map_err(|e| AosError::Io(format!("Failed to start weight groups file: {}", e)))?;
-        let weight_groups_info = WeightGroupsInfo {
-            positive: WeightGroupInfo {
+        let weight_manifest = WeightGroupsManifest {
+            positive: WeightGroupDiskInfo {
                 example_count: adapter.weights.positive.metadata.example_count,
                 avg_loss: adapter.weights.positive.metadata.avg_loss,
                 training_time_ms: adapter.weights.positive.metadata.training_time_ms,
                 created_at: adapter.weights.positive.metadata.created_at.clone(),
             },
-            negative: WeightGroupInfo {
+            negative: WeightGroupDiskInfo {
                 example_count: adapter.weights.negative.metadata.example_count,
                 avg_loss: adapter.weights.negative.metadata.avg_loss,
                 training_time_ms: adapter.weights.negative.metadata.training_time_ms,
                 created_at: adapter.weights.negative.metadata.created_at.clone(),
             },
-            combined: adapter.weights.combined.as_ref().map(|c| WeightGroupInfo {
-                example_count: c.metadata.example_count,
-                avg_loss: c.metadata.avg_loss,
-                training_time_ms: c.metadata.training_time_ms,
-                created_at: c.metadata.created_at.clone(),
-            }),
+            combined: adapter
+                .weights
+                .combined
+                .as_ref()
+                .map(|c| WeightGroupDiskInfo {
+                    example_count: c.metadata.example_count,
+                    avg_loss: c.metadata.avg_loss,
+                    training_time_ms: c.metadata.training_time_ms,
+                    created_at: c.metadata.created_at.clone(),
+                }),
             combination_strategy: adapter.manifest.weight_groups.combination_strategy.clone(),
             use_separate_weights: adapter.manifest.weight_groups.use_separate_weights,
-            positive_scale: adapter.manifest.weight_groups.positive_scale,
-            negative_scale: adapter.manifest.weight_groups.negative_scale,
         };
-        zip.write_all(
-            &serde_json::to_vec_pretty(&weight_groups_info).map_err(|e| {
-                AosError::Training(format!("Failed to serialize weight groups info: {}", e))
-            })?,
-        )
+        zip.write_all(&serde_json::to_vec_pretty(&weight_manifest).map_err(|e| {
+            AosError::Training(format!("Failed to serialize weight groups info: {}", e))
+        })?)
         .map_err(|e| AosError::Io(format!("Failed to write weight groups info: {}", e)))?;
 
         zip.finish()
@@ -184,43 +186,6 @@ impl SingleFileAdapter {
 }
 
 /// Serialize weight group to safetensors format
-fn serialize_weight_group(weight_group: &WeightGroup) -> Result<Vec<u8>> {
-    let payload = WeightGroupMatrices {
-        lora_a: weight_group.lora_a.clone(),
-        lora_b: weight_group.lora_b.clone(),
-    };
-
-    serde_json::to_vec(&payload)
-        .map_err(|e| AosError::Training(format!("Failed to serialize weight group: {}", e)))
-}
-
-/// Weight groups information for .aos file
-#[derive(Debug, serde::Serialize)]
-struct WeightGroupsInfo {
-    positive: WeightGroupInfo,
-    negative: WeightGroupInfo,
-    combined: Option<WeightGroupInfo>,
-    combination_strategy: CombinationStrategy,
-    use_separate_weights: bool,
-    positive_scale: f32,
-    negative_scale: f32,
-}
-
-/// Individual weight group information
-#[derive(Debug, serde::Serialize)]
-struct WeightGroupInfo {
-    example_count: usize,
-    avg_loss: f32,
-    training_time_ms: u64,
-    created_at: String,
-}
-
-/// Serializable representation of LoRA matrices
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct WeightGroupMatrices {
-    lora_a: Vec<Vec<f32>>,
-    lora_b: Vec<Vec<f32>>,
-}
 
 /// Single-file adapter packager
 pub struct SingleFileAdapterPackager;

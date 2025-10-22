@@ -17,6 +17,10 @@ pub struct PackLoraArgs {
     /// Adapter ID to assign
     #[arg(long, default_value = "code2db")]
     pub adapter_id: String,
+
+    /// Base model identifier to record in manifest
+    #[arg(long, default_value = "qwen2.5-7b")]
+    pub base_model: String,
 }
 
 pub async fn run(args: PackLoraArgs) -> Result<()> {
@@ -37,7 +41,7 @@ pub async fn run(args: PackLoraArgs) -> Result<()> {
     // Package
     let packager = adapteros_lora_worker::training::AdapterPackager::new(&args.output_dir);
     let packaged = packager
-        .package(&args.adapter_id, &quant, &cfg)
+        .package(&args.adapter_id, &quant, &cfg, &args.base_model)
         .await
         .context("packaging adapter")?;
 

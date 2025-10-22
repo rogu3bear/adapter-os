@@ -1,6 +1,6 @@
-//! Policy Registry - Canonical 20 Policy Packs
+//! Policy Registry - Canonical 22 Policy Packs
 //!
-//! This module defines the complete set of 20 policy packs enforced by AdapterOS.
+//! This module defines the complete set of 22 policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
 use adapteros_core::Result;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Unique identifier for a policy pack
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum PolicyId {
     Egress = 1,
     Determinism = 2,
@@ -147,6 +147,34 @@ impl PolicyId {
         }
     }
 
+    /// Get the canonical severity classification
+    pub fn severity(&self) -> Severity {
+        match self {
+            PolicyId::Egress => Severity::Critical,
+            PolicyId::Determinism => Severity::Critical,
+            PolicyId::Router => Severity::High,
+            PolicyId::Evidence => Severity::Critical,
+            PolicyId::Refusal => Severity::High,
+            PolicyId::Numeric => Severity::High,
+            PolicyId::Rag => Severity::Medium,
+            PolicyId::Isolation => Severity::High,
+            PolicyId::Telemetry => Severity::High,
+            PolicyId::Retention => Severity::High,
+            PolicyId::Performance => Severity::High,
+            PolicyId::Memory => Severity::High,
+            PolicyId::Artifacts => Severity::Medium,
+            PolicyId::Secrets => Severity::Critical,
+            PolicyId::BuildRelease => Severity::High,
+            PolicyId::Compliance => Severity::Critical,
+            PolicyId::Incident => Severity::Critical,
+            PolicyId::Output => Severity::Medium,
+            PolicyId::Adapters => Severity::Medium,
+            PolicyId::DeterministicIo => Severity::Medium,
+            PolicyId::Drift => Severity::Medium,
+            PolicyId::Mplora => Severity::Medium,
+        }
+    }
+
     /// Check if policy is fully implemented
     pub fn is_implemented(&self) -> bool {
         match self {
@@ -190,6 +218,7 @@ pub struct PolicySpec {
     pub description: &'static str,
     pub enforcement_point: &'static str,
     pub implemented: bool,
+    pub severity: Severity,
 }
 
 impl PolicySpec {
@@ -201,6 +230,7 @@ impl PolicySpec {
             description: id.description(),
             enforcement_point: id.enforcement_point(),
             implemented: id.is_implemented(),
+            severity: id.severity(),
         }
     }
 }
@@ -300,7 +330,7 @@ pub struct Violation {
     pub details: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Severity {
     Critical,
     High,

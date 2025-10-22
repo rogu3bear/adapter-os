@@ -12,9 +12,14 @@
 //!
 //! Run with: `cargo test --test inference_integration_tests -- --ignored --nocapture`
 
-use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
 use anyhow::Result;
 use serde_json::json;
+
+fn integrations_enabled() -> bool {
+    std::env::var("AOS_RUN_FULL_INTEGRATION")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
 
 /// Test base URL from environment or default
 fn test_base_url() -> String {
@@ -23,6 +28,11 @@ fn test_base_url() -> String {
 
 #[tokio::test]
 async fn test_basic_inference() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!("⏭️ Skipping basic inference test (set AOS_RUN_FULL_INTEGRATION=1 to enable)");
+        return Ok(());
+    }
+
     println!("\n=== Test: Basic Inference ===");
 
     let client = reqwest::Client::new();
@@ -60,6 +70,13 @@ async fn test_basic_inference() -> Result<()> {
 
 #[tokio::test]
 async fn test_evidence_based_inference() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!(
+            "⏭️ Skipping evidence-based inference test (set AOS_RUN_FULL_INTEGRATION=1 to enable)"
+        );
+        return Ok(());
+    }
+
     println!("\n=== Test: Evidence-Based Inference ===");
 
     let client = reqwest::Client::new();
@@ -111,6 +128,13 @@ async fn test_evidence_based_inference() -> Result<()> {
 
 #[tokio::test]
 async fn test_deterministic_inference() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!(
+            "⏭️ Skipping deterministic inference test (set AOS_RUN_FULL_INTEGRATION=1 to enable)"
+        );
+        return Ok(());
+    }
+
     println!("\n=== Test: Deterministic Inference ===");
 
     let client = reqwest::Client::new();
@@ -159,6 +183,11 @@ async fn test_deterministic_inference() -> Result<()> {
 
 #[tokio::test]
 async fn test_policy_refusal() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!("⏭️ Skipping policy refusal test (set AOS_RUN_FULL_INTEGRATION=1 to enable)");
+        return Ok(());
+    }
+
     println!("\n=== Test: Policy Refusal ===");
 
     let client = reqwest::Client::new();
@@ -193,6 +222,13 @@ async fn test_policy_refusal() -> Result<()> {
 
 #[tokio::test]
 async fn test_router_adapter_selection() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!(
+            "⏭️ Skipping router adapter selection test (set AOS_RUN_FULL_INTEGRATION=1 to enable)"
+        );
+        return Ok(());
+    }
+
     println!("\n=== Test: Router Adapter Selection ===");
 
     let client = reqwest::Client::new();
@@ -247,6 +283,11 @@ async fn test_router_adapter_selection() -> Result<()> {
 
 #[tokio::test]
 async fn test_max_tokens_limit() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!("⏭️ Skipping max-tokens test (set AOS_RUN_FULL_INTEGRATION=1 to enable)");
+        return Ok(());
+    }
+
     println!("\n=== Test: Max Tokens Limit ===");
 
     let client = reqwest::Client::new();
@@ -279,19 +320,25 @@ async fn test_max_tokens_limit() -> Result<()> {
 
 #[tokio::test]
 async fn test_concurrent_inference() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!(
+            "⏭️ Skipping concurrent inference test (set AOS_RUN_FULL_INTEGRATION=1 to enable)"
+        );
+        return Ok(());
+    }
+
     println!("\n=== Test: Concurrent Inference ===");
 
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/inference", test_base_url());
 
-    // Launch 5 concurrent requests
-    let mut handles = vec![];
+    let mut handles = Vec::new();
 
     for i in 0..5 {
         let client = client.clone();
         let url = url.clone();
 
-        let handle = spawn_deterministic(format!("Inference request {}", i), async move {
+        handles.push(tokio::spawn(async move {
             let request = json!({
                 "cpid": "test_cp_v1",
                 "prompt": format!("Explain concept {}", i),
@@ -303,23 +350,14 @@ async fn test_concurrent_inference() -> Result<()> {
                 .post(&url)
                 .json(&request)
                 .send()
-                .await
-                .unwrap()
+                .await?
                 .json::<serde_json::Value>()
                 .await
-                .unwrap()
-        });
-
-        handles.push(handle);
+        }));
     }
 
-    // Wait for all to complete
-    let results = futures::future::join_all(handles).await;
-
-    assert_eq!(results.len(), 5, "All requests should complete");
-
-    for (i, result) in results.iter().enumerate() {
-        let response = result.as_ref().unwrap();
+    for (i, handle) in handles.into_iter().enumerate() {
+        let response = handle.await.expect("join should succeed")?;
         assert_eq!(
             response["status"], "success",
             "Request {} should succeed",
@@ -335,6 +373,11 @@ async fn test_concurrent_inference() -> Result<()> {
 
 #[tokio::test]
 async fn test_memory_pressure_handling() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!("⏭️ Skipping memory pressure test (set AOS_RUN_FULL_INTEGRATION=1 to enable)");
+        return Ok(());
+    }
+
     println!("\n=== Test: Memory Pressure Handling ===");
 
     let client = reqwest::Client::new();
@@ -369,6 +412,13 @@ async fn test_memory_pressure_handling() -> Result<()> {
 
 #[tokio::test]
 async fn test_end_to_end_inference_workflow() -> Result<()> {
+    if !integrations_enabled() {
+        eprintln!(
+            "⏭️ Skipping end-to-end workflow test (set AOS_RUN_FULL_INTEGRATION=1 to enable)"
+        );
+        return Ok(());
+    }
+
     println!("\n=== Test: End-to-End Inference Workflow ===");
 
     let client = reqwest::Client::new();

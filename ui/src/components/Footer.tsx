@@ -1,25 +1,17 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
-
-interface MetaData {
-  version: string;
-  build_hash: string;
-  uptime: number;
-  last_updated: string;
-}
+import { MetaResponse } from '../api/types';
 
 export const Footer: React.FC = () => {
-  const { data: meta, isLoading } = useQuery<MetaData>({
+  const { data: meta, isLoading } = useQuery<MetaResponse>({
     queryKey: ['/v1/meta'],
-    queryFn: async () => {
-      // Citation: ui/src/api/client.ts L117-L119
-      return apiClient.getMeta();
-    },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    queryFn: () => apiClient.getMeta(),
+    refetchInterval: 30000,
   });
 
-  const formatUptime = (seconds: number) => {
+  const formatUptime = (seconds?: number) => {
+    if (!seconds || seconds <= 0) return '—';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours}h ${minutes}m`;
@@ -49,11 +41,9 @@ export const Footer: React.FC = () => {
           </div>
           
           <div className="text-sm text-muted-foreground">
-            {meta && (
-              <div>
-                Last updated: {new Date(meta.last_updated).toLocaleString()}
-              </div>
-            )}
+            <div>
+              Last updated: {meta?.last_updated ? new Date(meta.last_updated).toLocaleString() : '—'}
+            </div>
           </div>
         </div>
       </div>

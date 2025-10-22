@@ -87,7 +87,7 @@ pub fn check_secure_permissions(path: impl AsRef<Path>, config: &PermissionConfi
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let metadata = std::fs::metadata(path)
+        let metadata = std::fs::metadata(&path)
             .map_err(|e| AosError::Security(format!("Failed to get file metadata: {}", e)))?;
 
         let permissions = metadata.permissions();

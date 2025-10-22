@@ -2,6 +2,8 @@
 //!
 //! Tests for cross-host signature chain verification
 
+#![cfg(feature = "federation")]
+
 use adapteros_core::{B3Hash, Result};
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;

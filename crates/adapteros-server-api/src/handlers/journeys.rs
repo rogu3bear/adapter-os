@@ -81,7 +81,7 @@ pub async fn get_journey(
     );
 
     let mut states = Vec::new();
-    let mut _data = serde_json::json!({});
+    let mut data = serde_json::json!({});
 
     match journey_type.as_str() {
         "adapter-lifecycle" => {

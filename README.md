@@ -280,7 +280,8 @@ aosctl train \
   --data data/small.json \
   --output out/train1 \
   --plan plan/qwen7b/PLAN_ID \
-  --rank 16 --epochs 1
+  --rank 16 --epochs 1 \
+  --base-model qwen2.5-7b
 
 # Train, then package + register
 export AOS_ADAPTERS_ROOT=$PWD/adapters
@@ -289,6 +290,7 @@ aosctl train \
   --output out/train1 \
   --plan plan/qwen7b/PLAN_ID \
   --rank 16 --epochs 1 \
+  --base-model qwen2.5-7b \
   --pack --adapters-root "$AOS_ADAPTERS_ROOT" \
   --register --adapter-id demo_adapter --tier ephemeral --reg-rank 16
 ```
@@ -298,6 +300,8 @@ Artifacts are placed under `<adapters_root>/<adapter_id>/` (weights.safetensors,
 Adapters root:
 - Default: `./adapters`
 - Override: set `AOS_ADAPTERS_ROOT=/path/to/adapters`
+
+Set `--deterministic` to derive a repeatable seed from the dataset/config tuple, or provide an explicit seed with `--seed <u64>` when you need bit-for-bit reproducibility across hosts. When registering adapters, `--pack` must be supplied so manifests and signatures are present.
 
 ### Orchestrated Training (Server API)
 

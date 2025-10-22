@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { GoldenCompareModal } from './GoldenCompareModal';
+import { logger, toError } from '../utils/logger';
 
 interface TelemetryProps {
   user?: User;
@@ -50,7 +51,12 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         setBundles(data);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to fetch telemetry bundles';
-        console.error(errorMsg, err);
+        logger.error('Failed to fetch telemetry bundles', {
+          component: 'Telemetry',
+          operation: 'fetchBundles',
+          tenantId: effectiveTenant,
+          errorMessage: errorMsg,
+        }, toError(err));
         toast.error(errorMsg);
       } finally {
         setLoading(false);
@@ -93,7 +99,11 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       toast.success(result.valid ? 'Signature valid' : 'Signature invalid');
     } catch (err) {
       toast.error('Failed to verify signature');
-      console.error(err);
+      logger.error('Telemetry bundle signature verification failed', {
+        component: 'Telemetry',
+        operation: 'verifySignature',
+        bundleId: bundle.id,
+      }, toError(err));
     }
   };
 
@@ -114,7 +124,11 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       setBundles(data);
     } catch (err) {
       toast.error('Failed to purge bundles');
-      console.error(err);
+      logger.error('Failed to purge telemetry bundles', {
+        component: 'Telemetry',
+        operation: 'purgeBundles',
+        keepCount: purgeKeepCount,
+      }, toError(err));
     }
   };
 

@@ -5,7 +5,7 @@
 use crate::{ErrorRecoveryConfig, RecoveryResult};
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tokio::fs;
 use tracing::{debug, error, info, warn};
 
@@ -203,10 +203,12 @@ impl BackupManager {
             let entry_path = entry.path();
 
             if let Some(entry_name) = entry_path.file_name() {
-                if entry_name.to_string_lossy().starts_with(&file_name) {
+                if entry_name.to_string_lossy().starts_with(&*file_name) {
                     if let Ok(metadata) = entry.metadata().await {
                         if let Ok(modified) = metadata.modified() {
-                            if latest_backup.is_none() || modified > latest_backup.unwrap().1 {
+                            if latest_backup.is_none()
+                                || modified > latest_backup.as_ref().unwrap().1
+                            {
                                 latest_backup = Some((entry_path, modified));
                             }
                         }
@@ -239,7 +241,7 @@ impl BackupManager {
             let entry_path = entry.path();
 
             if let Some(entry_name) = entry_path.file_name() {
-                if entry_name.to_string_lossy().starts_with(&file_name) {
+                if entry_name.to_string_lossy().starts_with(&*file_name) {
                     if let Ok(metadata) = entry.metadata().await {
                         if let Ok(modified) = metadata.modified() {
                             backups.push((entry_path, modified));
@@ -289,7 +291,7 @@ impl BackupManager {
             let entry_path = entry.path();
 
             if let Some(entry_name) = entry_path.file_name() {
-                if entry_name.to_string_lossy().starts_with(&file_name) {
+                if entry_name.to_string_lossy().starts_with(&*file_name) {
                     backups.push(entry_path);
                 }
             }

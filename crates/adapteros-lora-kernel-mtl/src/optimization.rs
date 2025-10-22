@@ -230,13 +230,13 @@ mod tests {
     }
 
     #[test]
-    fn optimizer_rejects_invalid_configs() {
+    fn optimizer_clamps_invalid_history_window() {
         let optimizer = KernelOptimizer::new(250.0, 80.0, 2_000_000);
         let mut config = MploraConfig::default();
         config.history_window = 0;
         let metrics = KernelPerformanceMetrics::default();
 
-        let err = optimizer.optimize(&config, &metrics).unwrap_err();
-        assert!(format!("{}", err).contains("History window"));
+        let plan = optimizer.optimize(&config, &metrics).expect("plan");
+        assert!(plan.updated_config.history_window >= 2);
     }
 }

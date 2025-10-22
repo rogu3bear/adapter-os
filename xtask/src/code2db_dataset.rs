@@ -114,6 +114,7 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
                 input: input_ids,
                 target: target_ids,
                 metadata: meta,
+                weight: 1.0,
             });
             continue;
         }
@@ -148,6 +149,7 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
                     input: input_ids,
                     target: target_ids,
                     metadata: meta,
+                    weight: 1.0,
                 });
             }
         }

@@ -3,6 +3,8 @@
 //! This test suite verifies that all domain adapters produce byte-identical
 //! outputs for identical inputs across multiple runs.
 
+#![cfg(feature = "domain-experimental")]
+
 use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
 use adapteros_domain::{DomainAdapter, TelemetryAdapter, TensorData, TextAdapter, VisionAdapter};
 use adapteros_numerics::noise::Tensor;

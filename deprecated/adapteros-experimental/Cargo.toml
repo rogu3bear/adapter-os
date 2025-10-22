@@ -1,0 +1,58 @@
+[package]
+name = "adapteros-experimental"
+version = "0.1.0"
+edition = "2021"
+description = "Experimental AdapterOS features - NOT FOR PRODUCTION USE"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/adapter-os/adapter-os"
+documentation = "https://docs.rs/adapteros-experimental"
+
+# ============================================================================
+# EXPERIMENTAL MODULE WARNING
+# ============================================================================
+# This crate contains experimental features that are:
+# - NOT production ready
+# - Subject to breaking changes
+# - May have incomplete implementations
+# - Should not be used in production systems
+# ============================================================================
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+anyhow = "1.0"
+md5 = "0.7"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[features]
+default = []
+aos-cli = []
+error-recovery = []
+migration-conflicts = []
+domain-adapters = []
+
+# Experimental feature flags
+experimental-aos-cli = ["aos-cli"]
+experimental-error-recovery = ["error-recovery"]
+experimental-migration-conflicts = ["migration-conflicts"]
+experimental-domain-adapters = ["domain-adapters"]
+
+# All experimental features
+experimental-all = [
+    "experimental-aos-cli",
+    "experimental-error-recovery", 
+    "experimental-migration-conflicts",
+    "experimental-domain-adapters"
+]
+
+[dev-dependencies]
+tempfile = "3.0"
+tokio-test = "0.4"
+
+[[bin]]
+name = "experimental-test"
+path = "src/bin/test.rs"
+required-features = ["experimental-all"]

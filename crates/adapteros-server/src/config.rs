@@ -17,6 +17,8 @@ pub struct Config {
     #[serde(default)]
     pub policies: PoliciesConfig,
     #[serde(default)]
+    pub orchestrator: OrchestratorConfig,
+    #[serde(default)]
     pub cab: Option<CabConfig>,
 }
 
@@ -49,6 +51,8 @@ pub struct SecurityConfig {
     /// Optional Ed25519 public key in PEM for JWT validation when jwt_mode = "eddsa"
     #[serde(default)]
     pub jwt_public_key_pem: Option<String>,
+    /// The global seed for the deterministic executor (32-byte hex string)
+    pub global_seed: String,
 }
 
 fn default_true() -> bool {
@@ -63,6 +67,7 @@ fn default_false() -> bool {
 pub struct PathsConfig {
     pub artifacts_root: String,
     pub bundles_root: String,
+    pub adapters_root: String,
     #[serde(default = "default_plan_dir")]
     pub plan_dir: String,
 }
@@ -126,6 +131,31 @@ impl Default for TelemetryRetentionConfig {
             keep_bundles_per_cpid: Self::default_keep(),
             keep_incident_bundles: true,
             keep_promotion_bundles: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorConfig {
+    #[serde(default = "default_ephemeral_ttl_hours")]
+    pub ephemeral_adapter_ttl_hours: u64,
+    #[serde(default = "default_base_model")]
+    pub base_model: String,
+}
+
+fn default_base_model() -> String {
+    "qwen2.5-7b".to_string()
+}
+
+fn default_ephemeral_ttl_hours() -> u64 {
+    24
+}
+
+impl Default for OrchestratorConfig {
+    fn default() -> Self {
+        Self {
+            ephemeral_adapter_ttl_hours: default_ephemeral_ttl_hours(),
+            base_model: default_base_model(),
         }
     }
 }

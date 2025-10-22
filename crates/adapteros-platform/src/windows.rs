@@ -71,11 +71,12 @@ impl PlatformHandler for WindowsHandler {
     fn normalize_path(&self, path: &Path) -> Result<PathBuf> {
         // Windows path normalization
         let normalized = path.to_path_buf();
-        
+
         // Convert to canonical path if possible
         if normalized.exists() {
-            normalized.canonicalize()
-                .map_err(|e| AosError::Platform(format!("Failed to canonicalize Windows path: {}", e)))
+            normalized.canonicalize().map_err(|e| {
+                AosError::Platform(format!("Failed to canonicalize Windows path: {}", e))
+            })
         } else {
             Ok(normalized)
         }
@@ -86,13 +87,16 @@ impl PlatformHandler for WindowsHandler {
         {
             use std::os::windows::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms)
-                .map_err(|e| AosError::Platform(format!("Failed to set Windows file permissions: {}", e)))?;
+            std::fs::set_permissions(path, perms).map_err(|e| {
+                AosError::Platform(format!("Failed to set Windows file permissions: {}", e))
+            })?;
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
-            return Err(AosError::Platform("Windows permissions not available on this platform".to_string()));
+            return Err(AosError::Platform(
+                "Windows permissions not available on this platform".to_string(),
+            ));
         }
 
         debug!("Set Windows file permissions: {:o}", permissions);
@@ -103,40 +107,53 @@ impl PlatformHandler for WindowsHandler {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path)
-                .map_err(|e| AosError::Platform(format!("Failed to get Windows file metadata: {}", e)))?;
+            let metadata = std::fs::metadata(path).map_err(|e| {
+                AosError::Platform(format!("Failed to get Windows file metadata: {}", e))
+            })?;
             Ok(metadata.permissions().mode())
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
-            Err(AosError::Platform("Windows permissions not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "Windows permissions not available on this platform".to_string(),
+            ))
         }
     }
 
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::fs::symlink_file;
             use std::os::windows::fs::symlink_dir;
-            
+            use std::os::windows::fs::symlink_file;
+
             if target.is_file() {
-                symlink_file(target, link)
-                    .map_err(|e| AosError::Platform(format!("Failed to create Windows file symlink: {}", e)))?;
+                symlink_file(target, link).map_err(|e| {
+                    AosError::Platform(format!("Failed to create Windows file symlink: {}", e))
+                })?;
             } else if target.is_dir() {
-                symlink_dir(target, link)
-                    .map_err(|e| AosError::Platform(format!("Failed to create Windows directory symlink: {}", e)))?;
+                symlink_dir(target, link).map_err(|e| {
+                    AosError::Platform(format!("Failed to create Windows directory symlink: {}", e))
+                })?;
             } else {
-                return Err(AosError::Platform("Target must be a file or directory".to_string()));
+                return Err(AosError::Platform(
+                    "Target must be a file or directory".to_string(),
+                ));
             }
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
-            return Err(AosError::Platform("Windows symlinks not available on this platform".to_string()));
+            return Err(AosError::Platform(
+                "Windows symlinks not available on this platform".to_string(),
+            ));
         }
 
-        debug!("Created Windows symlink: {} -> {}", link.display(), target.display());
+        debug!(
+            "Created Windows symlink: {} -> {}",
+            link.display(),
+            target.display()
+        );
         Ok(())
     }
 
@@ -146,10 +163,12 @@ impl PlatformHandler for WindowsHandler {
             std::fs::read_link(link)
                 .map_err(|e| AosError::Platform(format!("Failed to read Windows symlink: {}", e)))
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
-            Err(AosError::Platform("Windows symlinks not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "Windows symlinks not available on this platform".to_string(),
+            ))
         }
     }
 
@@ -158,7 +177,7 @@ impl PlatformHandler for WindowsHandler {
         {
             path.is_symlink()
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
             false
@@ -166,8 +185,9 @@ impl PlatformHandler for WindowsHandler {
     }
 
     fn get_file_metadata(&self, path: &Path) -> Result<FileMetadata> {
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| AosError::Platform(format!("Failed to get Windows file metadata: {}", e)))?;
+        let metadata = std::fs::metadata(path).map_err(|e| {
+            AosError::Platform(format!("Failed to get Windows file metadata: {}", e))
+        })?;
 
         let file_type = if metadata.is_file() {
             FileType::File
@@ -188,7 +208,7 @@ impl PlatformHandler for WindowsHandler {
                 alternate_streams: Vec::new(), // Would need Windows API to get this
             })
         };
-        
+
         #[cfg(not(target_os = "windows"))]
         let platform_attributes = PlatformAttributes::Windows(WindowsAttributes {
             attributes: 0,
@@ -199,9 +219,15 @@ impl PlatformHandler for WindowsHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata.created().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata.modified().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata.accessed().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata
+                .created()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            modified: metadata
+                .modified()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            accessed: metadata
+                .accessed()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })
@@ -214,22 +240,23 @@ impl PlatformHandler for WindowsHandler {
         // Set file times
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::fs::FileTypeExt;
-            use std::os::windows::io::AsRawHandle;
             use std::fs::File;
+            use std::os::windows::fs::FileTypeExt;
             use std::os::windows::fs::OpenOptionsExt;
+            use std::os::windows::io::AsRawHandle;
             use std::os::windows::io::FromRawHandle;
-            
-            let file = File::open(path)
-                .map_err(|e| AosError::Platform(format!("Failed to open file for metadata update: {}", e)))?;
-            
+
+            let file = File::open(path).map_err(|e| {
+                AosError::Platform(format!("Failed to open file for metadata update: {}", e))
+            })?;
+
             let handle = file.as_raw_handle();
-            
+
             // Set file times using Windows API
             // This would require additional Windows API bindings
             debug!("Windows file metadata update not fully implemented");
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
             debug!("Windows file metadata update not available on this platform");
@@ -258,13 +285,13 @@ mod tests {
     #[test]
     fn test_windows_handler() -> Result<()> {
         let handler = WindowsHandler::new(None)?;
-        
+
         assert_eq!(handler.platform_name(), "Windows");
         assert_eq!(handler.path_separator(), '\\');
         assert!(handler.is_feature_supported("symlinks"));
         assert!(handler.is_feature_supported("hardlinks"));
         assert!(!handler.is_feature_supported("case_sensitive"));
-        
+
         Ok(())
     }
 
@@ -273,10 +300,10 @@ mod tests {
         let handler = WindowsHandler::new(None)?;
         let temp_dir = TempDir::new()?;
         let test_path = temp_dir.path().join("test.txt");
-        
+
         let normalized = handler.normalize_path(&test_path)?;
         assert_eq!(normalized, test_path);
-        
+
         Ok(())
     }
 
@@ -286,11 +313,11 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
-        
+
         let metadata = handler.get_file_metadata(&test_file)?;
         assert_eq!(metadata.size, 5);
         assert!(matches!(metadata.file_type, FileType::File));
-        
+
         Ok(())
     }
 }

@@ -19,7 +19,7 @@ pub struct StorageMonitor {
     telemetry: TelemetryWriter,
     monitoring_task: Option<tokio::task::JoinHandle<()>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    last_alert_level: RwLock<Option<AlertLevel>>,
+    last_alert_level: Arc<RwLock<Option<AlertLevel>>>,
 }
 
 /// Alert levels for storage monitoring
@@ -41,7 +41,7 @@ impl StorageMonitor {
             telemetry,
             monitoring_task: None,
             shutdown_tx: None,
-            last_alert_level: RwLock::new(None),
+            last_alert_level: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -52,7 +52,7 @@ impl StorageMonitor {
             return Ok(());
         }
 
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
 
         let config = self.config.clone();
@@ -70,7 +70,7 @@ impl StorageMonitor {
                             error!("Storage monitoring check failed: {}", e);
                         }
                     }
-                    _ = shutdown_rx => {
+                    _ = &mut shutdown_rx => {
                         info!("Storage monitoring task shutting down");
                         break;
                     }

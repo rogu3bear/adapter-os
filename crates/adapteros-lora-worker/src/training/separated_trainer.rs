@@ -5,9 +5,14 @@
 
 use super::dataset::TrainingExample;
 use super::trainer::{LoRAWeights, TrainingConfig, TrainingResult};
-use adapteros_core::{derive_seed, Result};
+use adapteros_core::{derive_seed, AosError, Result};
 use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_single_file_adapter::{
+    format::{AdapterWeights, CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata},
+    weights::combine_weight_groups,
+};
 use adapteros_telemetry::TelemetryWriter;
+use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -32,6 +37,7 @@ pub struct SeparatedTrainingResult {
     pub negative_result: WeightGroupResult,
     pub total_training_time_ms: u64,
     pub combination_strategy: CombinationStrategy,
+    pub training_data: Vec<TrainingExample>,
 }
 
 /// Result for individual weight group
@@ -44,24 +50,20 @@ pub struct WeightGroupResult {
     pub weights: LoRAWeights,
 }
 
-/// Type of weight group
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WeightGroupType {
-    Positive,
-    Negative,
-}
-
-/// Strategy for combining positive and negative weights
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CombinationStrategy {
-    /// Simple difference: combined = positive - negative
-    Difference,
-    /// Weighted difference: combined = (positive * pos_scale) - (negative * neg_scale)
-    WeightedDifference { positive_scale: f32, negative_scale: f32 },
-    /// Separate inference: use positive and negative weights independently
-    Separate,
+impl WeightGroupResult {
+    pub fn to_weight_group(&self) -> WeightGroup {
+        WeightGroup {
+            lora_a: self.weights.lora_a.clone(),
+            lora_b: self.weights.lora_b.clone(),
+            metadata: WeightMetadata {
+                example_count: self.example_count,
+                avg_loss: self.final_loss,
+                training_time_ms: self.training_time_ms,
+                group_type: self.group_type.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            },
+        }
+    }
 }
 
 impl SeparatedLoRATrainer {
@@ -98,7 +100,7 @@ impl SeparatedLoRATrainer {
         let positive_result = if !positive_examples.is_empty() {
             self.train_weight_group(&positive_examples, WeightGroupType::Positive)?
         } else {
-            return Err(adapteros_core::AosError::Training(
+            return Err(AosError::Training(
                 "No positive examples found for training".to_string(),
             ));
         };
@@ -107,7 +109,7 @@ impl SeparatedLoRATrainer {
         let negative_result = if !negative_examples.is_empty() {
             self.train_weight_group(&negative_examples, WeightGroupType::Negative)?
         } else {
-            return Err(adapteros_core::AosError::Training(
+            return Err(AosError::Training(
                 "No negative examples found for training".to_string(),
             ));
         };
@@ -127,8 +129,26 @@ impl SeparatedLoRATrainer {
             negative_result,
             total_training_time_ms: total_time,
             combination_strategy,
+            training_data: examples.to_vec(),
         })
     }
+
+impl SeparatedTrainingResult {
+    pub fn to_adapter_weights(&self) -> Result<AdapterWeights> {
+        let positive_group = self.positive_result.to_weight_group();
+        let negative_group = self.negative_result.to_weight_group();
+        let combined = match &self.combination_strategy {
+            CombinationStrategy::Separate => None,
+            strategy => Some(combine_weight_groups(&positive_group, &negative_group, strategy)?),
+        };
+
+        Ok(AdapterWeights {
+            positive: positive_group,
+            negative: negative_group,
+            combined,
+        })
+    }
+}
 
     /// Separate examples into positive and negative groups
     fn separate_examples(&self, examples: &[TrainingExample]) -> (Vec<TrainingExample>, Vec<TrainingExample>) {

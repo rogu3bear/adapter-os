@@ -7,18 +7,8 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useTimestamp } from '../hooks/useTimestamp';
+import { RoutingDecision } from '../api/types';
 import apiClient from '../api/client';
-
-interface RoutingDecision {
-  id: string;
-  timestamp: string;
-  input_hash: string;
-  adapters: string[];
-  gates: number[];
-  total_score: number;
-  k_value: number;
-  entropy: number;
-}
 
 interface RoutingInspectorProps {
   className?: string;
@@ -42,7 +32,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   });
 
 
-  const formatGates = (gates: number[]) => {
+  const formatGates = (gates: number[] = []) => {
     return gates.map(g => g.toFixed(3)).join(', ');
   };
 
@@ -138,41 +128,49 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               </TableRow>
             </TableHeader>
             <TableBody>
-              {decisions?.map((decision) => (
-                <TableRow key={decision.id}>
-                  <TableCell className="font-mono text-sm">
-                    {useTimestamp(decision.timestamp)}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {decision.input_hash.slice(0, 16)}...
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={getKValueColor(decision.k_value)}>
-                      K={decision.k_value}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {decision.adapters.map((adapter, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {adapter}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {formatGates(decision.gates)}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {decision.total_score.toFixed(3)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={getEntropyColor(decision.entropy)}>
-                      {decision.entropy.toFixed(3)}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {decisions?.map((decision) => {
+                const kValue = decision.k_value ?? decision.adapters.length ?? 0;
+                const totalScore = decision.total_score ?? 0;
+                const entropy = decision.entropy ?? 0;
+                const gates = decision.gates ?? [];
+                const inputHash = (decision.input_hash ?? decision.prompt_hash ?? '').slice(0, 16);
+
+                return (
+                  <TableRow key={decision.id}>
+                    <TableCell className="font-mono text-sm">
+                      {useTimestamp(decision.timestamp)}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {inputHash ? `${inputHash}...` : '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={getKValueColor(kValue)}>
+                        K={kValue}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {decision.adapters.map((adapter, index) => (
+                          <Badge key={index} variant="outline" className="text-xs">
+                            {adapter}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {formatGates(gates)}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {totalScore.toFixed(3)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={getEntropyColor(entropy)}>
+                        {entropy.toFixed(3)}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>

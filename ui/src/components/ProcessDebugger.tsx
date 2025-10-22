@@ -58,6 +58,7 @@ import {
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 interface ProcessDebuggerProps {
   workerId: string;
@@ -130,7 +131,12 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       const data = await apiClient.getProcessLogs(workerId, { level: logLevelFilter });
       setLogs(data);
     } catch (error) {
-      console.error('Failed to fetch logs:', error);
+      logger.error('Failed to fetch process logs', {
+        component: 'ProcessDebugger',
+        operation: 'fetchLogs',
+        workerId,
+        level: logLevelFilter || 'all',
+      }, toError(error));
       toast.error('Failed to load process logs');
     } finally {
       setLoading(false);
@@ -141,9 +147,19 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
     try {
       // Citation: ui/src/api/client.ts L758-L760
       const data = await apiClient.getProcessCrashes(workerId);
-      setCrashes(data);
+      // Convert ProcessCrash to ProcessCrashDump
+      const crashes = data.map(crash => ({
+        ...crash,
+        crash_timestamp: crash.timestamp,
+        stack_trace: crash.stack_trace,
+      }));
+      setCrashes(crashes);
     } catch (error) {
-      console.error('Failed to fetch crashes:', error);
+      logger.error('Failed to fetch process crashes', {
+        component: 'ProcessDebugger',
+        operation: 'fetchCrashes',
+        workerId,
+      }, toError(error));
       toast.error('Failed to load crash dumps');
     }
   };
@@ -155,9 +171,20 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         session_type: 'interactive',
         max_duration_ms: 300000, // 5 minutes
       });
-      setDebugSessions([data]);
+      // Convert DebugSession to ProcessDebugSession
+      const session: ProcessDebugSession = {
+        ...data,
+        session_type: data.config.session_type,
+        config_json: JSON.stringify(data.config),
+        started_at: data.created_at,
+      };
+      setDebugSessions([session]);
     } catch (error) {
-      console.error('Failed to fetch debug sessions:', error);
+      logger.error('Failed to start debug session', {
+        component: 'ProcessDebugger',
+        operation: 'startDebugSession',
+        workerId,
+      }, toError(error));
       toast.error('Failed to load debug sessions');
     }
   };
@@ -169,9 +196,23 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         step_type: 'memory_analysis',
         parameters: { threshold: 0.8 }
       });
-      setTroubleshootingSteps([data]);
+      // Convert TroubleshootingResult to ProcessTroubleshootingStep
+      const step: ProcessTroubleshootingStep = {
+        id: data.step_id,
+        worker_id: workerId,
+        step_name: 'Memory Analysis',
+        step_type: 'memory_analysis',
+        status: data.success ? 'completed' : 'failed',
+        output: data.output,
+        started_at: new Date().toISOString(),
+      };
+      setTroubleshootingSteps([step]);
     } catch (error) {
-      console.error('Failed to fetch troubleshooting steps:', error);
+      logger.error('Failed to run troubleshooting step', {
+        component: 'ProcessDebugger',
+        operation: 'runTroubleshootingStep',
+        workerId,
+      }, toError(error));
       toast.error('Failed to load troubleshooting steps');
     }
   };

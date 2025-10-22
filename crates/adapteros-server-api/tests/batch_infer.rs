@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers::batch;
 use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
@@ -61,11 +62,14 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
         0.1, 0.5, 1.0,
     ])?);
 
+    let training_service = Arc::new(TrainingService::new());
+
     Ok(AppState::new(
         db,
         b"test-secret".to_vec(),
         Arc::new(RwLock::new(config)),
         metrics,
+        training_service,
     ))
 }
 

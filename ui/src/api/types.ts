@@ -25,6 +25,7 @@ export interface User {
   role: UserRole;
   tenant_id: string;
   permissions: string[];
+  roles?: string[];
 }
 
 export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Auditor' | 'Viewer';
@@ -43,6 +44,7 @@ export interface Tenant {
   adapters?: number;
   policies?: number;
   itar_compliant?: boolean;
+  itarCompliant?: boolean;
   last_activity?: string;
 }
 
@@ -167,6 +169,8 @@ export interface TelemetryBundle {
   size_bytes: number;
   merkle_root: string;
   created_at: string;
+  manifest_hash_b3?: string;
+  policy_hash_b3?: string;
 }
 
 // Golden baselines
@@ -183,6 +187,24 @@ export interface GoldenRunSummary {
   adapters: string[];
   created_at: string;
   has_signature: boolean;
+}
+
+export interface GoldenRun extends GoldenRunSummary {
+  metrics?: Array<{ key: string; value: string | number }>;
+}
+
+export interface GoldenCompareMetric {
+  key: string;
+  value1: string | number;
+  value2: string | number;
+  diff: string | number;
+}
+
+export interface GoldenCompareResult {
+  run_id_1: string;
+  run_id_2: string;
+  metrics: GoldenCompareMetric[];
+  notes?: string[];
 }
 
 export type Strictness = 'bitwise' | 'epsilon-tolerant' | 'statistical';
@@ -556,10 +578,18 @@ export interface FeatureVector {
 }
 
 export interface RoutingDecision {
+  id: string;
   timestamp: string;
   prompt_hash: string;
+  input_hash?: string;
   adapters: string[];
   gates: number[];
+  total_score?: number;
+  k_value?: number;
+  entropy?: number;
+  adapter_selections?: AdapterSelection[];
+  confidence_scores?: Record<string, number>;
+  trace_id?: string;
 }
 
 // Inference
@@ -567,11 +597,19 @@ export interface InferRequest {
   prompt: string;
   max_tokens?: number;
   temperature?: number;
+  top_k?: number;
+  top_p?: number;
+  seed?: number;
+  require_evidence?: boolean;
+  adapters?: string[];
 }
 
 export interface InferResponse {
   text: string;
-  trace: InferenceTrace;
+  token_count?: number;
+  finish_reason?: 'stop' | 'length' | 'error' | string;
+  latency_ms?: number;
+  trace: InferenceTrace | DetailedInferenceTrace;
 }
 
 export interface InferenceTrace {
@@ -611,12 +649,13 @@ export interface TrainingJob {
   template_id?: string;
   repo_id?: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  progress_pct: number;
-  current_epoch: number;
-  total_epochs: number;
-  current_loss: number;
-  learning_rate: number;
-  tokens_per_second: number;
+  progress?: number;
+  progress_pct?: number;
+  current_epoch?: number;
+  total_epochs?: number;
+  current_loss?: number;
+  learning_rate?: number;
+  tokens_per_second?: number;
   created_at: string;
   started_at?: string;
   completed_at?: string;
@@ -625,6 +664,8 @@ export interface TrainingJob {
   artifact_path?: string;
   adapter_id?: string;
   weights_hash_b3?: string;
+  config?: TrainingConfig;
+  metrics?: TrainingMetrics;
 }
 
 export interface TrainingConfig {
@@ -637,6 +678,14 @@ export interface TrainingConfig {
   warmup_steps?: number;
   max_seq_length?: number;
   gradient_accumulation_steps?: number;
+  category?: AdapterCategory;
+  scope?: AdapterScope;
+  repo_id?: string;
+  commit_sha?: string;
+  framework_id?: string;
+  framework_version?: string;
+  repo_scope?: string;
+  dataset_path?: string;
 }
 
 export interface StartTrainingRequest {
@@ -666,6 +715,9 @@ export interface TrainingMetrics {
   current_epoch: number;
   total_epochs: number;
   progress_pct: number;
+  validation_loss?: number;
+  gpu_utilization?: number;
+  memory_usage?: number;
 }
 
 export interface TrainingArtifactsResponse {
@@ -696,6 +748,9 @@ export interface MetaResponse {
   version: string;
   cpid?: string;
   build_info?: Record<string, string>;
+  build_hash?: string;
+  uptime?: number;
+  last_updated?: string;
 }
 
 // ===== Phase 6: Policy Operations =====
@@ -781,10 +836,12 @@ export interface PurgeOldBundlesResponse {
 // ===== Phase 9: Code Intelligence =====
 export interface RepositoryReportResponse {
   repo_id: string;
+  total_files: number;
   total_lines: number;
   complexity_score: number;
   risk_level: string;
-  languages: [string, number][];
+  languages: Record<string, { files: number; lines: number }>;
+  ephemeral_adapters_count?: number;
   last_analyzed: string;
 }
 
@@ -1700,15 +1757,6 @@ export interface RoutingDecisionFilters {
   end_time?: string;
 }
 
-export interface RoutingDecision {
-  id: string;
-  prompt_hash: string;
-  adapter_selections: AdapterSelection[];
-  confidence_scores: Record<string, number>;
-  timestamp: string;
-  trace_id: string;
-}
-
 export interface AdapterSelection {
   adapter_id: string;
   gate_value: number;
@@ -1727,4 +1775,15 @@ export interface JourneyState {
   state: string;
   timestamp: string;
   details: Record<string, any>;
+}
+// Contacts
+export interface Contact {
+  id: string;
+  name: string;
+  email?: string;
+  category: 'user' | 'system' | 'adapter' | 'repository' | 'external';
+  role?: string;
+  discovered_at: string;
+  interaction_count: number;
+  last_interaction?: string;
 }

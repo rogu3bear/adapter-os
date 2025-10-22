@@ -51,6 +51,7 @@ impl AdapterPackager {
         adapter_id: &str,
         weights: &QuantizedLoRAWeights,
         config: &TrainingConfig,
+        base_model: &str,
     ) -> Result<PackagedAdapter> {
         info!("Packaging adapter: {}", adapter_id);
 
@@ -72,7 +73,7 @@ impl AdapterPackager {
         let manifest = AdapterManifest {
             version: "1.0.0".to_string(),
             rank: config.rank,
-            base_model: "qwen2.5-7b".to_string(), // TODO: Make configurable
+            base_model: base_model.to_string(),
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),

@@ -30,6 +30,7 @@ pub struct Adapter {
     pub memory_bytes: i64,
     pub last_activated: Option<String>,
     pub activation_count: i64,
+    pub expires_at: Option<String>,
 
     pub created_at: String,
     pub updated_at: String,
@@ -73,6 +74,7 @@ impl Db {
             None,
             None,
             None,
+            None, // expires_at
         )
         .await
     }
@@ -94,14 +96,12 @@ impl Db {
         repo_id: Option<&str>,
         commit_sha: Option<&str>,
         intent: Option<&str>,
+        expires_at: Option<&str>,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         sqlx::query(
-            "INSERT INTO adapters (
-                id, adapter_id, name, hash_b3, rank, tier, languages_json, framework,
-                category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
-                current_state, pinned, memory_bytes, activation_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO adapters (id, adapter_id, name, hash_b3, rank, tier, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, current_state, pinned, memory_bytes, activation_count, active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'unloaded', 0, 0, 0, 1)"
         )
         .bind(&id)
         .bind(adapter_id)
@@ -118,13 +118,21 @@ impl Db {
         .bind(repo_id)
         .bind(commit_sha)
         .bind(intent)
-        .bind("unloaded")
-        .bind(0)
-        .bind(0)
-        .bind(0)
+        .bind(expires_at)
         .execute(self.pool())
         .await?;
+
         Ok(id)
+    }
+
+    /// Find all expired adapters
+    pub async fn find_expired_adapters(&self) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "SELECT * FROM adapters WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(adapters)
     }
 
     /// List all adapters
@@ -143,6 +151,15 @@ impl Db {
         Ok(adapters)
     }
 
+    /// Delete an adapter by its ID
+    pub async fn delete_adapter(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM adapters WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Get adapter by ID
     pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
         let adapter = sqlx::query_as::<_, Adapter>(
@@ -157,17 +174,6 @@ impl Db {
         .fetch_optional(self.pool())
         .await?;
         Ok(adapter)
-    }
-
-    /// Delete adapter (soft delete)
-    pub async fn delete_adapter(&self, adapter_id: &str) -> Result<()> {
-        sqlx::query(
-            "UPDATE adapters SET active = 0, updated_at = datetime('now') WHERE adapter_id = ?",
-        )
-        .bind(adapter_id)
-        .execute(self.pool())
-        .await?;
-        Ok(())
     }
 
     /// Record adapter activation

@@ -8,6 +8,7 @@ import { AlertTriangle, CheckCircle, Server } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Node, Plan, SpawnWorkerRequest } from '../api/types';
+import { logger, toError } from '../utils/logger';
 
 interface SpawnWorkerModalProps {
   open: boolean;
@@ -57,7 +58,11 @@ export function SpawnWorkerModal({
         setSelectedPlan(plansData[0].id);
       }
     } catch (err) {
-      console.error('Failed to load data:', err);
+      logger.error('Failed to load spawn worker data', {
+        component: 'SpawnWorkerModal',
+        operation: 'loadData',
+        tenantId: selectedTenant,
+      }, toError(err));
       setError('Failed to load nodes and plans');
     }
   };
@@ -90,6 +95,13 @@ export function SpawnWorkerModal({
       const errorMessage = err instanceof Error ? err.message : 'Failed to spawn worker';
       setError(errorMessage);
       toast.error(errorMessage);
+      logger.error('Failed to spawn worker', {
+        component: 'SpawnWorkerModal',
+        operation: 'spawnWorker',
+        tenantId,
+        nodeId: selectedNode,
+        planId: selectedPlan,
+      }, toError(err));
     } finally {
       setIsLoading(false);
     }
@@ -201,5 +213,4 @@ export function SpawnWorkerModal({
     </Dialog>
   );
 }
-
 

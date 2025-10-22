@@ -25,6 +25,7 @@ adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 pyo3 = { workspace = true, optional = true }
 tokio = { workspace = true }

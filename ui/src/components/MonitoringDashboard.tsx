@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import * as types from '../api/types';
+import { logger, toError } from '../utils/logger';
 
 interface AlertEntry {
   id: string;
@@ -134,7 +135,10 @@ export const MonitoringDashboard: React.FC = () => {
 
         evaluateAlerts(system, adapters);
       } catch (error) {
-        console.error('Failed to fetch monitoring data', error);
+        logger.error('Failed to fetch monitoring data', {
+          component: 'MonitoringDashboard',
+          operation: 'fetchData',
+        }, toError(error));
       }
     };
 
@@ -155,25 +159,25 @@ export const MonitoringDashboard: React.FC = () => {
     const newAlerts: AlertEntry[] = [];
     const timestamp = new Date().toISOString();
 
-    if (system.cpu_usage && system.cpu_usage > 85) {
+    if (system.cpu_usage_percent && system.cpu_usage_percent > 85) {
       newAlerts.push({
         id: `${timestamp}-cpu`,
         metric: 'cpu_usage',
         message: 'CPU usage exceeded 85% threshold',
-        severity: system.cpu_usage > 92 ? 'critical' : 'warning',
-        value: system.cpu_usage,
+        severity: system.cpu_usage_percent > 92 ? 'critical' : 'warning',
+        value: system.cpu_usage_percent,
         threshold: 85,
         timestamp,
       });
     }
 
-    if (system.memory_usage && system.memory_usage > 80) {
+    if (system.memory_usage_pct && system.memory_usage_pct > 80) {
       newAlerts.push({
         id: `${timestamp}-memory`,
         metric: 'memory_usage',
         message: 'Memory usage is elevated',
-        severity: system.memory_usage > 90 ? 'critical' : 'warning',
-        value: system.memory_usage,
+        severity: system.memory_usage_pct > 90 ? 'critical' : 'warning',
+        value: system.memory_usage_pct,
         threshold: 80,
         timestamp,
       });

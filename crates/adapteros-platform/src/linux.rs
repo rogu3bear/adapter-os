@@ -99,11 +99,12 @@ impl PlatformHandler for LinuxHandler {
     fn normalize_path(&self, path: &Path) -> Result<PathBuf> {
         // Linux path normalization
         let normalized = path.to_path_buf();
-        
+
         // Convert to canonical path if possible
         if normalized.exists() {
-            normalized.canonicalize()
-                .map_err(|e| AosError::Platform(format!("Failed to canonicalize Linux path: {}", e)))
+            normalized.canonicalize().map_err(|e| {
+                AosError::Platform(format!("Failed to canonicalize Linux path: {}", e))
+            })
         } else {
             Ok(normalized)
         }
@@ -114,13 +115,16 @@ impl PlatformHandler for LinuxHandler {
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms)
-                .map_err(|e| AosError::Platform(format!("Failed to set Linux file permissions: {}", e)))?;
+            std::fs::set_permissions(path, perms).map_err(|e| {
+                AosError::Platform(format!("Failed to set Linux file permissions: {}", e))
+            })?;
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
-            return Err(AosError::Platform("Linux permissions not available on this platform".to_string()));
+            return Err(AosError::Platform(
+                "Linux permissions not available on this platform".to_string(),
+            ));
         }
 
         debug!("Set Linux file permissions: {:o}", permissions);
@@ -131,30 +135,40 @@ impl PlatformHandler for LinuxHandler {
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path)
-                .map_err(|e| AosError::Platform(format!("Failed to get Linux file metadata: {}", e)))?;
+            let metadata = std::fs::metadata(path).map_err(|e| {
+                AosError::Platform(format!("Failed to get Linux file metadata: {}", e))
+            })?;
             Ok(metadata.permissions().mode())
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
-            Err(AosError::Platform("Linux permissions not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "Linux permissions not available on this platform".to_string(),
+            ))
         }
     }
 
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
         #[cfg(target_os = "linux")]
         {
-            std::os::unix::fs::symlink(target, link)
-                .map_err(|e| AosError::Platform(format!("Failed to create Linux symlink: {}", e)))?;
-        }
-        
-        #[cfg(not(target_os = "linux"))]
-        {
-            return Err(AosError::Platform("Linux symlinks not available on this platform".to_string()));
+            std::os::unix::fs::symlink(target, link).map_err(|e| {
+                AosError::Platform(format!("Failed to create Linux symlink: {}", e))
+            })?;
         }
 
-        debug!("Created Linux symlink: {} -> {}", link.display(), target.display());
+        #[cfg(not(target_os = "linux"))]
+        {
+            return Err(AosError::Platform(
+                "Linux symlinks not available on this platform".to_string(),
+            ));
+        }
+
+        debug!(
+            "Created Linux symlink: {} -> {}",
+            link.display(),
+            target.display()
+        );
         Ok(())
     }
 
@@ -164,10 +178,12 @@ impl PlatformHandler for LinuxHandler {
             std::fs::read_link(link)
                 .map_err(|e| AosError::Platform(format!("Failed to read Linux symlink: {}", e)))
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
-            Err(AosError::Platform("Linux symlinks not available on this platform".to_string()))
+            Err(AosError::Platform(
+                "Linux symlinks not available on this platform".to_string(),
+            ))
         }
     }
 
@@ -176,7 +192,7 @@ impl PlatformHandler for LinuxHandler {
         {
             path.is_symlink()
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
             false
@@ -210,11 +226,11 @@ impl PlatformHandler for LinuxHandler {
                 blksize: metadata.blksize(),
                 blocks: metadata.blocks(),
                 extended_attributes: Vec::new(), // Would need Linux API to get this
-                access_control_list: None, // Would need Linux API to get this
-                capabilities: None, // Would need Linux API to get this
+                access_control_list: None,       // Would need Linux API to get this
+                capabilities: None,              // Would need Linux API to get this
             })
         };
-        
+
         #[cfg(not(target_os = "linux"))]
         let platform_attributes = PlatformAttributes::Linux(LinuxAttributes {
             mode: 0,
@@ -233,9 +249,15 @@ impl PlatformHandler for LinuxHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata.created().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata.modified().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata.accessed().unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata
+                .created()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            modified: metadata
+                .modified()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            accessed: metadata
+                .accessed()
+                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })
@@ -248,20 +270,19 @@ impl PlatformHandler for LinuxHandler {
         // Set file times
         #[cfg(target_os = "linux")]
         {
+            use std::fs::OpenOptions;
             use std::os::unix::fs::MetadataExt;
             use std::os::unix::fs::OpenOptionsExt;
-            use std::fs::OpenOptions;
-            
-            let file = OpenOptions::new()
-                .write(true)
-                .open(path)
-                .map_err(|e| AosError::Platform(format!("Failed to open file for metadata update: {}", e)))?;
-            
+
+            let file = OpenOptions::new().write(true).open(path).map_err(|e| {
+                AosError::Platform(format!("Failed to open file for metadata update: {}", e))
+            })?;
+
             // Set file times using Linux system calls
             // This would require additional Linux API bindings
             debug!("Linux file metadata update not fully implemented");
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
             debug!("Linux file metadata update not available on this platform");
@@ -294,7 +315,7 @@ mod tests {
     #[test]
     fn test_linux_handler() -> Result<()> {
         let handler = LinuxHandler::new(None)?;
-        
+
         assert_eq!(handler.platform_name(), "Linux");
         assert_eq!(handler.path_separator(), '/');
         assert!(handler.is_feature_supported("symlinks"));
@@ -304,7 +325,7 @@ mod tests {
         assert!(handler.is_feature_supported("extended_attributes"));
         assert!(handler.is_feature_supported("access_control_lists"));
         assert!(handler.is_feature_supported("capabilities"));
-        
+
         Ok(())
     }
 
@@ -313,10 +334,10 @@ mod tests {
         let handler = LinuxHandler::new(None)?;
         let temp_dir = TempDir::new()?;
         let test_path = temp_dir.path().join("test.txt");
-        
+
         let normalized = handler.normalize_path(&test_path)?;
         assert_eq!(normalized, test_path);
-        
+
         Ok(())
     }
 
@@ -326,11 +347,11 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
-        
+
         let metadata = handler.get_file_metadata(&test_file)?;
         assert_eq!(metadata.size, 5);
         assert!(matches!(metadata.file_type, FileType::File));
-        
+
         Ok(())
     }
 }

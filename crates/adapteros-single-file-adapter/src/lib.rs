@@ -63,6 +63,7 @@ pub mod migration;
 pub mod packager;
 pub mod training;
 pub mod validator;
+pub mod weights;
 
 pub use format::{
     get_compatibility_report, verify_format_version, AdapterManifest, AosSignature,

@@ -146,6 +146,27 @@ impl ConfigGuards {
         state.stack_traces = enabled;
         Ok(())
     }
+
+    /// Check if any violations have been recorded
+    pub fn has_violations() -> bool {
+        GUARD_STATE
+            .get()
+            .and_then(|state| state.read().ok())
+            .map(|state| !state.violations.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Reset guard state (intended for tests)
+    #[doc(hidden)]
+    pub fn reset_for_tests() {
+        if let Some(lock) = GUARD_STATE.get() {
+            if let Ok(mut state) = lock.write() {
+                *state = GuardState::new();
+            }
+        } else {
+            let _ = GUARD_STATE.set(RwLock::new(GuardState::new()));
+        }
+    }
 }
 
 /// Safe environment variable access that respects freeze

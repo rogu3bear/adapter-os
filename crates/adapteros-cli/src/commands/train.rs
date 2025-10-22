@@ -74,6 +74,10 @@ pub struct TrainArgs {
     #[arg(long)]
     register: bool,
 
+    /// Base model identifier for the packaged adapter manifest
+    #[arg(long, default_value = "qwen2.5-7b")]
+    base_model: String,
+
     /// Adapter ID to use for packaging/registration (defaults to generated)
     #[arg(long)]
     adapter_id: Option<String>,
@@ -105,6 +109,12 @@ impl TrainArgs {
     pub async fn execute(&self) -> Result<()> {
         info!("Starting LoRA training with Rust-native implementation");
 
+        if self.register && !self.pack {
+            return Err(AosError::Validation(
+                "--register requires --pack to produce adapter artifacts".to_string(),
+            ));
+        }
+
         // Load training configuration
         let config = self.load_config()?;
 
@@ -114,6 +124,11 @@ impl TrainArgs {
 
         // Create trainer
         let mut trainer = MicroLoRATrainer::new(config.clone())?;
+
+        if let Some(seed) = self.resolved_seed(&config)? {
+            trainer.override_training_seed(seed)?;
+            info!("Using deterministic training seed {}", seed);
+        }
 
         // Initialize Metal kernels if plan is provided
         if let Some(plan_path) = &self.plan {
@@ -142,6 +157,14 @@ impl TrainArgs {
 
         // Optional: package and register
         if self.pack {
+            std::fs::create_dir_all(&self.adapters_root).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to ensure adapters root {}: {}",
+                    self.adapters_root.display(),
+                    e
+                ))
+            })?;
+
             // Quantize weights to Q15
             let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
             let mse = LoRAQuantizer::calculate_error(&result.weights, &quantized);
@@ -156,7 +179,7 @@ impl TrainArgs {
             // Package
             let packager = AdapterPackager::new(&self.adapters_root);
             let packaged = packager
-                .package(&adapter_id, &quantized, &config)
+                .package(&adapter_id, &quantized, &config, &self.base_model)
                 .await
                 .map_err(|e| AosError::Io(format!("Packaging failed: {}", e)))?;
 
@@ -199,6 +222,7 @@ impl TrainArgs {
                 "Loaded training configuration from: {}",
                 config_path.display()
             );
+            self.validate_training_config(&config)?;
             Ok(config)
         } else {
             // Use command-line arguments
@@ -209,9 +233,12 @@ impl TrainArgs {
                 batch_size: self.batch_size,
                 epochs: self.epochs,
                 hidden_dim: self.hidden_dim,
+                weight_group_config:
+                    adapteros_single_file_adapter::format::WeightGroupConfig::default(),
             };
 
             info!("Using command-line training configuration");
+            self.validate_training_config(&config)?;
             Ok(config)
         }
     }
@@ -224,22 +251,123 @@ impl TrainArgs {
         let training_data: TrainingData = serde_json::from_str(&data_str)
             .map_err(|e| AosError::Parse(format!("Failed to parse training data: {}", e)))?;
 
+        self.validate_training_dataset(&training_data)?;
+
         let examples: Vec<TrainingExample> = training_data
             .examples
             .into_iter()
-            .map(|ex| TrainingExample {
-                input: ex.input,
-                target: ex.target,
-                metadata: ex
+            .map(|ex| {
+                let metadata = ex
                     .metadata
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
-                    .collect(),
+                    .map(|(k, v)| {
+                        v.as_str()
+                            .map(|value| (k, value.to_string()))
+                            .ok_or_else(|| {
+                                AosError::Validation(format!(
+                                    "Metadata value for key '{}' must be a string",
+                                    k
+                                ))
+                            })
+                    })
+                    .collect::<Result<HashMap<_, _>>>()?;
+
+                Ok(TrainingExample {
+                    input: ex.input,
+                    target: ex.target,
+                    metadata,
+                    weight: 1.0,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(examples)
+    }
+
+    fn validate_training_config(&self, config: &TrainingConfig) -> Result<()> {
+        if config.rank == 0 {
+            return Err(AosError::Validation(
+                "Training rank must be greater than zero".to_string(),
+            ));
+        }
+        if config.batch_size == 0 {
+            return Err(AosError::Validation(
+                "Batch size must be greater than zero".to_string(),
+            ));
+        }
+        if config.epochs == 0 {
+            return Err(AosError::Validation(
+                "Epochs must be greater than zero".to_string(),
+            ));
+        }
+        if config.hidden_dim == 0 {
+            return Err(AosError::Validation(
+                "Hidden dimension must be greater than zero".to_string(),
+            ));
+        }
+        if config.learning_rate <= 0.0 {
+            return Err(AosError::Validation(
+                "Learning rate must be greater than zero".to_string(),
+            ));
+        }
+        if config.alpha <= 0.0 {
+            return Err(AosError::Validation(
+                "Alpha must be greater than zero".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_training_dataset(&self, data: &TrainingData) -> Result<()> {
+        if data.examples.is_empty() {
+            return Err(AosError::Validation(
+                "Training dataset must include at least one example".to_string(),
+            ));
+        }
+
+        for (idx, ex) in data.examples.iter().enumerate() {
+            if ex.input.is_empty() {
+                return Err(AosError::Validation(format!(
+                    "Example {} has empty input sequence",
+                    idx
+                )));
+            }
+            if ex.target.is_empty() {
+                return Err(AosError::Validation(format!(
+                    "Example {} has empty target sequence",
+                    idx
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn resolved_seed(&self, config: &TrainingConfig) -> Result<Option<u64>> {
+        if let Some(explicit) = self.seed {
+            return Ok(Some(explicit));
+        }
+
+        if !self.deterministic {
+            return Ok(None);
+        }
+
+        use blake3::Hasher;
+
+        let mut hasher = Hasher::new();
+        hasher.update(self.data.to_string_lossy().as_bytes());
+        hasher.update(&config.rank.to_le_bytes());
+        hasher.update(&config.alpha.to_le_bytes());
+        hasher.update(&config.learning_rate.to_le_bytes());
+        hasher.update(&config.batch_size.to_le_bytes());
+        hasher.update(&config.epochs.to_le_bytes());
+        hasher.update(&config.hidden_dim.to_le_bytes());
+        let hash = hasher.finalize();
+        let mut seed_bytes = [0u8; 8];
+        seed_bytes.copy_from_slice(&hash.as_bytes()[..8]);
+
+        Ok(Some(u64::from_le_bytes(seed_bytes)))
     }
 
     /// Save trained adapter
@@ -282,6 +410,8 @@ impl TrainArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::executor::block_on;
+    use std::collections::HashMap;
     use tempfile::TempDir;
 
     #[test]
@@ -296,6 +426,8 @@ mod tests {
             batch_size: 16,
             epochs: 5,
             hidden_dim: 1024,
+            weight_group_config: adapteros_single_file_adapter::format::WeightGroupConfig::default(
+            ),
         };
 
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
@@ -313,6 +445,7 @@ mod tests {
             hidden_dim: 768,
             deterministic: false,
             seed: None,
+            base_model: "qwen2.5-7b".to_string(),
             ..Default::default()
         };
 
@@ -357,6 +490,7 @@ mod tests {
             hidden_dim: 768,
             deterministic: false,
             seed: None,
+            base_model: "qwen2.5-7b".to_string(),
             ..Default::default()
         };
 
@@ -364,5 +498,84 @@ mod tests {
         assert_eq!(examples.len(), 2);
         assert_eq!(examples[0].input, vec![1, 2, 3]);
         assert_eq!(examples[0].target, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn test_training_data_metadata_validation() {
+        let temp_dir = TempDir::new().unwrap();
+        let data_path = temp_dir.path().join("data.json");
+
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "notes".to_string(),
+            serde_json::json!({"nested": "value"}),
+        );
+
+        let training_data = TrainingData {
+            examples: vec![TrainingExampleData {
+                input: vec![1, 2, 3],
+                target: vec![1, 2, 3],
+                metadata: Some(metadata),
+            }],
+        };
+
+        std::fs::write(&data_path, serde_json::to_string(&training_data).unwrap()).unwrap();
+
+        let args = TrainArgs {
+            config: None,
+            data: data_path,
+            output: PathBuf::from("dummy"),
+            plan: None,
+            rank: 4,
+            alpha: 16.0,
+            learning_rate: 0.0001,
+            batch_size: 8,
+            epochs: 3,
+            hidden_dim: 768,
+            deterministic: false,
+            seed: None,
+            base_model: "qwen2.5-7b".to_string(),
+            ..Default::default()
+        };
+
+        let err = args.load_training_data().unwrap_err();
+        assert!(
+            format!("{err}").contains("Metadata value for key 'notes' must be a string"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_register_requires_pack() {
+        let args = TrainArgs {
+            register: true,
+            pack: false,
+            data: PathBuf::from("dummy"),
+            output: PathBuf::from("dummy"),
+            base_model: "qwen2.5-7b".to_string(),
+            ..Default::default()
+        };
+
+        let err = block_on(args.execute()).unwrap_err();
+        assert!(
+            format!("{err}").contains("--register requires --pack"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_resolved_seed_deterministic_flag() {
+        let args = TrainArgs {
+            deterministic: true,
+            data: PathBuf::from("dataset.json"),
+            base_model: "qwen2.5-7b".to_string(),
+            ..Default::default()
+        };
+
+        let config = TrainingConfig::default();
+        let seed = args.resolved_seed(&config).unwrap().unwrap();
+
+        let seed_again = args.resolved_seed(&config).unwrap().unwrap();
+        assert_eq!(seed, seed_again);
     }
 }

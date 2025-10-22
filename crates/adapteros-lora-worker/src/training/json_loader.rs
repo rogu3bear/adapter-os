@@ -4,7 +4,7 @@
 //! and flexible input/output formats for different training scenarios.
 
 use super::dataset::TrainingExample;
-use crate::tokenizer::QwenTokenizer;
+use tokenizers::Tokenizer;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -84,7 +84,7 @@ pub enum JsonTarget {
 #[derive(Debug, Clone)]
 pub struct JsonLoaderConfig {
     /// Tokenizer to use for text encoding
-    pub tokenizer: Option<QwenTokenizer>,
+    pub tokenizer: Option<Tokenizer>,
     /// Maximum input length (tokens)
     pub max_input_length: usize,
     /// Maximum target length (tokens)
@@ -296,13 +296,13 @@ const fn default_example_weight() -> f32 {
 /// Load JSON dataset with tokenizer
 pub fn load_json_dataset_with_tokenizer<P: AsRef<Path>>(
     path: P,
-    tokenizer: &QwenTokenizer,
+    tokenizer: &Tokenizer,
 ) -> Result<Vec<TrainingExample>> {
     let config = JsonLoaderConfig {
         tokenizer: Some(tokenizer.clone()),
         ..Default::default()
     };
-    
+
     load_json_dataset(path, config)
 }
 

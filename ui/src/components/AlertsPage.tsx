@@ -25,6 +25,7 @@ import {
 import apiClient from '../api/client';
 import { SystemMetrics } from '../api/types';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 import { useTenant } from '@/layout/LayoutProvider';
 
@@ -159,7 +160,11 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       const metricsData = await apiClient.getSystemMetrics();
       setMetrics(metricsData);
     } catch (error) {
-      console.error('Failed to load metrics:', error);
+      logger.error('Failed to load system metrics for alerts', {
+        component: 'AlertsPage',
+        operation: 'loadMetrics',
+        tenantId: effectiveTenant,
+      }, toError(error));
     }
   };
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import apiClient from '../api/client';
+import { logger, toError } from '../utils/logger';
 
 //! Strongly typed SSE hook options
 //! 
@@ -62,7 +63,10 @@ export function useSSE<T = unknown>(
             onMessage(parsed);
           }
         } catch (e) {
-          console.error('Failed to parse SSE message:', e);
+          logger.error('Failed to parse default SSE message', {
+            component: 'useSSE',
+            endpoint,
+          }, toError(e));
         }
       };
 
@@ -75,7 +79,11 @@ export function useSSE<T = unknown>(
             onMessage(parsed);
           }
         } catch (e) {
-          console.error('Failed to parse SSE event:', e);
+          logger.error('Failed to parse custom SSE event', {
+            component: 'useSSE',
+            endpoint,
+            eventType: event.type,
+          }, toError(e));
         }
       };
 
@@ -101,6 +109,10 @@ export function useSSE<T = unknown>(
         if (onError) {
           onError(event);
         }
+        logger.error('SSE connection error', {
+          component: 'useSSE',
+          endpoint,
+        }, new Error('SSE connection error'));
       };
 
       return () => {
@@ -109,10 +121,12 @@ export function useSSE<T = unknown>(
       };
     } catch (e) {
       setError('Failed to initialize SSE connection');
-      console.error('SSE initialization error:', e);
+      logger.error('Failed to initialize SSE connection', {
+        component: 'useSSE',
+        endpoint,
+      }, toError(e));
     }
   }, [endpoint, enabled, onError, onMessage]);
 
   return { data, error, connected };
 }
-

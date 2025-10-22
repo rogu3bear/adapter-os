@@ -115,11 +115,30 @@ pub struct TrainingTemplate {
 pub struct TrainingService {
     jobs: Arc<RwLock<HashMap<String, TrainingJob>>>,
     templates: Arc<RwLock<HashMap<String, TrainingTemplate>>>,
+    base_model: Arc<String>,
 }
+
+const DEFAULT_BASE_MODEL: &str = "qwen2.5-7b";
 
 impl TrainingService {
     /// Create a new training service
     pub fn new() -> Self {
+        Self::new_with_base_model(DEFAULT_BASE_MODEL)
+    }
+
+    /// Create a new training service with a specific base model identifier
+    pub fn new_with_base_model<S: Into<String>>(base_model: S) -> Self {
+        let base_model = Arc::new(base_model.into());
+        let templates = Self::default_templates();
+
+        Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            templates: Arc::new(RwLock::new(templates)),
+            base_model,
+        }
+    }
+
+    fn default_templates() -> HashMap<String, TrainingTemplate> {
         let mut templates = HashMap::new();
 
         // Add default templates
@@ -195,10 +214,7 @@ impl TrainingService {
             },
         );
 
-        Self {
-            jobs: Arc::new(RwLock::new(HashMap::new())),
-            templates: Arc::new(RwLock::new(templates)),
-        }
+        templates
     }
 
     /// List all training jobs
@@ -433,6 +449,7 @@ async fn run_training_job(
         batch_size: orchestrator_cfg.batch_size as usize,
         epochs: orchestrator_cfg.epochs as usize,
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
+        weight_group_config: Default::default(),
     };
 
     // Load dataset if provided, else build from directory, else use a small synthetic batch
@@ -456,6 +473,7 @@ async fn run_training_job(
                             input: e.input,
                             target: e.target,
                             metadata: Default::default(),
+                            weight: 1.0,
                         })
                         .collect(),
                     Err(e) => {
@@ -469,11 +487,13 @@ async fn run_training_job(
                                 input: vec![1, 2, 3],
                                 target: vec![4, 5, 6],
                                 metadata: Default::default(),
+                                weight: 1.0,
                             },
                             WorkerTrainingExample {
                                 input: vec![7, 8, 9],
                                 target: vec![10, 11, 12],
                                 metadata: Default::default(),
+                                weight: 1.0,
                             },
                         ]
                     }
@@ -490,11 +510,13 @@ async fn run_training_job(
                         input: vec![1, 2, 3],
                         target: vec![4, 5, 6],
                         metadata: Default::default(),
+                        weight: 1.0,
                     },
                     WorkerTrainingExample {
                         input: vec![7, 8, 9],
                         target: vec![10, 11, 12],
                         metadata: Default::default(),
+                        weight: 1.0,
                     },
                 ]
             }
@@ -540,11 +562,13 @@ async fn run_training_job(
                 input: vec![1, 2, 3],
                 target: vec![4, 5, 6],
                 metadata: Default::default(),
+                weight: 1.0,
             },
             WorkerTrainingExample {
                 input: vec![7, 8, 9],
                 target: vec![10, 11, 12],
                 metadata: Default::default(),
+                weight: 1.0,
             },
         ]
     };
@@ -601,6 +625,7 @@ async fn run_training_job(
                     let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(
                         &chosen_root,
                     );
+                    let base_model = self.base_model.clone();
                     match packager
                         .package(
                             &aid_for_pack,
@@ -612,7 +637,9 @@ async fn run_training_job(
                                 batch_size: orchestrator_cfg.batch_size as usize,
                                 epochs: orchestrator_cfg.epochs as usize,
                                 hidden_dim: 768,
+                                weight_group_config: Default::default(),
                             },
+                            base_model.as_ref(),
                         )
                         .await
                     {

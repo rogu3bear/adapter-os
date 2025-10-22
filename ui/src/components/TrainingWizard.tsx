@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
+import { logger, toError } from '../utils/logger';
 import {
   AdapterCategory,
   AdapterScope,
@@ -128,17 +129,20 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     // Load repositories and templates
     const loadData = async () => {
       try {
-        const [reposData, templatesData] = await Promise.all([
-          apiClient.listRepositories(),
-          apiClient.listTrainingTemplates(),
-        ]);
-        setRepositories(reposData);
-        setTemplates(templatesData);
-      } catch (error) {
-        console.error('Failed to load data:', error);
-        toast.error('Failed to load repositories and templates');
-      }
-    };
+      const [reposData, templatesData] = await Promise.all([
+        apiClient.listRepositories(),
+        apiClient.listTrainingTemplates(),
+      ]);
+      setRepositories(reposData);
+      setTemplates(templatesData);
+    } catch (error) {
+      logger.error('Failed to preload training wizard data', {
+        component: 'TrainingWizard',
+        operation: 'loadData',
+      }, toError(error));
+      toast.error('Failed to load repositories and templates');
+    }
+  };
     loadData();
   }, []);
 
@@ -766,7 +770,11 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       toast.success(`Training job ${job.id} started successfully!`);
       onComplete(job.id);
     } catch (error) {
-      console.error('Training failed:', error);
+      logger.error('Training job start failed', {
+        component: 'TrainingWizard',
+        operation: 'startTraining',
+        adapterName: state.name,
+      }, toError(error));
       toast.error(error instanceof Error ? error.message : 'Failed to start training');
     } finally {
       setIsLoading(false);
@@ -867,4 +875,3 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     />
   );
 }
-

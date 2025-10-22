@@ -5,16 +5,17 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Alert, AlertDescription } from './ui/alert';
 import apiClient from '../api/client';
-import { GoldenRun, GoldenCompareResult } from '../api/types';
+import { GoldenRunSummary, GoldenCompareResult } from '../api/types';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 export function GoldenRuns() {
   const [names, setNames] = useState<string[]>([]);
   const [selected, setSelected] = useState<string>('');
-  const [summary, setSummary] = useState<GoldenRun | null>(null);
+  const [summary, setSummary] = useState<GoldenRunSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedRuns, setSelectedRuns] = useState<GoldenRun[]>([]);
+  const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [compareResult, setCompareResult] = useState<GoldenCompareResult | null>(null);
 
   useEffect(() => {
@@ -51,13 +52,33 @@ export function GoldenRuns() {
     })();
   }, [selected]);
 
+  const toggleRunSelection = (runId: string) => {
+    setSelectedRuns((prev) => {
+      if (prev.includes(runId)) {
+        return prev.filter((id) => id !== runId);
+      }
+      if (prev.length >= 2) {
+        toast.error('Select at most two runs to compare');
+        return prev;
+      }
+      return [...prev, runId];
+    });
+  };
+
   const handleCompare = async () => {
     if (selectedRuns.length !== 2) return;
     try {
-      const result = await apiClient.compareGoldenRuns(selectedRuns[0].id, selectedRuns[1].id);
+      const [runA, runB] = selectedRuns;
+      const result = await apiClient.compareGoldenRuns(runA, runB);
       setCompareResult(result);
     } catch (error) {
-      console.error('Compare failed', error);
+      logger.error('Golden run comparison failed', {
+        component: 'GoldenRuns',
+        operation: 'compareGoldenRuns',
+        runA: selectedRuns[0],
+        runB: selectedRuns[1],
+      }, toError(error));
+      toast.error(error instanceof Error ? error.message : 'Failed to compare golden runs');
     }
   };
 
@@ -89,16 +110,33 @@ export function GoldenRuns() {
             {names.length === 0 ? (
               <div className="text-sm text-muted-foreground">No baselines available.</div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <select
                   className="w-full p-2 border rounded"
                   value={selected}
                   onChange={(e) => setSelected(e.target.value)}
                 >
+                  <option value="">Select baseline</option>
                   {names.map((n) => (
                     <option key={n} value={n}>{n}</option>
                   ))}
                 </select>
+                <div className="border rounded p-2 space-y-1">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase">Compare Runs</div>
+                  {names.map((runName) => (
+                    <label key={runName} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedRuns.includes(runName)}
+                        onChange={() => toggleRunSelection(runName)}
+                      />
+                      <span>{runName}</span>
+                    </label>
+                  ))}
+                  <p className="text-[11px] text-muted-foreground">
+                    Select up to two runs to generate a comparison report.
+                  </p>
+                </div>
               </div>
             )}
           </CardContent>
@@ -190,7 +228,7 @@ export function GoldenRuns() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {compareResult.metrics.map((metric) => (
+            {compareResult.metrics?.map((metric) => (
               <TableRow key={metric.key}>
                 <TableCell>{metric.key}</TableCell>
                 <TableCell>{metric.value1}</TableCell>
@@ -198,6 +236,13 @@ export function GoldenRuns() {
                 <TableCell>{metric.diff}</TableCell>
               </TableRow>
             ))}
+            {(!compareResult.metrics || compareResult.metrics.length === 0) && (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                  No comparison metrics available.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       )}
@@ -206,4 +251,3 @@ export function GoldenRuns() {
 }
 
 export default GoldenRuns;
-

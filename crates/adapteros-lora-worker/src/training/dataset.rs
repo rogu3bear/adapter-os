@@ -23,6 +23,13 @@ pub struct TrainingExample {
     pub target: Vec<u32>,
     /// Example metadata
     pub metadata: HashMap<String, String>,
+    /// Example weight (default: 1.0)
+    #[serde(default = "default_weight")]
+    pub weight: f32,
+}
+
+fn default_weight() -> f32 {
+    1.0
 }
 
 /// File patch for training
@@ -119,6 +126,7 @@ impl DatasetGenerator {
                         input,
                         target,
                         metadata,
+                        weight: 1.0,
                     });
                 }
             }
@@ -279,6 +287,7 @@ mod tests {
             input: vec![1, 2, 3],
             target: vec![4, 5, 6],
             metadata: HashMap::new(),
+            weight: 1.0,
         }];
 
         assert!(gen.validate_examples(&examples).is_ok());

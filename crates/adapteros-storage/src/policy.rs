@@ -341,7 +341,7 @@ impl StoragePolicyEngine {
     fn execute_action(
         &self,
         action: &StorageAction,
-        file_path: &PathBuf,
+        _file_path: &PathBuf,
         _operation: &FileOperation,
     ) -> Result<()> {
         match action.action_type {

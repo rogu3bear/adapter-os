@@ -12,10 +12,11 @@ use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
 
-use super::ring_buffer::RingBuffer;
+use super::ring_buffer::RawRingBuffer;
 
 /// LoRA configuration
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct LoraConfig {
     /// LoRA rank
     pub rank: u32,
@@ -38,19 +39,44 @@ impl Default for LoraConfig {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct MetalMlpParams {
+    input: u64,
+    output: u64,
+    gate_weight: u64,
+    up_weight: u64,
+    down_weight: u64,
+    gate_bias: u64,
+    up_bias: u64,
+    down_bias: u64,
+    gate_lora_a: u64,
+    gate_lora_b: u64,
+    up_lora_a: u64,
+    up_lora_b: u64,
+    down_lora_a: u64,
+    down_lora_b: u64,
+    lora_config: LoraConfig,
+    ring_buffer: RawRingBuffer,
+    dropout_seed: u32,
+    hidden_size: u32,
+    intermediate_size: u32,
+    batch_size: u32,
+    max_adapters: u32,
+    _padding: u32,
+}
+
 /// Fused MLP kernel
 pub struct FusedMlpKernel {
     device: Arc<Device>,
     command_queue: CommandQueue,
     pipeline_state: ComputePipelineState,
-    ring_buffer: RingBuffer,
 }
 
 impl FusedMlpKernel {
     /// Create a new fused MLP kernel
     pub fn new(device: Arc<Device>) -> Result<Self> {
         let command_queue = device.new_command_queue();
-        let ring_buffer = RingBuffer::new(device.clone(), 3)?; // K=3
 
         // Load library and create pipeline
         let library = device
@@ -69,55 +95,74 @@ impl FusedMlpKernel {
             device,
             command_queue,
             pipeline_state,
-            ring_buffer,
         })
     }
 
     /// Execute the fused MLP kernel
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
-        &mut self,
+        &self,
         input: &Buffer,
         gate_weight: &Buffer,
         up_weight: &Buffer,
         down_weight: &Buffer,
         output: &Buffer,
         lora_config: &LoraConfig,
-        adapters: &[super::ring_buffer::ActiveAdapter],
+        gate_lora_a: &Buffer,
+        gate_lora_b: &Buffer,
+        up_lora_a: &Buffer,
+        up_lora_b: &Buffer,
+        down_lora_a: &Buffer,
+        down_lora_b: &Buffer,
+        ring_state: RawRingBuffer,
+        max_adapters: u32,
+        batch_size: u32,
+        hidden_size: u32,
+        intermediate_size: u32,
+        dropout_seed: u32,
     ) -> Result<()> {
-        // Update ring buffer with active adapters
-        self.ring_buffer.update(adapters)?;
-
         let command_buffer = self.command_queue.new_command_buffer();
 
         let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        // Set buffers
-        encoder.set_buffer(0, Some(input), 0);
-        encoder.set_buffer(1, Some(gate_weight), 0);
-        encoder.set_buffer(2, Some(up_weight), 0);
-        encoder.set_buffer(3, Some(down_weight), 0);
-        encoder.set_buffer(4, Some(output), 0);
-        encoder.set_buffer(5, self.ring_buffer.get_buffer().map(|v| &**v), 0);
+        let params = MetalMlpParams {
+            input: input.gpu_address(),
+            output: output.gpu_address(),
+            gate_weight: gate_weight.gpu_address(),
+            up_weight: up_weight.gpu_address(),
+            down_weight: down_weight.gpu_address(),
+            gate_bias: 0,
+            up_bias: 0,
+            down_bias: 0,
+            gate_lora_a: gate_lora_a.gpu_address(),
+            gate_lora_b: gate_lora_b.gpu_address(),
+            up_lora_a: up_lora_a.gpu_address(),
+            up_lora_b: up_lora_b.gpu_address(),
+            down_lora_a: down_lora_a.gpu_address(),
+            down_lora_b: down_lora_b.gpu_address(),
+            lora_config: *lora_config,
+            ring_buffer: ring_state,
+            dropout_seed,
+            hidden_size,
+            intermediate_size,
+            batch_size,
+            max_adapters,
+            _padding: 0,
+        };
 
-        // Set LoRA configuration
-        let lora_config_bytes = serde_json::to_vec(lora_config).map_err(AosError::Serialization)?;
-        let lora_config_buffer = self.device.new_buffer_with_data(
-            lora_config_bytes.as_ptr() as *const std::ffi::c_void,
-            lora_config_bytes.len() as u64,
+        let params_buffer = self.device.new_buffer_with_data(
+            &params as *const MetalMlpParams as *const std::ffi::c_void,
+            std::mem::size_of::<MetalMlpParams>() as u64,
             MTLResourceOptions::StorageModeShared,
         );
-        encoder.set_buffer(6, Some(&lora_config_buffer), 0);
+
+        encoder.set_buffer(0, Some(&params_buffer), 0);
 
         // Calculate threadgroup size
-        let threadgroup_size = MTLSize::new(16, 16, 1);
-        let grid_size = MTLSize::new(
-            input.length() / 4, // FP16 = 2 bytes, 4 elements per thread
-            gate_weight.length() / 4,
-            1,
-        );
+        let threadgroup_size = MTLSize::new(1, 1, 1);
+        let grid_size = MTLSize::new(batch_size as u64, hidden_size as u64, 1);
 
         encoder.dispatch_thread_groups(grid_size, threadgroup_size);
         encoder.end_encoding();

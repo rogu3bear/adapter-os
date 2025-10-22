@@ -6,19 +6,29 @@
 ///! - Index updates
 ///! - Integration with CAS artifact storage
 use adapteros_codegraph::CodeGraph;
+use adapteros_cdp::{CommitDeltaPack, CdpMetadata, MetadataExtractor};
 use adapteros_core::{AosError, Result};
 use adapteros_db::{repositories::ScanJob, Db};
+use adapteros_git::DiffAnalyzer;
+use adapteros_lora_worker::training::{AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_lora_worker::{TestExecutor, LinterRunner};
+use adapteros_single_file_adapter::format::WeightGroupConfig;
+use chrono::{Utc, Duration};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use adapteros_server::config::{OrchestratorConfig, PathsConfig};
 
 /// Code job manager
 #[derive(Clone)]
 pub struct CodeJobManager {
     db: Db,
     artifact_store: Arc<RwLock<ArtifactStore>>,
+    paths_config: PathsConfig,
+    orchestrator_config: OrchestratorConfig,
 }
 
 /// Simple artifact store abstraction
@@ -65,6 +75,40 @@ impl ArtifactStore {
 
         Ok(graph)
     }
+
+    /// Store CommitDeltaPack artifact
+    pub async fn store_cdp(
+        &self,
+        cdp: &CommitDeltaPack,
+        repo_id: &str,
+        commit_sha: &str,
+    ) -> Result<String> {
+        let artifact_id = format!("{}_{}", repo_id.replace("/", "_"), commit_sha);
+        let artifact_path = self.base_path.join(format!("{}.cdp", artifact_id));
+
+        let serialized = serde_json::to_vec(cdp).map_err(AosError::Serialization)?;
+
+        tokio::fs::write(&artifact_path, serialized)
+            .await
+            .map_err(|e| AosError::Io(e.to_string()))?;
+
+        Ok(cdp.content_hash.to_string())
+    }
+
+    /// Load CommitDeltaPack artifact
+    pub async fn load_cdp(&self, repo_id: &str, commit_sha: &str) -> Result<CommitDeltaPack> {
+        let artifact_id = format!("{}_{}", repo_id.replace("/", "_"), commit_sha);
+        let artifact_path = self.base_path.join(format!("{}.cdp", artifact_id));
+
+        let serialized = tokio::fs::read(&artifact_path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to load CDP: {}", e)))?;
+
+        let cdp: CommitDeltaPack =
+            serde_json::from_slice(&serialized).map_err(AosError::Serialization)?;
+
+        Ok(cdp)
+    }
 }
 
 /// Scan repository job configuration
@@ -78,6 +122,7 @@ pub struct ScanRepositoryJob {
 /// Commit delta pack job configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitDeltaJob {
+    pub tenant_id: String,
     pub repo_id: String,
     pub base_commit: String,
     pub head_commit: String,
@@ -92,10 +137,12 @@ pub struct UpdateIndicesJob {
 
 impl CodeJobManager {
     /// Create new code job manager
-    pub fn new(db: Db, artifact_base_path: PathBuf) -> Self {
+    pub fn new(db: Db, paths_config: PathsConfig, orchestrator_config: OrchestratorConfig) -> Self {
         Self {
             db,
-            artifact_store: Arc::new(RwLock::new(ArtifactStore::new(artifact_base_path))),
+            artifact_store: Arc::new(RwLock::new(ArtifactStore::new(PathBuf::from(&paths_config.artifacts_root)))),
+            paths_config,
+            orchestrator_config,
         }
     }
 
@@ -227,22 +274,211 @@ impl CodeJobManager {
 
     /// Execute commit delta job
     pub async fn execute_commit_delta_job(&self, job: CommitDeltaJob) -> Result<()> {
-        info!(
-            "Creating commit delta pack for repo={} base={} head={}",
-            job.repo_id, job.base_commit, job.head_commit
+        info!("Starting commit delta job for repo={}", job.repo_id);
+
+        let repo = self.db.get_repository_by_repo_id(&job.tenant_id, &job.repo_id).await?
+            .ok_or_else(|| AosError::NotFound(format!("Repository not found: {}", job.repo_id)))?;
+
+        let analysis = DiffAnalyzer::new(&repo.path).analyze_commits(&job.base_commit, &job.head_commit)?;
+        info!("Diff analysis complete: {} files changed.", analysis.summary.total_files());
+
+        let (test_results, linter_results) = self.run_validation_steps(&repo.path).await?;
+        
+        let cdp = self.assemble_and_store_cdp(&job, analysis, test_results, linter_results, &repo.path).await?;
+        
+        let training_examples = self.generate_training_data_from_cdp(&cdp, &repo.path).await?;
+
+        if !training_examples.is_empty() {
+            self.train_and_register_ephemeral_adapter(&cdp, training_examples).await?;
+        } else {
+            info!("No training examples generated. Skipping ephemeral adapter training.");
+        }
+
+        info!("Commit delta job completed successfully for repo={}", job.repo_id);
+        Ok(())
+    }
+
+    async fn run_validation_steps(&self, repo_path: &Path) -> Result<(Vec<TestResult>, Vec<LinterResult>)> {
+        let test_executor = TestExecutor::new(&repo_path);
+        let test_results = if test_executor.has_tests() {
+            match test_executor.run_tests().await {
+                Ok(results) => {
+                    info!("Test run completed: {} passed, {} failed.", results.passed, results.failed);
+                    vec![results]
+                },
+                Err(e) => {
+                    warn!("Test execution failed: {}", e);
+                    vec![]
+                }
+            }
+        } else {
+            info!("No tests found, skipping test execution.");
+            vec![]
+        };
+
+        let linter_runner = LinterRunner::new(&repo_path);
+        let linter_results = match linter_runner.run_linters().await {
+            Ok(results) => {
+                let total_errors = results.iter().map(|r| r.errors.len()).sum::<usize>();
+                let total_warnings = results.iter().map(|r| r.warnings.len()).sum::<usize>();
+                info!("Linter run completed: {} errors, {} warnings.", total_errors, total_warnings);
+                results
+            },
+            Err(e) => {
+                warn!("Linter execution failed: {}", e);
+                vec![]
+            }
+        };
+        Ok((test_results, linter_results))
+    }
+
+    async fn assemble_and_store_cdp(&self, job: &CommitDeltaJob, analysis: DiffAnalysis, test_results: Vec<TestResult>, linter_results: Vec<LinterResult>, repo_path: &Path) -> Result<CommitDeltaPack> {
+        let metadata_extractor = MetadataExtractor::new(&repo_path);
+        let metadata = metadata_extractor.extract_for_commit(&job.head_commit)?;
+
+        let cdp = CommitDeltaPack::new(
+            job.repo_id.clone(),
+            job.head_commit.clone(),
+            job.base_commit.clone(),
+            analysis.summary,
+            analysis.changed_symbols,
+            test_results,
+            linter_results,
+            metadata,
         );
 
-        // This would:
-        // 1. Get both CodeGraphs
-        // 2. Compute diff
-        // 3. Extract changed symbols
-        // 4. Run tests if configured
-        // 5. Run linters if configured
-        // 6. Store CDP artifact
-        // 7. Create ephemeral adapter priors
+        let cdp_hash = self
+            .artifact_store
+            .write()
+            .await
+            .store_cdp(&cdp, &job.repo_id, &job.head_commit)
+            .await?;
 
-        // Simplified implementation for now
-        warn!("Commit delta job not fully implemented yet");
+        info!("Stored Commit Delta Pack with hash: {}", cdp_hash);
+        Ok(cdp)
+    }
+
+    async fn generate_training_data_from_cdp(&self, cdp: &CommitDeltaPack, repo_path: &Path) -> Result<Vec<TrainingExample>> {
+        let head_codegraph = self
+            .artifact_store
+            .read()
+            .await
+            .load_codegraph(&cdp.repo_id, &cdp.head_commit)
+            .await?;
+        
+        let analyzer = DiffAnalyzer::new(repo_path);
+        let mut training_examples = Vec::new();
+        for file_path in &cdp.summary.modified_files {
+            let before_content =
+                analyzer.get_file_content_at_commit(file_path, &cdp.base_commit)?;
+            let after_content =
+                analyzer.get_file_content_at_commit(file_path, &cdp.head_commit)?;
+
+            // Find symbols in this file from the codegraph
+            for symbol in head_codegraph.symbols.values().filter(|s| PathBuf::from(&s.file_path) == *file_path) {
+                // This is a simplification. We'd need a more robust way to find the
+                // corresponding symbol in the 'before' content, as line numbers can change.
+                // For now, we'll extract based on the 'after' content's line numbers and
+                // assume we can find it in the 'before' content.
+                let after_symbol_text = after_content
+                    .lines()
+                    .skip(symbol.span.start_line as usize - 1)
+                    .take((symbol.span.end_line - symbol.span.start_line) as usize + 1)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                // Heuristic: find the same function definition in the before_content.
+                // This could be improved with more advanced parsing.
+                let symbol_def = format!("fn {}", symbol.name); // Simplified for now
+                if let Some(pos) = before_content.find(&symbol_def) {
+                    // This is a very rough way to get the 'before' symbol text.
+                    // We'll just take a similar number of lines for now.
+                    let before_symbol_text = before_content[pos..]
+                        .lines()
+                        .take((symbol.span.end_line - symbol.span.start_line) as usize + 1)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    if before_symbol_text != after_symbol_text {
+                        training_examples.push(TrainingExample {
+                            input: before_symbol_text.chars().map(|c| c as u32).collect(),
+                            target: after_symbol_text.chars().map(|c| c as u32).collect(),
+                            metadata: HashMap::new(),
+                            weight: 1.0,
+                        });
+                    }
+                }
+            }
+        }
+        info!("Generated {} training examples.", training_examples.len());
+        Ok(training_examples)
+    }
+
+    async fn train_and_register_ephemeral_adapter(&self, cdp: &CommitDeltaPack, training_examples: Vec<TrainingExample>) -> Result<()> {
+        let config = TrainingConfig {
+            rank: 4, // Low rank for ephemeral adapters
+            alpha: 16.0,
+            learning_rate: 0.0001,
+            epochs: 1, // Few epochs for speed
+            batch_size: 1,
+            hidden_dim: 768, // This should match the base model
+            weight_group_config: WeightGroupConfig::default(),
+        };
+
+        let mut trainer = MicroLoRATrainer::new(config.clone())?;
+        let training_result = trainer.train(&training_examples).await?;
+
+        info!(
+            "Ephemeral adapter training complete. Final loss: {:.4}",
+            training_result.final_loss
+        );
+
+        // 6. Package and register the ephemeral adapter
+        let adapters_root = PathBuf::from(&self.paths_config.adapters_root);
+        std::fs::create_dir_all(&adapters_root)?;
+
+        let packager = AdapterPackager::new(&adapters_root);
+
+        // Quantize weights
+        let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
+
+        let packaged_adapter = packager
+            .package(
+                &training_result.adapter_id,
+                &quantized_weights,
+                &config,
+                &self.orchestrator_config.base_model,
+            )
+            .await?;
+
+        // Register in DB with a TTL
+        let expires_at = Utc::now() + Duration::hours(self.orchestrator_config.ephemeral_adapter_ttl_hours as i64);
+        let expires_at_str = expires_at.to_rfc3339();
+
+        self.db
+            .register_adapter_extended(
+                &training_result.adapter_id,
+                &format!("ephemeral_{}", cdp.head_commit),
+                &packaged_adapter.hash_b3,
+                config.rank as i32,
+                4, // Tier 4 for ephemeral
+                None,
+                None,
+                "code",
+                "ephemeral",
+                None,
+                None,
+                Some(&cdp.repo_id),
+                Some(&cdp.head_commit),
+                Some("auto-generated from commit"),
+                Some(&expires_at_str),
+            )
+            .await?;
+
+        info!(
+            "Successfully packaged and registered ephemeral adapter {} with TTL.",
+            training_result.adapter_id
+        );
         Ok(())
     }
 
@@ -261,6 +497,55 @@ impl CodeJobManager {
 
         // Simplified implementation for now
         warn!("Update indices job not fully implemented yet");
+        Ok(())
+    }
+
+    /// Run garbage collection for ephemeral adapters
+    pub async fn run_ephemeral_adapter_gc(&self) -> Result<()> {
+        info!("Running ephemeral adapter garbage collection...");
+
+        let expired_adapters = self.db.find_expired_adapters().await?;
+
+        if expired_adapters.is_empty() {
+            info!("No expired ephemeral adapters to clean up.");
+            return Ok(());
+        }
+
+        info!("Found {} expired adapters to clean up.", expired_adapters.len());
+
+        let adapters_root = PathBuf::from(&self.paths_config.adapters_root);
+
+        for adapter in expired_adapters {
+            // 1. Delete adapter package file
+            let adapter_dir = adapters_root.join(&adapter.adapter_id);
+            if adapter_dir.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&adapter_dir) {
+                    error!(
+                        "Failed to delete adapter directory {}: {}. Skipping database deletion.",
+                        adapter_dir.display(),
+                        e
+                    );
+                    continue; // Skip DB deletion if file deletion fails
+                }
+                info!("Deleted adapter package: {}", adapter_dir.display());
+            } else {
+                warn!(
+                    "Adapter package not found for expired adapter {}, but proceeding with DB deletion.",
+                    adapter.adapter_id
+                );
+            }
+
+            // 2. Delete from database
+            if let Err(e) = self.db.delete_adapter(&adapter.id).await {
+                error!(
+                    "Failed to delete adapter {} from database: {}",
+                    adapter.adapter_id, e
+                );
+            } else {
+                info!("Deleted adapter {} from database.", adapter.adapter_id);
+            }
+        }
+
         Ok(())
     }
 

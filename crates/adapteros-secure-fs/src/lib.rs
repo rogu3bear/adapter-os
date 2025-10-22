@@ -10,9 +10,9 @@ pub mod traversal;
 
 use adapteros_core::{AosError, Result};
 use cap_std::fs::{Dir, File};
-use cap_std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use std::path::Path as StdPath;
+use std::path::PathBuf;
 use std::time::SystemTime;
 use tracing::{debug, error, info, warn};
 
@@ -154,7 +154,11 @@ impl SecureFsManager {
             // Fallback to standard directory operations
             let dir = std::fs::read_dir(path)
                 .map_err(|e| AosError::Security(format!("Failed to open directory: {}", e)))?;
-            Ok(Dir::from_std(dir))
+            Ok(
+                Dir::open_ambient_dir(path, cap_std::ambient_authority()).map_err(|e| {
+                    AosError::Security(format!("Failed to open directory with capabilities: {}", e))
+                })?,
+            )
         }
     }
 

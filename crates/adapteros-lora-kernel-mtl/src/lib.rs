@@ -1795,7 +1795,7 @@ impl MetalKernels {
                 .as_mut()
                 .ok_or_else(|| AosError::Kernel("Ring buffer not initialized".to_string()))?;
             ring_buffer.update(adapters)?;
-            (ring_buffer.raw(), ring_buffer_capacity as u32)
+            (ring_buffer.raw_state(), ring_buffer_capacity as u32)
         };
 
         let dropout_seed = self.compute_dropout_seed();
@@ -1864,13 +1864,13 @@ impl MetalKernels {
                 &transformer_weights.up_weight,
                 &transformer_weights.down_weight,
                 &intermediate_buffers.mlp_output,
+                &lora_config,
                 &lora_buffers.gate_lora_a,
                 &lora_buffers.gate_lora_b,
                 &lora_buffers.up_lora_a,
                 &lora_buffers.up_lora_b,
                 &lora_buffers.down_lora_a,
                 &lora_buffers.down_lora_b,
-                &lora_config,
                 ring_state,
                 max_adapters_u32,
                 batch_size,

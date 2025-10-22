@@ -28,6 +28,7 @@ import {
 import apiClient from '../api/client';
 import { TrainingTemplate, TrainingConfig } from '../api/types';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 interface TrainingTemplatesProps {
   onTemplateSelect: (template: TrainingTemplate) => void;
@@ -49,7 +50,10 @@ export function TrainingTemplates({ onTemplateSelect, onCreateTemplate }: Traini
         const templatesData = await apiClient.listTrainingTemplates();
         setTemplates(templatesData);
       } catch (err) {
-        console.error('Failed to fetch templates:', err);
+        logger.error('Failed to fetch training templates', {
+          component: 'TrainingTemplates',
+          operation: 'listTrainingTemplates',
+        }, toError(err));
         toast.error(err instanceof Error ? err.message : 'Failed to load training templates');
       } finally {
         setLoading(false);

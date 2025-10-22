@@ -4,10 +4,10 @@
 
 use adapteros_core::{AosError, Result};
 use cap_std::fs::{Dir, File};
-use cap_std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path as StdPath;
+use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 
 /// Capability-based access control

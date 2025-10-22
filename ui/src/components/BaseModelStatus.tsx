@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import { BaseModelStatus } from '../api/types';
 import apiClient from '../api/client';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -32,7 +33,11 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch model status';
       setError(errorMsg);
-      console.error('Failed to fetch base model status:', err);
+      logger.error('Failed to fetch base model status', {
+        component: 'BaseModelStatus',
+        operation: 'fetchStatus',
+        tenantId: selectedTenant,
+      }, toError(err));
     } finally {
       setLoading(false);
     }

@@ -119,6 +119,19 @@ struct MetalAttentionParams {
     _padding: [u32; 2],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MetalFlashAttentionParams {
+    q: u64,
+    k: u64,
+    v: u64,
+    output: u64,
+    gqa_config: GqaConfig,
+    batch_size: u32,
+    sequence_length: u32,
+    _padding: [u32; 2],
+}
+
 /// Fused QKV kernel with GQA support
 pub struct FusedQkvKernel {
     device: Arc<Device>,
@@ -296,28 +309,62 @@ impl FlashAttentionKernel {
 
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        // Set buffers
-        encoder.set_buffer(0, Some(q), 0);
-        encoder.set_buffer(1, Some(k), 0);
-        encoder.set_buffer(2, Some(v), 0);
-        encoder.set_buffer(3, Some(output), 0);
+        // Derive tensor dimensions from buffer sizes
+        let float_elements = q.length() as usize / std::mem::size_of::<f32>();
+        let head_dim = self.gqa_config.head_dim as usize;
+        let num_heads = self.gqa_config.num_attention_heads as usize;
 
-        // Set GQA configuration
-        let gqa_config_bytes =
-            serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
-        let gqa_config_buffer = self.device.new_buffer_with_data(
-            gqa_config_bytes.as_ptr() as *const std::ffi::c_void,
-            gqa_config_bytes.len() as u64,
+        let batch_size = if head_dim > 0 && num_heads > 0 {
+            let denom = num_heads * head_dim;
+            let derived = float_elements / denom;
+            if derived == 0 {
+                1
+            } else {
+                derived
+            }
+        } else {
+            1
+        };
+
+        let sequence_length = if head_dim > 0 && num_heads > 0 {
+            let denom = batch_size * num_heads * head_dim;
+            if denom == 0 {
+                1
+            } else {
+                let derived = float_elements / denom;
+                if derived == 0 {
+                    1
+                } else {
+                    derived
+                }
+            }
+        } else {
+            1
+        };
+
+        let params = MetalFlashAttentionParams {
+            q: q.gpu_address(),
+            k: k.gpu_address(),
+            v: v.gpu_address(),
+            output: output.gpu_address(),
+            gqa_config: self.gqa_config,
+            batch_size: batch_size as u32,
+            sequence_length: sequence_length as u32,
+            _padding: [0; 2],
+        };
+
+        let params_buffer = self.device.new_buffer_with_data(
+            &params as *const MetalFlashAttentionParams as *const std::ffi::c_void,
+            std::mem::size_of::<MetalFlashAttentionParams>() as u64,
             MTLResourceOptions::StorageModeShared,
         );
-        encoder.set_buffer(4, Some(&gqa_config_buffer), 0);
+        encoder.set_buffer(0, Some(&params_buffer), 0);
 
-        // Calculate threadgroup size
-        let threadgroup_size = MTLSize::new(16, 16, 1);
+        let threadgroup_size = MTLSize::new(1, 1, 1);
         let grid_size = MTLSize::new(
-            q.length() / 4,
-            self.gqa_config.num_attention_heads as u64,
-            1,
+            batch_size as u64,
+            num_heads as u64,
+            sequence_length.max(1) as u64,
         );
 
         encoder.dispatch_thread_groups(grid_size, threadgroup_size);

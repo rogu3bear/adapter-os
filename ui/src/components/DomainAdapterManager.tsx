@@ -61,18 +61,21 @@ import {
 import apiClient from '../api/client';
 import { User } from '../api/types';
 import { toast } from 'sonner';
+import { logger, toError } from '../utils/logger';
 
 interface DomainAdapterManagerProps {
   user: User;
   selectedTenant: string;
 }
 
+type DomainAdapterDomain = 'text' | 'vision' | 'telemetry';
+
 interface DomainAdapter {
   id: string;
   name: string;
   version: string;
   description: string;
-  domain_type: 'text' | 'vision' | 'telemetry';
+  domain_type: DomainAdapterDomain;
   model: string;
   hash: string;
   input_format: string;
@@ -104,6 +107,14 @@ interface DomainAdapterTest {
   executed_at: string;
 }
 
+type NewAdapterFormState = {
+  name: string;
+  domain_type: DomainAdapterDomain;
+  model: string;
+  description: string;
+  config: Record<string, unknown>;
+};
+
 export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterManagerProps) {
   const [adapters, setAdapters] = useState<DomainAdapter[]>([]);
   const [tests, setTests] = useState<DomainAdapterTest[]>([]);
@@ -112,12 +123,12 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
   const [isTestDialogOpen, setIsTestDialogOpen] = useState(false);
   const [selectedAdapter, setSelectedAdapter] = useState<DomainAdapter | null>(null);
   const [activeTab, setActiveTab] = useState('adapters');
-  const [newAdapterForm, setNewAdapterForm] = useState({
+  const [newAdapterForm, setNewAdapterForm] = useState<NewAdapterFormState>({
     name: '',
-    domain_type: 'text' as const,
+    domain_type: 'text',
     model: '',
     description: '',
-    config: {}
+    config: {},
   });
 
   useEffect(() => {
@@ -130,7 +141,12 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
         setTests([]);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to fetch domain adapters';
-        console.error(errorMsg, err);
+        logger.error('Failed to fetch domain adapters', {
+          component: 'DomainAdapterManager',
+          operation: 'fetchAdapters',
+          tenantId: selectedTenant,
+          errorMessage: errorMsg,
+        }, toError(err));
         toast.error(errorMsg);
       } finally {
         setLoading(false);
@@ -536,10 +552,10 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
               </div>
               <div>
                 <Label htmlFor="domain_type">Domain Type</Label>
-                <Select 
-                  value={newAdapterForm.domain_type} 
-                  onValueChange={(value: 'text' | 'vision' | 'telemetry') => 
-                    setNewAdapterForm({...newAdapterForm, domain_type: value})
+                <Select
+                  value={newAdapterForm.domain_type}
+                  onValueChange={(value) =>
+                    setNewAdapterForm({ ...newAdapterForm, domain_type: value as DomainAdapterDomain })
                   }
                 >
                   <SelectTrigger>

@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Instant;
 use tracing::{debug, info, warn};
-use tracing::{debug, info, warn};
 
 /// Micro-LoRA trainer with Metal backend integration
 pub struct MicroLoRATrainer {
@@ -129,6 +128,21 @@ impl MicroLoRATrainer {
             telemetry,
             training_seed,
         })
+    }
+
+    /// Override the deterministic seed used for training
+    pub fn override_training_seed(&mut self, seed: u64) -> Result<()> {
+        self.training_seed = seed;
+        info!("Overriding MicroLoRA trainer seed: {}", seed);
+
+        self.telemetry.log(
+            "training.seed_overridden",
+            serde_json::json!({
+                "seed": seed
+            }),
+        )?;
+
+        Ok(())
     }
 
     /// Initialize Metal kernels for training
@@ -283,15 +297,18 @@ impl MicroLoRATrainer {
         let config = &self.config.weight_group_config;
         let timestamp = Utc::now().to_rfc3339();
 
-        match config.combination_strategy {
+        match &config.combination_strategy {
             CombinationStrategy::Difference => {
                 self.combine_weight_groups(positive, negative, 1.0, 1.0, timestamp)
             }
-            CombinationStrategy::WeightedDifference => self.combine_weight_groups(
+            CombinationStrategy::WeightedDifference {
+                positive_scale,
+                negative_scale,
+            } => self.combine_weight_groups(
                 positive,
                 negative,
-                config.positive_scale,
-                config.negative_scale,
+                *positive_scale,
+                *negative_scale,
                 timestamp,
             ),
             CombinationStrategy::Separate => {
@@ -729,6 +746,7 @@ impl From<&TrainingConfig> for aos_training::TrainingConfig {
             batch_size: config.batch_size,
             epochs: config.epochs,
             hidden_dim: config.hidden_dim,
+            weight_group_config: config.weight_group_config.clone(),
         }
     }
 }
