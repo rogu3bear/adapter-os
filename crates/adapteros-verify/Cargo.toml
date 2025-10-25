@@ -13,7 +13,6 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-numerics = { path = "../adapteros-numerics" }
 adapteros-secd = { path = "../adapteros-secd" }
-adapteros-federation = { path = "../adapteros-federation" }
 adapteros-db = { path = "../adapteros-db" }
 
 serde = { workspace = true }
