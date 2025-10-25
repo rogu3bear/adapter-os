@@ -61,8 +61,6 @@ members = [
     "crates/adapteros-memory",
     "crates/adapteros-lint",
     "crates/adapteros-verify",
-    "crates/adapteros-federation",
-    "crates/adapteros-domain",
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
@@ -273,7 +271,7 @@ adapteros-graph = { path = "crates/adapteros-graph" }
 adapteros-replay = { path = "crates/adapteros-replay" }
 adapteros-trace = { path = "crates/adapteros-trace" }
 adapteros-config = { path = "crates/adapteros-config" }
-adapteros-federation = { path = "crates/adapteros-federation" }
+adapteros-base-llm = { path = "crates/adapteros-base-llm" }
 tempfile = "3.0"
 axum = "0.7"
 tower = "0.4"
