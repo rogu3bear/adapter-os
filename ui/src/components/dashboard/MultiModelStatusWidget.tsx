@@ -1,11 +1,10 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import apiClient from '../api/client';
-import type { BaseModelStatus } from '../api/types';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { apiClient } from '../../api/client';
+import type { BaseModelStatus, AllModelsStatusResponse } from '../../api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '../../utils/logger';
 import { useEffect, useState } from 'react';
-import { getAllModelsStatus, AllModelsStatusResponse } from '../../api/client';
 
 interface ModelStatusBadgeProps {
   status: BaseModelStatus['status'];
@@ -56,8 +55,13 @@ export const MultiModelStatusWidget: React.FC = () => {
 
   useEffect(() => {
     const pollStatus = async () => {
-      const response = await getAllModelsStatus();
-      setStatus(response);
+      try {
+        const response = await apiClient.getAllModelsStatus();
+        setStatus(response);
+      } catch (err) {
+        logger.error('Failed to fetch all models status', { component: 'MultiModelStatusWidget' }, toError(err));
+        setStatus({ models: [], total_memory_mb: 0, active_model_count: 0 } as AllModelsStatusResponse);
+      }
     };
 
     pollStatus();
@@ -181,4 +185,3 @@ export const MultiModelStatusWidget: React.FC = () => {
     </Card>
   );
 };
-
