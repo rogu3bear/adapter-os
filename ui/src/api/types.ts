@@ -989,6 +989,26 @@ export interface ModelStatusResponse {
   is_loaded: boolean;
 }
 
+// Multi-model status response
+export interface AllModelsStatusResponse {
+  models: BaseModelStatus[];
+  total_memory_mb: number;
+  active_model_count: number;
+}
+
+// OpenAI-compatible models list (used by ModelSelector)
+export interface OpenAIModelInfo {
+  id: string;
+  object: string; // usually 'model'
+  created: number;
+  owned_by: string;
+}
+
+export interface OpenAIModelsListResponse {
+  object: string; // 'list'
+  data: OpenAIModelInfo[];
+}
+
 export interface CursorConfigResponse {
   api_endpoint: string;
   model_name: string;

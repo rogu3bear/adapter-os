@@ -12,6 +12,10 @@ rustflags = [
 # SOURCE_DATE_EPOCH ensures timestamps are deterministic
 SOURCE_DATE_EPOCH = "1704067200"
 
+# Allow building PyO3 against newer Python interpreters via the stable ABI.
+# This unblocks local environments with Python 3.14 while we keep PyO3 at 0.22.
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"
+
 # Target-specific configuration
 [target.aarch64-apple-darwin]
 rustflags = [
