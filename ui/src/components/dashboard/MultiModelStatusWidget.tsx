@@ -4,6 +4,8 @@ import apiClient from '../api/client';
 import type { BaseModelStatus } from '../api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { logger, toError } from '../utils/logger';
+import { useEffect, useState } from 'react';
+import { getAllModelsStatus, AllModelsStatusResponse } from '../../api/client';
 
 interface ModelStatusBadgeProps {
   status: BaseModelStatus['status'];
@@ -49,34 +51,22 @@ function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
   }
 }
 
-export function MultiModelStatusWidget() {
-  const [models, setModels] = React.useState<BaseModelStatus[]>([]);
-  const [totalMemoryMb, setTotalMemoryMb] = React.useState<number>(0);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+export const MultiModelStatusWidget: React.FC = () => {
+  const [status, setStatus] = useState<AllModelsStatusResponse | null>(null);
 
-  React.useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        const data = await apiClient.getAllModelsStatus();
-        setModels(data.models);
-        setTotalMemoryMb(data.total_memory_mb);
-        setError(null);
-      } catch (err) {
-        const errorObj = toError(err);
-        logger.error('Failed to fetch multi-model status', { component: 'MultiModelStatusWidget' }, errorObj);
-        setError(errorObj.message);
-      } finally {
-        setLoading(false);
-      }
+  useEffect(() => {
+    const pollStatus = async () => {
+      const response = await getAllModelsStatus();
+      setStatus(response);
     };
 
-    fetchModels();
-    const interval = setInterval(fetchModels, 10000); // Poll every 10 seconds
+    pollStatus();
+    const interval = setInterval(pollStatus, 10000); // 10 seconds
+
     return () => clearInterval(interval);
   }, []);
 
-  if (loading) {
+  if (status === null) {
     return (
       <Card>
         <CardHeader>
@@ -89,7 +79,7 @@ export function MultiModelStatusWidget() {
     );
   }
 
-  if (error) {
+  if (status.error) {
     return (
       <Card>
         <CardHeader>
@@ -97,12 +87,15 @@ export function MultiModelStatusWidget() {
         </CardHeader>
         <CardContent>
           <div className="text-sm text-destructive">
-            Failed to load model status: {error}
+            Failed to load model status: {status.error}
           </div>
         </CardContent>
       </Card>
     );
   }
+
+  const models = status.models;
+  const totalMemoryMb = status.total_memory_mb;
 
   const loadedModels = models.filter(m => m.is_loaded);
   const loadingModels = models.filter(m => m.status === 'loading' || m.status === 'unloading');
@@ -187,5 +180,5 @@ export function MultiModelStatusWidget() {
       </CardContent>
     </Card>
   );
-}
+};
 
