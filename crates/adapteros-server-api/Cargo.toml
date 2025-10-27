@@ -5,6 +5,8 @@ edition = "2021"
 
 [features]
 openapi = []
+# Enable native MLX FFI runtime wiring for models
+mlx-ffi-backend = ["adapteros-base-llm"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
@@ -20,6 +22,7 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }
 adapteros-verify = { path = "../adapteros-verify" }
+adapteros-base-llm = { path = "../adapteros-base-llm", optional = true }
 anyhow = "1.0"
 argon2 = "0.5"
 axum = { version = "0.7", features = ["macros"] }
