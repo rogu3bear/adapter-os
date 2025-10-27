@@ -1,51 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Progress } from './ui/progress';
-import { Skeleton } from './ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './ui/dialog';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Alert, AlertDescription, AlertTitle } from './ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { logger, toError } from '../utils/logger';
-import { useActivityFeed } from '../hooks/useActivityFeed';
 import { 
   Activity, 
-  Server, 
-  Users, 
   Shield, 
-  AlertTriangle, 
   CheckCircle, 
-  Clock,
-  Cpu,
-  HardDrive,
-  Network,
-  Zap,
   Code,
-  GitBranch,
   Eye,
-  Target,
   Download,
-  XCircle,
   Bell,
-  BarChart3
+  Zap,
+  Play,
+  FileText,
+  TrendingUp
 } from 'lucide-react';
-import { BaseModelStatusComponent } from './BaseModelStatus';
-import { BaseModelLoader } from './BaseModelLoader';
-import { CursorSetupWizard } from './CursorSetupWizard';
-import { Nodes } from './Nodes';
-import { AlertsPage } from './AlertsPage';
-import { useInformationDensity } from '../hooks/useInformationDensity';
 import { DensityControls } from './ui/density-controls';
-import { HelpTooltip } from './ui/help-tooltip';
+import { ModelSelector } from './ModelSelector';
+import { useInformationDensity } from '../hooks/useInformationDensity';
+import { MLPipelineWidget } from './dashboard/MLPipelineWidget';
+import { NextStepsWidget } from './dashboard/NextStepsWidget';
+import { AdapterStatusWidget } from './dashboard/AdapterStatusWidget';
+import { ComplianceScoreWidget } from './dashboard/ComplianceScoreWidget';
+import { ActiveAlertsWidget } from './dashboard/ActiveAlertsWidget';
+import { MultiModelStatusWidget } from './dashboard/MultiModelStatusWidget';
+import { BaseModelWidget } from './dashboard/BaseModelWidget';
+import { CursorSetupWizard } from './CursorSetupWizard';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useNavigate } from 'react-router-dom';
+import type { UserRole, User, SystemMetrics } from '@/api/types';
 import apiClient from '../api/client';
-import { SystemMetrics, User, Adapter } from '../api/types';
-import { toast } from 'sonner';
-import { useSSE } from '../hooks/useSSE';
-import { useTimestamp } from '../hooks/useTimestamp';
 
 interface DashboardProps {
   user?: User;
@@ -53,387 +38,265 @@ interface DashboardProps {
   onNavigate?: (tab: string) => void;
 }
 
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
-import { useNavigate } from 'react-router-dom';
+interface DashboardWidget {
+  id: string;
+  component: React.ComponentType<any>;
+  priority: number;
+}
+
+interface DashboardLayout {
+  widgets: DashboardWidget[];
+  quickActions: Array<{
+    label: string;
+    icon: any;
+    route: string;
+    variant?: 'default' | 'outline' | 'secondary';
+  }>;
+}
+
+// Simple system health widget for all roles
+function SystemHealthWidget() {
+  const [metrics, setMetrics] = React.useState<SystemMetrics | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const data = await apiClient.getSystemMetrics();
+        setMetrics(data);
+      } catch (err) {
+        logger.error('Failed to fetch system metrics', { component: 'SystemHealthWidget' }, toError(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>System Health</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-20 animate-pulse bg-muted rounded" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          System Health
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Memory Usage</p>
+            <p className="text-2xl font-bold">{metrics?.memory_usage_pct || 0}%</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Active Sessions</p>
+            <p className="text-2xl font-bold">{metrics?.active_sessions || 0}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Tokens/sec</p>
+            <p className="text-2xl font-bold">{metrics?.tokens_per_second || 0}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">P95 Latency</p>
+            <p className="text-2xl font-bold">{metrics?.latency_p95_ms || 0}ms</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Role-specific dashboard configurations
+const dashboardLayouts: Record<UserRole, DashboardLayout> = {
+  Admin: {
+    widgets: [
+      { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 1 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 2 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 },
+      { id: 'compliance-score', component: ComplianceScoreWidget, priority: 4 },
+      { id: 'base-model', component: BaseModelWidget, priority: 5 },
+    ],
+    quickActions: [
+      { label: 'System Health', icon: Activity, route: '/monitoring' },
+      { label: 'Review Policies', icon: Shield, route: '/policies' },
+      { label: 'View Telemetry', icon: Eye, route: '/telemetry' },
+      { label: 'Manage Adapters', icon: Code, route: '/adapters' }
+    ]
+  },
+  Operator: {
+    widgets: [
+      { id: 'ml-pipeline', component: MLPipelineWidget, priority: 1 },
+      { id: 'adapter-status', component: AdapterStatusWidget, priority: 2 },
+      { id: 'next-steps', component: NextStepsWidget, priority: 3 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 4 },
+      { id: 'base-model', component: BaseModelWidget, priority: 5 },
+    ],
+    quickActions: [
+      { label: 'Start Training', icon: Zap, route: '/training', variant: 'default' },
+      { label: 'Test Adapter', icon: CheckCircle, route: '/testing' },
+      { label: 'Run Inference', icon: Play, route: '/inference' },
+      { label: 'View Routing', icon: TrendingUp, route: '/routing' },
+      { label: 'Configure Cursor', icon: Code, route: '#cursor-config' },
+    ]
+  },
+  SRE: {
+    widgets: [
+      { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 1 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 2 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 3 },
+      { id: 'adapter-status', component: AdapterStatusWidget, priority: 4 }
+    ],
+    quickActions: [
+      { label: 'View Alerts', icon: Bell, route: '/monitoring', variant: 'default' },
+      { label: 'System Logs', icon: FileText, route: '/telemetry' },
+      { label: 'Routing Inspector', icon: TrendingUp, route: '/routing' },
+      { label: 'Adapter Health', icon: Activity, route: '/adapters' }
+    ]
+  },
+  Compliance: {
+    widgets: [
+      { id: 'compliance-score', component: ComplianceScoreWidget, priority: 1 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 2 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 },
+      { id: 'next-steps', component: NextStepsWidget, priority: 4 }
+    ],
+    quickActions: [
+      { label: 'Review Policies', icon: Shield, route: '/policies', variant: 'default' },
+      { label: 'Audit Trails', icon: FileText, route: '/audit' },
+      { label: 'Export Telemetry', icon: Download, route: '/telemetry' },
+      { label: 'Compliance Report', icon: CheckCircle, route: '/policies' }
+    ]
+  },
+  Auditor: {
+    widgets: [
+      { id: 'compliance-score', component: ComplianceScoreWidget, priority: 1 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 2 },
+      { id: 'next-steps', component: NextStepsWidget, priority: 3 }
+    ],
+    quickActions: [
+      { label: 'Audit Trails', icon: FileText, route: '/audit', variant: 'default' },
+      { label: 'Verify Bundles', icon: Shield, route: '/telemetry' },
+      { label: 'Export Audit', icon: Download, route: '/telemetry' },
+      { label: 'Policy Review', icon: Shield, route: '/policies' }
+    ]
+  },
+  Viewer: {
+    widgets: [
+      { id: 'system-health', component: SystemHealthWidget, priority: 1 },
+      { id: 'adapter-status', component: AdapterStatusWidget, priority: 2 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 }
+    ],
+    quickActions: [
+      { label: 'View Metrics', icon: Activity, route: '/monitoring' },
+      { label: 'Inference Playground', icon: Play, route: '/inference' },
+      { label: 'Adapter Status', icon: Code, route: '/adapters' }
+    ]
+  }
+};
 
 export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNavigate }: DashboardProps) {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
   const navigate = useNavigate();
   const effectiveUser = userProp ?? user!;
-  const effectiveTenant = tenantProp ?? selectedTenant;
-  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
-  const [nodeCount, setNodeCount] = useState<number>(0);
-  const [tenantCount, setTenantCount] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-  
+  const [showCursorWizard, setShowCursorWizard] = React.useState(false);
+
   // Information density management
-  const { density, setDensity, spacing, textSizes } = useInformationDensity({
+  const { density, setDensity } = useInformationDensity({
     key: 'dashboard',
     defaultDensity: 'comfortable',
     persist: true
   });
-  
-  // SSE connection for real-time metrics
-  const { data: sseMetrics, error: sseError, connected } = useSSE<SystemMetrics>('/v1/stream/metrics');
-  
-  // Modals
-  const [showHealthModal, setShowHealthModal] = useState(false);
-  const [showCreateTenantModal, setShowCreateTenantModal] = useState(false);
-  const [showDeployAdapterModal, setShowDeployAdapterModal] = useState(false);
-  const [showCursorWizard, setShowCursorWizard] = useState(false);
-  
-  // Model status state
-  const [modelStatus, setModelStatus] = useState<any>(null);
-  
-  // Form states
-  const [newTenantName, setNewTenantName] = useState('');
-  const [newTenantIsolation, setNewTenantIsolation] = useState('standard');
-  const [adapters, setAdapters] = useState<Adapter[]>([]);
-  const [selectedAdapter, setSelectedAdapter] = useState('');
-  const [deployTargetTenant, setDeployTargetTenant] = useState(selectedTenant);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    try {
-      setError(null);
-      const [metrics, nodes, tenants, baseModelStatus] = await Promise.all([
-        apiClient.getSystemMetrics(),
-        apiClient.listNodes(),
-        apiClient.listTenants(),
-        apiClient.getBaseModelStatus(effectiveTenant).catch(() => null),
-      ]);
-      setSystemMetrics(metrics);
-      setNodeCount(nodes.length);
-      setTenantCount(tenants.length);
-      setModelStatus(baseModelStatus);
-      setLastUpdatedAt(new Date().toISOString());
-    } catch (err) {
-      // Replace: console.error('Failed to fetch dashboard data:', err);
-      logger.error('Failed to fetch dashboard data', {
-        component: 'Dashboard',
-        operation: 'fetchData',
-        tenantId: selectedTenant,
-        userId: user.id
-      }, err instanceof Error ? err : new Error(String(err)));
-      
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load dashboard data';
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [selectedTenant]);
-
-  // Update metrics from SSE stream
-  useEffect(() => {
-    if (sseMetrics) {
-      setSystemMetrics(sseMetrics);
-      setLastUpdatedAt(new Date().toISOString());
-    }
-  }, [sseMetrics]);
-
-  // Handle SSE connection status
-  useEffect(() => {
-    if (sseError) {
-      // Replace: console.error('Real-time metrics connection error:', sseError);
-      logger.error('Real-time metrics connection error', {
-        component: 'Dashboard',
-        operation: 'sse_connection',
-        tenantId: selectedTenant,
-        userId: user.id
-      }, toError(sseError));
-    }
-  }, [sseError, selectedTenant, user.id]);
-
-
-  const handleCreateTenant = async () => {
-    if (!newTenantName.trim()) {
-      setError('Tenant name is required');
-      return;
-    }
-    
-    try {
-      await apiClient.createTenant({
-        name: newTenantName,
-        isolation_level: newTenantIsolation,
-      });
-      toast.success(`Tenant "${newTenantName}" created successfully`);
-      setShowCreateTenantModal(false);
-      setNewTenantName('');
-      setNewTenantIsolation('standard');
-      setError(null);
-      await fetchData();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to create tenant';
-      setError(errorMsg);
-      toast.error(errorMsg);
-    }
-  };
-
-  const handleDeployAdapter = async () => {
-    if (!selectedAdapter) {
-      setError('Please select an adapter');
-      return;
-    }
-    
-    try {
-      const result = await apiClient.loadAdapter(selectedAdapter);
-      toast.success(`Adapter "${result.name}" loaded (ID: ${result.adapter_id})`);
-      setShowDeployAdapterModal(false);
-      setSelectedAdapter('');
-      setError(null);
-      // Optionally refresh dashboard metrics
-      await fetchData();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to deploy adapter';
-      setError(errorMsg);
-      toast.error(errorMsg);
-    }
-  };
-
-  const handleExportLogs = async () => {
-    try {
-      toast.info('Preparing telemetry bundle export...');
-      const bundles = await apiClient.listTelemetryBundles();
-      if (!bundles || bundles.length === 0) {
-        toast.info('No telemetry bundles available to export');
-        return;
-      }
-      // Export the most recent bundle by created_at
-      const sorted = [...bundles].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      const latest = sorted[0];
-      const res = await apiClient.exportTelemetryBundle(latest.id);
-      toast.success(`Bundle ${res.bundle_id} ready: ${res.events_count} events, ${(res.size_bytes/1024/1024).toFixed(1)} MB`);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to export telemetry bundle';
-      toast.error(errorMsg);
-    }
-  };
-
-  useEffect(() => {
-    // Load adapters for deployment modal
-    const loadAdapters = async () => {
-      try {
-        const adaptersList = await apiClient.listAdapters();
-        setAdapters(adaptersList);
-      } catch (err) {
-        // Replace: console.error('Failed to load adapters:', err);
-        logger.error('Failed to load adapters', {
-          component: 'Dashboard',
-          operation: 'loadAdapters',
-          tenantId: selectedTenant,
-          userId: user.id
-        }, err instanceof Error ? err : new Error(String(err)));
-      }
-    };
-    if (showDeployAdapterModal) {
-      loadAdapters();
-    }
-  }, [showDeployAdapterModal]);
-
-  // Real-time activity feed from telemetry and audit logs
-  const { events: activityEvents, loading: activityLoading, error: activityError } = useActivityFeed({
-    enabled: true,
-    maxEvents: 10,
-    tenantId: effectiveTenant,
-    userId: effectiveUser.id
-  });
-
-  // Helper functions for activity feed
-  const formatTimeAgo = (timestamp: string): string => {
-    const now = new Date();
-    const eventTime = new Date(timestamp);
-    const diffMs = now.getTime() - eventTime.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  };
-
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case 'recovery': return CheckCircle;
-      case 'policy': return Shield;
-      case 'build': return Zap;
-      case 'adapter': return Code;
-      case 'telemetry': return Eye;
-      case 'security': return Shield;
-      case 'error': return AlertTriangle;
-      default: return Activity;
-    }
-  };
-
-  // Transform activity events to display format
-  const recentActivity = activityEvents.map(event => ({
-    time: formatTimeAgo(event.timestamp),
-    action: event.message,
-    type: event.type,
-    icon: getActivityIcon(event.type),
-    severity: event.severity
-  }));
-
-  const quickActions = [
-    { 
-      label: 'View System Health', 
-      icon: Activity, 
-      color: 'text-emerald-600',
-      onClick: () => setShowHealthModal(true)
-    },
-    { 
-      label: 'Create Tenant', 
-      icon: Users, 
-      color: 'text-blue-600', 
-      restricted: effectiveUser.role !== 'Admin',
-      onClick: () => setShowCreateTenantModal(true)
-    },
-    { 
-      label: 'Deploy Adapter', 
-      icon: Code, 
-      color: 'text-violet-600',
-      onClick: () => setShowDeployAdapterModal(true)
-    },
-    { 
-      label: 'Generate Telemetry Bundle', 
-      icon: Download, 
-      color: 'text-emerald-600',
-      onClick: async () => {
-        try {
-          toast.info('Generating telemetry bundle...');
-          const res = await apiClient.generateTelemetryBundle();
-          toast.success(`Bundle ${res.id} created with ${res.event_count} events`);
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : 'Failed to generate bundle';
-          toast.error(errorMsg);
-        }
-      }
-    },
-    { 
-      label: 'Review Policies', 
-      icon: Shield, 
-      color: 'text-amber-600',
-      onClick: () => (onNavigate ? onNavigate('policies') : navigate('/policies'))
-    }
-  ];
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        {/* Header Skeleton */}
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <Skeleton className="h-8 w-48 mb-2" />
-            <Skeleton className="h-4 w-96" />
-          </div>
-          <div className="flex gap-2">
-            <Skeleton className="h-10 w-32" />
-            <Skeleton className="h-10 w-24" />
-            <Skeleton className="h-10 w-32" />
-          </div>
-        </div>
-
-        {/* Metric Cards Skeleton */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16 mb-2" />
-                <Skeleton className="h-3 w-32" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Content Grid Skeleton */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {[...Array(2)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-6 w-40" />
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {[...Array(4)].map((_, j) => (
-                  <div key={j} className="space-y-2">
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-2 w-full" />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Quick Actions Skeleton */}
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-6 w-32" />
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              {[...Array(4)].map((_, i) => (
-                <Skeleton key={i} className="h-24" />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  if (!effectiveUser) {
+    return null;
   }
 
-  const memoryUsage = systemMetrics?.memory_usage_pct || 0;
-  const adapterCount = systemMetrics?.adapter_count || 0;
-  const activeSessions = systemMetrics?.active_sessions || 0;
-  const tokensPerSecond = systemMetrics?.tokens_per_second || 0;
-  const latencyP95 = systemMetrics?.latency_p95_ms || 0;
-  const cpuUsage = systemMetrics?.cpu_usage_percent || 0;
-  const diskUsage = systemMetrics?.disk_usage_percent || 0;
-  const networkBandwidth = systemMetrics?.network_rx_bytes ? (systemMetrics.network_rx_bytes / 1024 / 1024).toFixed(1) : '0';
-
-  // Citation: docs/architecture/MasterPlan.md L30-L33
-  const dashboardTabs = [
-    { id: 'overview', label: 'Overview', icon: BarChart3, description: 'System overview and metrics' },
-    { id: 'nodes', label: 'Nodes', icon: Server, description: 'Compute infrastructure monitoring' },
-    { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring' }
-  ];
+  const layout = dashboardLayouts[effectiveUser.role];
 
   return (
-    <div className="p-[var(--space-4)] bg-[var(--surface-1)] rounded-[var(--radius-card)] shadow-[var(--shadow-md)]">
+    <div className="space-y-6">
       {/* Header */}
-      <h1 className="text-[var(--font-h1)] font-[var(--font-weight-bold)] text-gray-900 mb-[var(--space-6)]">
-        Dashboard
-      </h1>
-      
-      {/* Metrics cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-[var(--space-4)]">
-        <Card className="border-[var(--gray-300)] hover:border-[var(--accent-500)]">
-          <CardHeader className="pb-[var(--space-3)]">
-            <CardTitle className="text-[var(--font-h3)] text-gray-700">
-              Nodes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-[var(--font-h2)] font-[var(--font-weight-semibold)] text-green-600">
-              42
-            </div>
-          </CardContent>
-        </Card>
-        {/* Similar for other cards: use --error for alerts, --info for telemetry */}
-        {/* ... existing content ... */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">
+            Dashboard
+          </h2>
+          <p className="text-muted-foreground">
+            Welcome back, {effectiveUser.display_name || effectiveUser.email}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <ModelSelector />
+          <DensityControls density={density} setDensity={setDensity} />
+        </div>
       </div>
-      
-      {/* Existing rest ... */}
+
+      {/* Widgets Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {layout.widgets.map((widget) => {
+          const WidgetComponent = widget.component;
+          return <WidgetComponent key={widget.id} />;
+        })}
+      </div>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+            {layout.quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <Button
+                  key={action.route}
+                  variant={action.variant || 'outline'}
+                  className="justify-start h-auto py-4"
+                  onClick={() => {
+                    if (action.route === '#cursor-config') {
+                      setShowCursorWizard(true);
+                    } else if (onNavigate) {
+                      onNavigate(action.route);
+                    } else {
+                      navigate(action.route);
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className="h-5 w-5" />
+                    <span className="font-medium">{action.label}</span>
+                  </div>
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+        <Dialog open={showCursorWizard} onOpenChange={setShowCursorWizard}>
+            <DialogContent className="max-w-4xl">
+                <CursorSetupWizard
+                onComplete={() => setShowCursorWizard(false)}
+                onCancel={() => setShowCursorWizard(false)}
+                />
+            </DialogContent>
+        </Dialog>
     </div>
   );
 }

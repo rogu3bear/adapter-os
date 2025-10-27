@@ -559,6 +559,18 @@ class ApiClient {
     return this.request<types.BaseModelStatus>(`/v1/models/status${query}`);
   }
 
+  // Get all loaded models status
+  async getAllModelsStatus(tenantId?: string): Promise<types.AllModelsStatusResponse> {
+    const query = tenantId ? `?tenant_id=${tenantId}` : '';
+    return this.request<types.AllModelsStatusResponse>(`/v1/models/status/all${query}`);
+  }
+
+  // OpenAI-compatible models list for ModelSelector
+  async listModels(): Promise<types.OpenAIModelInfo[]> {
+    const resp = await this.request<types.OpenAIModelsListResponse>(`/v1/models`);
+    return resp.data;
+  }
+
   // Base Model Management API Methods - Citation: IMPLEMENTATION_PLAN.md Phase 2
   async importModel(data: types.ImportModelRequest): Promise<types.ImportModelResponse> {
     return this.request<types.ImportModelResponse>('/v1/models/import', {
