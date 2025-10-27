@@ -1553,6 +1553,43 @@ pub async fn get_base_model_status(
     }
 }
 
+/// Get all models status for a tenant
+#[utoipa::path(
+    get,
+    path = "/v1/models/status/all",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "All models status", body = crate::types::AllModelsStatusResponse)
+    ),
+    tag = "models"
+)]
+pub async fn get_all_models_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<ListJobsQuery>,
+) -> Result<Json<crate::types::AllModelsStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Compliance])?;
+    let tenant_id = query.tenant_id.unwrap_or_else(|| "default".to_string());
+
+    if let Some(rt) = &state.model_runtime {
+        let guard = rt.lock().await;
+        let (models, total_mem, active) = guard.snapshot_all_models(&tenant_id);
+        return Ok(Json(crate::types::AllModelsStatusResponse {
+            models,
+            total_memory_mb: total_mem,
+            active_model_count: active,
+        }));
+    }
+
+    Ok(Json(crate::types::AllModelsStatusResponse {
+        models: vec![],
+        total_memory_mb: 0,
+        active_model_count: 0,
+    }))
+}
+
 #[derive(Deserialize)]
 pub struct ListJobsQuery {
     tenant_id: Option<String>,

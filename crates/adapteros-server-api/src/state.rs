@@ -84,6 +84,8 @@ pub struct AppState {
     pub jwt_mode: JwtMode,
     /// Optional Ed25519 public key PEM for JWT validation
     pub jwt_public_key_pem: Option<String>,
+    /// Optional runtime for base model backends (e.g., MLX FFI)
+    pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntime>>>,
 }
 
 impl AppState {
@@ -107,6 +109,9 @@ impl AppState {
             code_job_manager: None,
             jwt_mode: JwtMode::Hmac,
             jwt_public_key_pem: None,
+            model_runtime: Some(Arc::new(tokio::sync::Mutex::new(
+                crate::model_runtime::ModelRuntime::new(),
+            ))),
         }
     }
 
