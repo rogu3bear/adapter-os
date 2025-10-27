@@ -248,9 +248,17 @@ pub async fn load_model(
         )
     })?;
 
-    // TODO: Actual model loading via lifecycle manager
-    // For now, simulate successful load after brief delay
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    // Load model into runtime (if available)
+    if let Some(rt) = &state.model_runtime {
+        if let Ok(model_path) = std::env::var("AOS_MLX_FFI_MODEL") {
+            let mut guard = rt.lock().await;
+            if let Err(e) = guard.load_model(tenant_id, &model_id, &model_path) {
+                warn!("Runtime load failed: {}", e);
+            }
+        } else {
+            warn!("AOS_MLX_FFI_MODEL not set; skipping runtime model load");
+        }
+    }
 
     // Update to loaded state
     let loaded_at = chrono::Utc::now().to_rfc3339();
@@ -365,8 +373,13 @@ pub async fn unload_model(
         )
     })?;
 
-    // TODO: Actual unload via lifecycle manager
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    // Unload from runtime (if available)
+    if let Some(rt) = &state.model_runtime {
+        let mut guard = rt.lock().await;
+        if let Err(e) = guard.unload_model(tenant_id, &model_id) {
+            warn!("Runtime unload failed: {}", e);
+        }
+    }
 
     // Update to unloaded
     let unloaded_at = chrono::Utc::now().to_rfc3339();

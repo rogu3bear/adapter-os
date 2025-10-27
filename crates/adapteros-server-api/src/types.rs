@@ -246,6 +246,14 @@ pub struct BaseModelStatusResponse {
     pub updated_at: String,
 }
 
+/// Multi-model status payload matching UI expectations
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AllModelsStatusResponse {
+    pub models: Vec<BaseModelStatusResponse>,
+    pub total_memory_mb: i32,
+    pub active_model_count: i32,
+}
+
 // BuildPlanRequest is now imported from adapteros-api-types
 
 /// Promote CP request

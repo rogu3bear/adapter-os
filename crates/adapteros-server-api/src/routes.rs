@@ -88,6 +88,7 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::delete_domain_adapter,
         // Model status handlers
         handlers::get_base_model_status,
+        handlers::get_all_models_status,
         // Model management handlers - Citation: IMPLEMENTATION_PLAN.md Phase 1
         // Note: OpenAPI path macros disabled due to feature flag
         // OpenAI-compatible handlers
@@ -257,6 +258,7 @@ pub fn build(state: AppState) -> Router {
         .with_state(state.clone())
         .route("/v1/auth/logout", post(handlers::auth_logout))
         .route("/v1/auth/me", get(handlers::auth_me))
+        .route("/v1/models/status/all", get(handlers::get_all_models_status))
         .route(
             "/v1/tenants",
             get(handlers::list_tenants).post(handlers::create_tenant),
