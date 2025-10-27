@@ -49,7 +49,7 @@ pub use metrics::{
 };
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
-    PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor,
+    PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor, ThreatDetectionEngine,
     PolicyViolationAlertPayload, TelemetrySink, ThresholdRange,
 };
 pub use performance_monitoring::{
