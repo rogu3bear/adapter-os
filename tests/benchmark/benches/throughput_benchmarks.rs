@@ -197,7 +197,7 @@ fn bench_adapter_routing(c: &mut Criterion) {
                     let mut adapter_contributions = Vec::with_capacity(num_adapters);
 
                     for i in 0..num_adapters {
-                        let gate = (32767 / num_adapters * (i + 1)) as f32 / 32768.0; // Q15 to float
+                        let gate = (32767 / num_adapters * (i + 1)) as f32 / 32767.0; // Q15 to float
                         total_gate_weight += gate;
                         adapter_contributions.push(gate);
                     }

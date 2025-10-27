@@ -65,13 +65,12 @@ impl OrthogonalConstraints {
     /// Convert Q15 gates to normalized activation vector
     fn gates_to_activation_vector(&self, adapter_indices: &[u16], gates: &[i16]) -> Vec<f32> {
         // Convert Q15 gates to normalized activation vector
-        let mut activation = vec![0.0; 256]; // Assume max 256 adapters
+        let max_index = adapter_indices.iter().copied().map(|v| v as usize).max().unwrap_or(0);
+        let mut activation = vec![0.0; max_index + 1];
 
         for (idx, gate) in adapter_indices.iter().zip(gates.iter()) {
-            if *idx < 256 {
-                let value = *gate as f32 / 32767.0;
-                activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
-            }
+            let value = *gate as f32 / 32767.0;
+            activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
         }
 
         activation
@@ -79,9 +78,14 @@ impl OrthogonalConstraints {
 
     /// Compute cosine similarity between two activation vectors
     fn compute_cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
-        let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        // Compare over common length; treat missing tail as zeros
+        let n = core::cmp::min(a.len(), b.len());
+        if n == 0 {
+            return 0.0;
+        }
+        let dot_product: f32 = a.iter().take(n).zip(b.iter().take(n)).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().take(n).map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().take(n).map(|x| x * x).sum::<f32>().sqrt();
 
         if norm_a == 0.0 || norm_b == 0.0 {
             0.0

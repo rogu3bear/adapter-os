@@ -13,6 +13,9 @@
   import { LoginForm } from "./components/LoginForm";
   import { GoldenRuns } from "./components/GoldenRuns";
   import { Journeys } from "./components/Journeys";
+  import { Promotion } from "./components/Promotion";
+  import { InferencePlayground } from "./components/InferencePlayground";
+  import { WorkflowWizard } from "./components/WorkflowWizard";
   import "./index.css";
 
   function DashboardRoute() {
@@ -121,17 +124,36 @@
       <LayoutProvider>
         <Routes>
           <Route element={<RootLayout />}> 
-            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route index element={<Navigate to="/workflow" replace />} />
             <Route path="/login" element={<LoginRoute />} />
+            
+            {/* Workflow & Dashboard */}
+            <Route path="/workflow" element={<WorkflowWizardRoute />} />
             <Route path="/dashboard" element={<DashboardRoute />} />
-            <Route path="/telemetry" element={<TelemetryRoute />} />
-            <Route path="/alerts" element={<AlertsRoute />} />
-            <Route path="/replay" element={<ReplayRoute />} />
-            <Route path="/routing" element={<RoutingRoute />} />
-            <Route path="/policies" element={<PoliciesRoute />} />
+            
+            {/* ML Lifecycle */}
+            <Route path="/training" element={<TrainingRoute />} />
+            <Route path="/testing" element={<TestingRoute />} />
             <Route path="/golden" element={<GoldenRoute />} />
-            <Route path="/journeys" element={<JourneysRoute />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/promotion" element={<PromotionRoute />} />
+            <Route path="/adapters" element={<AdaptersRoute />} />
+            
+            {/* Operations */}
+            <Route path="/routing" element={<RoutingRoute />} />
+            <Route path="/inference" element={<InferenceRoute />} />
+            <Route path="/monitoring" element={<MonitoringRoute />} />
+            
+            {/* Security & Compliance */}
+            <Route path="/policies" element={<PoliciesRoute />} />
+            <Route path="/telemetry" element={<TelemetryRoute />} />
+            <Route path="/replay" element={<ReplayRoute />} />
+            <Route path="/audit" element={<AuditRoute />} />
+            
+            {/* Legacy redirects */}
+            <Route path="/alerts" element={<Navigate to="/monitoring" replace />} />
+            <Route path="/journeys" element={<Navigate to="/audit" replace />} />
+            
+            <Route path="*" element={<Navigate to="/workflow" replace />} />
           </Route>
         </Routes>
       </LayoutProvider>

@@ -5,12 +5,12 @@ import { Badge } from './ui/badge';
 import { Play, Pause, Upload, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
-import { BaseModelStatus } from '../api/types';
+import { ModelStatusResponse } from '../api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ModelImportWizard } from './ModelImportWizard';
 
 interface BaseModelLoaderProps {
-  status: BaseModelStatus | null;
+  status: ModelStatusResponse | null;
   onRefresh: () => void;
 }
 
@@ -137,4 +137,3 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
     </>
   );
 }
-

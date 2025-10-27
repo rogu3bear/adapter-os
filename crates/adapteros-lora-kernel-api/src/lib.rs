@@ -212,7 +212,7 @@ impl FusedKernels for CpuKernels {
 
         // Aggregate normalized gate influence
         let gate_sum: f32 = if !ring.gates_q15.is_empty() {
-            ring.gates_q15.iter().map(|&g| (g as f32) / 32768.0).sum()
+            ring.gates_q15.iter().map(|&g| (g as f32) / 32767.0).sum()
         } else {
             1.0
         };

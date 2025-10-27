@@ -5,7 +5,28 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
 import { useTheme, useAuth, useTenant } from './LayoutProvider';
-import { Lock, Menu, X } from 'lucide-react';
+import { 
+  Lock, 
+  Menu, 
+  X, 
+  Compass, 
+  LayoutDashboard, 
+  Zap, 
+  FlaskConical, 
+  GitCompare, 
+  TrendingUp, 
+  Box, 
+  Route, 
+  Play, 
+  Activity, 
+  Shield, 
+  Eye, 
+  RotateCcw, 
+  FileText,
+  ChevronDown,
+  ChevronRight
+} from 'lucide-react';
+import type { UserRole, LucideIcon } from '@/api/types';
 
 export default function RootLayout() {
   const { theme, toggleTheme } = useTheme();
@@ -50,14 +71,69 @@ export default function RootLayout() {
     );
   }
 
-  const items = [
-    { to: '/dashboard', label: 'Dashboard' },
-    { to: '/telemetry', label: 'Telemetry' },
-    { to: '/alerts', label: 'Alerts' },
-    { to: '/replay', label: 'Replay' },
-    { to: '/policies', label: 'Policies' },
-    { to: '/golden', label: 'Golden' },
+  interface NavItem {
+    to: string;
+    label: string;
+    icon: any;
+  }
+
+  interface NavGroup {
+    title: string;
+    items: NavItem[];
+    roles?: UserRole[];
+  }
+
+  const navigationGroups: NavGroup[] = [
+    {
+      title: 'Workflow',
+      items: [
+        { to: '/workflow', label: 'Getting Started', icon: Compass },
+        { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }
+      ]
+    },
+    {
+      title: 'ML Lifecycle',
+      items: [
+        { to: '/training', label: 'Train', icon: Zap },
+        { to: '/testing', label: 'Test & Validate', icon: FlaskConical },
+        { to: '/golden', label: 'Compare Baselines', icon: GitCompare },
+        { to: '/promotion', label: 'Promote', icon: TrendingUp },
+        { to: '/adapters', label: 'Deploy & Manage', icon: Box }
+      ]
+    },
+    {
+      title: 'Operations',
+      items: [
+        { to: '/routing', label: 'Routing Inspector', icon: Route },
+        { to: '/inference', label: 'Inference Playground', icon: Play },
+        { to: '/monitoring', label: 'System Health', icon: Activity }
+      ]
+    },
+    {
+      title: 'Security & Compliance',
+      items: [
+        { to: '/policies', label: 'Policies', icon: Shield },
+        { to: '/telemetry', label: 'Telemetry', icon: Eye },
+        { to: '/replay', label: 'Replay & Verify', icon: RotateCcw },
+        { to: '/audit', label: 'Audit Trails', icon: FileText }
+      ],
+      roles: ['Admin', 'Compliance', 'Auditor']
+    }
   ];
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (groupTitle: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [groupTitle]: !prev[groupTitle]
+    }));
+  };
+
+  const shouldShowGroup = (group: NavGroup): boolean => {
+    if (!group.roles || group.roles.length === 0) return true;
+    return user ? group.roles.includes(user.role) : false;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -99,23 +175,55 @@ export default function RootLayout() {
       </header>
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-64 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform md:translate-x-0 md:static md:inset-auto md:w-48 md:shadow-none overflow-y-auto bg-background border-r`}>
-        <div className="space-y-2">
+      <div className={`fixed inset-y-0 left-0 z-50 w-64 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform md:translate-x-0 md:static md:inset-auto md:w-64 md:shadow-none overflow-y-auto bg-background border-r`}>
+        <div className="p-4 space-y-1">
           <Button className="md:hidden mb-4 w-full justify-start" variant="ghost" onClick={() => setIsSidebarOpen(false)} aria-label="Close menu">
             <X className="h-5 w-5 mr-2" />
             Close Menu
           </Button>
-          {items.map((item) => (
-            <Button
-              key={item.to}
-              variant={location.pathname === item.to ? 'default' : 'ghost'}
-              className="w-full justify-start"
-              onClick={() => navigate(item.to)}
-              aria-current={location.pathname === item.to ? 'page' : undefined}
-            >
-              {item.label}
-            </Button>
-          ))}
+          
+          {navigationGroups.filter(shouldShowGroup).map((group) => {
+            const isCollapsed = collapsedGroups[group.title];
+            return (
+              <div key={group.title} className="mb-4">
+                <button
+                  onClick={() => toggleGroup(group.title)}
+                  className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                >
+                  <span>{group.title}</span>
+                  {isCollapsed ? (
+                    <ChevronRight className="h-3 w-3" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3" />
+                  )}
+                </button>
+                
+                {!isCollapsed && (
+                  <div className="mt-1 space-y-1">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.to;
+                      return (
+                        <Button
+                          key={item.to}
+                          variant={isActive ? 'default' : 'ghost'}
+                          className="w-full justify-start"
+                          onClick={() => {
+                            navigate(item.to);
+                            setIsSidebarOpen(false);
+                          }}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          <Icon className="h-4 w-4 mr-2" />
+                          {item.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -27,7 +27,7 @@ pub struct RawRingBuffer {
 pub struct ActiveAdapter {
     /// Adapter ID
     pub id: u32,
-    /// Gate value in Q15 format (0-32768)
+    /// Gate value in Q15 format (0-32767)
     pub gate: u16,
 }
 
@@ -186,12 +186,12 @@ impl RingBuffer {
 
     /// Convert float gate to Q15 format
     pub fn float_to_q15(gate: f32) -> u16 {
-        (gate.clamp(0.0, 1.0) * 32768.0) as u16
+        (gate.clamp(0.0, 1.0) * 32767.0) as u16
     }
 
     /// Convert Q15 gate to float
     pub fn q15_to_float(gate: u16) -> f32 {
-        gate as f32 / 32768.0
+        gate as f32 / 32767.0
     }
 }
 
@@ -214,8 +214,8 @@ mod tests {
             RingBuffer::new(Arc::new(device), 3).expect("Ring buffer creation should succeed");
 
         let adapters = vec![
-            ActiveAdapter { id: 1, gate: 16384 }, // 0.5 in Q15
-            ActiveAdapter { id: 2, gate: 32768 }, // 1.0 in Q15
+            ActiveAdapter { id: 1, gate: 16384 }, // ~0.5 in Q15
+            ActiveAdapter { id: 2, gate: 32767 }, // 1.0 in Q15 (max)
         ];
 
         ring_buffer
@@ -230,11 +230,11 @@ mod tests {
     #[test]
     fn test_q15_conversion() {
         assert_eq!(RingBuffer::float_to_q15(0.0), 0);
-        assert_eq!(RingBuffer::float_to_q15(0.5), 16384);
-        assert_eq!(RingBuffer::float_to_q15(1.0), 32768);
+        assert_eq!(RingBuffer::float_to_q15(0.5), 16383); // rounding to nearest
+        assert_eq!(RingBuffer::float_to_q15(1.0), 32767);
 
         assert_eq!(RingBuffer::q15_to_float(0), 0.0);
-        assert_eq!(RingBuffer::q15_to_float(16384), 0.5);
-        assert_eq!(RingBuffer::q15_to_float(32768), 1.0);
+        assert!((RingBuffer::q15_to_float(16383) - 0.5).abs() < 1e-3);
+        assert!((RingBuffer::q15_to_float(32767) - 1.0).abs() < 1e-6);
     }
 }

@@ -313,7 +313,7 @@ kernel.load_adapter(handle.adapter_id, &handle.path)?;
 
 ### 2. Memory Management Integration
 
-Integrate with `mplora-lifecycle` memory manager:
+Integrate with `adapteros-lora-lifecycle` memory manager:
 
 ```rust
 use adapteros_lora_lifecycle::MemoryManager;
@@ -505,4 +505,3 @@ This implementation adheres to the following policy packs:
 **Implementation Date:** October 15, 2025  
 **Author:** Claude (Anthropic)  
 **Status:** ✅ Core implementation complete, ready for testing
-

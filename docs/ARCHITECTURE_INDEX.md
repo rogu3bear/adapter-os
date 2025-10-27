@@ -113,7 +113,7 @@ Complete index of all architecture documentation with quick navigation.
 
 ### Legacy Diagrams (12)
 
-Located in `runtime-diagrams.md` - ⚠️ May be outdated
+Located in `runtime-diagrams.md` - Archived (not maintained)
 
 ---
 
@@ -358,13 +358,13 @@ Located in `runtime-diagrams.md` - ⚠️ May be outdated
 **Monthly**:
 - [ ] Verify all file path references
 - [ ] Check line number accuracy
-- [ ] Update outdated diagrams
+- [ ] Confirm archival status of legacy diagrams
 - [ ] Add missing components
 
 **Quarterly**:
 - [ ] Full diagram verification against code
 - [ ] Update version numbers
-- [ ] Review and prune legacy diagrams
+- [ ] Review legacy set (keep archived reference only)
 - [ ] Metrics and quality check
 
 **Per Release**:
@@ -589,4 +589,3 @@ docs/
 **Last Updated**: 2025-01-14  
 **Maintained By**: AdapterOS Team  
 **License**: MIT OR Apache-2.0
-

@@ -1,0 +1,5 @@
+- [x] Create TrainingPage.tsx consolidating training jobs, wizard, and monitoring
+- [x] Create TestingPage.tsx for adapter testing and validation workflows
+- [x] Create AdaptersPage.tsx for unified adapter lifecycle management
+- [x] Extract Promotion component to standalone page with enhanced workflow
+- [x] Create MonitoringPage.tsx consolidating system health and alerts

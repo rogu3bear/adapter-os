@@ -341,4 +341,4 @@ Tokens expire after 8 hours. Re-login to get a new token.
 
 - [AdapterOS Architecture](architecture.md)
 - [Policy Rulesets](../README.md#policy-rulesets)
-- [Phase 4 Metal Kernels](phase4-metal-kernels.md)
+- [Phase 4 Metal Kernels](metal/phase4-metal-kernels.md)

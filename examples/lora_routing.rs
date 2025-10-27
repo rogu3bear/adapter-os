@@ -12,9 +12,10 @@
 //! cargo run --example lora_routing
 //! ```
 
-use mplora_mlx::routing::{apply_entropy_floor, select_top_k};
+use adapteros_lora_router::{Router, RouterConfig};
+use adapteros_core::Result;
 
-fn main() {
+fn main() -> Result<()> {
     println!("🎯 K-Sparse LoRA Routing Example\n");
 
     // Simulate router logits for 8 adapters
@@ -105,6 +106,37 @@ fn main() {
     println!("   - Q15 quantization ensures deterministic gates");
     println!("   - Entropy floor prevents single-adapter collapse");
     println!("   - Gate probabilities sum to 1.0 (Q15 sum ≈ 32767)");
+    
+    Ok(())
+}
+
+/// Select top-K adapters with Q15 quantization
+fn select_top_k(logits: &[f32], k: usize) -> (Vec<usize>, Vec<u16>) {
+    let mut indexed: Vec<(usize, f32)> = logits.iter().enumerate().map(|(i, &l)| (i, l)).collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let selected: Vec<usize> = indexed.iter().take(k).map(|(i, _)| *i).collect();
+    let selected_logits: Vec<f32> = indexed.iter().take(k).map(|(_, l)| *l).collect();
+    
+    // Softmax to probabilities
+    let max_logit = selected_logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+    let exp_logits: Vec<f32> = selected_logits.iter().map(|&l| (l - max_logit).exp()).collect();
+    let sum_exp: f32 = exp_logits.iter().sum();
+    let probs: Vec<f32> = exp_logits.iter().map(|&e| e / sum_exp).collect();
+    
+    // Quantize to Q15
+    let gates: Vec<u16> = probs.iter().map(|&p| (p * 32767.0) as u16).collect();
+    
+    (selected, gates)
+}
+
+/// Apply entropy floor to prevent collapse
+fn apply_entropy_floor(gates: &[u16], floor: f32) -> Vec<u16> {
+    let uniform = 32767 / gates.len() as u16;
+    gates.iter().map(|&g| {
+        let adjusted = (g as f32 * (1.0 - floor) + uniform as f32 * floor) as u16;
+        adjusted
+    }).collect()
 }
 
 fn calculate_entropy(gates: &[u16]) -> f32 {

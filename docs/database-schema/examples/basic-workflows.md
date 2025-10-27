@@ -194,7 +194,7 @@ sequenceDiagram
 1. **Adapter Lifecycle**: `GET /v1/journeys/adapter-lifecycle/{adapter_id}` - Fetches state history from adapters table.
 2. **Promotion Pipeline**: `GET /v1/journeys/promotion-pipeline/{plan_id}` - Promotion records from cp_pointers and promotions.
 
-See [API Docs](server-api.md) for full schema.
+See [API Docs](../../api.md) for full schema.
 
 ---
 

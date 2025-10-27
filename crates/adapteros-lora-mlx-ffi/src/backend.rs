@@ -219,7 +219,7 @@ impl FusedKernels for MLXFFIBackend {
         } else {
             ring.gates_q15
                 .iter()
-                .map(|&g| (g as f32) / 32768.0)
+                .map(|&g| (g as f32) / 32767.0)
                 .sum::<f32>()
                 / (ring.gates_q15.len() as f32)
         };

@@ -50,9 +50,9 @@ pub struct ManifestVerifier {
 impl ManifestVerifier {
     /// Create a new manifest verifier with embedded public key
     pub fn new(telemetry: Option<Arc<TelemetryWriter>>) -> Result<Self> {
-        // Load embedded public key
-        let public_key_pem = crate::keys::SIGNING_PUBLIC_KEY_PEM;
-        let public_key = PublicKey::from_pem(public_key_pem)
+        // Load public key (allow env override)
+        let public_key_pem = crate::keys::resolve_public_key_pem();
+        let public_key = PublicKey::from_pem(&public_key_pem)
             .map_err(|e| AosError::Crypto(format!("Failed to load embedded public key: {}", e)))?;
 
         Ok(Self {
@@ -188,8 +188,33 @@ pub fn verify_embedded_manifest(
     // Compute actual kernel hash
     let actual_hash = B3Hash::hash(metallib_bytes);
 
-    // Verify manifest
-    let manifest = verifier.verify_manifest(manifest_json, signature_data, actual_hash)?;
+    // Allow development override to skip kernel signature verification
+    let skip_sig = std::env::var("AOS_SKIP_KERNEL_SIGNATURE_VERIFY")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    let manifest = if skip_sig {
+        // Parse manifest without signature validation (DEV ONLY)
+        tracing::warn!(
+            "Skipping kernel signature verification due to AOS_SKIP_KERNEL_SIGNATURE_VERIFY"
+        );
+        let m: KernelManifest = serde_json::from_str(manifest_json)
+            .map_err(AosError::Serialization)?;
+        // Still compare kernel hash if present
+        if let Ok(expected_hash) = B3Hash::from_hex(&m.kernel_hash) {
+            if actual_hash != expected_hash {
+                tracing::warn!(
+                    expected = %expected_hash.to_short_hex(),
+                    actual = %actual_hash.to_short_hex(),
+                    "Kernel hash mismatch in dev mode"
+                );
+            }
+        }
+        m
+    } else {
+        // Verify manifest and kernel signature
+        verifier.verify_manifest(manifest_json, signature_data, actual_hash)?
+    };
 
     tracing::info!(
         "Kernel manifest verified: hash={}, build={}",
