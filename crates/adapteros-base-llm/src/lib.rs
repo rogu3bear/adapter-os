@@ -250,6 +250,10 @@ mod mlx_backend {
     use pyo3::prelude::*;
     use pyo3::types::{IntoPyDict, PyList, PyModule, PyTuple};
 
+    // Add Python version check
+    #[cfg(not(pyo3_python_version = "3.13"))]
+    compile_error!("MLX backend requires Python 3.13 or earlier; current version is incompatible with PyO3");
+
     /// Load a Qwen model via Python's mlx_lm.load API. Returns (model, tokenizer, generate_fn).
     pub fn load_qwen_via_mlx(model_ref: &str, seed64: u64) -> PyResult<(PyObject, PyObject, PyObject)> {
         Python::with_gil(|py| {

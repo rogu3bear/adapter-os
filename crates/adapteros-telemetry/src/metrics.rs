@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::info;
+use crate::alerting::AlertSeverity; // Add import
 
 /// Metrics collector with Prometheus integration
 pub struct MetricsCollector {
@@ -54,6 +55,8 @@ pub struct MetricsSnapshot {
     pub system: SystemMetrics,
     pub policy: PolicyMetrics,
     pub adapters: AdapterMetrics,
+    pub disk: DiskMetrics,
+    pub network: NetworkMetrics,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +106,16 @@ pub struct AdapterMetrics {
     pub evictions_total: u64,
     pub active_adapters: f64,
     pub activations_by_adapter: HashMap<String, u64>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct DiskMetrics {
+    pub io_utilization: f64,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NetworkMetrics {
+    pub bandwidth_utilization: f64,
 }
 
 impl MetricsCollector {
@@ -563,6 +576,12 @@ impl MetricsCollector {
                 active_adapters: 0.0, // Would track active adapters
                 activations_by_adapter: HashMap::new(),
             },
+            disk: DiskMetrics {
+                io_utilization: 0.0, // Placeholder, would be populated by system metrics
+            },
+            network: NetworkMetrics {
+                bandwidth_utilization: 0.0, // Placeholder, would be populated by network metrics
+            },
         }
     }
 
@@ -644,6 +663,28 @@ impl MetricsCollector {
             });
         }
         
+        // Add disk I/O alert (threshold: 80% utilization)
+        if cache.disk.io_utilization > 80.0 {
+            alerts.push(Alert {
+                severity: AlertSeverity::Warning,
+                metric: "disk_io_utilization".to_string(),
+                value: cache.disk.io_utilization,
+                threshold: 80.0,
+                message: format!("Disk I/O utilization {}% exceeds 80% threshold", cache.disk.io_utilization),
+            });
+        }
+
+        // Add network saturation alert (threshold: 90% bandwidth)
+        if cache.network.bandwidth_utilization > 90.0 {
+            alerts.push(Alert {
+                severity: AlertSeverity::High,
+                metric: "network_bandwidth_utilization".to_string(),
+                value: cache.network.bandwidth_utilization,
+                threshold: 90.0,
+                message: format!("Network bandwidth utilization {}% exceeds 90% threshold", cache.network.bandwidth_utilization),
+            });
+        }
+        
         if !alerts.is_empty() {
             tracing::warn!("Detected {} alerts", alerts.len());
         }
@@ -702,6 +743,12 @@ impl Default for MetricsSnapshot {
                 evictions_total: 0,
                 active_adapters: 0.0,
                 activations_by_adapter: HashMap::new(),
+            },
+            disk: DiskMetrics {
+                io_utilization: 0.0,
+            },
+            network: NetworkMetrics {
+                bandwidth_utilization: 0.0,
             },
         }
     }

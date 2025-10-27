@@ -551,6 +551,22 @@ warm_threshold_mins = 15
 
 ## Production Checklist
 
+### Scaling Guidelines
+- Horizontal: Add worker nodes with federation enabled
+- Vertical: Increase GPU memory allocation in configs
+
+### Security Hardening
+- Enable JWT rotation in auth config
+- Set RBAC policies in cp.toml
+
+### Monitoring Setup
+- Configure Prometheus export
+- Set up alerting thresholds
+
+### Backup Strategies
+- Daily DB snapshots
+- Adapter registry backups
+
 ### Security
 
 - [ ] JWT secrets rotated and stored securely

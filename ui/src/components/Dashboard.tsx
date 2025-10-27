@@ -31,6 +31,8 @@ import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { useNavigate } from 'react-router-dom';
 import type { UserRole, User, SystemMetrics } from '@/api/types';
 import apiClient from '../api/client';
+import { Dispatch, SetStateAction } from 'react';
+import type { InformationDensity } from '../hooks/useInformationDensity';
 
 interface DashboardProps {
   user?: User;
@@ -52,6 +54,11 @@ interface DashboardLayout {
     route: string;
     variant?: 'default' | 'outline' | 'secondary';
   }>;
+}
+
+interface DensityControlsProps {
+  density: InformationDensity;
+  setDensity: Dispatch<SetStateAction<InformationDensity>>;
 }
 
 // Simple system health widget for all roles
