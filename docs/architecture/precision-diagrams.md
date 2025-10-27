@@ -1170,10 +1170,10 @@ All diagrams have been verified against the codebase:
 
 ## Related Documentation
 
-- [System Architecture](architecture.md) - High-level overview
+- [System Architecture](../architecture.md) - High-level overview
 - [Database Schema](../database-schema/README.md) - Complete database structure
 - [Code Intelligence](../code-intelligence/README.md) - Code analysis pipeline
-- [Control Plane](control-plane.md) - API and operations
+- [Control Plane](../control-plane.md) - API and operations
 - [CLAUDE.md](../../CLAUDE.md) - Developer guide
 
 ---
@@ -1182,4 +1182,3 @@ All diagrams have been verified against the codebase:
 **Codebase Version**: 0.1.0  
 **Total Crates**: 44  
 **Diagram Count**: 8
-

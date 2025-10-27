@@ -1,57 +1,633 @@
-# AdapterOS Production Deployment Guide
+# AdapterOS Deployment Guide
+
+**Complete production deployment guide with multi-node setup, Kubernetes orchestration, air-gapped deployment, and scaling guidelines.**
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Single-Node Production Setup](#single-node-production-setup)
+3. [Multi-Node Cluster Setup](#multi-node-cluster-setup)
+4. [Kubernetes Deployment](#kubernetes-deployment)
+5. [Air-Gapped Deployment](#air-gapped-deployment)
+6. [Scaling Guidelines](#scaling-guidelines)
+7. [Production Checklist](#production-checklist)
+
+---
 
 ## Prerequisites
-- macOS 13.0+ with Apple Silicon (M1+)
-- Rust 1.75+: `rustup install stable`
-- ≥16GB RAM, Postgres 15+ for prod (SQLite for dev)
-- MLX: `pip install mlx` (optional, experimental【@Docs README.md §103】)
 
-## Database Setup
-### Development (SQLite)
-Default: `var/aos.db`. Init: `./target/release/aosctl init-tenant --id default`.
+### Hardware Requirements
+- **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
+- **RAM**: ≥16GB (32GB+ recommended for production)
+- **Disk**: ≥100GB free space
+- **Network**: Gigabit Ethernet for multi-node
 
-### Production (Postgres + pgvector for RAG)
-1. Install Postgres/pgvector: Use docker-compose【@Docs rag-pgvector.md §docker】:
-   ```
-   version: '3.8'
-   services:
-     postgres:
-       image: pgvector/pgvector:pg15
-       environment:
-         POSTGRES_DB: adapteros
-         POSTGRES_USER: aos
-         POSTGRES_PASSWORD: aos
-       ports:
-         - "5432:5432"
-   ```
-2. Set `DATABASE_URL=postgresql://aos:aos@localhost/adapteros`.
-3. Run migrations: `cargo run --bin adapteros-db -- migrate up --database-url $DATABASE_URL`【@Docs database-schema/migrations.md §10】.
-4. RAG: Enable `--features rag-pgvector`, set `RAG_EMBED_DIM=3584`【@Docs README.md §190】. Index auto-creates on startup.
+### Software Requirements
+- **Rust 1.75+**: `rustup install stable`
+- **PostgreSQL 15+** with pgvector extension
+- **Metal SDK**: Included with Xcode Command Line Tools
+- **Docker** (for containerized deployments)
 
-Rollback: `migrate down` with step count【@Docs database-schema/migrations.md §30】.
+---
 
-## Build and Run
-1. `cargo build --release --features rag-pgvector` (for prod backend【@Docs README.md §103】).
-2. Init: `./target/release/aosctl init-tenant --id prod`.
-3. Import model: `./target/release/aosctl import-model --name qwen2.5-7b --weights models/...`【@Docs QUICKSTART.md §110】.
-4. Serve: `./target/release/aosctl serve --plan prod-plan --config configs/prod.toml` (port 8080, Unix sockets【@Docs control-plane.md §15】).
-5. API: `curl -H 'Authorization: Bearer $TOKEN' http://localhost:8080/v1/healthz`.
+## Single-Node Production Setup
 
-Multi-node: Set `AOS_FEDERATION_MODE=cluster`, use `adapteros-federation` for sync【@Docs federation.md §1】. Leader election via DB.
+### 1. Database Configuration
 
-## Monitoring and Observability
-- Telemetry: Logs to JSON/Merkle trees in `var/telemetry/`【@Docs telemetry.md §1】. Export to Prometheus: Enable in config, hit `/metrics`【@Docs README.md §431】.
-- Prometheus: Scrape /metrics every 15s (counters: inference_total, errors_total【@crates/adapteros-metrics-exporter/src/lib.rs】). Alert queries: rate(adapteros_errors_total[5m]) > 10 (anomaly【@prometheus docs§alerting】). Grafana dashboard: Import json for AdapterOS metrics.
-- Policies: Enforce 20 packs on startup【@Docs POLICIES.md §1】; audit via `/v1/audit/compliance`.
-- Drift: Environment fingerprinting auto-baselines【@Docs determinism.md §16】.
+#### PostgreSQL with pgvector
 
-## Configuration
-TOML precedence: CLI > env > file【@Docs CONFIG_PRECEDENCE.md §1】. Freeze for determinism: `aosctl freeze-config`【@Docs CONFIG_PRECEDENCE.md §freeze】.
+```bash
+# Install PostgreSQL with pgvector
+brew install postgresql@15
+brew install pgvector
 
-## Edge Cases and Troubleshooting
-- Migrations Rollback: `migrate down 1` for last step【@Docs database-schema/migrations.md §30】.
-- Zero-Egress: Verify with `tcpdump` (no outbound【@Docs runaway-prevention.md §egress】).
-- Low RAM: Auto-evict ephemeral adapters (≥15% headroom【@Docs README.md §406】).
-- RAG Fail: If pgvector down, fallback in-memory (less scalable【@Docs rag-pgvector.md §189】).
+# Start PostgreSQL
+brew services start postgresql@15
 
-For full API: Run `cargo doc --open`【@Docs README.md §451】. Questions? See @Docs architecture.md.
+# Create database
+createdb adapteros_prod
+
+# Enable pgvector extension
+psql adapteros_prod -c "CREATE EXTENSION vector;"
+```
+
+#### Configure Environment
+
+```bash
+# Set database URL
+export DATABASE_URL="postgresql://localhost/adapteros_prod"
+
+# RAG embedding dimension (must match model)
+export RAG_EMBED_DIM=3584
+
+# Set adapter storage path
+export AOS_ADAPTERS_ROOT=/var/lib/adapteros/adapters
+```
+
+### 2. Build AdapterOS
+
+```bash
+# Clone repository
+git clone https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
+
+# Build with production features
+cargo build --release --features rag-pgvector
+
+# Install binaries
+sudo cp target/release/aosctl /usr/local/bin/
+sudo cp target/release/adapteros-server /usr/local/bin/
+```
+
+### 3. Initialize System
+
+```bash
+# Run database migrations
+aosctl db migrate
+
+# Initialize default tenant
+aosctl init-tenant --id production --uid 1000 --gid 1000
+
+# Import base model
+aosctl import-model \
+  --name qwen2.5-7b-instruct \
+  --weights models/qwen2.5-7b-mlx/weights.safetensors \
+  --config models/qwen2.5-7b-mlx/config.json \
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+```
+
+### 4. Configure Production Settings
+
+Create `configs/production.toml`:
+
+```toml
+[server]
+port = 8080
+bind_address = "0.0.0.0"
+workers = 4
+
+[db]
+url = "postgresql://localhost/adapteros_prod"
+pool_size = 20
+
+[security]
+require_pf_deny = true  # Enforce packet filter rules
+jwt_secret_path = "/etc/adapteros/jwt.secret"
+
+[paths]
+plan_dir = "/var/lib/adapteros/plans"
+artifact_dir = "/var/lib/adapteros/artifacts"
+adapters_root = "/var/lib/adapteros/adapters"
+
+[router]
+k_sparse = 3
+entropy_floor = 0.02
+gate_quant = "q15"
+
+[memory]
+min_headroom_pct = 15
+evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
+
+[telemetry]
+enabled = true
+json_output = "/var/log/adapteros/telemetry.jsonl"
+prometheus_port = 9090
+
+[policies]
+# Enable all 22 policy packs
+egress = true
+determinism = true
+router = true
+evidence = true
+refusal = true
+numeric = true
+rag = true
+isolation = true
+telemetry = true
+retention = true
+performance = true
+memory = true
+artifacts = true
+secrets = true
+build_release = true
+compliance = true
+incident = true
+output = true
+adapters = true
+deterministic_io = true
+drift = true
+mplora = true
+```
+
+### 5. Start Services
+
+```bash
+# Start server with production config
+adapteros-server --config configs/production.toml
+```
+
+---
+
+## Multi-Node Cluster Setup
+
+### Architecture
+
+```
+┌────────────────┐      ┌────────────────┐      ┌────────────────┐
+│   Node 1       │      │   Node 2       │      │   Node 3       │
+│  (Leader)      │◄────►│  (Worker)      │◄────►│  (Worker)      │
+│                │      │                │      │                │
+│  PostgreSQL    │      │  Inference     │      │  Inference     │
+│  Control Plane │      │  Worker        │      │  Worker        │
+└────────────────┘      └────────────────┘      └────────────────┘
+         │                      │                       │
+         └──────────────────────┴───────────────────────┘
+                          Shared Storage
+```
+
+### 1. Shared PostgreSQL Setup
+
+On **Node 1** (leader):
+
+```bash
+# Configure PostgreSQL for remote access
+# Edit postgresql.conf
+listen_addresses = '*'
+
+# Edit pg_hba.conf (add nodes 2 and 3)
+host    adapteros_prod    adapteros    192.168.1.0/24    md5
+
+# Create database user
+psql -c "CREATE USER adapteros WITH PASSWORD 'secure_password';"
+psql -c "GRANT ALL PRIVILEGES ON DATABASE adapteros_prod TO adapteros;"
+
+# Restart PostgreSQL
+brew services restart postgresql@15
+```
+
+### 2. Worker Node Configuration
+
+On **Node 2 and Node 3**:
+
+```bash
+# Set database URL to point to leader
+export DATABASE_URL="postgresql://adapteros:secure_password@192.168.1.10/adapteros_prod"
+
+# Set federation mode
+export AOS_FEDERATION_MODE=cluster
+
+# Set node ID
+export AOS_NODE_ID=node2  # or node3
+
+# Build and start worker
+cargo build --release --features rag-pgvector
+./target/release/adapteros-server --config configs/worker.toml
+```
+
+Worker config (`configs/worker.toml`):
+
+```toml
+[server]
+port = 8081  # Different port per worker
+bind_address = "0.0.0.0"
+workers = 8
+
+[federation]
+mode = "cluster"
+leader_url = "http://192.168.1.10:8080"
+heartbeat_interval_secs = 10
+
+# ... rest same as production.toml
+```
+
+### 3. Leader Election
+
+Leader election is automatic via PostgreSQL:
+
+```sql
+-- Check current leader
+SELECT node_id, elected_at 
+FROM cluster_nodes 
+WHERE is_leader = TRUE;
+```
+
+---
+
+## Kubernetes Deployment
+
+### 1. Create Namespace
+
+```bash
+kubectl create namespace adapteros
+```
+
+### 2. PostgreSQL StatefulSet
+
+Create `k8s/postgres.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: adapteros
+spec:
+  ports:
+  - port: 5432
+  clusterIP: None
+  selector:
+    app: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: adapteros
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: pgvector/pgvector:pg15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          value: adapteros_prod
+        - name: POSTGRES_USER
+          value: adapteros
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 100Gi
+```
+
+### 3. AdapterOS Deployment
+
+Create `k8s/adapteros.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: adapteros-api
+  namespace: adapteros
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: adapteros
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adapteros
+  namespace: adapteros
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: adapteros
+  template:
+    metadata:
+      labels:
+        app: adapteros
+    spec:
+      containers:
+      - name: adapteros
+        image: adapteros:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://adapteros:password@postgres:5432/adapteros_prod"
+        - name: RAG_EMBED_DIM
+          value: "3584"
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+          limits:
+            memory: "32Gi"
+            cpu: "8"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/adapteros
+        - name: adapters
+          mountPath: /var/lib/adapteros/adapters
+      volumes:
+      - name: config
+        configMap:
+          name: adapteros-config
+      - name: adapters
+        persistentVolumeClaim:
+          claimName: adapters-pvc
+```
+
+### 4. Deploy
+
+```bash
+# Create secrets
+kubectl create secret generic postgres-secret \
+  --from-literal=password=secure_password \
+  -n adapteros
+
+# Create config map
+kubectl create configmap adapteros-config \
+  --from-file=production.toml \
+  -n adapteros
+
+# Deploy
+kubectl apply -f k8s/postgres.yaml
+kubectl apply -f k8s/adapteros.yaml
+
+# Check status
+kubectl get pods -n adapteros
+```
+
+---
+
+## Air-Gapped Deployment
+
+### 1. Prepare Offline Bundle
+
+On a machine with internet access:
+
+```bash
+# Clone repository with vendored dependencies
+git clone --recursive https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
+
+# Vendor Rust dependencies
+cargo vendor
+
+# Build offline
+cargo build --release --offline
+
+# Package everything
+tar czf adapteros-offline-bundle.tar.gz \
+  target/release/aosctl \
+  target/release/adapteros-server \
+  models/ \
+  configs/ \
+  metal/
+```
+
+### 2. Transfer and Install
+
+On air-gapped machine:
+
+```bash
+# Extract bundle
+tar xzf adapteros-offline-bundle.tar.gz
+
+# Install binaries
+sudo cp target/release/* /usr/local/bin/
+
+# Set up local database
+brew install postgresql@15
+createdb adapteros_airgap
+```
+
+### 3. Configure Zero Egress
+
+Edit `configs/airgap.toml`:
+
+```toml
+[security]
+require_pf_deny = true
+zero_network_egress = true
+
+[egress]
+# Block all network except Unix sockets
+allowed_protocols = []
+unix_socket_only = true
+pf_rules_path = "/etc/pf.anchors/adapteros"
+```
+
+### 4. Packet Filter Rules
+
+Create `/etc/pf.anchors/adapteros`:
+
+```
+# Block all network traffic from AdapterOS process
+block drop out proto tcp from any to any user adapteros
+block drop out proto udp from any to any user adapteros
+block drop out proto icmp from any to any user adapteros
+
+# Allow localhost only
+pass out proto tcp from 127.0.0.1 to 127.0.0.1 user adapteros
+pass out on lo0 user adapteros
+```
+
+Enable rules:
+
+```bash
+# Load anchor
+sudo pfctl -f /etc/pf.conf
+sudo pfctl -a adapteros -f /etc/pf.anchors/adapteros
+sudo pfctl -e
+
+# Verify with tcpdump (should show no outbound traffic)
+sudo tcpdump -i any -n src host <server_ip>
+```
+
+---
+
+## Scaling Guidelines
+
+### Worker Pool Sizing
+
+Formula:
+```
+workers = min(physical_cores, max_concurrent_requests / avg_latency_secs)
+```
+
+Example for M3 Max (16 cores):
+- Target: 100 requests/sec
+- Avg latency: 0.2 sec
+- Workers needed: 100 * 0.2 = 20 workers
+- Use: 16 workers (limited by cores)
+
+### Memory Allocation
+
+Per model:
+- Base model (Qwen 2.5 7B int4): ~5GB
+- K=3 adapters (16 rank): ~150MB per adapter = 450MB
+- Headroom (15%): ~820MB
+- **Total per model: ~6.3GB**
+
+For 32GB system:
+- Max concurrent models: 4
+- Reserve 8GB for system
+- Per-model memory: 6GB
+
+### Adapter Eviction Strategy
+
+Configure in `production.toml`:
+
+```toml
+[memory]
+min_headroom_pct = 15
+max_adapters_per_tenant = 20
+evict_order = [
+  "ephemeral_ttl",     # Expire directory-specific adapters first
+  "cold_lru",          # Then least-recently-used cold adapters
+  "warm_lru",          # Then warm adapters
+  "framework_priority" # Preserve framework adapters
+]
+
+[eviction_policy]
+ephemeral_ttl_hours = 24
+cold_threshold_mins = 60
+warm_threshold_mins = 15
+```
+
+---
+
+## Production Checklist
+
+### Security
+
+- [ ] JWT secrets rotated and stored securely
+- [ ] Packet filter (PF) rules enabled and tested
+- [ ] Zero network egress verified with tcpdump
+- [ ] TLS certificates installed for external access
+- [ ] Database credentials rotated
+- [ ] Ed25519 keypairs generated for signing
+- [ ] RBAC roles configured (admin, operator, SRE)
+
+### Database
+
+- [ ] PostgreSQL tuning applied:
+  ```sql
+  ALTER SYSTEM SET shared_buffers = '4GB';
+  ALTER SYSTEM SET effective_cache_size = '12GB';
+  ALTER SYSTEM SET maintenance_work_mem = '1GB';
+  ALTER SYSTEM SET checkpoint_completion_target = 0.9;
+  ALTER SYSTEM SET wal_buffers = '16MB';
+  ALTER SYSTEM SET default_statistics_target = 100;
+  ```
+- [ ] pgvector indices created:
+  ```sql
+  CREATE INDEX ON rag_documents USING hnsw (embedding vector_cosine_ops);
+  ```
+- [ ] Automated backups configured
+- [ ] Point-in-time recovery tested
+- [ ] Connection pooling configured (pool_size=20)
+
+### Monitoring
+
+- [ ] Prometheus scraping `/metrics` endpoint
+- [ ] Grafana dashboards imported
+- [ ] Alert rules configured:
+  ```yaml
+  - alert: HighInferenceLatency
+    expr: histogram_quantile(0.95, adapteros_inference_latency_seconds) > 0.1
+    for: 5m
+    annotations:
+      summary: "Inference p95 latency exceeds 100ms"
+  
+  - alert: HighMemoryUsage
+    expr: adapteros_memory_usage_bytes / adapteros_memory_total_bytes > 0.85
+    for: 2m
+    annotations:
+      summary: "Memory usage above 85%"
+  ```
+- [ ] Telemetry bundles rotating (max 500k events)
+- [ ] Health checks returning 200 OK
+
+### Policies
+
+- [ ] All 22 policy packs enabled
+- [ ] Compliance reports generated weekly
+- [ ] Audit trail retention configured (90 days)
+- [ ] Incident freeze procedures tested
+- [ ] Rollback procedures documented and tested
+
+### Performance
+
+- [ ] Baseline inference latency recorded (p50/p95/p99)
+- [ ] Throughput target met (tokens/sec)
+- [ ] Memory headroom ≥15% maintained
+- [ ] Queue depth < 1000 under normal load
+- [ ] Golden runs established for regression testing
+
+---
+
+## References
+
+- [README.md](../README.md) - Quick start and feature overview
+- [docs/control-plane.md](control-plane.md) - API endpoints
+- [docs/rag-pgvector.md](rag-pgvector.md) - Vector database setup
+- [docs/POLICIES.md](POLICIES.md) - 22 policy packs
+
+---
+
+**Version:** 1.0  
+**Last Updated:** October 27, 2025  
+**Maintained By:** AdapterOS Team

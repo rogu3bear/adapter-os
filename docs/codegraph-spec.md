@@ -531,4 +531,4 @@ Required crates:
 - `serde` ^1.0
 - `bincode` ^1.3
 
-See [code-dependencies.md](code-dependencies.md) for full list.
+See [code-dependencies.md](code-intelligence/code-dependencies.md) for full list.

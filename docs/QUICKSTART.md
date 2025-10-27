@@ -1,4 +1,4 @@
-# MPLoRA Quick Start Guide
+# AdapterOS Quick Start Guide
 
 Get MPLoRA up and running in under 10 minutes. This guide covers both backend integration and web UI setup.
 
@@ -31,7 +31,7 @@ SERVER_PORT=9443
 JWT_SECRET=$(openssl rand -base64 32)
 
 # Logging
-RUST_LOG=info,mplora=debug
+RUST_LOG=info,adapteros=debug
 
 # Optional: OpenAI for patch generation
 OPENAI_API_KEY=sk-your-api-key-here
@@ -44,9 +44,9 @@ OPENAI_API_KEY=sk-your-api-key-here
 cargo build --release
 
 # Or build specific packages
-cargo build --release --package mplora-worker
-cargo build --release --package mplora-server
-cargo build --release --package mplora-cli
+cargo build --release --package adapteros-lora-worker
+cargo build --release --package adapteros-server
+cargo build --release --package adapteros-cli
 ```
 
 ## Understanding the Database
@@ -92,7 +92,7 @@ The following sections show basic operations with the database.
 ./target/release/aosctl serve --plan <plan-id>
 
 # Or use the integrated server
-./target/release/mplora-server --config configs/cp.toml
+./target/release/adapteros-server --config configs/cp.toml
 ```
 
 ## Quick Start: Web UI
@@ -106,7 +106,7 @@ pnpm install
 pnpm dev
 
 # Terminal 2: Backend server
-cargo run --release --bin mplora-server -- --config configs/cp.toml
+cargo run --release --bin adapteros-server -- --config configs/cp.toml
 ```
 
 Visit http://127.0.0.1:3200 (UI) and http://127.0.0.1:8080 (API)
@@ -118,10 +118,10 @@ Visit http://127.0.0.1:3200 (UI) and http://127.0.0.1:8080 (API)
 make ui
 
 # 2. Build control plane with embedded UI
-cargo build --release --bin mplora-server
+cargo build --release --bin adapteros-server
 
 # 3. Run single binary
-./target/release/mplora-server --config configs/cp.toml
+./target/release/adapteros-server --config configs/cp.toml
 ```
 
 Visit http://127.0.0.1:8080
@@ -236,7 +236,7 @@ cd ui && pnpm install && pnpm build
 
 Make sure the server is running:
 ```bash
-cargo run --release --bin mplora-server -- --config configs/cp.toml
+cargo run --release --bin adapteros-server -- --config configs/cp.toml
 ```
 
 ### "OpenAI API error: Unauthorized"
@@ -260,10 +260,10 @@ cargo build --release
 Either run as root or skip (dev mode will log warning but continue):
 ```bash
 # As root
-sudo ./target/release/mplora-server --config configs/cp.toml
+sudo ./target/release/adapteros-server --config configs/cp.toml
 
 # Or in dev mode (no privilege dropping)
-./target/release/mplora-server --config configs/cp.toml
+./target/release/adapteros-server --config configs/cp.toml
 ```
 
 ## Performance Tips

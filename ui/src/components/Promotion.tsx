@@ -5,12 +5,12 @@ import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { ArrowUp, CheckCircle, XCircle, AlertTriangle, Play, History, Download, Undo2 } from 'lucide-react';
-import apiClient from '../api/client';
-import { PromotionGate, User, DryRunPromotionResponse, PromotionHistoryEntry } from '../api/types';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
+import apiClient from '../api/client';
+import { User } from '../api/types';
 import { logger, toError } from '../utils/logger';
+import { ArrowUp, History, Download, Undo2, Play, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 
 interface PromotionProps {
   user: User;
@@ -19,128 +19,70 @@ interface PromotionProps {
 
 export function Promotion({ user, selectedTenant }: PromotionProps) {
   const [cpid, setCpid] = useState('');
-  const [gates, setGates] = useState<PromotionGate[]>([]);
+  const [gates, setGates] = useState<any[]>([]);
+  const [dryRunResult, setDryRunResult] = useState<any | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [dryRunResult, setDryRunResult] = useState<DryRunPromotionResponse | null>(null);
-  const [history, setHistory] = useState<PromotionHistoryEntry[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [gatesLog, setGatesLog] = useState<string>('');
 
   useEffect(() => {
     fetchHistory();
   }, []);
 
   const fetchHistory = async () => {
-    setLoadingHistory(true);
     try {
       const data = await apiClient.getPromotionHistory();
       setHistory(data);
     } catch (err) {
-      logger.error('Failed to fetch promotion history', {
-        component: 'Promotion',
-        operation: 'fetchHistory',
-        tenantId: selectedTenant,
-      }, toError(err));
-    } finally {
-      setLoadingHistory(false);
+      toast.error('Failed to load history');
     }
   };
 
   const handleDryRun = async () => {
-    if (!cpid) {
-      toast.error('Please enter a CPID');
-      return;
-    }
     setLoading(true);
-    setError(null);
-    setDryRunResult(null);
     try {
       const result = await apiClient.dryRunPromotion(cpid);
       setDryRunResult(result);
-      toast.success('Dry run complete');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Dry run failed';
-      setError(errorMsg);
-      toast.error(errorMsg);
-      logger.error('Promotion dry run failed', {
-        component: 'Promotion',
-        operation: 'dryRun',
-        cpid,
-        tenantId: selectedTenant,
-      }, toError(err));
+      setError('Dry run failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const checkGates = async () => {
-    if (!cpid) {
-      toast.error('Please enter a CPID');
-      return;
-    }
+  const handleCheckGates = async () => {
     setLoading(true);
-    setError(null);
     try {
       const data = await apiClient.getPromotionGates(cpid);
       setGates(data);
-      setGatesLog(JSON.stringify(data, null, 2));
-      toast.success('Gates checked successfully');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to check gates';
-      setError(errorMsg);
-      toast.error(errorMsg);
-      logger.error('Failed to check promotion gates', {
-        component: 'Promotion',
-        operation: 'checkGates',
-        cpid,
-        tenantId: selectedTenant,
-      }, toError(err));
+      setError('Gate check failed');
     } finally {
       setLoading(false);
-    }
-  };
-  const handleDownloadGatesLog = () => {
-    if (!gatesLog) return;
-    const blob = new Blob([gatesLog], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `promotion-gates-${cpid || 'unknown'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleRollback = async () => {
-    try {
-      await apiClient.rollback();
-      toast.success('Rollback initiated');
-      fetchHistory();
-    } catch (err) {
-      toast.error('Failed to rollback');
     }
   };
 
   const handlePromote = async () => {
-    if (!cpid) {
-      toast.error('Please enter a CPID');
-      return;
-    }
     setLoading(true);
-    setError(null);
-    setSuccess(null);
     try {
       await apiClient.promote({ cpid });
-      const successMsg = `Successfully promoted ${cpid}`;
-      setSuccess(successMsg);
-      toast.success(successMsg);
-      setGates([]);
-      setCpid('');
+      toast.success('Promoted successfully');
+      fetchHistory();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Promotion failed';
-      setError(errorMsg);
-      toast.error(errorMsg);
+      setError('Promotion failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRollback = async () => {
+    setLoading(true);
+    try {
+      await apiClient.rollback();
+      toast.success('Rollback successful');
+      fetchHistory();
+    } catch (err) {
+      setError('Rollback failed');
     } finally {
       setLoading(false);
     }
@@ -150,186 +92,82 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
 
   return (
     <div className="space-y-6">
-      <div className="section-header">
-        <h1 className="section-title">Control Plane Promotion</h1>
-        <p className="section-description">
-          Promote validated control plane configurations to production
-        </p>
-      </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <XCircle className="icon-standard" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <CheckCircle className="icon-standard" />
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
-
-      <Card className="card-standard">
+      <Card>
         <CardHeader>
-          <CardTitle>Promotion Gate Check</CardTitle>
+          <CardTitle>Promotion Controls</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="form-field">
-            <Label htmlFor="cpid" className="form-label">Control Plane ID (CPID)</Label>
-            <div className="flex-standard">
-              <Input
-                id="cpid"
-                value={cpid}
-                onChange={(e) => setCpid(e.target.value)}
-                placeholder="Enter CPID (e.g., cp-20240315-abc123)"
-              />
-              <Button onClick={checkGates} disabled={!cpid || loading}>
-                Check Gates
-              </Button>
-              <Button onClick={handleDryRun} disabled={!cpid || loading} variant="outline">
-                <Play className="icon-standard mr-2" />
-                Dry Run
-              </Button>
-            </div>
+          <div>
+            <Label>CPID</Label>
+            <Input value={cpid} onChange={(e) => setCpid(e.target.value)} />
           </div>
-
-          {dryRunResult && (
-            <div className="space-y-3 border-t pt-4">
-              <h3 className="font-medium">Dry Run Results</h3>
-              <Alert variant={dryRunResult.would_promote ? 'default' : 'destructive'}>
-                <AlertDescription>
-                  {dryRunResult.would_promote ? 
-                    '✓ Would promote successfully' : 
-                    `✗ Would NOT promote (${dryRunResult.validation_errors.length} errors)`}
-                </AlertDescription>
-              </Alert>
-              <div className="space-y-2">
-                {dryRunResult.gate_results.map((gate, idx) => (
-                  <div key={idx} className="flex-between p-2 border rounded">
-                    <div className="flex-center">
-                      {gate[1] ? (
-                        <CheckCircle className="icon-standard text-green-600" />
-                      ) : (
-                        <XCircle className="icon-standard text-red-600" />
-                      )}
-                      <span className="text-sm font-medium">{gate[0]}</span>
-                    </div>
-                    {gate[2] && <span className="text-xs text-muted-foreground">{gate[2]}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {gates.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="font-medium">Gate Status</h3>
-              {gates.map((gate, idx) => (
-                <div
-                  key={idx}
-                  className="flex-between p-3 border rounded-lg"
-                >
-                  <div className="flex-center">
-                    {gate.status === 'passed' && (
-                      <CheckCircle className="icon-large text-green-600" />
-                    )}
-                    {gate.status === 'failed' && (
-                      <XCircle className="icon-large text-red-600" />
-                    )}
-                    {gate.status === 'pending' && (
-                      <AlertTriangle className="icon-large text-yellow-600" />
-                    )}
-                    <div>
-                      <p className="font-medium">{gate.name}</p>
-                      <p className="text-sm text-muted-foreground">{gate.message}</p>
-                    </div>
-                  </div>
-                  <Badge
-                    variant={
-                      gate.status === 'passed'
-                        ? 'default'
-                        : gate.status === 'failed'
-                        ? 'destructive'
-                        : 'secondary'
-                    }
-                  >
-                    {gate.status}
-                  </Badge>
-                </div>
-              ))}
-
-              <Button
-                onClick={handlePromote}
-                disabled={!allGatesPassed || loading}
-                className="w-full"
-              >
-                <ArrowUp className="icon-standard mr-2" />
-                {allGatesPassed ? 'Promote to Production' : 'Gates Must Pass to Promote'}
-              </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handleDownloadGatesLog} disabled={!gatesLog}>
-                  <Download className="icon-standard mr-2" />
-                  Download Gates Log
-                </Button>
-                <Button variant="destructive" onClick={handleRollback}>
-                  <Undo2 className="icon-standard mr-2" />
-                  Rollback
-                </Button>
-              </div>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <Button onClick={handleDryRun} disabled={loading}><Play className="mr-2" /> Dry Run</Button>
+            <Button onClick={handleCheckGates} disabled={loading}><CheckCircle className="mr-2" /> Check Gates</Button>
+            <Button onClick={handlePromote} disabled={loading || !allGatesPassed}><ArrowUp className="mr-2" /> Promote</Button>
+            <Button variant="destructive" onClick={handleRollback} disabled={loading}><Undo2 className="mr-2" /> Rollback</Button>
+          </div>
+          {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>
 
-      <Card className="card-standard">
+      {/* Gate Visualization */}
+      {gates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Gate Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {gates.map((gate, idx) => (
+                <div key={idx} className="flex items-center justify-between p-2 border rounded">
+                  <span>{gate.name}</span>
+                  <Badge variant={gate.status === 'passed' ? 'default' : 'destructive'}>{gate.status}</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dry Run Preview */}
+      {dryRunResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Dry Run Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-sm overflow-auto max-h-48">{JSON.stringify(dryRunResult, null, 2)}</pre>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Promotion History */}
+      <Card>
         <CardHeader>
-          <CardTitle className="flex-center">
-            <History className="icon-large mr-2" />
-            Promotion History
-          </CardTitle>
+          <CardTitle>Promotion History</CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingHistory ? (
-            <div className="text-center py-4 text-muted-foreground">Loading history...</div>
-          ) : (
-            <Table className="table-standard">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>CPID</TableHead>
-                  <TableHead>Promoted By</TableHead>
-                  <TableHead>Previous CPID</TableHead>
-                  <TableHead>Gate Results</TableHead>
-                  <TableHead>Promoted At</TableHead>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>CPID</TableHead>
+                <TableHead>By</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {history.map((entry, idx) => (
+                <TableRow key={idx}>
+                  <TableCell>{entry.cpid}</TableCell>
+                  <TableCell>{entry.promoted_by}</TableCell>
+                  <TableCell>{new Date(entry.promoted_at).toLocaleString()}</TableCell>
+                  <TableCell><Badge>{entry.status}</Badge></TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {history.map((entry) => (
-                  <TableRow key={entry.cpid}>
-                    <TableCell className="table-cell-standard font-mono text-sm">{entry.cpid}</TableCell>
-                    <TableCell className="table-cell-standard">{entry.promoted_by}</TableCell>
-                    <TableCell className="table-cell-standard font-mono text-xs">
-                      {entry.previous_cpid || 'N/A'}
-                    </TableCell>
-                    <TableCell className="table-cell-standard">
-                      <Badge variant="default">{entry.gate_results_summary}</Badge>
-                    </TableCell>
-                    <TableCell className="table-cell-standard text-sm text-muted-foreground">
-                      {new Date(entry.promoted_at).toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {history.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="table-cell-standard text-center text-muted-foreground">
-                      No promotion history available
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

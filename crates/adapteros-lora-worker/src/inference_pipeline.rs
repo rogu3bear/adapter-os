@@ -155,8 +155,14 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // TODO: Add validate_backend_attestation to policy engine
-        // policy.determinism_policy().validate_backend_attestation(&report)?;
+        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
+        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        if !policy.determinism_policy().require_metallib_embed {
+            tracing::warn!("Metallib embed requirement disabled in policy");
+        }
+        if !policy.determinism_policy().require_kernel_hash_match {
+            tracing::warn!("Kernel hash match requirement disabled in policy");
+        }
 
         info!("Backend determinism validated: {}", report.summary());
 
@@ -200,8 +206,14 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // TODO: Add validate_backend_attestation to policy engine
-        // policy.determinism_policy().validate_backend_attestation(&report)?;
+        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
+        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        if !policy.determinism_policy().require_metallib_embed {
+            tracing::warn!("Metallib embed requirement disabled in policy");
+        }
+        if !policy.determinism_policy().require_kernel_hash_match {
+            tracing::warn!("Kernel hash match requirement disabled in policy");
+        }
 
         info!("Backend determinism validated: {}", report.summary());
 
@@ -307,7 +319,7 @@ impl InferencePipeline {
             let priors = if let Some(pc) = &self.prior_context {
                 if pc.adapter_framework_ids.is_empty() {
                     // No adapters available in manifest; fallback to uniform priors
-                    vec![1.0; 8]
+                    vec![1.0; self.router.adapter_count().unwrap_or(8)]
                 } else {
                     let mut priors = vec![1.0f32; pc.adapter_framework_ids.len()];
 
@@ -330,8 +342,14 @@ impl InferencePipeline {
                 }
             } else {
                 // Fallback to uniform priors (legacy behavior)
-                vec![1.0; 8]
+                vec![1.0; self.router.adapter_count().unwrap_or(8)]
             };
+
+            // Sync K from lifecycle (if available)
+            if let Some(pc) = &self.prior_context {
+                let k_now = pc.lifecycle.current_k();
+                self.router.set_k(k_now);
+            }
 
             // Route using computed features and priors
             let features_vec = code_features.to_vector();

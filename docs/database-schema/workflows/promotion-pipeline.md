@@ -317,15 +317,15 @@ flowchart TD
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
 - [Control Plane](../../control-plane.md) - Control plane architecture
 - [Runaway Prevention](../../runaway-prevention.md) - Safety mechanisms
-- [Release Checklist](../../RELEASE_CHECKLIST.md) - Deployment procedures
+- [Deployment Guide](../../DEPLOYMENT.md) - Deployment procedures
 
 ## Implementation References
 
 ### Rust Crates
-- `crates/mplora-plan/src/lib.rs` - Plan compilation
-- `crates/mplora-policy/src/lib.rs` - Policy enforcement
-- `crates/mplora-crypto/src/lib.rs` - Signing and verification
-- `crates/mplora-db/src/promotions.rs` - Promotion database operations
+- `crates/adapteros-lora-plan/src/lib.rs` - Plan compilation
+- `crates/adapteros-policy/src/lib.rs` - Policy enforcement
+- `crates/adapteros-crypto/src/lib.rs` - Signing and verification
+- `crates/adapteros-db/src/promotions.rs` - Promotion database operations
 
 ### API Endpoints
 - `POST /v1/manifests` - Create manifest

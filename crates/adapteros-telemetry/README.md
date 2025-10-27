@@ -301,8 +301,8 @@ If migrating from in-memory telemetry:
 
 ## References
 
-- [Retention Ruleset](docs/architecture/MasterPlan.md#retention-ruleset)
-- [Telemetry Ruleset](docs/architecture/MasterPlan.md#telemetry-ruleset)
+- [Retention Ruleset](../../docs/architecture/MasterPlan.md#retention-ruleset)
+- [Telemetry Ruleset](../../docs/architecture/MasterPlan.md#telemetry-ruleset)
 - [BLAKE3 Specification](https://github.com/BLAKE3-team/BLAKE3-specs)
 - [Bundle Writer Implementation](src/bundle.rs)
 
@@ -318,5 +318,4 @@ If migrating from in-memory telemetry:
 - ✅ Bundle chain verification
 - ✅ GC with safety checks
 - ✅ Storage statistics
-
 

@@ -151,6 +151,8 @@ pub struct Router {
     feature_weights: RouterWeights,
     /// Number of top adapters to select
     k: usize,
+    /// Total adapters known to the router (if provided)
+    adapter_count: Option<usize>,
     /// Temperature for softmax
     tau: f32,
     /// Entropy floor to prevent collapse
@@ -172,6 +174,8 @@ pub struct Router {
     compression_ratio: f32,
     /// Whether shared downsample is enabled
     shared_downsample: bool,
+    /// Deterministic sampling seed for telemetry
+    seed: [u8; 32],
 }
 
 impl Router {
@@ -180,6 +184,7 @@ impl Router {
         Self {
             feature_weights,
             k,
+            adapter_count: None,
             tau,
             eps,
             telemetry: None,
@@ -189,13 +194,17 @@ impl Router {
             orthogonal_enabled: false,
             compression_ratio: 0.8,
             shared_downsample: false,
+            seed: [0u8; 32],
         }
     }
 
     /// Create a new router with default weights (for backward compatibility)
-    pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Self {
-        // Legacy constructor - ignores old weights vector, uses default RouterWeights
-        Self::new_with_weights(RouterWeights::default(), k, tau, eps)
+    pub fn new(weights: Vec<f32>, k: usize, tau: f32, eps: f32, seed: [u8; 32]) -> Self {
+        // Capture adapter_count from legacy weights vector and store deterministic seed
+        let mut r = Self::new_with_weights(RouterWeights::default(), k, tau, eps);
+        r.adapter_count = Some(weights.len());
+        r.seed = seed;
+        r
     }
 
     /// Set telemetry writer
@@ -310,18 +319,12 @@ impl Router {
     }
 
     /// Score and select top-K adapters
-    pub fn route(&mut self, features: &[f32], priors: &[f32]) -> Decision {
-        // Compute weighted feature score once
-        let feature_score = self.compute_weighted_score(features);
-
-        // Compute scores for each adapter combining prior and features
+    pub fn route(&mut self, _features: &[f32], priors: &[f32]) -> Decision {
+        // Compute scores for each adapter from priors only (features incorporated upstream)
         let mut scores: Vec<(usize, f32)> = priors
             .iter()
             .enumerate()
-            .map(|(i, &prior)| {
-                let score = prior + feature_score;
-                (i, score)
-            })
+            .map(|(i, &prior)| (i, prior))
             .collect();
 
         // Sort by score descending, then by index for determinism
@@ -416,17 +419,11 @@ impl Router {
             };
         }
 
-        // Compute weighted feature score once
-        let feature_score = self.compute_weighted_score(features);
-
-        // Compute scores for each adapter combining prior and features
+        // Compute scores for each adapter from priors only (features incorporated upstream)
         let mut scores: Vec<(usize, f32)> = priors
             .iter()
             .enumerate()
-            .map(|(i, &prior)| {
-                let score = prior + feature_score;
-                (i, score)
-            })
+            .map(|(i, &prior)| (i, prior))
             .collect();
 
         // Check if any adapter qualifies (score > threshold)
@@ -529,8 +526,22 @@ impl Router {
         // Increment token counter
         self.token_count += 1;
 
-        // Log first N tokens fully, then sample at 5% (per Telemetry Ruleset #9)
-        let should_log = self.token_count <= self.full_log_tokens || rand::random::<f32>() < 0.05;
+        // Log first N tokens fully, then deterministic 5% sampling (per Telemetry Ruleset #9)
+        let should_log = if self.token_count <= self.full_log_tokens {
+            true
+        } else {
+            // Deterministic sampler: BLAKE3(seed || token_count) mapped to [0,1)
+            use adapteros_core::B3Hash;
+            let mut bytes = Vec::with_capacity(40);
+            bytes.extend_from_slice(&self.seed);
+            bytes.extend_from_slice(&(self.token_count as u64).to_le_bytes());
+            let h = B3Hash::hash(&bytes);
+            let mut arr = [0u8; 8];
+            arr.copy_from_slice(&h.as_bytes()[0..8]);
+            let v = u64::from_le_bytes(arr);
+            let u = (v as f64) / (u64::MAX as f64);
+            u < 0.05
+        };
 
         if should_log {
             if let Some(ref telemetry) = self.telemetry {
@@ -629,6 +640,21 @@ impl Router {
                 + path_tokens_score
                 + prompt_verb_score,
         }
+    }
+
+    /// Adjust the router's K (top-k) at runtime
+    pub fn set_k(&mut self, k: usize) {
+        self.k = k.max(1).min(8);
+    }
+
+    /// Get current K
+    pub fn get_k(&self) -> usize {
+        self.k
+    }
+
+    /// Report adapter count if known
+    pub fn adapter_count(&self) -> Option<usize> {
+        self.adapter_count
     }
 }
 

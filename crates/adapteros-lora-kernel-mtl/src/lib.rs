@@ -703,7 +703,7 @@ impl MetalKernels {
 
             self.adapter_logits_cache.insert(adapter.id, logits.clone());
 
-            let gate_scale = (adapter.gate as f32) / 32768.0;
+            let gate_scale = (adapter.gate as f32) / 32767.0;
             if gate_scale <= f32::EPSILON {
                 continue;
             }
@@ -2034,7 +2034,7 @@ mod tests {
         });
         kernels.adapter_index_map = vec!["adapter_base".to_string(), "adapter_a".to_string()];
 
-        let adapters = vec![ActiveAdapter { id: 1, gate: 32768 }];
+        let adapters = vec![ActiveAdapter { id: 1, gate: 32767 }];
         let hidden = vec![0.0f32; 4];
 
         let (buffer, total_gate, active_slots) = kernels

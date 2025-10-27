@@ -474,4 +474,4 @@ aosctl golden create --bundle new_run.ndjson --name baseline-002
 - [docs/determinism-audit.md](./determinism-audit.md) - Determinism verification
 - [docs/control-plane.md](./control-plane.md) - Control plane operations
 - [.cursor/rules/global.mdc](../.cursor/rules/global.mdc) - Policy rulesets
-- [crates/adapteros-verify/README.md](../crates/adapteros-verify/README.md) - Library documentation
+- [crates/adapteros-verify/templates/README.md](../crates/adapteros-verify/templates/README.md) - Library documentation

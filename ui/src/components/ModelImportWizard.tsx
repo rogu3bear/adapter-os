@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { Wizard, WizardStep } from './ui/wizard';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Alert, AlertDescription } from './ui/alert';
+import { Wizard, WizardStep } from '@/components/ui/wizard';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { Upload, FileCheck, CheckCircle, AlertTriangle } from 'lucide-react';
-import apiClient from '../api/client';
-import { ImportModelRequest } from '../api/types';
+import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
+import apiClient from '@/api/client';
+import { ImportModelRequest } from '@/api/types';
 
 interface ModelImportWizardProps {
   onComplete: (importId: string) => void;
@@ -115,7 +116,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
     </div>
   );
 
-  // Step 4: Review
+  // Step 4: Validation & Review
   const ReviewStep = () => (
     <div className="space-y-4">
       <h3 className="font-semibold">Review Import Details</h3>
@@ -124,9 +125,6 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
         <div><strong>Weights:</strong> {state.weightsPath}</div>
         <div><strong>Config:</strong> {state.configPath}</div>
         <div><strong>Tokenizer:</strong> {state.tokenizerPath}</div>
-        {state.tokenizerConfigPath && (
-          <div><strong>Tokenizer Config:</strong> {state.tokenizerConfigPath}</div>
-        )}
       </div>
       <Alert>
         <CheckCircle className="h-4 w-4" />
@@ -134,6 +132,17 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
           Click "Import" to begin the import process. This may take several minutes.
         </AlertDescription>
       </Alert>
+    </div>
+  );
+
+  // Step 5: Import Progress
+  const ProgressStep = () => (
+    <div className="space-y-4">
+      <h3 className="font-semibold">Importing Model...</h3>
+      <Progress value={75} className="w-full" />
+      <p className="text-sm text-gray-600">
+        Validating model files and importing into registry...
+      </p>
     </div>
   );
 

@@ -42,7 +42,7 @@ pub fn apply_multi_lora(
             continue;
         }
 
-        let gate_weight = gate as f32 / 32768.0; // Convert Q15 to float
+        let gate_weight = gate as f32 / 32767.0; // Convert Q15 to float
         total_weight += gate_weight;
 
         // Get LoRA weights for this module (flattened for contiguous math, cached)
