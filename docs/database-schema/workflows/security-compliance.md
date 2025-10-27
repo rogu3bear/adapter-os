@@ -356,10 +356,10 @@ ORDER BY a.created_at DESC;
 ## Implementation References
 
 ### Rust Crates
-- `crates/mplora-crypto/src/lib.rs` - Cryptographic operations
-- `crates/mplora-policy/src/lib.rs` - Policy enforcement
-- `crates/mplora-secd/src/lib.rs` - Secure enclave operations
-- `crates/mplora-artifacts/src/lib.rs` - Artifact verification
+- `crates/adapteros-crypto/src/lib.rs` - Cryptographic operations
+- `crates/adapteros-policy/src/lib.rs` - Policy enforcement
+- `crates/adapteros-secd/src/lib.rs` - Secure enclave operations
+- `crates/adapteros-artifacts/src/lib.rs` - Artifact verification
 
 ### API Endpoints
 - `POST /v1/artifacts/import` - Import artifact with signature

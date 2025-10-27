@@ -124,6 +124,114 @@ impl ScoringFunction for EntropyFloorScorer {
     }
 }
 
+/// Adapter-aware scorer: incorporates simple per-adapter feature interactions
+/// using framework match and a light language compatibility heuristic.
+pub struct AdapterAwareScorer {
+    /// Optional mapping of adapter index -> framework id
+    adapter_frameworks: Vec<Option<String>>,
+    /// Language index with strongest signal (0..7) from features
+    dominant_lang: Option<usize>,
+}
+
+impl AdapterAwareScorer {
+    pub fn new(adapter_frameworks: Vec<Option<String>>, features: &[f32]) -> Self {
+        // Determine dominant language from first 8 dims
+        let dominant_lang = if features.len() >= 8 {
+            let (idx, _) = features
+                .iter()
+                .take(8)
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or((0, &0.0));
+            Some(idx)
+        } else {
+            None
+        };
+        Self {
+            adapter_frameworks,
+            dominant_lang,
+        }
+    }
+}
+
+impl ScoringFunction for AdapterAwareScorer {
+    fn name(&self) -> &str {
+        "adapter_aware"
+    }
+
+    fn score(
+        &mut self,
+        features: &[f32],
+        priors: &[f32],
+        k: usize,
+        tau: f32,
+        eps: f32,
+    ) -> Decision {
+        // Base: priors
+        let mut scores: Vec<(usize, f32)> = priors
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (i, p))
+            .collect();
+
+        // Framework contributions from features[8..11]
+        let fw_signals = if features.len() >= 11 {
+            &features[8..11]
+        } else {
+            &[][..]
+        };
+
+        // Apply simple framework and language boosts
+        for s in scores.iter_mut() {
+            // Framework: if adapter has a framework id, lightly boost by top signal
+            if let Some(Some(_fw)) = self.adapter_frameworks.get(s.0) {
+                if !fw_signals.is_empty() {
+                    s.1 += fw_signals.iter().copied().fold(0.0, f32::max) * 0.1;
+                }
+            }
+            // Language: apply small bump if dominant language exists
+            if self.dominant_lang.is_some() {
+                s.1 += 0.05;
+            }
+        }
+
+        // Sort by score desc, index for stability
+        scores.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        // Top-k softmax with entropy floor
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
+        let max_score = top_k
+            .iter()
+            .map(|(_, s)| s)
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_scores: Vec<f32> = top_k
+            .iter()
+            .map(|(_, s)| ((s - max_score) / tau).exp())
+            .collect();
+        let sum_exp: f32 = exp_scores.iter().sum();
+        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        let min_gate = eps / k as f32;
+        for g in &mut gates {
+            *g = g.max(min_gate);
+        }
+        let sum_g: f32 = gates.iter().sum();
+        for g in &mut gates {
+            *g /= sum_g;
+        }
+        let gates_q15: SmallVec<[i16; 8]> = gates
+            .iter()
+            .map(|&g| (g * 32767.0).round() as i16)
+            .collect();
+        let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
+
+        Decision { indices, gates_q15 }
+    }
+}
+
 /// Create a scoring function from algorithm name
 pub fn create_scorer(algorithm: &str, router: Router) -> Box<dyn ScoringFunction> {
     match algorithm {

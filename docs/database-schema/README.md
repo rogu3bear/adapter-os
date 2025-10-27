@@ -213,8 +213,8 @@ Troubleshooting guide for operational issues:
 
 ### Operational Guides
 - [Quick Start Guide](../QUICKSTART.md) - Getting started
-- [aosctl Manual](../aosctl_manual.md) - CLI reference
-- [Release Checklist](../RELEASE_CHECKLIST.md) - Deployment procedures
+- [aosctl Manual](../../crates/adapteros-cli/docs/aosctl_manual.md) - CLI reference
+- [Deployment Guide](../DEPLOYMENT.md) - Deployment procedures
 
 ## Document Status
 

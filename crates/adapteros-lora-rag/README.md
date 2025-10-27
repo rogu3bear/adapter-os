@@ -237,8 +237,8 @@ Tests included:
 ## References
 
 - [PostgreSQL pgvector Extension](https://github.com/pgvector/pgvector)
-- [AdapterOS Policy Packs](.cursor/rules/global.mdc)
-- [RAG Index Ruleset](docs/architecture/MasterPlan.md#rag-index-ruleset)
+- [AdapterOS Policy Packs](../../.cursor/rules/global.mdc)
+- [RAG Index Ruleset](../../docs/architecture/MasterPlan.md#rag-index-ruleset)
 - [Migration Schema](../migrations/0029_pgvector_rag.sql)
 
 ---
@@ -251,4 +251,3 @@ Tests included:
 - ✅ Cosine similarity fallback for SQLite
 - ✅ Complete database schema with audit tables
 - ✅ Policy compliance verification
-

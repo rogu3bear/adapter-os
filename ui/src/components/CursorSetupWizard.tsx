@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Wizard, WizardStep } from './ui/wizard';
-import { Button } from './ui/button';
-import { Label } from './ui/label';
-import { Alert, AlertDescription } from './ui/alert';
+import { Wizard, WizardStep } from '@/components/ui/wizard';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { CheckCircle, XCircle, Copy, ExternalLink } from 'lucide-react';
-import apiClient from '../api/client';
-import { CursorConfigResponse } from '../api/types';
+import apiClient from '@/api/client';
+import { CursorConfigResponse } from '@/api/types';
 
 interface CursorSetupWizardProps {
   onComplete: () => void;

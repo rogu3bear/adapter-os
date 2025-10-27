@@ -44,7 +44,7 @@ float deterministic_silu(float x) {
 }
 
 float q15_to_float(uint16_t q15) {
-    return float(q15) / 32768.0f;
+    return float(q15) / 32767.0f;
 }
 
 float deterministic_gelu(float x) {

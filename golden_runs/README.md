@@ -193,9 +193,9 @@ Golden run was created with different toolchain. Either:
 
 ## See Also
 
-- [docs/determinism-audit.md](../../docs/determinism-audit.md) - Determinism verification guide
-- [docs/control-plane.md](../../docs/control-plane.md) - Control plane documentation
-- [.cursor/rules/global.mdc](../../.cursor/rules/global.mdc) - Policy rulesets
+- [docs/determinism-audit.md](../docs/determinism-audit.md) - Determinism verification guide
+- [docs/control-plane.md](../docs/control-plane.md) - Control plane documentation
+- [.cursor/rules/global.mdc](../.cursor/rules/global.mdc) - Policy rulesets
 
 ## CAB Golden Gate
 

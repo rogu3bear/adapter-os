@@ -416,6 +416,12 @@ impl CABWorkflow {
     }
 
     /// Rollback to previous CPID
+    /// Rollback to previous CPID
+    /// 
+    /// Fetches the current production CPID and its predecessor, then:
+    /// 1. Updates cp_pointers.active_cpid to before_cpid
+    /// 2. Logs rollback event to promotion_history
+    /// 3. Returns rollback record
     pub async fn rollback(&self, reason: &str) -> Result<PromotionRecord> {
         // Fetch current production CPID and its predecessor
         let current = sqlx::query(

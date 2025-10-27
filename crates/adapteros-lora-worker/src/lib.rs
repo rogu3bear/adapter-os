@@ -261,6 +261,8 @@ pub struct Worker<K: FusedKernels> {
     hotswap: HotSwapManager,
     // Optional signal broadcaster for per-step events
     signal_tx: Option<broadcast::Sender<WorkerSignal>>,
+    // Routing algorithm from manifest (e.g., "weighted", "entropy_floor")
+    routing_algorithm: String,
 }
 
 impl<K: FusedKernels> Worker<K> {
@@ -277,6 +279,17 @@ impl<K: FusedKernels> Worker<K> {
         init_determinism_guards()?;
 
         let policy = PolicyEngine::new(manifest.policies.clone());
+
+        // Enforce determinism policy using backend attestation
+        let attestation = kernels.attest_determinism()?;
+        // Stub - validate_backend_attestation not yet implemented
+        // TODO: policy.determinism_policy().validate_backend_attestation(&attestation)?;
+        if !policy.determinism_policy().require_metallib_embed {
+            tracing::warn!("Metallib embed requirement disabled in policy");
+        }
+        if !policy.determinism_policy().require_kernel_hash_match {
+            tracing::warn!("Kernel hash match requirement disabled in policy");
+        }
 
         // Create router from manifest
         let router_seed = adapteros_core::derive_seed(&manifest.seeds.global, "router");
@@ -395,7 +408,7 @@ impl<K: FusedKernels> Worker<K> {
         );
 
         Ok(Self {
-            manifest,
+            manifest: manifest.clone(),
             policy,
             router,
             rag,
@@ -416,6 +429,7 @@ impl<K: FusedKernels> Worker<K> {
             lifecycle,
             hotswap: HotSwapManager::new(),
             signal_tx: None,
+            routing_algorithm: manifest.router.algorithm.clone(),
         })
     }
 
@@ -596,7 +610,39 @@ impl<K: FusedKernels> Worker<K> {
                 priors[idx] += (act.max(0.0).min(1.0)) * 0.3;
             }
 
-            let decision = self.router.route(&feature_vec, &priors);
+            // Sync K with lifecycle manager before routing
+            self.router.set_k(self.lifecycle.current_k());
+            // Select routing algorithm based on manifest
+            let decision = if self.routing_algorithm.as_str() == "entropy_floor" {
+                use adapteros_lora_router::scoring::ScoringFunction;
+                let mut scorer = adapteros_lora_router::EntropyFloorScorer::new(
+                    self.router.get_k(),
+                    self.manifest.router.entropy_floor,
+                );
+                scorer.score(&feature_vec, &priors, self.router.get_k(), self.manifest.router.tau, self.manifest.router.entropy_floor)
+            } else if self.routing_algorithm.starts_with("plugin:adapter_aware") {
+                use adapteros_lora_router::scoring::ScoringFunction;
+                // Build adapter framework vector from manifest
+                let adapter_fw: Vec<Option<String>> = self
+                    .manifest
+                    .adapters
+                    .iter()
+                    .map(|a| a.framework_id.clone())
+                    .collect();
+                let mut scorer = adapteros_lora_router::scoring::AdapterAwareScorer::new(
+                    adapter_fw,
+                    &feature_vec,
+                );
+                scorer.score(
+                    &feature_vec,
+                    &priors,
+                    self.router.get_k(),
+                    self.manifest.router.tau,
+                    self.manifest.router.entropy_floor,
+                )
+            } else {
+                self.router.route(&feature_vec, &priors)
+            };
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);

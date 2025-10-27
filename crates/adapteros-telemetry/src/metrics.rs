@@ -9,7 +9,7 @@
 
 use adapteros_core::{AosError, Result};
 use prometheus::{
-    CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
+    CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry, TextEncoder,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -597,6 +597,69 @@ impl MetricsCollector {
     pub fn registry(&self) -> &Registry {
         &self.registry
     }
+
+    /// Check metrics for alert conditions
+    /// 
+    /// Monitors:
+    /// - Latency p95 > 100ms
+    /// - Memory usage > 80%  
+    /// - Queue depth > 1000
+    pub async fn check_alerts(&self) -> Vec<Alert> {
+        let mut alerts = Vec::new();
+        let cache = self.metrics_cache.read().await;
+        
+        // Check latency p95
+        if cache.latency.inference_p95_ms > 100.0 {
+            alerts.push(Alert {
+                severity: crate::AlertSeverity::Warning,
+                metric: "inference_latency_p95".to_string(),
+                value: cache.latency.inference_p95_ms,
+                threshold: 100.0,
+                message: format!("Inference p95 latency {}ms exceeds 100ms threshold", cache.latency.inference_p95_ms),
+            });
+        }
+        
+        // Check memory usage (convert MB to percentage using 100GB as max)
+        let memory_mb = cache.system.memory_usage_mb;
+        let memory_pct = (memory_mb / 102400.0) * 100.0; // 100GB = 102400MB
+        if memory_pct > 80.0 {
+            alerts.push(Alert {
+                severity: crate::AlertSeverity::Critical,
+                metric: "memory_usage_pct".to_string(),
+                value: memory_pct,
+                threshold: 80.0,
+                message: format!("Memory usage {}% exceeds 80% threshold", memory_pct),
+            });
+        }
+        
+        // Check queue depth
+        let queue_depth = cache.queue_depth.request_queue;
+        if queue_depth > 1000.0 {
+            alerts.push(Alert {
+                severity: crate::AlertSeverity::Warning,
+                metric: "inference_queue_depth".to_string(),
+                value: queue_depth,
+                threshold: 1000.0,
+                message: format!("Inference queue depth {} exceeds 1000 threshold", queue_depth),
+            });
+        }
+        
+        if !alerts.is_empty() {
+            tracing::warn!("Detected {} alerts", alerts.len());
+        }
+        
+        alerts
+    }
+}
+
+/// Alert from metrics monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Alert {
+    pub severity: crate::AlertSeverity,
+    pub metric: String,
+    pub value: f64,
+    pub threshold: f64,
+    pub message: String,
 }
 
 impl Default for MetricsSnapshot {
@@ -720,4 +783,17 @@ mod tests {
 
         assert_eq!(snapshot.timestamp, deserialized.timestamp);
     }
+}
+
+/// Export Prometheus metrics with proper error handling
+pub fn export_prometheus(registry: &Registry) -> Result<String> {
+    let mut buffer = vec![];
+    let encoder = TextEncoder::new();
+    let metrics = registry.gather();
+    
+    encoder.encode(&metrics, &mut buffer)
+        .map_err(|e| AosError::Telemetry(format!("Failed to encode Prometheus metrics: {}", e)))?;
+    
+    String::from_utf8(buffer)
+        .map_err(|e| AosError::Telemetry(format!("Failed to convert metrics to UTF-8: {}", e)))
 }
