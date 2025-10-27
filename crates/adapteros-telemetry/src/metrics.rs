@@ -108,12 +108,12 @@ pub struct AdapterMetrics {
     pub activations_by_adapter: HashMap<String, u64>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DiskMetrics {
     pub io_utilization: f64,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct NetworkMetrics {
     pub bandwidth_utilization: f64,
 }
@@ -677,7 +677,7 @@ impl MetricsCollector {
         // Add network saturation alert (threshold: 90% bandwidth)
         if cache.network.bandwidth_utilization > 90.0 {
             alerts.push(Alert {
-                severity: AlertSeverity::High,
+                severity: AlertSeverity::Warning,
                 metric: "network_bandwidth_utilization".to_string(),
                 value: cache.network.bandwidth_utilization,
                 threshold: 90.0,
