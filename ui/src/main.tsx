@@ -21,6 +21,9 @@
   import { AdaptersPage } from "./components/AdaptersPage";
   import { MonitoringPage } from "./components/MonitoringPage";
   import { AuditDashboard } from "./components/AuditDashboard";
+  import { ITAdminDashboard } from "./components/ITAdminDashboard";
+  import { UserReportsPage } from "./components/UserReportsPage";
+  import { SingleFileAdapterTrainer } from "./components/SingleFileAdapterTrainer";
   import "./index.css";
 
   function DashboardRoute() {
@@ -199,6 +202,39 @@
     );
   }
 
+  function ITAdminRoute() {
+    const { user } = useAuth();
+    const { selectedTenant } = useTenant();
+    if (!user) return <Navigate to="/login" replace />;
+    if (user.role !== 'Admin') return <Navigate to="/dashboard" replace />;
+    return (
+      <FeatureLayout title="IT Admin" description="System administration and management">
+        <ITAdminDashboard tenantId={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function UserReportsRoute() {
+    const { user } = useAuth();
+    const { selectedTenant } = useTenant();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Reports" description="Activity reports and metrics">
+        <UserReportsPage tenantId={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function SingleFileTrainerRoute() {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Single-File Trainer" description="Train adapters from a single file">
+        <SingleFileAdapterTrainer />
+      </FeatureLayout>
+    );
+  }
+
   createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <LayoutProvider>
@@ -228,6 +264,11 @@
             <Route path="/telemetry" element={<TelemetryRoute />} />
             <Route path="/replay" element={<ReplayRoute />} />
             <Route path="/audit" element={<AuditRoute />} />
+            
+            {/* Admin & Reporting */}
+            <Route path="/admin" element={<ITAdminRoute />} />
+            <Route path="/reports" element={<UserReportsRoute />} />
+            <Route path="/trainer" element={<SingleFileTrainerRoute />} />
             
             {/* Legacy redirects */}
             <Route path="/alerts" element={<Navigate to="/monitoring" replace />} />
