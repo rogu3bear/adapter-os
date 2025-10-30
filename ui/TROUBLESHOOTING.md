@@ -5,7 +5,7 @@
 ✅ **UI Dev Server**: Running on http://localhost:3200  
 ✅ **Backend API Server**: Running on http://localhost:8080  
 ✅ **TypeScript**: Configured to exclude test files  
-✅ **Auth**: Bypassed in development mode (auto-login as `dev-user`)
+✅ **Auth**: Login with `admin@example.com` / `password`
 
 ## If You See a White Page
 
@@ -72,8 +72,7 @@ pnpm dev
 
 ## Development Mode Features
 
-- **Auto-login**: You're automatically logged in as `dev-user` with Admin role
-- **No authentication required**: All API calls work without tokens
+- **Login Required**: Use `admin@example.com` / `password` to access the system
 - **Hot reload**: UI changes auto-refresh
 - **API proxy**: `/api/*` requests automatically forwarded to backend
 

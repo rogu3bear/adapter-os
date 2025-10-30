@@ -15,6 +15,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path as StdPath;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -203,10 +204,13 @@ pub async fn load_model(
 
     let tenant_id = &claims.tenant_id;
 
-    // Check if model exists
+    // Check if model exists and get model path
     let model_check = sqlx::query!(
-        "SELECT bms.model_id, m.name as model_name FROM base_model_status bms 
+        "SELECT bms.model_id, bms.import_id, m.name as model_name, 
+         bmi.weights_path, bmi.config_path, bmi.tokenizer_path
+         FROM base_model_status bms 
          JOIN models m ON bms.model_id = m.id 
+         LEFT JOIN base_model_imports bmi ON bms.import_id = bmi.id
          WHERE bms.model_id = ? AND bms.tenant_id = ?",
         model_id,
         tenant_id
@@ -221,8 +225,12 @@ pub async fn load_model(
         )
     })?;
 
-    let model_name = if let Some(row) = model_check {
-        row.model_name
+    let (model_name, weights_path) = if let Some(row) = model_check {
+        let path = row.weights_path.unwrap_or_else(|| {
+            // Fallback to environment variable if not in database
+            std::env::var("AOS_MLX_FFI_MODEL").unwrap_or_else(|_| String::new())
+        });
+        (row.model_name, path)
     } else {
         return Err((
             StatusCode::NOT_FOUND,
@@ -249,20 +257,41 @@ pub async fn load_model(
     })?;
 
     // Load model into runtime (if available)
+    let mut memory_mb: i32 = 0;
     if let Some(rt) = &state.model_runtime {
-        if let Ok(model_path) = std::env::var("AOS_MLX_FFI_MODEL") {
+        if !weights_path.is_empty() {
             let mut guard = rt.lock().await;
-            if let Err(e) = guard.load_model(tenant_id, &model_id, &model_path) {
-                warn!("Runtime load failed: {}", e);
+            match guard.load_model(tenant_id, &model_id, &weights_path) {
+                Ok(()) => {
+                    info!("Model loaded into runtime: {}", model_id);
+                    // Try to get actual memory usage from runtime snapshot
+                    let (models, total_memory, _active_count) = guard.snapshot_all_models(tenant_id);
+                    if let Some(loaded_model) = models.iter().find(|m| m.model_id == model_id) {
+                        memory_mb = loaded_model.memory_usage_mb.unwrap_or(0);
+                    }
+                }
+                Err(e) => {
+                    warn!("Runtime load failed: {} - continuing with database-only tracking", e);
+                    // Estimate memory usage if runtime load fails
+                    memory_mb = estimate_model_memory(&weights_path).unwrap_or(8192);
+                }
             }
         } else {
-            warn!("AOS_MLX_FFI_MODEL not set; skipping runtime model load");
+            warn!("No model path available; skipping runtime model load");
+            // Estimate based on model name
+            memory_mb = estimate_model_memory_from_name(&model_name).unwrap_or(8192);
         }
+    } else {
+        // No runtime available - estimate memory usage
+        memory_mb = if !weights_path.is_empty() {
+            estimate_model_memory(&weights_path).unwrap_or(8192)
+        } else {
+            estimate_model_memory_from_name(&model_name).unwrap_or(8192)
+        };
     }
 
     // Update to loaded state
     let loaded_at = chrono::Utc::now().to_rfc3339();
-    let memory_mb: i32 = 8192; // TODO: Get actual memory usage
 
     sqlx::query!(
         "UPDATE base_model_status SET status = 'loaded', loaded_at = ?, memory_usage_mb = ?, updated_at = ? WHERE model_id = ? AND tenant_id = ?",
@@ -518,6 +547,42 @@ pub async fn get_cursor_config(
             "6. Try a code completion or chat to verify".to_string(),
         ],
     }))
+}
+
+// Helper function to estimate model memory usage from file path
+fn estimate_model_memory(weights_path: &str) -> Option<i32> {
+    if weights_path.is_empty() {
+        return None;
+    }
+    
+    // Try to get file size and estimate memory (typically 2x file size for loaded model)
+    if let Ok(metadata) = std::fs::metadata(weights_path) {
+        let file_size_mb = (metadata.len() / (1024 * 1024)) as i32;
+        // Models typically use 1.5-2x file size when loaded (includes activations, KV cache, etc.)
+        Some(file_size_mb * 2)
+    } else {
+        None
+    }
+}
+
+// Helper function to estimate memory from model name
+fn estimate_model_memory_from_name(model_name: &str) -> Option<i32> {
+    let name_lower = model_name.to_lowercase();
+    
+    // Common model size estimates (in MB)
+    if name_lower.contains("7b") || name_lower.contains("7-b") {
+        Some(14000) // ~7B params ≈ 14GB
+    } else if name_lower.contains("13b") || name_lower.contains("13-b") {
+        Some(26000) // ~13B params ≈ 26GB
+    } else if name_lower.contains("70b") || name_lower.contains("70-b") {
+        Some(140000) // ~70B params ≈ 140GB
+    } else if name_lower.contains("1.5b") || name_lower.contains("1.5-b") {
+        Some(3000) // ~1.5B params ≈ 3GB
+    } else if name_lower.contains("3b") || name_lower.contains("3-b") {
+        Some(6000) // ~3B params ≈ 6GB
+    } else {
+        None // Unknown model size
+    }
 }
 
 // Helper function to track onboarding journey

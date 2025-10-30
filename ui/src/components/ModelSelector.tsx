@@ -34,7 +34,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
 
   return (
     <Select value={value} onValueChange={handleChange} disabled={disabled || loading}>
-      <SelectTrigger className="w-[280px]">
+      <SelectTrigger className="w-[280px]" aria-label="Model selector">
         <SelectValue placeholder={loading ? 'Loading models…' : 'Select model'} />
       </SelectTrigger>
       <SelectContent>
@@ -45,4 +45,3 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     </Select>
   );
 }
-

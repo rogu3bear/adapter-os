@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cab_workflow;
 pub mod handlers;
 pub mod middleware;
+pub mod model_runtime;
 pub mod routes;
 pub mod signing;
 pub mod state;

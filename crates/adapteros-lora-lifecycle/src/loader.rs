@@ -1,7 +1,9 @@
 //! Hot-swap adapter loading and unloading
 
 use adapteros_core::{AosError, Result};
-use adapteros_single_file_adapter::SingleFileAdapterLoader;
+use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
+use std::sync::Arc;
+use std::ffi::OsStr;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -11,6 +13,14 @@ pub struct AdapterLoader {
     base_path: PathBuf,
     /// Currently loaded adapters (adapter_id -> path)
     loaded: HashMap<u16, PathBuf>,
+    /// Enable memory-mapped loading
+    use_mmap: bool,
+    /// Maximum cache size for memory-mapped adapters (MB)
+    mmap_cache_size_mb: usize,
+    /// Enable hot-swap capabilities
+    hot_swap_enabled: bool,
+    /// Optional mmap loader for .aos files
+    mmap_loader: Option<Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>>,
 }
 
 impl AdapterLoader {
@@ -19,7 +29,45 @@ impl AdapterLoader {
         Self {
             base_path,
             loaded: HashMap::new(),
+            use_mmap: false,
+            mmap_cache_size_mb: 512,
+            hot_swap_enabled: false,
+            mmap_loader: None,
         }
+    }
+
+    /// Enable memory-mapped adapter loading
+    pub fn enable_mmap(&mut self, cache_size_mb: usize) {
+        self.use_mmap = true;
+        self.mmap_cache_size_mb = cache_size_mb;
+        tracing::info!(
+            "Enabled memory-mapped adapter loading with cache size: {} MB",
+            cache_size_mb
+        );
+    }
+
+    /// Inject a concrete mmap loader to be used by .aos loading path
+    pub fn set_mmap_loader(
+        &mut self,
+        loader: Option<Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>>,
+    ) {
+        self.mmap_loader = loader;
+    }
+
+    /// Enable hot-swap capabilities
+    pub fn enable_hot_swap(&mut self) {
+        self.hot_swap_enabled = true;
+        tracing::info!("Enabled hot-swap capabilities for dynamic adapter loading");
+    }
+
+    /// Check if mmap is enabled
+    pub fn is_mmap_enabled(&self) -> bool {
+        self.use_mmap
+    }
+
+    /// Check if hot-swap is enabled
+    pub fn is_hot_swap_enabled(&self) -> bool {
+        self.hot_swap_enabled
     }
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
@@ -60,6 +108,15 @@ impl AdapterLoader {
         adapter_id: u16,
         adapter_name: &str,
     ) -> Result<AdapterHandle> {
+        // Prefer memory-mapped .aos path if configured and available
+        let adapter_path = self.resolve_path(adapter_name);
+        if self.use_mmap && adapter_path.extension() == Some(OsStr::new("aos")) {
+            if let Some(ref mmap_loader) = self.mmap_loader {
+                return self
+                    .load_aos_mmap(adapter_id, adapter_name, mmap_loader)
+                    .await;
+            }
+        }
         // Perform the blocking load operation in a blocking task
         let base_path = self.base_path.clone();
         let adapter_name = adapter_name.to_string();
@@ -161,12 +218,18 @@ impl AdapterLoader {
 
                 if let Some(handle) = runtime {
                     handle.block_on(async {
-                        let adapter =
-                            SingleFileAdapterLoader::load(adapter_path)
-                                .await
-                                .map_err(|e| {
-                                    AosError::Lifecycle(format!("Failed to load .aos file: {}", e))
-                                })?;
+                        let options = LoadOptions {
+                            skip_verification: false,
+                            skip_signature_check: false,
+                        };
+                        let adapter = SingleFileAdapterLoader::load_with_options(
+                            adapter_path,
+                            options,
+                        )
+                        .await
+                        .map_err(|e| {
+                            AosError::Lifecycle(format!("Failed to load .aos file: {}", e))
+                        })?;
 
                         // Verify signature if present
                         if adapter.is_signed() {
@@ -221,13 +284,42 @@ impl AdapterLoader {
                     adapter_path.display()
                 );
 
-                let weights_data = fs::read(adapter_path).map_err(|e| {
-                    AosError::Lifecycle(format!("Failed to read adapter file: {}", e))
-                })?;
-
-                Ok(weights_data)
+                if self.use_mmap {
+                    use std::fs::File;
+                    let file = File::open(adapter_path).map_err(|e| {
+                        AosError::Lifecycle(format!(
+                            "Failed to open adapter file for mmap: {}",
+                            e
+                        ))
+                    })?;
+                    let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }
+                        .map_err(|e| AosError::Lifecycle(format!("mmap failed: {}", e)))?;
+                    Ok(mmap.to_vec())
+                } else {
+                    let weights_data = fs::read(adapter_path).map_err(|e| {
+                        AosError::Lifecycle(format!("Failed to read adapter file: {}", e))
+                    })?;
+                    Ok(weights_data)
+                }
             }
         }
+    }
+
+    async fn load_aos_mmap(
+        &mut self,
+        adapter_id: u16,
+        adapter_name: &str,
+        loader: &Arc<tokio::sync::Mutex<adapteros_aos::MmapAdapterLoader>>,
+    ) -> Result<AdapterHandle> {
+        let path = self.resolve_path(adapter_name);
+        let mmap_adapter = loader.lock().await.load(&path).await?;
+
+        self.loaded.insert(adapter_id, path.clone());
+        Ok(AdapterHandle {
+            adapter_id,
+            path,
+            memory_bytes: mmap_adapter.size_bytes() as usize,
+        })
     }
 
     /// Free adapter weights from memory

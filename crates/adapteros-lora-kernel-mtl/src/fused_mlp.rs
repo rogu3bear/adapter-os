@@ -80,7 +80,7 @@ impl FusedMlpKernel {
 
         // Load library and create pipeline
         let library = device
-            .new_library_with_data(include_bytes!("../shaders/mplora_kernels.metallib"))
+            .new_library_with_data(include_bytes!("../shaders/adapteros_kernels.metallib"))
             .map_err(|e| AosError::Kernel(format!("Failed to load library: {}", e)))?;
 
         let function = library
@@ -160,11 +160,13 @@ impl FusedMlpKernel {
 
         encoder.set_buffer(0, Some(&params_buffer), 0);
 
-        // Calculate threadgroup size
-        let threadgroup_size = MTLSize::new(1, 1, 1);
-        let grid_size = MTLSize::new(batch_size as u64, hidden_size as u64, 1);
+        // Threads model output grid: (batch_size, hidden_size)
+        // Use 256 threads per group in X; compute required groups.
+        let threads_per_group = MTLSize::new(256, 1, 1);
+        let groups_x = ((batch_size as u64) + threads_per_group.width - 1) / threads_per_group.width;
+        let grid_groups = MTLSize::new(groups_x, hidden_size as u64, 1);
 
-        encoder.dispatch_thread_groups(grid_size, threadgroup_size);
+        encoder.dispatch_thread_groups(grid_groups, threads_per_group);
         encoder.end_encoding();
 
         command_buffer.commit();

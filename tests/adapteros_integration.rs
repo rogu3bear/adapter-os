@@ -17,11 +17,13 @@ use adapteros_telemetry::{BundleWriter, TelemetryWriter};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tempfile::{tempdir, TempDir};
 use tokio::time::{timeout, Duration};
+use uuid::Uuid;
 
 /// Test configuration for integration tests
 #[derive(Debug, Clone)]
@@ -111,10 +113,32 @@ impl TestConfig {
 
 /// Helper to run aosctl commands
 async fn run_aosctl_command(args: &[&str]) -> Result<String> {
-    let mut cmd = Command::new("cargo");
-    cmd.args(&["run", "--bin", "aosctl", "--"])
-        .args(args)
-        .stdout(Stdio::piped())
+    // Try to find the binary in common locations
+    let binary_path = if let Ok(exe) = env::current_exe() {
+        // If running as a test, look for binary in target directory
+        let mut path = exe.parent().unwrap();
+        if path.ends_with("deps") {
+            path = path.parent().unwrap();
+        }
+        path.join("aosctl")
+    } else {
+        PathBuf::from("target/debug/aosctl")
+    };
+
+    // If binary doesn't exist, fall back to cargo run
+    let mut cmd = if binary_path.exists() {
+        let mut c = Command::new(&binary_path);
+        c.args(args);
+        c
+    } else {
+        // Fallback to cargo run
+        let mut c = Command::new("cargo");
+        c.args(&["run", "--bin", "aosctl", "--"])
+            .args(args);
+        c
+    };
+
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     let output = cmd.output()?;
@@ -137,20 +161,26 @@ async fn run_aosctl_json(args: &[&str]) -> Result<serde_json::Value> {
 }
 
 /// Setup test environment
-async fn setup_test_env() -> Result<(TestConfig, Db)> {
+async fn setup_test_env() -> Result<(TestConfig, Db, String)> {
     let config = TestConfig::new()?;
 
+    // Generate unique tenant ID for this test
+    let tenant_id = format!("test_{}", Uuid::new_v4());
+    
+    // Create unique database path per test to avoid conflicts
+    let db_path = config.temp_dir.join(format!("test_{}.db", Uuid::new_v4()));
+
     // Set up environment variables for testing
-    std::env::set_var("AOS_DB_PATH", config.temp_dir.join("test.db"));
+    std::env::set_var("AOS_DB_PATH", &db_path);
     std::env::set_var("AOS_VAR_DIR", &config.var_dir);
 
     // Initialize database
     let db = Db::connect_env().await?;
 
-    // Initialize tenant for testing
-    db.create_tenant("integration_test", false).await?;
+    // Initialize tenant for testing with unique ID
+    db.create_tenant(&tenant_id, false).await?;
 
-    Ok((config, db))
+    Ok((config, db, tenant_id))
 }
 
 /// Cleanup test environment
@@ -163,7 +193,7 @@ async fn cleanup_test_env(config: &TestConfig) -> Result<()> {
 async fn test_build_plan_integration() -> Result<()> {
     println!("\n🔧 Testing aosctl build-plan integration\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Test 1: Build plan from manifest
     println!("1. Building plan from manifest...");
@@ -246,7 +276,7 @@ async fn test_build_plan_integration() -> Result<()> {
 async fn test_serve_integration() -> Result<()> {
     println!("\n🚀 Testing aosctl serve integration\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Test 1: Dry-run serve validation
     println!("1. Testing dry-run serve validation...");
@@ -323,7 +353,7 @@ async fn test_serve_integration() -> Result<()> {
 async fn test_telemetry_ingest_integration() -> Result<()> {
     println!("\n📊 Testing telemetry ingest integration\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Test 1: Initialize telemetry writer
     println!("1. Initializing telemetry writer...");
@@ -439,7 +469,7 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
 async fn test_policy_violation_paths() -> Result<()> {
     println!("\n🛡️ Testing policy violation paths\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Test 1: Evidence requirement violation
     println!("1. Testing evidence requirement violation...");
@@ -504,7 +534,7 @@ async fn test_policy_violation_paths() -> Result<()> {
 async fn test_end_to_end_workflow() -> Result<()> {
     println!("\n🔄 Testing end-to-end workflow\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Step 1: Build plan
     println!("1. Building plan...");
@@ -684,7 +714,7 @@ fn acceptance_test_complete_integration() {
 async fn test_telemetry_throughput() -> Result<()> {
     println!("\n⚡ Testing telemetry throughput\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     let telemetry_writer = TelemetryWriter::new(
         &config.telemetry_dir,
@@ -734,7 +764,7 @@ async fn test_telemetry_throughput() -> Result<()> {
 async fn test_error_handling_and_recovery() -> Result<()> {
     println!("\n🔧 Testing error handling and recovery\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Test 1: Database connection failure
     println!("1. Testing database connection failure...");
@@ -821,7 +851,7 @@ async fn test_error_handling_and_recovery() -> Result<()> {
 async fn test_concurrent_operations() -> Result<()> {
     println!("\n🔄 Testing concurrent operations\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_id) = setup_test_env().await?;
 
     // Test concurrent plan builds
     let manifest_path = config.manifest_path.clone();
@@ -883,7 +913,7 @@ async fn test_concurrent_operations() -> Result<()> {
 async fn test_cleanup_and_resource_management() -> Result<()> {
     println!("\n🧹 Testing cleanup and resource management\n");
 
-    let (config, db) = setup_test_env().await?;
+    let (config, db, _tenant_id) = setup_test_env().await?;
 
     // Create some test data
     let telemetry_writer = TelemetryWriter::new(&config.telemetry_dir, 10, 1024)?;

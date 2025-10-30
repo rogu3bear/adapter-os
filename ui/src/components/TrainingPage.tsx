@@ -55,8 +55,12 @@ export function TrainingPage() {
 
   const handleJobAction = async (jobId: string, action: 'pause' | 'stop' | 'resume') => {
     try {
-      await apiClient.controlTrainingJob(jobId, action);
-      toast.success(`Job ${action}ed successfully`);
+      if (action === 'stop') {
+        await apiClient.cancelTraining(jobId);
+        toast.success('Job stopped successfully');
+      } else {
+        toast.info(`${action} is not supported yet`);
+      }
     } catch (err) {
       toast.error(`Failed to ${action} job`);
     }
@@ -154,11 +158,11 @@ export function TrainingPage() {
       <Dialog open={isWizardOpen} onOpenChange={setIsWizardOpen}>
         <DialogContent className="max-w-4xl">
           <TrainingWizard
-            initialConfig={trainingConfig}
             onComplete={(jobId) => {
               setIsWizardOpen(false);
               setSelectedJob(jobId);
             }}
+            onCancel={() => setIsWizardOpen(false)}
           />
         </DialogContent>
       </Dialog>
