@@ -9,6 +9,7 @@ use crate::monitoring_types::*;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
+use sqlx::Row;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -395,10 +396,10 @@ impl MetricsPersistenceService {
             .to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count = sqlx::query!(
-            "DELETE FROM process_health_metrics WHERE collected_at < ?",
-            cutoff_rfc3339
+        let deleted_count = sqlx::query(
+            "DELETE FROM process_health_metrics WHERE collected_at < ?"
         )
+        .bind(&cutoff_rfc3339)
         .execute(self.db.pool())
         .await
         .map_err(|e| {
@@ -431,7 +432,7 @@ impl MetricsPersistenceService {
 
     /// Get active workers from database
     async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query!("SELECT id, tenant_id FROM workers WHERE status = 'active'")
+        let rows = sqlx::query("SELECT id, tenant_id FROM workers WHERE status = 'active'")
             .fetch_all(self.db.pool())
             .await
             .map_err(|e| {
@@ -441,8 +442,8 @@ impl MetricsPersistenceService {
         let workers = rows
             .into_iter()
             .map(|row| WorkerInfo {
-                id: row.id.unwrap_or_else(|| "unknown".to_string()),
-                tenant_id: row.tenant_id,
+                id: row.get("id"),
+                tenant_id: row.get("tenant_id"),
             })
             .collect();
 
