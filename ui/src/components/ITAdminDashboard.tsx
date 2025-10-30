@@ -1,0 +1,407 @@
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import apiClient from '../api/client';
+import {
+  Shield,
+  Users,
+  Server,
+  Database,
+  Settings,
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  RefreshCw,
+  Download,
+  Upload,
+  TrendingUp,
+  HardDrive,
+  Cpu,
+  MemoryStick
+} from 'lucide-react';
+import type { 
+  SystemMetrics, 
+  Tenant, 
+  Node, 
+  Alert,
+  BaseModelStatus,
+  Adapter
+} from '@/api/types';
+
+interface ITAdminDashboardProps {
+  tenantId?: string;
+}
+
+export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [models, setModels] = useState<BaseModelStatus[]>([]);
+  const [adapters, setAdapters] = useState<Adapter[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = async () => {
+    try {
+      setRefreshing(true);
+      const [metricsRes, tenantsRes, nodesRes, alertsRes, modelsRes, adaptersRes] = await Promise.all([
+        apiClient.getSystemMetrics().catch(() => null),
+        apiClient.listTenants().catch(() => []),
+        apiClient.listNodes().catch(() => []),
+        apiClient.listAlerts({ limit: 10 }).catch(() => []),
+        apiClient.getAllModelsStatus().catch(() => ({ models: [], total_memory_mb: 0, active_model_count: 0 })),
+        apiClient.listAdapters().catch(() => [])
+      ]);
+
+      setSystemMetrics(metricsRes);
+      setTenants(tenantsRes);
+      setNodes(nodesRes);
+      setAlerts(alertsRes);
+      setModels(modelsRes.models || []);
+      setAdapters(adaptersRes);
+    } catch (error) {
+      console.error('Failed to fetch admin data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  const activeNodes = nodes.filter(n => n.status === 'online' || n.status === 'active').length;
+  const activeTenants = tenants.filter(t => t.status === 'active' || !t.status).length;
+  const criticalAlerts = alerts.filter(a => a.severity === 'critical' && a.status === 'active').length;
+  const loadedModels = models.filter(m => m.is_loaded).length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">IT Admin Dashboard</h1>
+          <p className="text-muted-foreground">System administration and monitoring</p>
+        </div>
+        <Button onClick={fetchData} disabled={refreshing} variant="outline">
+          <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Critical Alerts Banner */}
+      {criticalAlerts > 0 && (
+        <Card className="border-red-500 bg-red-50 dark:bg-red-950">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+              <div>
+                <h3 className="font-semibold text-red-900 dark:text-red-100">
+                  {criticalAlerts} Critical Alert{criticalAlerts > 1 ? 's' : ''}
+                </h3>
+                <p className="text-sm text-red-700 dark:text-red-300">
+                  Immediate attention required
+                </p>
+              </div>
+              <Button variant="destructive" className="ml-auto">
+                View Alerts
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* System Overview Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* System Health */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">System Health</CardTitle>
+            <Activity className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {systemMetrics ? 'Healthy' : 'Unknown'}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              All systems operational
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Active Tenants */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Tenants</CardTitle>
+            <Users className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{activeTenants}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {tenants.length} total tenants
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Nodes Online */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Nodes Online</CardTitle>
+            <Server className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{activeNodes}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {nodes.length} total nodes
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Loaded Models */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Models Loaded</CardTitle>
+            <Database className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{loadedModels}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {models.length} total models
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Resource Usage */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5" />
+            Resource Usage
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* CPU Usage */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">CPU</span>
+                </div>
+                <span className="text-sm font-bold">
+                  {systemMetrics?.cpu_usage_percent?.toFixed(1) || '0.0'}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all"
+                  style={{ width: `${systemMetrics?.cpu_usage_percent || 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Memory Usage */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <MemoryStick className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Memory</span>
+                </div>
+                <span className="text-sm font-bold">
+                  {systemMetrics?.memory_used_gb?.toFixed(1) || '0.0'} / 
+                  {systemMetrics?.memory_total_gb?.toFixed(1) || '0.0'} GB
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  className="bg-purple-600 h-2 rounded-full transition-all"
+                  style={{ width: `${systemMetrics?.memory_usage_percent || 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Disk Usage */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Disk</span>
+                </div>
+                <span className="text-sm font-bold">
+                  {systemMetrics?.disk_used_gb?.toFixed(1) || '0.0'} / 
+                  {systemMetrics?.disk_total_gb?.toFixed(1) || '0.0'} GB
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  className="bg-orange-600 h-2 rounded-full transition-all"
+                  style={{ width: `${systemMetrics?.disk_usage_percent || 0}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Tenant Management */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Tenant Management
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {tenants.slice(0, 5).map(tenant => (
+                <div
+                  key={tenant.id}
+                  className="flex items-center justify-between p-3 border rounded-lg"
+                >
+                  <div>
+                    <p className="font-medium">{tenant.name}</p>
+                    <p className="text-xs text-muted-foreground">{tenant.id}</p>
+                  </div>
+                  <Badge variant={tenant.status === 'active' ? 'default' : 'secondary'}>
+                    {tenant.status || 'active'}
+                  </Badge>
+                </div>
+              ))}
+              {tenants.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No tenants found
+                </p>
+              )}
+              <Button variant="outline" className="w-full">
+                View All Tenants
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recent Alerts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Recent Alerts
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {alerts.slice(0, 5).map(alert => (
+                <div
+                  key={alert.id}
+                  className="flex items-start gap-3 p-3 border rounded-lg"
+                >
+                  {alert.severity === 'critical' ? (
+                    <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                  ) : alert.severity === 'warning' ? (
+                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{alert.title}</p>
+                    <p className="text-xs text-muted-foreground">{alert.message}</p>
+                  </div>
+                  <Badge variant={alert.status === 'active' ? 'destructive' : 'outline'}>
+                    {alert.status}
+                  </Badge>
+                </div>
+              ))}
+              {alerts.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No active alerts
+                </p>
+              )}
+              <Button variant="outline" className="w-full">
+                View All Alerts
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* System Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            System Actions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Button variant="outline" className="h-20 flex-col">
+              <Users className="w-6 h-6 mb-2" />
+              Manage Users
+            </Button>
+            <Button variant="outline" className="h-20 flex-col">
+              <Server className="w-6 h-6 mb-2" />
+              Node Config
+            </Button>
+            <Button variant="outline" className="h-20 flex-col">
+              <Download className="w-6 h-6 mb-2" />
+              Export Logs
+            </Button>
+            <Button variant="outline" className="h-20 flex-col">
+              <Shield className="w-6 h-6 mb-2" />
+              Security Settings
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Adapter Statistics */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Adapter Registry</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold">{adapters.length}</div>
+              <div className="text-xs text-muted-foreground mt-1">Total Adapters</div>
+            </div>
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold">
+                {adapters.filter(a => a.active).length}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Active</div>
+            </div>
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold">
+                {adapters.filter(a => a.current_state === 'hot').length}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Hot State</div>
+            </div>
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold">
+                {(adapters.reduce((sum, a) => sum + a.memory_bytes, 0) / (1024 * 1024 * 1024)).toFixed(2)}GB
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Memory Used</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
