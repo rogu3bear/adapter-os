@@ -91,7 +91,8 @@ export default function RootLayout() {
     {
       title: 'Overview',
       items: [
-        { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }
+        { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { to: '/workflow', label: 'Getting Started', icon: Compass }
       ]
     },
     {
@@ -112,14 +113,19 @@ export default function RootLayout() {
       ]
     },
     {
-      title: 'Advanced',
+      title: 'Training',
       items: [
-        { to: '/workflow', label: 'Getting Started', icon: Compass },
-        { to: '/routing', label: 'Routing Inspector', icon: Route },
-        { to: '/monitoring', label: 'System Health', icon: Activity },
-        { to: '/training', label: 'Training', icon: Zap },
+        { to: '/trainer', label: 'Single-File Trainer', icon: Upload },
+        { to: '/training', label: 'Training Jobs', icon: Zap },
         { to: '/testing', label: 'Testing', icon: FlaskConical },
-        { to: '/golden', label: 'Golden Runs', icon: GitCompare },
+        { to: '/golden', label: 'Golden Runs', icon: GitCompare }
+      ]
+    },
+    {
+      title: 'System',
+      items: [
+        { to: '/monitoring', label: 'System Health', icon: Activity },
+        { to: '/routing', label: 'Routing Inspector', icon: Route },
         { to: '/promotion', label: 'Promotion', icon: TrendingUp },
         { to: '/replay', label: 'Replay', icon: RotateCcw }
       ]
@@ -128,8 +134,7 @@ export default function RootLayout() {
       title: 'Administration',
       items: [
         { to: '/admin', label: 'IT Admin', icon: Settings },
-        { to: '/reports', label: 'Reports', icon: BarChart3 },
-        { to: '/trainer', label: 'Single-File Trainer', icon: Upload }
+        { to: '/reports', label: 'Reports', icon: BarChart3 }
       ],
       roles: ['Admin']
     }

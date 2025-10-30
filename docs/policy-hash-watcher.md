@@ -493,7 +493,7 @@ All policy hash operations logged to telemetry:
 
 - **Insert/Update:** ~1-2ms (SQLite WAL mode)
 - **Query:** <1ms (indexed lookups)
-- **List:** ~5-10ms for all 20 policy packs
+- **List:** ~5-10ms for all 22 policy packs
 
 ### Background Watcher
 

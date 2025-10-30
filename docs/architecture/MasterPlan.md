@@ -16,7 +16,7 @@
 
 #### **Core Services**
 - **Adapter Router**: Top-K selection with Q15 quantized gates
-- **Policy Engine**: Enforces 20 policy packs
+- **Policy Engine**: Enforces 22 policy packs
 - **Evidence Tracker**: Citation manager for grounded responses
 
 #### **Inference Engine**
@@ -226,7 +226,7 @@ Mediates all client communication.
 
 #### **Core Services**
 - **Adapter Router** — Selects top-K adapters using Q15 quantized gating; merges LoRAs on-the-fly  
-- **Policy Engine** — Enforces 20 system policy packs (Egress, Determinism, Telemetry, Compliance, etc.)  
+- **Policy Engine** — Enforces 22 system policy packs (Egress, Determinism, Telemetry, Compliance, etc.)  
 - **Evidence Tracker** — Collects citations and hashes input/output pairs for audit reproducibility  
 - **Concurrency Model** — Tokio runtime pinned to deterministic worker threads; no work-stealing  
 

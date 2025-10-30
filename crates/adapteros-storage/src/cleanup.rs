@@ -2,7 +2,7 @@
 //!
 //! Implements automatic cleanup policies for tenant storage.
 
-use crate::{StorageConfig, StorageUsage};
+use crate::{StorageConfig, StorageUsage, CleanupPolicy};
 use adapteros_core::{AosError, Result};
 use glob::glob;
 use std::path::PathBuf;

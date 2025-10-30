@@ -109,19 +109,4 @@ pub struct HotSwapResponse {
     pub old_adapter: Option<String>,
 }
 
-/// Hot-swap request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct HotSwapRequest {
-    /// Path to new .aos file
-    pub new_path: String,
-}
-
-/// Hot-swap response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct HotSwapResponse {
-    pub adapter_id: String,
-    /// Swap time in milliseconds
-    pub swap_time_ms: u64,
-    /// Previous adapter ID (if any)
-    pub old_adapter: Option<String>,
-}
+// (duplication removed)

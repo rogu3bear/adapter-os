@@ -32,6 +32,7 @@ import { InferRequest, InferResponse, InferenceSession, Adapter } from '../api/t
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
+import { useSearchParams } from 'react-router-dom';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -42,6 +43,7 @@ interface InferenceConfig extends InferRequest {
 }
 
 export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps) {
+  const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -97,7 +99,28 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       try {
         const adapterList = await apiClient.listAdapters();
         setAdapters(adapterList);
-        // Select first active adapter if available
+
+        // Check for adapter query parameter
+        const adapterParam = searchParams.get('adapter');
+        if (adapterParam) {
+          // Try to find the adapter by ID or adapter_id
+          const targetAdapter = adapterList.find((a: Adapter) =>
+            a.id === adapterParam || a.adapter_id === adapterParam
+          );
+          if (targetAdapter) {
+            setSelectedAdapterId(targetAdapter.id);
+            toast.success(`Adapter "${targetAdapter.name}" selected`);
+            return;
+          } else {
+            logger.warn('Requested adapter not found', {
+              component: 'InferencePlayground',
+              operation: 'loadAdapters',
+              requestedAdapter: adapterParam,
+            });
+          }
+        }
+
+        // Fallback: Select first active adapter if available
         const activeAdapter = adapterList.find((a: Adapter) => ['hot', 'warm', 'resident'].includes(a.current_state));
         if (activeAdapter) {
           setSelectedAdapterId(activeAdapter.id);
@@ -110,7 +133,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       }
     };
     loadAdapters();
-  }, []);
+  }, [searchParams]);
 
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
     // Convert InferResponse to EnhancedInferResponse for session storage

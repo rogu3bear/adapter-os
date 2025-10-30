@@ -111,9 +111,9 @@ impl AdapterLoader {
         // Prefer memory-mapped .aos path if configured and available
         let adapter_path = self.resolve_path(adapter_name);
         if self.use_mmap && adapter_path.extension() == Some(OsStr::new("aos")) {
-            if let Some(ref mmap_loader) = self.mmap_loader {
+            if let Some(mmap_loader) = self.mmap_loader.clone() {
                 return self
-                    .load_aos_mmap(adapter_id, adapter_name, mmap_loader)
+                    .load_aos_mmap(adapter_id, adapter_name, &mmap_loader)
                     .await;
             }
         }
@@ -221,6 +221,7 @@ impl AdapterLoader {
                         let options = LoadOptions {
                             skip_verification: false,
                             skip_signature_check: false,
+                            use_mmap: false,
                         };
                         let adapter = SingleFileAdapterLoader::load_with_options(
                             adapter_path,
@@ -309,16 +310,21 @@ impl AdapterLoader {
         &mut self,
         adapter_id: u16,
         adapter_name: &str,
-        loader: &Arc<tokio::sync::Mutex<adapteros_aos::MmapAdapterLoader>>,
+        loader: &Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>,
     ) -> Result<AdapterHandle> {
         let path = self.resolve_path(adapter_name);
-        let mmap_adapter = loader.lock().await.load(&path).await?;
+        let options = adapteros_single_file_adapter::LoadOptions {
+            skip_verification: false,
+            skip_signature_check: false,
+            use_mmap: true,
+        };
+        let mmap_adapter = loader.lock().await.load(&path, &options)?;
 
         self.loaded.insert(adapter_id, path.clone());
         Ok(AdapterHandle {
             adapter_id,
             path,
-            memory_bytes: mmap_adapter.size_bytes() as usize,
+            memory_bytes: mmap_adapter.file_len(),
         })
     }
 

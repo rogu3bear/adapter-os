@@ -30,6 +30,9 @@ pub struct ServerConfig {
     /// Optional Unix Domain Socket path for UDS-only serving (M1+). If set, TCP is disabled.
     #[serde(default)]
     pub uds_socket: Option<String>,
+    /// Production mode: enforces UDS-only, Ed25519 JWTs, zero egress (M1 hardening)
+    #[serde(default = "default_false")]
+    pub production_mode: bool,
     /// Enable memory-mapped adapter loading
     #[serde(default = "default_false")]
     pub enable_mmap_adapters: bool,
@@ -64,7 +67,7 @@ pub struct SecurityConfig {
     /// Optional path to a file containing the HS256 secret. If set, takes precedence over jwt_secret.
     #[serde(default)]
     pub jwt_secret_file: Option<String>,
-    /// JWT mode: "hmac" (default) or "eddsa"
+    /// JWT mode: "hmac" (default) or "eddsa". In production_mode, must be "eddsa".
     #[serde(default)]
     pub jwt_mode: Option<String>,
     /// Optional Ed25519 public key in PEM for JWT validation when jwt_mode = "eddsa"

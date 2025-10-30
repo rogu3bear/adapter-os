@@ -29,7 +29,7 @@ pub struct PlatformConfig {
 }
 
 /// Supported platforms
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Platform {
     /// Windows platform
     Windows,
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_platform_config() -> Result<()> {
-        let config = PlatformFsManager::detect_platform()?;
+        let config = PlatformFsManager::detect_platform_config()?;
         assert!(config.enable_optimizations);
         assert!(config.enable_features);
         Ok(())
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_platform_manager() -> Result<()> {
-        let config = PlatformFsManager::detect_platform()?;
+        let config = PlatformFsManager::detect_platform_config()?;
         let manager = PlatformFsManager::new(config)?;
 
         assert!(!manager.platform_name().is_empty());
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_path_normalization() -> Result<()> {
-        let config = PlatformFsManager::detect_platform()?;
+        let config = PlatformFsManager::detect_platform_config()?;
         let manager = PlatformFsManager::new(config)?;
 
         let temp_dir = TempDir::new()?;

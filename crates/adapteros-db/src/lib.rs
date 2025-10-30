@@ -154,6 +154,447 @@ impl Db {
 pub use sqlx;
 pub use sqlx::Row;
 
+// Re-export types for trait usage
+pub use adapters::Adapter;
+pub use jobs::Job;
+pub use models::Worker;
+pub use tenants::Tenant;
+pub use nodes::Node;
+pub use replay_sessions::ReplaySession;
+pub use training_jobs::TrainingJobRecord;
+
+/// Unified database enum for both SQLite and PostgreSQL
+#[derive(Clone)]
+pub enum Database {
+    Sqlite(Db),
+    Postgres(PostgresDb),
+}
+
+// Implement delegation methods for the Database enum
+impl Database {
+    /// Connect to a database using DATABASE_URL.
+    ///
+    /// If `DATABASE_URL` begins with `postgres://` or `postgresql://`, connects to PostgreSQL.
+    /// Otherwise, uses SQLite (path or sqlite URL).
+    pub async fn connect_env() -> Result<Database> {
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
+        let url_lc = database_url.to_lowercase();
+        if url_lc.starts_with("postgres://") || url_lc.starts_with("postgresql://") {
+            let pg = PostgresDb::connect_env()
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            Ok(Database::Postgres(pg))
+        } else {
+            let sqlite = Db::connect(&database_url).await?;
+            Ok(Database::Sqlite(sqlite))
+        }
+    }
+    pub fn as_sqlite(&self) -> Option<&Db> {
+        match self {
+            Database::Sqlite(db) => Some(db),
+            Database::Postgres(_) => None,
+        }
+    }
+
+    pub fn as_postgres(&self) -> Option<&PostgresDb> {
+        match self {
+            Database::Sqlite(_) => None,
+            Database::Postgres(db) => Some(db),
+        }
+    }
+
+    /// Get the SQLite database, panicking if this is PostgreSQL
+    /// Used for legacy code that requires direct Db access
+    pub fn sqlite(&self) -> &Db {
+        self.as_sqlite().expect("Expected SQLite database but got PostgreSQL")
+    }
+
+    /// Get the PostgreSQL database, panicking if this is SQLite
+    /// Used for legacy code that requires direct PostgresDb access
+    pub fn postgres(&self) -> &PostgresDb {
+        self.as_postgres().expect("Expected PostgreSQL database but got SQLite")
+    }
+
+    pub fn pool(&self) -> &sqlx::SqlitePool {
+        match self {
+            Database::Sqlite(db) => db.pool(),
+            Database::Postgres(_) => panic!("Cannot get SQLite pool from PostgreSQL database"),
+        }
+    }
+
+    pub fn postgres_pool(&self) -> &sqlx::postgres::PgPool {
+        match self {
+            Database::Sqlite(_) => panic!("Cannot get PostgreSQL pool from SQLite database"),
+            Database::Postgres(db) => db.pool(),
+        }
+    }
+
+    /// Run database migrations for the active backend
+    pub async fn migrate(&self) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.migrate().await,
+            Database::Postgres(db) => db
+                .migrate()
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string())),
+        }
+    }
+
+    /// Seed development data for the active backend
+    pub async fn seed_dev_data(&self) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.seed_dev_data().await,
+            Database::Postgres(db) => db
+                .seed_dev_data()
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string())),
+        }
+    }
+
+    pub async fn list_adapters(&self) -> Result<Vec<adapters::Adapter>> {
+        match self {
+            Database::Sqlite(db) => db.list_adapters().await,
+            Database::Postgres(db) => db.list_adapters().await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<adapters::Adapter>> {
+        match self {
+            Database::Sqlite(db) => db.get_adapter(adapter_id).await,
+            Database::Postgres(db) => db.get_adapter(adapter_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn register_adapter(&self, adapter_id: &str, name: &str, hash_b3: &str, rank: i32, tier: i32, languages_json: Option<&str>, framework: Option<&str>) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.register_adapter(adapter_id, name, hash_b3, rank, tier, languages_json, framework).await,
+            Database::Postgres(db) => db.register_adapter(adapter_id, name, hash_b3, rank, tier, languages_json, framework).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn delete_adapter(&self, id: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.delete_adapter(id).await,
+            Database::Postgres(db) => db.delete_adapter(id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn update_adapter_state(&self, adapter_id: &str, state: &str, reason: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.update_adapter_state(adapter_id, state, reason).await,
+            Database::Postgres(db) => db.update_adapter_state(adapter_id, state, reason).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_user_by_email(&self, email: &str) -> Result<Option<users::User>> {
+        match self {
+            Database::Sqlite(db) => db.get_user_by_email(email).await,
+            Database::Postgres(db) => db.get_user_by_email(email).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn list_tenants(&self) -> Result<Vec<tenants::Tenant>> {
+        match self {
+            Database::Sqlite(db) => db.list_tenants().await,
+            Database::Postgres(db) => db.list_tenants().await.map_err(Into::into),
+        }
+    }
+
+    pub async fn create_tenant(&self, name: &str, itar_flag: bool) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.create_tenant(name, itar_flag).await,
+            Database::Postgres(db) => db.create_tenant(name, itar_flag).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_tenant(&self, id: &str) -> Result<Option<tenants::Tenant>> {
+        match self {
+            Database::Sqlite(db) => db.get_tenant(id).await,
+            Database::Postgres(db) => db.get_tenant(id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn list_all_workers(&self) -> Result<Vec<models::Worker>> {
+        match self {
+            Database::Sqlite(db) => db.list_all_workers().await,
+            Database::Postgres(db) => db.list_all_workers().await.map_err(Into::into),
+        }
+    }
+
+    pub async fn list_workers_by_node(&self, node_id: &str) -> Result<Vec<models::Worker>> {
+        match self {
+            Database::Sqlite(db) => db.list_workers_by_node(node_id).await,
+            Database::Postgres(db) => db.list_workers_by_node(node_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.update_worker_status(worker_id, status).await,
+            Database::Postgres(db) => db.update_worker_status(worker_id, status).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn list_nodes(&self) -> Result<Vec<nodes::Node>> {
+        match self {
+            Database::Sqlite(db) => db.list_nodes().await,
+            Database::Postgres(db) => db.list_nodes().await.map_err(Into::into),
+        }
+    }
+
+    pub async fn register_node(&self, hostname: &str, agent_endpoint: &str) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.register_node(hostname, agent_endpoint).await,
+            Database::Postgres(db) => db.register_node(hostname, agent_endpoint).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_node(&self, id: &str) -> Result<Option<nodes::Node>> {
+        match self {
+            Database::Sqlite(db) => db.get_node(id).await,
+            Database::Postgres(db) => db.get_node(id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn update_node_status(&self, id: &str, status: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.update_node_status(id, status).await,
+            Database::Postgres(db) => db.update_node_status(id, status).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn create_job(&self, kind: &str, tenant_id: Option<&str>, user_id: Option<&str>, payload_json: &str) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.create_job(kind, tenant_id, user_id, payload_json).await,
+            Database::Postgres(db) => db.create_job(kind, tenant_id, user_id, payload_json).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn list_replay_sessions(&self, tenant_id: Option<&str>) -> Result<Vec<replay_sessions::ReplaySession>> {
+        match self {
+            Database::Sqlite(db) => db.list_replay_sessions(tenant_id).await,
+            Database::Postgres(db) => db.list_replay_sessions(tenant_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_replay_session(&self, session_id: &str) -> Result<Option<replay_sessions::ReplaySession>> {
+        match self {
+            Database::Sqlite(db) => db.get_replay_session(session_id).await,
+            Database::Postgres(db) => db.get_replay_session(session_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn create_replay_session(&self, session: &replay_sessions::ReplaySession) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.create_replay_session(session).await,
+            Database::Postgres(db) => db.create_replay_session(session).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_training_job(&self, job_id: &str) -> Result<Option<training_jobs::TrainingJobRecord>> {
+        match self {
+            Database::Sqlite(db) => db.get_training_job(job_id).await,
+            Database::Postgres(db) => db.get_training_job(job_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn update_training_status(&self, job_id: &str, status: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.update_training_status(job_id, status).await,
+            Database::Postgres(db) => db.update_training_status(job_id, status).await.map_err(Into::into),
+        }
+    }
+
+    // Add missing methods as needed
+    pub async fn rename_tenant(&self, tenant_id: &str, new_name: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.rename_tenant(tenant_id, new_name).await,
+            Database::Postgres(db) => db.rename_tenant(tenant_id, new_name).await.map_err(Into::into),
+        }
+    }
+
+    // Git repository methods
+    pub async fn create_git_repository(&self, _id: &str, repo_id: &str, path: &str, branch: &str, analysis_json: &str, created_by: &str) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.create_git_repository(_id, repo_id, path, branch, analysis_json, created_by).await,
+            Database::Postgres(db) => db.create_git_repository(_id, repo_id, path, branch, analysis_json, created_by).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_git_repository(&self, repo_id: &str) -> Result<Option<git_repositories::GitRepository>> {
+        match self {
+            Database::Sqlite(db) => db.get_git_repository(repo_id).await,
+            Database::Postgres(db) => db.get_git_repository(repo_id).await.map_err(Into::into),
+        }
+    }
+
+    // Training job methods
+    pub async fn create_training_job(&self, repo_id: &str, training_config_json: &str, created_by: &str) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.create_training_job(repo_id, training_config_json, created_by).await,
+            Database::Postgres(db) => db.create_training_job(repo_id, training_config_json, created_by).await.map_err(Into::into),
+        }
+    }
+
+    // Model methods
+    pub async fn register_model(&self, name: &str, hash_b3: &str, config_hash_b3: &str, tokenizer_hash_b3: &str, tokenizer_cfg_hash_b3: &str, license_hash_b3: Option<&str>, metadata_json: Option<&str>) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => db.register_model(name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, metadata_json).await,
+            Database::Postgres(db) => db.register_model(name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, metadata_json).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_model(&self, id: &str) -> Result<Option<models::Model>> {
+        match self {
+            Database::Sqlite(db) => db.get_model(id).await,
+            Database::Postgres(db) => db.get_model(id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_base_model_status(&self, tenant_id: &str) -> Result<Option<models::BaseModelStatus>> {
+        match self {
+            Database::Sqlite(db) => db.get_base_model_status(tenant_id).await,
+            Database::Postgres(db) => db.get_base_model_status(tenant_id).await.map_err(Into::into),
+        }
+    }
+
+    // Job methods
+    pub async fn list_jobs(&self, tenant_id: Option<&str>) -> Result<Vec<jobs::Job>> {
+        match self {
+            Database::Sqlite(db) => db.list_jobs(tenant_id).await,
+            Database::Postgres(db) => db.list_jobs(tenant_id).await.map_err(Into::into),
+        }
+    }
+
+    // Plan methods
+    pub async fn get_plan(&self, id: &str) -> Result<Option<models::Plan>> {
+        match self {
+            Database::Sqlite(db) => db.get_plan(id).await,
+            Database::Postgres(db) => db.get_plan(id).await.map_err(Into::into),
+        }
+    }
+
+    // Audit methods
+    pub async fn list_all_audits(&self) -> Result<Vec<audits::Audit>> {
+        match self {
+            Database::Sqlite(db) => db.list_all_audits().await,
+            Database::Postgres(db) => db.list_all_audits().await.map_err(Into::into),
+        }
+    }
+
+    // CP Pointer methods
+    pub async fn get_active_cp_pointer(&self, tenant_id: &str) -> Result<Option<models::CpPointer>> {
+        match self {
+            Database::Sqlite(db) => db.get_active_cp_pointer(tenant_id).await,
+            Database::Postgres(db) => db.get_active_cp_pointer(tenant_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_cp_pointer_by_name(&self, name: &str) -> Result<Option<models::CpPointer>> {
+        match self {
+            Database::Sqlite(db) => db.get_cp_pointer_by_name(name).await,
+            Database::Postgres(db) => db.get_cp_pointer_by_name(name).await.map_err(Into::into),
+        }
+    }
+
+    // Worker methods
+    pub async fn list_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<models::Worker>> {
+        match self {
+            Database::Sqlite(db) => db.list_workers_by_tenant(tenant_id).await,
+            Database::Postgres(db) => db.list_workers_by_tenant(tenant_id).await.map_err(Into::into),
+        }
+    }
+
+    // Additional worker methods
+    pub async fn insert_worker(&self, id: &str, tenant_id: &str, node_id: &str, plan_id: &str, uds_path: &str, pid: Option<i32>, status: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.insert_worker(id, tenant_id, node_id, plan_id, uds_path, pid, status).await,
+            Database::Postgres(_) => todo!("PostgreSQL insert_worker not implemented"),
+        }
+    }
+
+    pub async fn update_worker_heartbeat(&self, id: &str, status: Option<&str>) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.update_worker_heartbeat(id, status).await,
+            Database::Postgres(_) => todo!("PostgreSQL update_worker_heartbeat not implemented"),
+        }
+    }
+
+    // Plan methods
+    pub async fn list_plans_by_tenant(&self, tenant_id: &str) -> Result<Vec<models::Plan>> {
+        match self {
+            Database::Sqlite(db) => db.list_plans_by_tenant(tenant_id).await,
+            Database::Postgres(_) => todo!("PostgreSQL list_plans_by_tenant not implemented"),
+        }
+    }
+
+    pub async fn list_all_plans(&self) -> Result<Vec<models::Plan>> {
+        match self {
+            Database::Sqlite(db) => db.list_all_plans().await,
+            Database::Postgres(_) => todo!("PostgreSQL list_all_plans not implemented"),
+        }
+    }
+
+    // CP Pointer methods
+    pub async fn deactivate_all_cp_pointers(&self, tenant_id: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.deactivate_all_cp_pointers(tenant_id).await,
+            Database::Postgres(_) => todo!("PostgreSQL deactivate_all_cp_pointers not implemented"),
+        }
+    }
+
+    pub async fn insert_cp_pointer(&self, id: &str, tenant_id: &str, name: &str, adapter_id: &str, active: bool) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.insert_cp_pointer(id, tenant_id, name, adapter_id, active).await,
+            Database::Postgres(_) => todo!("PostgreSQL insert_cp_pointer not implemented"),
+        }
+    }
+
+    pub async fn list_cp_pointers_by_tenant(&self, tenant_id: &str) -> Result<Vec<models::CpPointer>> {
+        match self {
+            Database::Sqlite(db) => db.list_cp_pointers_by_tenant(tenant_id).await,
+            Database::Postgres(_) => todo!("PostgreSQL list_cp_pointers_by_tenant not implemented"),
+        }
+    }
+
+    pub async fn activate_cp_pointer(&self, id: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.activate_cp_pointer(id).await,
+            Database::Postgres(_) => todo!("PostgreSQL activate_cp_pointer not implemented"),
+        }
+    }
+
+    // Adapter stats methods
+    pub async fn get_adapter_stats(&self, adapter_id: &str) -> Result<(i64, i64, f64)> {
+        match self {
+            Database::Sqlite(db) => db.get_adapter_stats(adapter_id).await,
+            Database::Postgres(_) => todo!("PostgreSQL get_adapter_stats not implemented"),
+        }
+    }
+
+    pub async fn update_adapter_memory(&self, adapter_id: &str, memory_bytes: i64) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.update_adapter_memory(adapter_id, memory_bytes).await,
+            Database::Postgres(_) => todo!("PostgreSQL update_adapter_memory not implemented"),
+        }
+    }
+
+    pub async fn get_adapter_activations(&self, adapter_id: &str, limit: i64) -> Result<Vec<adapters::AdapterActivation>> {
+        match self {
+            Database::Sqlite(db) => db.get_adapter_activations(adapter_id, limit).await,
+            Database::Postgres(_) => todo!("PostgreSQL get_adapter_activations not implemented"),
+        }
+    }
+
+    // Repository methods
+    pub async fn list_repositories(&self, tenant_id: &str, limit: i32, offset: i32) -> Result<Vec<repositories::Repository>> {
+        match self {
+            Database::Sqlite(db) => db.list_repositories(tenant_id, limit, offset).await,
+            Database::Postgres(_) => todo!("PostgreSQL list_repositories not implemented"),
+        }
+    }
+}
+
 pub mod adapters;
 pub mod artifacts;
 pub mod audits;
@@ -173,9 +614,8 @@ pub mod git_repositories;
 pub use git_repositories::GitRepository;
 pub mod incidents;
 pub mod jobs;
-pub use jobs::Job;
 pub mod training_jobs;
-pub use training_jobs::{TrainingJobRecord, TrainingProgress};
+pub use training_jobs::TrainingProgress;
 pub mod training_datasets;
 pub use training_datasets::{DatasetFile, DatasetStatistics, TrainingDataset};
 pub mod key_metadata;

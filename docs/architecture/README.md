@@ -140,7 +140,7 @@ Complete database documentation with ERD and workflow animations.
 
 ### **Policy Engine**
 - [System Architecture § 1](precision-diagrams.md#1-system-architecture) - Policy integration
-- [MasterPlan](MasterPlan.md) - 20 policy packs
+- [MasterPlan](MasterPlan.md) - 22 policy packs
 
 **Code**:
 - `crates/adapteros-policy/src/`

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import apiClient from '../api/client';
+import { logger, toError } from '../utils/logger';
 import {
   Shield,
   Users,
@@ -63,7 +64,7 @@ export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
       setModels(modelsRes.models || []);
       setAdapters(adaptersRes);
     } catch (error) {
-      console.error('Failed to fetch admin data:', error);
+      logger.error('Failed to fetch admin data', { component: 'ITAdminDashboard', operation: 'fetchAdminData' }, toError(error));
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -12,7 +12,7 @@ use prometheus::{
     CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry, TextEncoder,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -20,6 +20,7 @@ use tracing::info;
 use crate::alerting::AlertSeverity; // Add import
 
 /// Metrics collector with Prometheus integration
+#[derive(Debug)]
 pub struct MetricsCollector {
     registry: Registry,
     // Latency metrics
@@ -849,9 +850,7 @@ pub fn export_prometheus(registry: &Registry) -> Result<String> {
 // Time series buffer for metrics dashboard (offline, in-memory)
 // ============================================================
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::RwLock as StdRwLock;
 
 /// A single data point in a time series
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -866,7 +865,7 @@ pub struct MetricTimeSeries {
     name: String,
     resolution_ms: u64,
     max_points: usize,
-    inner: Arc<RwLock<VecDeque<MetricDataPoint>>>,
+    inner: Arc<StdRwLock<VecDeque<MetricDataPoint>>>,
 }
 
 impl MetricTimeSeries {
@@ -876,7 +875,7 @@ impl MetricTimeSeries {
             name,
             resolution_ms,
             max_points,
-            inner: Arc::new(RwLock::new(VecDeque::with_capacity(max_points))),
+            inner: Arc::new(StdRwLock::new(VecDeque::with_capacity(max_points))),
         }
     }
 
@@ -934,7 +933,7 @@ impl MetricTimeSeries {
 /// Registry of metric time series for dashboard queries
 #[derive(Debug, Clone)]
 pub struct MetricsRegistry {
-    series: Arc<RwLock<HashMap<String, Arc<MetricTimeSeries>>>>,
+    series: Arc<StdRwLock<HashMap<String, Arc<MetricTimeSeries>>>>,
     collector: Arc<MetricsCollector>,
 }
 
@@ -942,7 +941,7 @@ impl MetricsRegistry {
     /// Create a new metrics registry
     pub fn new(collector: Arc<MetricsCollector>) -> Self {
         Self {
-            series: Arc::new(RwLock::new(HashMap::new())),
+            series: Arc::new(StdRwLock::new(HashMap::new())),
             collector,
         }
     }

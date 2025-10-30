@@ -261,17 +261,17 @@ mod tests {
         assert_eq!(reservation.size, 500);
 
         // Test space check
-        quota_manager.check_space(400)?; // Should pass (500 + 400 = 900 < 1000)
+        quota_manager.check_space(400).await?; // Should pass (500 + 400 = 900 < 1000)
 
         // Test space limit
-        let result = quota_manager.check_space(600); // Should fail (500 + 600 = 1100 > 1000)
+        let result = quota_manager.check_space(600).await; // Should fail (500 + 600 = 1100 > 1000)
         assert!(result.is_err());
 
         // Test reservation release
         quota_manager.release_space(reservation).await?;
 
         // Test space check after release
-        quota_manager.check_space(600)?; // Should pass now
+        quota_manager.check_space(600).await?; // Should pass now
 
         Ok(())
     }

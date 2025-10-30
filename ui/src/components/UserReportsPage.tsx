@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import apiClient from '../api/client';
+import { logger, toError } from '../utils/logger';
 import {
   Activity,
   Clock,
@@ -67,7 +68,7 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
           }
         ]);
       } catch (error) {
-        console.error('Failed to fetch user report data:', error);
+        logger.error('Failed to fetch user report data', { component: 'UserReportsPage', operation: 'fetchReportData' }, toError(error));
       } finally {
         setLoading(false);
       }

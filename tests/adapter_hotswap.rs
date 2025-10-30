@@ -7,8 +7,9 @@
 //! - Memory leak detection
 //! - Mmap-based atomic swaps (Phase 3)
 
+use adapteros_aos::HotSwapManager;
 use adapteros_core::B3Hash;
-use adapteros_lora_worker::adapter_hotswap::{AdapterCommand, AdapterTable, HotSwapManager};
+use adapteros_lora_worker::adapter_hotswap::{AdapterCommand, AdapterTable};
 use adapteros_single_file_adapter::{
     AdapterManifest, AosSignature, CompressionLevel, LineageInfo, Mutation, PackageOptions,
     SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig, TrainingExample, WeightGroup,
@@ -338,7 +339,6 @@ async fn test_mmap_adapter_load_and_verify() {
 
     // Load via mmap
     let mmap_adapter = adapteros_single_file_adapter::MmapAdapter::from_path(&adapter_path)
-        .await
         .unwrap();
 
     // Verify signature

@@ -1,6 +1,7 @@
 use crate::handlers;
 use crate::handlers::domain_adapters;
 use crate::middleware::{auth_middleware, dual_auth_middleware};
+use crate::rate_limit::per_tenant_rate_limit_middleware;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::{
@@ -452,6 +453,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/adapters", get(handlers::list_adapters))
         .route("/v1/adapters/:adapter_id", get(handlers::get_adapter))
         .route("/v1/adapters/register", post(handlers::register_adapter))
+        .route("/v1/adapters/import", post(handlers::import_adapter))
         .route(
             "/v1/adapters/:adapter_id",
             axum::routing::delete(handlers::delete_adapter),
@@ -689,6 +691,10 @@ pub fn build(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            per_tenant_rate_limit_middleware,
         ));
 
     // Configure CORS for development

@@ -9,7 +9,7 @@ adapteros-db = { path = "../adapteros-db" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
-adapteros-aos = { path = "../adapteros-aos", optional = true }
+adapteros-aos = { path = "../adapteros-aos" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 parking_lot = "0.12"

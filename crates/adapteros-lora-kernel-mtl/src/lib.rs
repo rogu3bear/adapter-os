@@ -1622,7 +1622,7 @@ impl MetalKernels {
         let hidden_size = 3584; // Qwen2.5-7B hidden size (default until weights parsed)
         let seq_len = self.batch_capacity.max(1);
 
-        let buffer_size = hidden_size * seq_len * std::mem::size_of::<f32>() as u64;
+        let buffer_size = (hidden_size as u64) * (seq_len as u64) * (std::mem::size_of::<f32>() as u64);
 
         let hidden_states = self
             .device
@@ -1638,7 +1638,7 @@ impl MetalKernels {
             .as_ref()
             .map(|k| k.gqa_config().kv_width as usize)
             .unwrap_or(hidden_size / 8);
-        let kv_bytes = (kv_width * seq_len * std::mem::size_of::<f32>()) as u64;
+        let kv_bytes = (kv_width as u64) * (seq_len as u64) * (std::mem::size_of::<f32>() as u64);
         let k_output = self
             .device
             .new_buffer(kv_bytes, MTLResourceOptions::StorageModeShared);

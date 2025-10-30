@@ -21,8 +21,10 @@ adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-git = { path = "../adapteros-git" }
+adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
+adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
-adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-orchestrator = { path = "../adapteros-orchestrator", features = ["cdp"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }

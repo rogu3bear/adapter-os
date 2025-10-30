@@ -25,11 +25,14 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-trace = { path = "../adapteros-trace" }
 adapteros-verify = { path = "../adapteros-verify" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-base-llm = { path = "../adapteros-base-llm", optional = true }
 anyhow = "1.0"
 argon2 = "0.5"
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "multipart"] }
 base64 = "0.21"
 chrono = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }

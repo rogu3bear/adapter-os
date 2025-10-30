@@ -15,7 +15,7 @@ This document tracks features and components that are deferred to production dep
 
 **Status:** ⚠️ **DEFERRED - Development Mode Only**
 
-**Location:** `crates/mplora-secd/src/enclave.rs`
+**Location:** `crates/adapteros-secd/src/enclave.rs`
 
 **Current State:**
 - Software fallback key derivation implemented
@@ -61,7 +61,7 @@ This document tracks features and components that are deferred to production dep
 
 **Status:** ⚠️ **PARTIALLY IMPLEMENTED**
 
-**Location:** `crates/mplora-cli/src/commands/`
+**Location:** `crates/adapteros-cli/src/commands/`
 
 **Current State:**
 - Mock implementations with placeholder data
@@ -71,7 +71,7 @@ This document tracks features and components that are deferred to production dep
 **Production Requirements:**
 
 1. **UDS Client Module**
-   - Create `crates/mplora-client/src/uds.rs`
+   - Create `crates/adapteros-client/src/uds.rs` (Note: Already implemented)
    - Implement worker connection protocol
    - Handle connection pooling and errors
    - Support timeout and retry logic
@@ -98,7 +98,7 @@ This document tracks features and components that are deferred to production dep
 
 **Status:** ⚠️ **COMPILATION ISSUES**
 
-**Location:** `crates/mplora-system-metrics/`, `crates/mplora-cli/src/commands/metrics.rs`
+**Location:** `crates/adapteros-system-metrics/`, `crates/adapteros-cli/src/commands/metrics.rs`
 
 **Current State:**
 - Core metrics collection implemented
@@ -125,7 +125,7 @@ This document tracks features and components that are deferred to production dep
 
 **Status:** ⚠️ **33 COMPILATION ERRORS**
 
-**Location:** `crates/mplora-cli/`
+**Location:** `crates/adapteros-cli/`
 
 **Error Summary:**
 - 11× E0599: Method not found
@@ -150,7 +150,7 @@ This document tracks features and components that are deferred to production dep
    - Various f32/f64 mismatches
 
 **Workaround:**
-- Core workspace compiles successfully (`cargo check --workspace --exclude mplora-cli`)
+- Core workspace compiles successfully (`cargo check --workspace --exclude adapteros-cli` if needed)
 - Database, worker, and server components functional
 - Can use direct API calls instead of CLI
 
@@ -158,28 +158,34 @@ This document tracks features and components that are deferred to production dep
 
 ## 📝 Outstanding TODOs
 
+> **Note:** Many TODOs listed below have been completed. See [REMAINING_ISSUES_SUMMARY.md](../docs/archive/completed-phases/REMAINING_ISSUES_SUMMARY.md) for resolution status.
+
 ### Core Module TODOs
 
-1. **mplora-lifecycle** (3 TODOs)
-   - Database update in `update_adapter_state()` (Line 506)
-   - Database update in `record_adapter_activation()` (Line 584)
-   - Database update in `evict_adapter()` (Line 712)
-   - **Status:** Marked for future database integration iteration
+1. **adapteros-lora-lifecycle** ✅ **COMPLETE**
+   - ✅ Database update in `update_adapter_state()` - Implemented (Lines 631-913)
+   - ✅ Database update in `record_adapter_activation()` - Implemented
+   - ✅ Database update in `evict_adapter()` - Implemented
+   - **Status:** All lifecycle database integration completed (2025-01)
 
-2. **mplora-worker** (4 TODOs)
-   - `generation.rs` - Review required
-   - `signal.rs` - Review required
-   - `contact_discovery.rs` (2) - Review required
+2. **adapteros-lora-worker** (4 TODOs - Review Recommended)
+   - `generation.rs` - Review recommended
+   - `signal.rs` - Review recommended
+   - `contact_discovery.rs` (2) - Review recommended
+   - **Status:** Code review items, not blocking issues
 
-3. **mplora-mlx** (1 TODO)
+3. **adapteros-lora-mlx-ffi** (1 TODO)
    - PyO3 linking issues documented
    - Temporarily disabled
+   - **Status:** Known limitation, tracked separately
 
-4. **mplora-router** (1 TODO)
-   - Review required
+4. **adapteros-lora-router** (1 TODO)
+   - Review recommended
+   - **Status:** Code review item, not blocking
 
-5. **mplora-telemetry** (1 TODO)
-   - Review required
+5. **adapteros-telemetry** (1 TODO)
+   - Review recommended
+   - **Status:** Code review item, not blocking
 
 ### CLI Command TODOs (18 items)
 
@@ -193,10 +199,10 @@ Before deploying to production, complete:
 
 - [ ] **Secure Enclave**: Implement all 4 deferred methods
 - [ ] **UDS Client**: Create and integrate client module
-- [ ] **CLI Integration**: Complete all 18 command TODOs
+- [ ] **CLI Integration**: Review and prioritize remaining CLI command TODOs (see UDS Communications section)
 - [ ] **Metrics**: Fix struct field mismatches
 - [ ] **CLI Compilation**: Resolve all 33 errors
-- [ ] **Database TODOs**: Complete lifecycle database integration
+- [x] **Database TODOs**: ✅ Complete - Lifecycle database integration finished (2025-01)
 - [ ] **Testing**: Full integration test suite
 - [ ] **Security Audit**: Third-party security review
 - [ ] **Performance Testing**: Meet Ruleset #11 budgets

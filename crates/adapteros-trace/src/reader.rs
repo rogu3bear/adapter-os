@@ -523,7 +523,7 @@ mod tests {
 {"#,
         )
         .unwrap();
-        let mut reader = TraceReader::from_reader(&buf[..]);
+        let mut reader = TraceReader::from_reader(std::io::Cursor::new(buf));
         // First event (ignore result)
         let _ = reader.read_next_event();
         // Second should error with path and line number
@@ -538,7 +538,7 @@ mod tests {
         // Create a valid but very long JSON line exceeding the guard
         let long_val = "a".repeat(1024);
         let json_line = format!("{{\"k\":\"{}\"}}\n", long_val);
-        let mut reader = TraceReader::from_reader(json_line.as_bytes()).with_max_line_len(100);
+        let mut reader = TraceReader::from_reader(std::io::Cursor::new(json_line.into_bytes())).with_max_line_len(100);
         let err = reader.read_next_event().unwrap_err();
         let msg = format!("{}", err);
         assert!(msg.contains("too long"));

@@ -298,7 +298,7 @@ Visual guide to navigating all AdapterOS documentation.
 | **Worker** | Precision Diagrams §8, CLAUDE.md |
 | **Database** | Schema Diagram, Database README |
 | **Git** | Git Workflow, Code Intelligence |
-| **Policy** | CLAUDE.md (20 policy packs) |
+| **Policy** | CLAUDE.md (22 policy packs) |
 | **Telemetry** | Precision Diagrams §1-2, Monitoring Flow |
 
 ### By File Type

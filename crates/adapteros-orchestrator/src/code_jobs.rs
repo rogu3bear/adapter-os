@@ -20,7 +20,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use adapteros_server::config::{OrchestratorConfig, PathsConfig};
+use crate::OrchestratorConfig;
+
+/// Simple paths configuration for code jobs
+#[derive(Debug, Clone)]
+pub struct PathsConfig {
+    pub artifacts_dir: String,
+    pub temp_dir: String,
+    pub cache_dir: String,
+}
 
 /// Code job manager
 #[derive(Clone)]
