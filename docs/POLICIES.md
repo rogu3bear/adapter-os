@@ -159,6 +159,12 @@ block_on_critical = true        # Block on critical drift
 - 11: Warning-level drift
 - 12: Critical drift (blocks inference)
 
+### 22. MPLoRA
+**ID**: `Mplora`  
+**Severity**: High  
+**Status**: Implemented  
+**Description**: Enforces MPLoRA (Multi-Path LoRA) configuration and constraints. Manages shared downsample, compression ratios, orthogonal constraints, and performance optimization for multi-path adapter routing.
+
 ## Policy Enforcement
 
 Policies are enforced through the `adapteros-policy` crate, which provides:
