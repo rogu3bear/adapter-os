@@ -27,6 +27,7 @@ uuid = { version = "1.6", features = ["v7"] }
 chrono = "0.4"
 parking_lot = "0.12"
 pyo3 = { version = "0.22", optional = true }
+bytemuck = { workspace = true }
 
 [features]
 default = []

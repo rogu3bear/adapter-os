@@ -831,16 +831,12 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
             <Button variant="outline" onClick={() => setUpsertOpen(false)}>Cancel</Button>
             <Button onClick={async () => {
               try {
-                const resp = await fetch(`${(import.meta as any).env?.VITE_API_URL || '/api'}/v1/adapters/directory/upsert`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    ...(apiClient.getToken() ? { 'Authorization': `Bearer ${apiClient.getToken()}` } : {}),
-                  },
-                  body: JSON.stringify({ tenant_id: selectedTenant, root: upsertRoot, path: upsertPath, activate: upsertActivate }),
+                const data = await apiClient.upsertAdapterDirectory({
+                  tenant_id: selectedTenant,
+                  root: upsertRoot,
+                  path: upsertPath,
+                  activate: upsertActivate,
                 });
-                if (!resp.ok) throw new Error(await resp.text());
-                const data = await resp.json();
                 toast.success(`Upserted: ${data.adapter_id}`);
                 setUpsertOpen(false);
                 setUpsertRoot('');

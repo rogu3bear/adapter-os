@@ -1,5 +1,5 @@
 use adapteros_crypto::Keypair;
-use adapteros_db::Db;
+use adapteros_db::postgres::PostgresDb;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_orchestrator::{TrainingService};
 #[cfg(feature = "cdp")]
@@ -18,6 +18,9 @@ pub struct ApiConfig {
     pub golden_gate: Option<GoldenGateConfigApi>,
     /// Root directory where replay bundles are stored
     pub bundles_root: String,
+    /// Optional per-tenant rate limit configuration
+    #[serde(default)]
+    pub rate_limits: Option<RateLimitApiConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +42,14 @@ pub struct GoldenGateConfigApi {
     pub verify_device: bool,
     #[serde(default)]
     pub bundle_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitApiConfig {
+    /// Requests allowed per minute per tenant
+    pub requests_per_minute: u32,
+    /// Additional burst capacity
+    pub burst_size: u32,
 }
 
 /// Cryptographic state for signing and verification
@@ -72,7 +83,7 @@ impl Default for CryptoState {
 /// Shared application state passed to all handlers
 #[derive(Clone)]
 pub struct AppState {
-    pub db: Db,
+    pub db: PostgresDb,
     pub jwt_secret: Arc<Vec<u8>>,
     pub config: Arc<RwLock<ApiConfig>>,
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
@@ -93,7 +104,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        db: Db,
+        db: PostgresDb,
         jwt_secret: Vec<u8>,
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,

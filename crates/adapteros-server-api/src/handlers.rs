@@ -27,6 +27,7 @@ pub mod journeys;
 pub mod models;
 pub mod openai;
 pub mod replay;
+pub mod telemetry;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;
@@ -4115,6 +4116,8 @@ pub async fn list_process_alerts(
     let severity_filter = params.get("severity");
 
     // TODO: Implement database query for alerts
+    // NOTE: Alerts table needs to be created in PostgreSQL migration
+    // For M0, returning empty list as alerts are not yet implemented
     Ok(Json(vec![]))
 }
 
@@ -4139,6 +4142,8 @@ pub async fn acknowledge_process_alert(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // TODO: Implement alert acknowledgment
+    // NOTE: Alert acknowledgment requires alerts table and update logic
+    // For M0, returning stub response
     Ok(Json(ProcessAlertResponse {
         id: alert_id.clone(),
         rule_id: "rule-123".to_string(),

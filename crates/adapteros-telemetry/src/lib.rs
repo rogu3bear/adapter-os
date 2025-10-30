@@ -44,8 +44,9 @@ pub use events::{
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
 pub use metrics::{
-    AdapterMetrics, LatencyMetrics, MetricsCollector, MetricsServer, MetricsSnapshot,
-    PolicyMetrics, QueueDepthMetrics, SystemMetrics, ThroughputMetrics,
+    AdapterMetrics, LatencyMetrics, MetricDataPoint, MetricTimeSeries, MetricsCollector,
+    MetricsRegistry, MetricsServer, MetricsSnapshot, PolicyMetrics, QueueDepthMetrics,
+    SystemMetrics, ThroughputMetrics,
 };
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
@@ -64,6 +65,9 @@ pub use unified_events::{
     EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
     TelemetryFilters,
 };
+
+// Re-export in-memory buffer types at module level
+pub use self::{LogBuffer, TelemetryLogger};
 
 /// Telemetry writer with background thread
 pub struct TelemetryWriter {
@@ -463,4 +467,121 @@ pub struct NodeSyncEvent {
     pub duration_ms: u64,
     pub result: String, // "success", "failed", "partial"
     pub verified: bool,
+}
+
+// ============================================================
+// In-memory bounded buffers (Logs) for offline dashboard
+// ============================================================
+
+use std::collections::VecDeque;
+use std::sync::{Arc, RwLock};
+
+/// Bounded ring buffer for unified telemetry events (logs)
+#[derive(Debug, Clone)]
+pub struct LogBuffer {
+    capacity: usize,
+    inner: Arc<RwLock<VecDeque<UnifiedTelemetryEvent>>>,
+}
+
+impl LogBuffer {
+    /// Create a new log buffer with the given maximum number of events
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            inner: Arc::new(RwLock::new(VecDeque::with_capacity(capacity)) ),
+        }
+    }
+
+    /// Push a new event, evicting the oldest if over capacity
+    pub fn push(&self, event: UnifiedTelemetryEvent) {
+        let mut guard = self.inner.write().expect("log buffer poisoned");
+        if guard.len() >= self.capacity {
+            guard.pop_front();
+        }
+        guard.push_back(event);
+    }
+
+    /// Return the most recent events up to `limit`, newest first, with optional filters
+    pub fn query(&self, filters: &TelemetryFilters) -> Vec<UnifiedTelemetryEvent> {
+        let limit = filters.limit.unwrap_or(100);
+        let guard = self.inner.read().expect("log buffer poisoned");
+        // Iterate from back (newest) to front (oldest), apply simple filters
+        let mut results = Vec::with_capacity(limit.min(guard.len()));
+        for ev in guard.iter().rev() {
+            if let Some(ref tenant) = filters.tenant_id {
+                if ev.tenant_id.as_ref() != Some(tenant) { continue; }
+            }
+            if let Some(ref et) = filters.event_type {
+                if &ev.event_type != et { continue; }
+            }
+            if let Some(ref lvl) = filters.level {
+                if &ev.level != lvl { continue; }
+            }
+            if let Some(ref comp) = filters.component {
+                if ev.component.as_ref() != Some(comp) { continue; }
+            }
+            if let Some(ref tid) = filters.trace_id {
+                if ev.trace_id.as_ref() != Some(tid) { continue; }
+            }
+            // Start/end time filtering (inclusive)
+            if let Some(start) = filters.start_time {
+                if ev.timestamp < start { continue; }
+            }
+            if let Some(end) = filters.end_time {
+                if ev.timestamp > end { continue; }
+            }
+
+            results.push(ev.clone());
+            if results.len() >= limit { break; }
+        }
+        results
+    }
+
+    /// Current number of events retained
+    pub fn len(&self) -> usize {
+        let guard = self.inner.read().expect("log buffer poisoned");
+        guard.len()
+    }
+
+    /// Whether the buffer is empty
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+}
+
+/// High-level logger that writes to the in-memory buffer and optional disk writer
+#[derive(Clone)]
+pub struct TelemetryLogger {
+    buffer: Arc<LogBuffer>,
+    writer: Option<TelemetryWriter>,
+}
+
+impl TelemetryLogger {
+    /// Create a new logger using the provided in-memory buffer and an optional disk writer
+    pub fn new(buffer: Arc<LogBuffer>, writer: Option<TelemetryWriter>) -> Self {
+        Self { buffer, writer }
+    }
+
+    /// Log a unified event into memory and persist if configured
+    pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
+        self.buffer.push(event.clone());
+        if let Some(ref w) = self.writer {
+            // Best-effort; propagate error
+            w.log_event(event)?;
+        }
+        Ok(())
+    }
+
+    /// Convenience: build and log an event using builder inputs
+    pub fn log(
+        &self,
+        event_type: EventType,
+        level: LogLevel,
+        message: impl Into<String>,
+    ) -> Result<UnifiedTelemetryEvent> {
+        let ev = TelemetryEventBuilder::new(event_type, level, message.into()).build();
+        self.log_event(ev.clone())?;
+        Ok(ev)
+    }
+
+    /// Access the underlying in-memory buffer
+    pub fn buffer(&self) -> Arc<LogBuffer> { self.buffer.clone() }
 }

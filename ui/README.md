@@ -2,14 +2,35 @@
 
 Modern React-based web interface for managing the AdapterOS control plane.
 
+## M0 Features
+
+The UI provides core management functionality for the AdapterOS control plane:
+
+- **Authentication**: JWT-based login with httpOnly cookies
+- **Dashboard**: System overview and key metrics
+- **Management**:
+  - Tenants: Multi-tenant configuration
+  - Adapters: LoRA adapter management
+  - Policies: Security policy configuration
+  - Metrics: System performance monitoring
+- **Operations**:
+  - Inference: Run inference with adapters
+  - Telemetry: Event logs and monitoring
+  - Audit: Security audit trails
+
 ## Routing (React Router v6)
 
-- Routes:
-  - `/dashboard` – global metrics
-  - `/telemetry` – stream viewer
-  - `/alerts` – monitoring rules
-  - `/replay` – deterministic verification
-  - `/policies` – policy/audit views
+Core M0 Routes:
+- `/` → `/dashboard` (redirect)
+- `/login` – Authentication
+- `/dashboard` – System overview
+- `/tenants` – Tenant management
+- `/adapters` – Adapter management
+- `/policies` – Policy configuration
+- `/metrics` – System metrics
+- `/telemetry` – Event logs
+- `/inference` – Inference playground
+- `/audit` – Audit logs
 
 Entry: `src/main.tsx` mounts `BrowserRouter` → `LayoutProvider` → `RootLayout` with `<Outlet>`.
 
@@ -54,13 +75,13 @@ The dev server runs on http://localhost:3200 and proxies API requests to the bac
 
 ### Environment Variables
 
-Create a `.env.local` file for development:
+Create a `.env` file for development (see `.env.example`):
 
 ```bash
-VITE_API_URL=http://127.0.0.1:8080/api
+VITE_API_BASE=/api
 ```
 
-For production builds, API calls use relative paths (`/api`).
+For production builds, API calls use relative paths (`/api`). The API client automatically sends credentials with requests for cookie-based authentication.
 
 ## Real-time Metrics with SSE
 - SSE: Connects to ws://VITE_SSE_URL/metrics?token=JWT for <10ms updates (fallback to polling if WS unavailable).
@@ -68,7 +89,22 @@ For production builds, API calls use relative paths (`/api`).
 - Reconnect: Auto on error/close (backoff 1s-30s).
 
 ## Testing
-Vitest + RTL. Run `pnpm test` or `pnpm test:ui` (coverage lcov). RealtimeMetrics: 8 tests (render, fetch, SSE connect/disconnect/auth/throttle/error), 55% coverage.
+
+### Unit Tests
+Vitest + RTL. Run `pnpm test` or `pnpm test:ui` (coverage lcov).
+
+### Smoke Tests
+Run end-to-end smoke tests against a running server:
+
+```bash
+# Set server URL if different from localhost:8080
+export ADAPTEROS_BASE_URL=http://localhost:8080
+
+# Run smoke tests
+../../scripts/ui_smoke.sh
+```
+
+Tests key endpoints and verifies basic functionality.
 
 ## Building
 - Dev: `pnpm dev` (SSE hot-reload).
@@ -139,8 +175,10 @@ The API client automatically:
 ## Features
 
 ### Authentication
-- JWT-based authentication
-- Persistent sessions via localStorage
+- JWT-based authentication with httpOnly cookies
+- Automatic token refresh on 401 responses
+- Session persistence via secure cookies
+- Route guards with RequireAuth component
 - Role-based access control (Admin, Operator, SRE, etc.)
 
 ### Dashboard

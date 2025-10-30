@@ -41,22 +41,46 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE INDEX IF NOT EXISTS idx_nodes_tenant ON nodes(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes(status);
 
--- Adapters (PostgreSQL representation used by PostgresDb)
+-- Adapters (PostgreSQL representation matching SQLite schema for M0 compatibility)
 CREATE TABLE IF NOT EXISTS adapters (
     id TEXT PRIMARY KEY,
+    adapter_id TEXT,
     tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    tier TEXT NOT NULL CHECK(tier IN ('persistent','warm','ephemeral')),
+    hash_b3 TEXT UNIQUE NOT NULL,
     rank INTEGER NOT NULL,
-    version INTEGER NOT NULL DEFAULT 1,
-    base_model TEXT NOT NULL,
-    lora_config TEXT NOT NULL,
-    weights_hash TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled','deleted')),
+    alpha REAL NOT NULL DEFAULT 1.0,
+    targets_json TEXT NOT NULL DEFAULT '[]',
+    acl_json TEXT,
+    languages_json TEXT,
+    framework TEXT,
+    -- Code intelligence fields
+    category TEXT NOT NULL DEFAULT 'code',
+    scope TEXT NOT NULL DEFAULT 'global',
+    framework_id TEXT,
+    framework_version TEXT,
+    repo_id TEXT,
+    commit_sha TEXT,
+    intent TEXT,
+    expires_at TEXT,
+    -- Lifecycle state management
+    current_state TEXT NOT NULL DEFAULT 'unloaded',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    memory_bytes BIGINT NOT NULL DEFAULT 0,
+    last_activated TEXT,
+    activation_count BIGINT NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(tenant_id, name)
 );
+CREATE INDEX IF NOT EXISTS idx_adapters_adapter_id ON adapters(adapter_id);
 CREATE INDEX IF NOT EXISTS idx_adapters_tenant ON adapters(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_adapters_status ON adapters(status);
+CREATE INDEX IF NOT EXISTS idx_adapters_active ON adapters(active);
+CREATE INDEX IF NOT EXISTS idx_adapters_category ON adapters(category);
+CREATE INDEX IF NOT EXISTS idx_adapters_scope ON adapters(scope);
+CREATE INDEX IF NOT EXISTS idx_adapters_state ON adapters(current_state);
 CREATE INDEX IF NOT EXISTS idx_adapters_rank ON adapters(rank DESC, created_at DESC);
 
 -- RAG: Documents (base without pgvector column; added in 0002)
@@ -127,4 +151,16 @@ CREATE TABLE IF NOT EXISTS rag_retrieval_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_rag_retrieval_audit_tenant ON rag_retrieval_audit(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_retrieval_audit_query ON rag_retrieval_audit(query_hash);
+
+-- Adapter activations (M0 compatibility)
+CREATE TABLE IF NOT EXISTS adapter_activations (
+    id TEXT PRIMARY KEY,
+    adapter_id TEXT NOT NULL,
+    request_id TEXT,
+    gate_value DOUBLE PRECISION NOT NULL,
+    selected INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_adapter_activations_adapter_id ON adapter_activations(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_adapter_activations_created_at ON adapter_activations(created_at DESC);
 

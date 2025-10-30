@@ -10,12 +10,12 @@ import { Checkbox } from './ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import { 
-  Play, 
-  Copy, 
-  Download, 
-  History, 
-  Settings2, 
+import {
+  Play,
+  Copy,
+  Download,
+  History,
+  Settings2,
   ChevronDown,
   Zap,
   Clock,
@@ -30,7 +30,6 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { InferRequest, InferResponse, InferenceSession, Adapter } from '../api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Label } from './ui/label';
 import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
 

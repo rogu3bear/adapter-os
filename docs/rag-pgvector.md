@@ -2,6 +2,25 @@
 
 This document explains how to enable and operate the PostgreSQL pgvector backend for the RAG subsystem while preserving the default in-memory behavior.
 
+## M0: Control Plane PostgreSQL Integration
+
+**Note:** As of M0, the control plane (`aos-cp`) uses PostgreSQL as its primary database. The `DATABASE_URL` environment variable configures the PostgreSQL connection:
+
+```bash
+export DATABASE_URL=postgresql://user:password@host:port/database
+```
+
+The control plane automatically:
+1. Connects to PostgreSQL on startup via `PostgresDb::connect_env()`
+2. Runs migrations from `migrations_postgres/` 
+3. Seeds development data if the database is empty
+
+For RAG with pgvector:
+- Set `DATABASE_URL` to your PostgreSQL instance
+- Ensure the `vector` extension is installed: `CREATE EXTENSION IF NOT EXISTS vector;`
+- The control plane migrations will create necessary tables
+- Workers can use the same `DATABASE_URL` to access the shared pgvector index
+
 ## Overview
 
 - Backend selection is controlled by a compile-time feature flag.
@@ -53,11 +72,13 @@ Migrations are applied by the control-plane DB helper (`PostgresDb::migrate()`):
 - Schema (tables, indices): `migrations_postgres/0001_init_pg.sql`
 - pgvector index: `migrations_postgres/0002_pgvector.sql`
 
-Ensure the `vector` extension exists:
+Ensure the `vector` extension exists before running migrations:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
+
+**M0 Control Plane:** The control plane (`aos-cp`) automatically runs migrations on startup when using `PostgresDb::connect_env()`. Set `DATABASE_URL` before starting the control plane.
 
 ## Deterministic Retrieval
 

@@ -348,7 +348,97 @@ Status icons:
 
 ---
 
-## 10. Determinism Manifesto
+## 10. Patent Strategy & Intellectual Property
+
+### Patentable Innovations
+
+AdapterOS MPLoRA introduces novel architectural innovations for deterministic multi-adapter LoRA inference. The system includes six core innovations with varying implementation maturity:
+
+#### ✅ Fully Implemented (File Patent Claims)
+
+1. **Ring Buffer Architecture** (`crates/adapteros-lora-kernel-mtl/src/ring_buffer.rs`)
+   - Q15 quantized gates in shared memory between CPU and GPU
+   - Fixed-size structure (8 adapters) for cache-line efficiency
+   - Deterministic decision propagation
+   - **Status**: Production-ready, used in inference pipeline
+
+2. **Entropy Floor Mechanism** (`crates/adapteros-lora-router/src/lib.rs:351-362`)
+   - Inference-time enforcement of minimum gate values
+   - Prevents single-adapter collapse without retraining
+   - Softmax → min-clamping → renormalization algorithm
+   - **Status**: Production-ready, configurable epsilon (default: 0.02)
+
+3. **Determinism Attestation Framework** (`crates/adapteros-lora-kernel-api/src/attestation.rs`)
+   - Metallib hash verification for kernel binaries
+   - IEEE-754 compliance enforcement (fast-math disabled)
+   - HKDF-seeded deterministic RNG
+   - Comprehensive validation system
+   - **Status**: Production-ready, validated at backend initialization
+
+#### ⚠️ Designed/Partially Implemented (Provisional Claims)
+
+4. **Shared Downsample Matrix Architecture** (`metal/src/kernels/mplora.metal:25-57`)
+   - Memory-efficient weight sharing across adapters
+   - Shared A matrix with adapter-specific B matrices
+   - **Design**: Metal kernel implemented, API defined
+   - **Status**: Integration pending (disabled by default)
+   - **Potential Savings**: 50% memory reduction for N=100 adapters
+
+5. **Orthogonal Constraint System** (`crates/adapteros-lora-router/src/orthogonal.rs`)
+   - Cosine similarity penalties to prevent redundant adapters
+   - Sliding window history tracking
+   - **CPU Implementation**: Complete and functional
+   - **GPU Kernel**: Designed (`metal/src/kernels/mplora.metal:106-145`), integration pending
+   - **Status**: CPU implemented, GPU pending
+
+6. **Hot-Swap Adapter Management** (`crates/adapteros-lora-kernel-api/src/lib.rs:72-88`)
+   - Runtime adapter loading/unloading without restart
+   - Atomic updates with hash verification
+   - **API**: Defined and trait-implemented
+   - **Status**: Stub implementation, production integration pending
+
+### Patent Filing Strategy
+
+**Recommendation**: File patent application focusing on implemented innovations.
+
+**Priority Claims**:
+1. **Ring Buffer Architecture** — Independent claim for GPU-optimized multi-adapter routing
+2. **Entropy Floor Mechanism** — Independent claim for inference-time diversity guarantee
+3. **Determinism Attestation** — Independent claim for reproducible inference framework
+
+**Deferred Claims** (File as continuation after integration):
+- Shared downsample matrix (after production integration)
+- GPU-accelerated orthogonal constraints (after GPU integration)
+- Hot-swap adapter loading (after implementation)
+
+### Prior Art Comparison
+
+| Feature | Standard LoRA | MoRA | AdaLoRA | **MPLoRA** |
+|---------|--------------|------|---------|------------|
+| Multi-adapter support | ❌ | ❌ | ❌ | ✅ **Yes** |
+| Ring buffer routing | ❌ | ❌ | ❌ | ✅ **Yes** |
+| Entropy floor (inference) | ❌ | ❌ | ❌ | ✅ **Yes** |
+| Determinism attestation | ❌ | ❌ | ❌ | ✅ **Yes** |
+| Memory efficiency | Baseline | Improved | Improved | ✅ **50% reduction** (designed) |
+| Orthogonal constraints | ❌ | ❌ | ❌ | ✅ **Yes** (CPU implemented) |
+
+### Documentation
+
+- **Architectural Specification**: `docs/PATENT_MPLORA_ARCHITECTURE.md`
+- **Hallucination Audit**: `docs/HALLUCINATION_AUDIT_PATENT.md`
+- **Novelty Analysis**: `docs/PATENT_MPLORA_NOVELTY.md` (superseded)
+
+### Next Steps
+
+1. ✅ Complete patent document draft (architectural specification)
+2. ⏳ File provisional patent application (ring buffer + entropy floor + determinism)
+3. ⏳ Complete shared downsample matrix integration
+4. ⏳ Complete GPU orthogonal constraints integration
+5. ⏳ File continuation patent (expanded claims)
+
+---
+
+## 11. Determinism Manifesto
 AdapterOS operates on three non-negotiables:  
 1. **Determinism** — same input, same output, always.  
 2. **Auditability** — every byte can be replayed.  
