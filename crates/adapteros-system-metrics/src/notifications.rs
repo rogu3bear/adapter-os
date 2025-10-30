@@ -480,7 +480,7 @@ impl NotificationService {
 
     /// Get notification delivery status
     pub async fn get_notification_status(&self, alert_id: &str) -> Result<Vec<NotificationStatus>> {
-        let rows = sqlx::query(
+        let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(
             "SELECT * FROM process_monitoring_notifications WHERE alert_id = ? ORDER BY created_at DESC",
         )
         .bind(alert_id)
@@ -523,12 +523,12 @@ impl NotificationService {
 
     /// Retry failed notifications
     pub async fn retry_failed_notifications(&self) -> Result<()> {
-        let failed_notifications = sqlx::query!(
+        let failed_notifications: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(
             "SELECT * FROM process_monitoring_notifications 
              WHERE status = 'failed' AND retry_count < ? 
              ORDER BY created_at ASC LIMIT 10",
-            self.config.retry_attempts
         )
+        .bind(self.config.retry_attempts)
         .fetch_all(self.db.pool())
         .await
         .map_err(|e| {
@@ -536,29 +536,30 @@ impl NotificationService {
         })?;
 
         for row in failed_notifications {
+            let notification_id: String = row.get("id");
             // Increment retry count
-            sqlx::query!(
+            sqlx::query(
                 "UPDATE process_monitoring_notifications SET retry_count = retry_count + 1 WHERE id = ?",
-                row.id
             )
+            .bind(&notification_id)
             .execute(self.db.pool())
             .await
             .map_err(|e| adapteros_core::AosError::Database(format!("Failed to update retry count: {}", e)))?;
 
             // Retry the notification
             let notification = crate::alerting::NotificationRequest {
-                alert_id: row.alert_id,
-                notification_type: NotificationType::from_string(row.notification_type),
-                recipient: row.recipient,
-                message: row.message,
+                alert_id: row.get::<String, _>("alert_id"),
+                notification_type: NotificationType::from_string(row.get::<String, _>("notification_type")),
+                recipient: row.get::<String, _>("recipient"),
+                message: row.get::<String, _>("message"),
                 severity: AlertSeverity::Warning, // Default severity for retry
                 escalation_level: 0,
             };
 
             if let Err(e) = self.send_notification(notification).await {
-                error!("Failed to retry notification {:?}: {}", row.id, e);
+                error!("Failed to retry notification {:?}: {}", notification_id, e);
             } else {
-                info!("Successfully retried notification {:?}", row.id);
+                info!("Successfully retried notification {:?}", notification_id);
             }
         }
 

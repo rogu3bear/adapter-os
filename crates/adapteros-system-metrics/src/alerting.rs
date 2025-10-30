@@ -13,6 +13,7 @@ use adapteros_manifest::Policies;
 use adapteros_policy::PolicyEngine;
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use serde::Serialize;
+use sqlx::Row;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;
@@ -596,11 +597,11 @@ impl AlertEvaluator {
         level_config: &serde_json::Value,
     ) -> Result<()> {
         // Update escalation level in database
-        sqlx::query!(
+        sqlx::query(
             "UPDATE process_alerts SET escalation_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            new_level,
-            alert.id
         )
+        .bind(new_level)
+        .bind(&alert.id)
         .execute(self.db.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to escalate alert: {}", e)))?;
@@ -664,7 +665,7 @@ impl AlertEvaluator {
 
     /// Get active tenants
     async fn get_active_tenants(&self) -> Result<Vec<TenantInfo>> {
-        let rows = sqlx::query!("SELECT id FROM tenants")
+        let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query("SELECT id FROM tenants")
             .fetch_all(self.db.pool())
             .await
             .map_err(|e| {
@@ -674,7 +675,7 @@ impl AlertEvaluator {
         let tenants = rows
             .into_iter()
             .map(|row| TenantInfo {
-                id: row.id.unwrap_or_else(|| "unknown".to_string()),
+                id: row.get::<String, _>("id"),
             })
             .collect();
 
