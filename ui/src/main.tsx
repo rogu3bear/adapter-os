@@ -16,6 +16,14 @@
   import { Promotion } from "./components/Promotion";
   import { InferencePlayground } from "./components/InferencePlayground";
   import { WorkflowWizard } from "./components/WorkflowWizard";
+  import { TrainingPage } from "./components/TrainingPage";
+  import { TestingPage } from "./components/TestingPage";
+  import { AdaptersPage } from "./components/AdaptersPage";
+  import { MonitoringPage } from "./components/MonitoringPage";
+  import { AuditDashboard } from "./components/AuditDashboard";
+  import { ITAdminDashboard } from "./components/ITAdminDashboard";
+  import { UserReportsPage } from "./components/UserReportsPage";
+  import { SingleFileAdapterTrainer } from "./components/SingleFileAdapterTrainer";
   import "./index.css";
 
   function DashboardRoute() {
@@ -119,6 +127,114 @@
     );
   }
 
+  function WorkflowWizardRoute() {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Getting Started" description="Onboarding and workflow wizard">
+        <WorkflowWizard />
+      </FeatureLayout>
+    );
+  }
+
+  function TrainingRoute() {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Training" description="Manage and launch training jobs">
+        <TrainingPage />
+      </FeatureLayout>
+    );
+  }
+
+  function TestingRoute() {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Testing" description="Compare against golden baselines">
+        <TestingPage />
+      </FeatureLayout>
+    );
+  }
+
+  function PromotionRoute() {
+    const { user } = useAuth();
+    const { selectedTenant } = useTenant();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Promotion" description="Promotion gates and approvals">
+        <Promotion user={user} selectedTenant={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function AdaptersRoute() {
+    return (
+      <FeatureLayout title="Adapters" description="Deploy and manage adapters">
+        <AdaptersPage />
+      </FeatureLayout>
+    );
+  }
+
+  function InferenceRoute() {
+    const { selectedTenant } = useTenant();
+    return (
+      <FeatureLayout title="Inference" description="Playground for inference">
+        <InferencePlayground selectedTenant={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function MonitoringRoute() {
+    return (
+      <FeatureLayout title="Monitoring" description="System health and metrics">
+        <MonitoringPage />
+      </FeatureLayout>
+    );
+  }
+
+  function AuditRoute() {
+    const { selectedTenant } = useTenant();
+    return (
+      <FeatureLayout title="Audit" description="Audit trails and compliance">
+        <AuditDashboard selectedTenant={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function ITAdminRoute() {
+    const { user } = useAuth();
+    const { selectedTenant } = useTenant();
+    if (!user) return <Navigate to="/login" replace />;
+    if (user.role !== 'Admin') return <Navigate to="/dashboard" replace />;
+    return (
+      <FeatureLayout title="IT Admin" description="System administration and management">
+        <ITAdminDashboard tenantId={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function UserReportsRoute() {
+    const { user } = useAuth();
+    const { selectedTenant } = useTenant();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Reports" description="Activity reports and metrics">
+        <UserReportsPage tenantId={selectedTenant} />
+      </FeatureLayout>
+    );
+  }
+
+  function SingleFileTrainerRoute() {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/login" replace />;
+    return (
+      <FeatureLayout title="Single-File Trainer" description="Train adapters from a single file">
+        <SingleFileAdapterTrainer />
+      </FeatureLayout>
+    );
+  }
+
   createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <LayoutProvider>
@@ -148,6 +264,11 @@
             <Route path="/telemetry" element={<TelemetryRoute />} />
             <Route path="/replay" element={<ReplayRoute />} />
             <Route path="/audit" element={<AuditRoute />} />
+            
+            {/* Admin & Reporting */}
+            <Route path="/admin" element={<ITAdminRoute />} />
+            <Route path="/reports" element={<UserReportsRoute />} />
+            <Route path="/trainer" element={<SingleFileTrainerRoute />} />
             
             {/* Legacy redirects */}
             <Route path="/alerts" element={<Navigate to="/monitoring" replace />} />
