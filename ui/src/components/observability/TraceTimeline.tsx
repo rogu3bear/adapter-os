@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import apiClient from '../../api/client';
+import { logger, toError } from '../../utils/logger';
 
 interface Span {
   span_id: string;
@@ -32,7 +33,7 @@ export function TraceTimeline() {
         const data = await apiClient.request<string[]>('/api/traces/search');
         setTraces(data);
       } catch (err) {
-        console.error('Failed to fetch traces', err);
+        logger.error('Failed to fetch traces', { component: 'TraceTimeline', operation: 'fetchTraces' }, toError(err));
       }
     };
 
@@ -46,7 +47,7 @@ export function TraceTimeline() {
       const trace = await apiClient.request<Trace>(`/api/traces/${traceId}`);
       setSelectedTrace(trace);
     } catch (err) {
-      console.error('Failed to fetch trace', err);
+      logger.error('Failed to fetch trace', { component: 'TraceTimeline', operation: 'fetchTrace' }, toError(err));
     }
   };
 

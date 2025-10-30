@@ -13,8 +13,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { Checkbox } from './ui/checkbox';
+import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
+import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
+import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { TrainingWizard } from './TrainingWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
+import { useViewTransition } from '../hooks/useViewTransition';
 import { 
   Plus, 
   Code, 
@@ -62,6 +68,7 @@ import { User } from '../api/types';
 import { useSSE } from '../hooks/useSSE';
 import { toast } from 'sonner';
 import { TrainingMonitor } from './TrainingMonitor';
+import { useNavigate } from 'react-router-dom';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
 import { TrainingTemplates } from './TrainingTemplates';
 import { ResourceMonitor } from './ResourceMonitor';
@@ -158,18 +165,37 @@ interface AdaptersProps {
 }
 
 export function Adapters({ user, selectedTenant }: AdaptersProps) {
+  const navigate = useNavigate();
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [registerTab, setRegisterTab] = useState<'upload' | 'path'>('upload');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [upsertOpen, setUpsertOpen] = useState(false);
   const [upsertRoot, setUpsertRoot] = useState('');
   const [upsertPath, setUpsertPath] = useState('');
+
+  // Bulk selection state
+  const [selectedAdapters, setSelectedAdapters] = useState<string[]>([]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
+  const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
+  const [successFeedback, setSuccessFeedback] = useState<React.ReactElement | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const [upsertActivate, setUpsertActivate] = useState(true);
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
   const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
+  const transitionTo = useViewTransition();
+
+  // Clear feedback states
+  const clearFeedback = () => {
+    setSuccessFeedback(null);
+    setErrorRecovery(null);
+  };
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -327,11 +353,21 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     try {
       toast.info('Loading adapter...');
       await apiClient.loadAdapter(adapterId);
-      toast.success('Adapter loaded successfully');
+      setSuccessFeedback(
+        SuccessTemplates.adapterLoaded(
+          adapters.find(a => a.adapter_id === adapterId)?.name || 'Adapter',
+          () => transitionTo('/inference?adapter=' + adapterId)
+        )
+      );
       await loadAdapters();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load adapter';
-      toast.error(errorMsg);
+      const adapterName = adapters.find(a => a.adapter_id === adapterId)?.name || 'Adapter';
+      setErrorRecovery(
+        ErrorRecoveryTemplates.adapterLoadError(
+          adapterName,
+          () => handleLoadAdapter(adapterId)
+        )
+      );
     }
   };
 
@@ -375,6 +411,146 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       toast.error(errorMsg);
     }
   };
+
+  // Bulk action handlers
+  const handleBulkLoad = async (adapterIds: string[]) => {
+    const performBulkLoad = async () => {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const adapterId of adapterIds) {
+        try {
+          await apiClient.loadAdapter(adapterId);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          logger.error('Failed to load adapter in bulk operation', {
+            component: 'Adapters',
+            operation: 'bulkLoad',
+            adapterId
+          }, toError(err));
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Successfully loaded ${successCount} adapter(s)`);
+      }
+      if (errorCount > 0) {
+        toast.error(`Failed to load ${errorCount} adapter(s)`);
+      }
+
+      await loadAdapters();
+      setSelectedAdapters([]);
+    };
+
+    setConfirmationOptions({
+      title: 'Load Adapters',
+      description: `Load ${adapterIds.length} adapter(s) into memory? This may take some time.`,
+      confirmText: 'Load Adapters',
+      variant: 'default'
+    });
+    setPendingBulkAction(() => performBulkLoad);
+    setConfirmationOpen(true);
+  };
+
+  const handleBulkUnload = async (adapterIds: string[]) => {
+    const performBulkUnload = async () => {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const adapterId of adapterIds) {
+        try {
+          await apiClient.unloadAdapter(adapterId);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          logger.error('Failed to unload adapter in bulk operation', {
+            component: 'Adapters',
+            operation: 'bulkUnload',
+            adapterId
+          }, toError(err));
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Successfully unloaded ${successCount} adapter(s)`);
+      }
+      if (errorCount > 0) {
+        toast.error(`Failed to unload ${errorCount} adapter(s)`);
+      }
+
+      await loadAdapters();
+      setSelectedAdapters([]);
+    };
+
+    setConfirmationOptions({
+      title: 'Unload Adapters',
+      description: `Unload ${adapterIds.length} adapter(s) from memory?`,
+      confirmText: 'Unload Adapters',
+      variant: 'default'
+    });
+    setPendingBulkAction(() => performBulkUnload);
+    setConfirmationOpen(true);
+  };
+
+  const handleBulkDelete = async (adapterIds: string[]) => {
+    const performBulkDelete = async () => {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const adapterId of adapterIds) {
+        try {
+          await apiClient.deleteAdapter(adapterId);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          logger.error('Failed to delete adapter in bulk operation', {
+            component: 'Adapters',
+            operation: 'bulkDelete',
+            adapterId
+          }, toError(err));
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Successfully deleted ${successCount} adapter(s)`);
+      }
+      if (errorCount > 0) {
+        toast.error(`Failed to delete ${errorCount} adapter(s)`);
+      }
+
+      await loadAdapters();
+      setSelectedAdapters([]);
+    };
+
+    setConfirmationOptions({
+      title: 'Delete Adapters',
+      description: `Permanently delete ${adapterIds.length} adapter(s)? This action cannot be undone.`,
+      confirmText: 'Delete Adapters',
+      variant: 'destructive'
+    });
+    setPendingBulkAction(() => performBulkDelete);
+    setConfirmationOpen(true);
+  };
+
+  const bulkActions: BulkAction[] = [
+    {
+      id: 'load',
+      label: 'Load',
+      handler: handleBulkLoad
+    },
+    {
+      id: 'unload',
+      label: 'Unload',
+      handler: handleBulkUnload
+    },
+    {
+      id: 'delete',
+      label: 'Delete',
+      variant: 'destructive',
+      handler: handleBulkDelete
+    }
+  ];
 
   const handleDownloadManifest = async (adapterId: string) => {
     try {
@@ -447,6 +623,17 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   return (
     <div className={hierarchyClasses.container}>
+      {successFeedback && (
+        <div className="mb-6">
+          {successFeedback}
+        </div>
+      )}
+
+      {errorRecovery && (
+        <div className="mb-6">
+          {errorRecovery}
+        </div>
+      )}
       <ContentSection
         title="Adapter Management"
         subtitle="Train, manage, and monitor LoRA adapters for your models"
@@ -508,6 +695,20 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <Table className="table-standard">
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="table-cell-standard w-12">
+                      <Checkbox
+                        checked={selectedAdapters.length === adapters.length && adapters.length > 0}
+                        indeterminate={selectedAdapters.length > 0 && selectedAdapters.length < adapters.length}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedAdapters(adapters.map(a => a.adapter_id));
+                          } else {
+                            setSelectedAdapters([]);
+                          }
+                        }}
+                        aria-label="Select all adapters"
+                      />
+                    </TableHead>
                     <TableHead className="table-cell-standard">Name</TableHead>
                     <TableHead className="table-cell-standard">Category</TableHead>
                     <TableHead className="table-cell-standard">State</TableHead>
@@ -531,6 +732,19 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   ) : (
                     adapters.map((adapter) => (
                       <TableRow key={adapter.id}>
+                      <TableCell className="table-cell-standard">
+                        <Checkbox
+                          checked={selectedAdapters.includes(adapter.adapter_id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedAdapters(prev => [...prev, adapter.adapter_id]);
+                            } else {
+                              setSelectedAdapters(prev => prev.filter(id => id !== adapter.adapter_id));
+                            }
+                          }}
+                          aria-label={`Select ${adapter.name}`}
+                        />
+                      </TableCell>
                       <TableCell className="table-cell-standard">
                         <div className="flex-center">
                           {getCategoryIcon(adapter.category)}
@@ -783,23 +997,147 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       {/* Register Adapter Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="modal-standard">
+        <DialogContent className="modal-large">
           <DialogHeader>
             <DialogTitle>Register Adapter</DialogTitle>
           </DialogHeader>
-          <div className="form-field">
-            <Alert>
-              <AlertTriangle className="icon-standard" />
-              <AlertDescription>
-                Adapter registration form coming soon. This feature will be available once the adapter management API is complete.
-              </AlertDescription>
-            </Alert>
-            <div className="flex-standard justify-end">
+          <Tabs value={registerTab} onValueChange={(value) => setRegisterTab(value as 'upload' | 'path')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="upload">Upload .aos File</TabsTrigger>
+              <TabsTrigger value="path">From Server Path</TabsTrigger>
+            </TabsList>
+            <TabsContent value="upload" className="space-y-4">
+              <div className="space-y-4">
+                <div
+                  className="border-2 border-dashed rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                  onClick={() => document.getElementById('adapter-file-input')?.click()}
+                >
+                  <input
+                    id="adapter-file-input"
+                    type="file"
+                    accept=".aos,.safetensors"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                  <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-lg font-medium mb-2">
+                    {uploadFile ? uploadFile.name : 'Click to select adapter file'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Supports .aos and .safetensors files (max 100MB)
+                  </p>
+                </div>
+
+                {uploadFile && (
+                  <div className="bg-accent p-4 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium">File Selected</span>
+                      <Badge>{(uploadFile.size / 1024 / 1024).toFixed(2)} MB</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{uploadFile.name}</p>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                Close
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      if (!uploadFile) {
+                        toast.error('Please select a file');
+                        return;
+                      }
+
+                      setIsUploading(true);
+                      try {
+                        const adapter = await apiClient.importAdapter(uploadFile, true);
+                        setSuccessFeedback(
+                          SuccessTemplates.adapterCreated(
+                            adapter.name,
+                            () => transitionTo('/inference?adapter=' + adapter.adapter_id),
+                            () => setActiveTab('registry')
+                          )
+                        );
+                        setIsCreateDialogOpen(false);
+                        setUploadFile(null);
+                        await loadAdapters();
+                      } catch (err) {
+                        setErrorRecovery(
+                          ErrorRecoveryTemplates.genericError(
+                            err instanceof Error ? err : new Error(String(err)),
+                            () => {
+                              // Retry logic could be added here
+                              setErrorRecovery(null);
+                            }
+                          )
+                        );
+                      } finally {
+                        setIsUploading(false);
+                      }
+                    }}
+                    disabled={!uploadFile || isUploading}
+                  >
+                    {isUploading ? 'Uploading...' : 'Upload & Load'}
               </Button>
             </div>
           </div>
+            </TabsContent>
+            <TabsContent value="path" className="space-y-4">
+              <div className="space-y-3">
+                <div>
+                  <Label>Tenant</Label>
+                  <Input value={selectedTenant} readOnly />
+                </div>
+                <div>
+                  <Label>Root (absolute)</Label>
+                  <Input
+                    value={upsertRoot}
+                    onChange={(e) => setUpsertRoot(e.target.value)}
+                    placeholder="/abs/root"
+                  />
+                </div>
+                <div>
+                  <Label>Path (relative)</Label>
+                  <Input
+                    value={upsertPath}
+                    onChange={(e) => setUpsertPath(e.target.value)}
+                    placeholder="src/"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="activate"
+                    type="checkbox"
+                    checked={upsertActivate}
+                    onChange={(e) => setUpsertActivate(e.target.checked)}
+                  />
+                  <Label htmlFor="activate">Activate after create</Label>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancel</Button>
+                <Button onClick={async () => {
+                  try {
+                    const data = await apiClient.upsertAdapterDirectory({
+                      tenant_id: selectedTenant,
+                      root: upsertRoot,
+                      path: upsertPath,
+                      activate: upsertActivate,
+                    });
+                    toast.success(`Upserted: ${data.adapter_id}`);
+                    setIsCreateDialogOpen(false);
+                    setUpsertRoot('');
+                    setUpsertPath('');
+                    setUpsertActivate(true);
+                    await loadAdapters();
+                  } catch (err) {
+                    toast.error('Upsert failed');
+                  }
+                }}>Create</Button>
+              </DialogFooter>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
@@ -894,6 +1232,38 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Action Bar */}
+      <BulkActionBar
+        selectedItems={selectedAdapters}
+        actions={bulkActions}
+        onClearSelection={() => setSelectedAdapters([])}
+        itemName="adapter"
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmationOpen}
+        onOpenChange={(open) => {
+          setConfirmationOpen(open);
+          if (!open) {
+            setPendingBulkAction(null);
+            setConfirmationOptions(null);
+          }
+        }}
+        onConfirm={async () => {
+          if (pendingBulkAction) {
+            await pendingBulkAction();
+            setPendingBulkAction(null);
+            setConfirmationOptions(null);
+          }
+        }}
+        options={confirmationOptions || {
+          title: 'Confirm Action',
+          description: 'Are you sure?',
+          variant: 'default'
+        }}
+      />
 
     </div>
   );

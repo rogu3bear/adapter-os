@@ -44,7 +44,7 @@ pub enum ReplayError {
     AosError(#[from] adapteros_core::AosError),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ReplayStats {
     pub total_events: usize,
     pub current_step: usize,

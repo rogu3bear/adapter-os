@@ -7,12 +7,15 @@
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Single-Node Production Setup](#single-node-production-setup)
-3. [Multi-Node Cluster Setup](#multi-node-cluster-setup)
-4. [Kubernetes Deployment](#kubernetes-deployment)
-5. [Air-Gapped Deployment](#air-gapped-deployment)
-6. [Scaling Guidelines](#scaling-guidelines)
-7. [Production Checklist](#production-checklist)
+2. [Installation Methods](#installation-methods)
+3. [Single-Node Production Setup](#single-node-production-setup)
+4. [Authentication Configuration](#authentication-configuration)
+5. [Multi-Node Cluster Setup](#multi-node-cluster-setup)
+6. [Kubernetes Deployment](#kubernetes-deployment)
+7. [Air-Gapped Deployment](#air-gapped-deployment)
+8. [Scaling Guidelines](#scaling-guidelines)
+9. [Production Checklist](#production-checklist)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -29,6 +32,42 @@
 - **PostgreSQL 15+** with pgvector extension
 - **Metal SDK**: Included with Xcode Command Line Tools
 - **Docker** (for containerized deployments)
+
+---
+
+## Installation Methods
+
+### Option 1: Graphical Installer (Recommended)
+
+The native macOS installer provides guided setup with hardware validation:
+
+```bash
+# Build the installer
+make installer
+
+# Or open in Xcode for development
+make installer-open
+```
+
+**Features:**
+- Hardware pre-checks (Apple Silicon, RAM, disk space)
+- Installation modes: Full (with model download) or Minimal (binaries only)
+- Air-gapped support for offline installations
+- Checkpoint recovery for interrupted installations
+
+### Option 2: Manual Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
+
+# Build the workspace
+cargo build --release
+
+# Initialize the database
+./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
+```
 
 ---
 
@@ -158,7 +197,7 @@ output = true
 adapters = true
 deterministic_io = true
 drift = true
-mplora = true
+# Note: All adapteros-* crates enabled
 ```
 
 ### 5. Start Services
@@ -167,6 +206,176 @@ mplora = true
 # Start server with production config
 adapteros-server --config configs/production.toml
 ```
+
+---
+
+## Authentication Configuration
+
+> **Note:** For detailed authentication setup, see [docs/AUTHENTICATION.md](AUTHENTICATION.md).
+
+### Pre-Deployment Security Checklist
+
+Before deploying to production, complete these authentication security checks:
+
+- [ ] JWT mode configured (`EdDSA` recommended for production)
+- [ ] Strong JWT secret generated or keypair configured
+- [ ] Authentication mode set to `production`
+- [ ] Development tokens disabled or removed
+- [ ] HTTPS enabled and enforced (if exposed externally)
+- [ ] CORS origins restricted to production domains
+- [ ] Rate limiting enabled
+- [ ] Token expiry configured appropriately (recommended: 8 hours)
+- [ ] Security logging enabled
+- [ ] Failed login monitoring configured
+
+### Environment Configurations
+
+#### Development Environment
+
+**Configuration** (`configs/cp-dev.toml`):
+```toml
+[auth]
+mode = "development"
+dev_token = "adapteros-local"
+token_expiry_hours = 24
+
+[security]
+require_https = false
+cors_origins = ["http://localhost:3200"]
+enable_rate_limiting = false
+```
+
+**Starting the Server**:
+```bash
+./target/release/adapteros-server \
+  --skip-pf-check \
+  --config configs/cp-dev.toml
+```
+
+#### Production Environment
+
+**Configuration** (`configs/cp-production.toml`):
+```toml
+[auth]
+mode = "production"  # Strict JWT only, NO dev_token
+token_expiry_hours = 8
+max_login_attempts = 5
+lockout_duration_minutes = 30
+
+[security]
+require_https = true
+cors_origins = [
+  "https://app.adapteros.example.com"
+]
+enable_rate_limiting = true
+```
+
+**Generate Production Keys**:
+```bash
+# Generate Ed25519 keypair (recommended for production)
+openssl genpkey -algorithm Ed25519 -out var/jwt_private.pem
+openssl pkey -in var/jwt_private.pem -pubout -out var/jwt_public.pem
+
+# Set restrictive permissions
+chmod 600 var/jwt_private.pem
+chmod 644 var/jwt_public.pem
+```
+
+### JWT Configuration Modes
+
+#### HMAC Mode (Simple, Shared Secret)
+**Use case:** Single-server deployments
+
+```bash
+# Generate secret
+openssl rand -base64 32 > var/jwt_secret.key
+
+# Set in config
+[jwt]
+mode = "hmac"
+secret_file = "var/jwt_secret.key"
+```
+
+#### EdDSA Mode (Public Key, More Secure)
+**Use case:** Production, distributed systems (recommended)
+
+```bash
+# Generate Ed25519 keypair
+openssl genpkey -algorithm Ed25519 -out var/jwt_private.pem
+openssl pkey -in var/jwt_private.pem -pubout -out var/jwt_public.pem
+
+# Set in config
+[jwt]
+mode = "eddsa"
+private_key_file = "var/jwt_private.pem"
+public_key_file = "var/jwt_public.pem"
+```
+
+### Security Hardening
+
+#### HTTPS Configuration (Nginx Reverse Proxy)
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name app.adapteros.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/adapteros.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/adapteros.example.com/privkey.pem;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name app.adapteros.example.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+#### Rate Limiting
+
+Configure in `configs/cp-production.toml`:
+```toml
+[security.rate_limiting]
+enabled = true
+requests_per_minute = 60
+burst = 10
+```
+
+**Citation:** [source: crates/adapteros-server-api/src/rate_limit.rs] - Per-tenant token-bucket rate limiting
+
+### Backup and Recovery
+
+**Backup JWT Keys**:
+```bash
+# Create encrypted backup
+mkdir -p /backup/adapteros/jwt-keys/$(date +%Y%m%d)
+cp var/jwt_*.pem /backup/adapteros/jwt-keys/$(date +%Y%m%d)/
+tar czf - /backup/adapteros/jwt-keys/$(date +%Y%m%d)/ | \
+  openssl enc -aes-256-cbc -salt -out /backup/adapteros/jwt-keys-$(date +%Y%m%d).tar.gz.enc
+```
+
+**Key Rotation Procedure:**
+1. Generate new keypair
+2. Configure old public key for validation
+3. Configure new private key for signing
+4. Wait for all old tokens to expire
+5. Remove old public key
+
+**For detailed authentication troubleshooting:** See [docs/AUTHENTICATION.md](AUTHENTICATION.md) and [docs/DEPLOYMENT_AUTH.md](DEPLOYMENT_AUTH.md) (archived).
 
 ---
 
@@ -413,6 +622,8 @@ kubectl get pods -n adapteros
 
 ## Air-Gapped Deployment
 
+> **Note:** For detailed air-gapped installation, see [docs/deployment-guide.md](deployment-guide.md) (archived for reference).
+
 ### 1. Prepare Offline Bundle
 
 On a machine with internet access:
@@ -644,6 +855,50 @@ warm_threshold_mins = 15
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** October 27, 2025  
+---
+
+## Troubleshooting
+
+### Authentication Issues
+
+**Issue: "unauthorized" errors in production**
+
+**Solutions:**
+```bash
+# Verify configuration
+cat configs/cp-production.toml | grep -A5 "\[auth\]"
+
+# Check JWT key files exist and have correct permissions
+ls -l var/jwt_*.pem
+
+# Test with curl
+curl -v https://app.adapteros.example.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "password"}'
+
+# Check server logs
+tail -f /var/log/adapteros/server.log | grep -i auth
+```
+
+**Issue: CORS errors in browser**
+
+**Solution:**
+```toml
+# Update configs/cp-production.toml
+[security]
+cors_origins = [
+    "https://app.adapteros.example.com",
+    "https://app.adapteros.example.com:443"  # Include port if needed
+]
+```
+
+### Deployment Issues
+
+**For detailed troubleshooting:** See archived [docs/DEPLOYMENT_AUTH.md](DEPLOYMENT_AUTH.md) for authentication-specific issues and [docs/deployment-guide.md](deployment-guide.md) for air-gapped installation details.
+
+---
+
+**Version:** 1.1  
+**Last Updated:** 2025-01-15  
+**Consolidated from:** DEPLOYMENT.md, DEPLOYMENT_AUTH.md, deployment-guide.md  
 **Maintained By:** AdapterOS Team

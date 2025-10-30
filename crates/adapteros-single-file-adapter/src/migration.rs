@@ -100,12 +100,31 @@ pub async fn migrate_file<P: AsRef<Path>>(path: P) -> Result<MigrationResult> {
 
 #[cfg(test)]
 mod tests {
-    use super::training::{TrainingConfig, TrainingExample};
+    use crate::training::{TrainingConfig, TrainingExample};
+    use crate::format::{AdapterWeights, WeightGroup, WeightMetadata, WeightGroupType};
     use super::*;
     use std::collections::HashMap;
 
     fn create_legacy_adapter() -> SingleFileAdapter {
-        let weights = vec![1, 2, 3];
+        let pos_meta = WeightMetadata {
+            example_count: 0,
+            avg_loss: 0.0,
+            training_time_ms: 0,
+            group_type: WeightGroupType::Positive,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let neg_meta = WeightMetadata {
+            example_count: 0,
+            avg_loss: 0.0,
+            training_time_ms: 0,
+            group_type: WeightGroupType::Negative,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let weights = AdapterWeights {
+            positive: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: pos_meta },
+            negative: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: neg_meta },
+            combined: None,
+        };
         let training_data = vec![TrainingExample {
             input: vec![1, 2, 3],
             target: vec![4, 5, 6],
@@ -162,9 +181,28 @@ mod tests {
 
     #[test]
     fn test_migrate_current_version() {
+        let pos_meta = WeightMetadata {
+            example_count: 0,
+            avg_loss: 0.0,
+            training_time_ms: 0,
+            group_type: WeightGroupType::Positive,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let neg_meta = WeightMetadata {
+            example_count: 0,
+            avg_loss: 0.0,
+            training_time_ms: 0,
+            group_type: WeightGroupType::Negative,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let weights = AdapterWeights {
+            positive: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: pos_meta },
+            negative: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: neg_meta },
+            combined: None,
+        };
         let adapter = SingleFileAdapter::create(
             "test".to_string(),
-            vec![1, 2, 3],
+            weights,
             vec![],
             TrainingConfig {
                 rank: 16,

@@ -380,6 +380,21 @@ class ApiClient {
     });
   }
 
+  async importAdapter(file: File, load?: boolean): Promise<types.Adapter> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const params = new URLSearchParams();
+    if (load) params.append('load', 'true');
+
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.Adapter>(`/v1/adapters/import${query}`, {
+      method: 'POST',
+      body: formData,
+      headers: {}, // Let browser set Content-Type for FormData
+    });
+  }
+
   async deleteAdapter(adapterId: string): Promise<void> {
     return this.request<void>(`/v1/adapters/${adapterId}`, {
       method: 'DELETE',

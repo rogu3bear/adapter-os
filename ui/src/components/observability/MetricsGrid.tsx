@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { MetricsChart } from '../MetricsChart';
 import apiClient from '../../api/client';
+import { logger, toError } from '../../utils/logger';
 
 interface MetricsSnapshot {
   timestamp: number;
@@ -20,7 +21,7 @@ export function MetricsGrid() {
         const data = await apiClient.request<MetricsSnapshot>('/api/metrics/snapshot');
         setSnapshot(data);
       } catch (err) {
-        console.error('Failed to fetch metrics snapshot', err);
+        logger.error('Failed to fetch metrics snapshot', { component: 'MetricsGrid', operation: 'fetchSnapshot' }, toError(err));
       } finally {
         setLoading(false);
       }

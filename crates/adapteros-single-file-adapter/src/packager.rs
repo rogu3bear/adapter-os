@@ -233,8 +233,7 @@ mod tests {
     }
 
     fn create_test_adapter() -> SingleFileAdapter {
-        use adapteros_lora_worker::training::TrainingConfig;
-        use std::collections::HashMap;
+        use crate::training::TrainingConfig;
 
         let positive_weights = WeightGroup {
             lora_a: vec![vec![0.1, 0.2], vec![0.3, 0.4]],

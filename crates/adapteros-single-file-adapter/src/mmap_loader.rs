@@ -61,9 +61,9 @@ pub struct MmapAdapter {
     weights_pos: Option<ZipEntryInfo>,
     weights_neg: Option<ZipEntryInfo>,
     weights_comb: Option<ZipEntryInfo>,
-    pos_cache: Mutex<Option<Vec<u8>>>,
-    neg_cache: Mutex<Option<Vec<u8>>>,
-    comb_cache: Mutex<Option<Vec<u8>>>,
+    pos_cache: Mutex<Option<Arc<Vec<u8>>>>,
+    neg_cache: Mutex<Option<Arc<Vec<u8>>>>,
+    comb_cache: Mutex<Option<Arc<Vec<u8>>>>,
     sig_cache: Mutex<Option<AosSignature>>,
     file_len: usize,
 }
@@ -85,19 +85,22 @@ impl MmapAdapter {
         let mut zip = ZipArchive::new(cursor)
             .map_err(|e| AosError::Io(format!("Failed to open ZIP archive: {}", e)))?;
 
-        // Parse manifest immediately
-        let mut manifest_file = zip
-            .by_name("manifest.json")
-            .map_err(|_| AosError::Training("Missing manifest.json in .aos file".to_string()))?;
-        let mut manifest_data = Vec::new();
-        manifest_file
-            .read_to_end(&mut manifest_data)
-            .map_err(|e| AosError::Io(format!("Failed to read manifest: {}", e)))?;
-        let manifest: AdapterManifest = serde_json::from_slice(&manifest_data)
-            .map_err(|e| AosError::Parse(format!("Failed to parse manifest: {}", e)))?;
-        verify_format_version(manifest.format_version)?;
+        // Parse manifest immediately (borrow zip for manifest, then release)
+        let manifest = {
+            let mut manifest_file = zip
+                .by_name("manifest.json")
+                .map_err(|_| AosError::Training("Missing manifest.json in .aos file".to_string()))?;
+            let mut manifest_data = Vec::new();
+            manifest_file
+                .read_to_end(&mut manifest_data)
+                .map_err(|e| AosError::Io(format!("Failed to read manifest: {}", e)))?;
+            let m: AdapterManifest = serde_json::from_slice(&manifest_data)
+                .map_err(|e| AosError::Parse(format!("Failed to parse manifest: {}", e)))?;
+            verify_format_version(m.format_version)?;
+            m
+        };
 
-        // Record weight entry offsets for lazy reads/zero-copy
+        // Record weight entry offsets for lazy reads/zero-copy (sequential calls, no overlapping borrows)
         let weights_pos = get_entry_info(&mut zip, "weights_positive.safetensors");
         let weights_neg = get_entry_info(&mut zip, "weights_negative.safetensors");
         let weights_comb = get_entry_info(&mut zip, "weights_combined.safetensors");
@@ -167,8 +170,8 @@ impl MmapAdapter {
         }
     }
 
-    pub fn get_weights_slice(&self, kind: WeightsKind) -> Result<&[u8]> {
-        let (info_opt, cache, name): (&Option<ZipEntryInfo>, &Mutex<Option<Vec<u8>>>, &str) = match kind {
+    pub fn get_weights_slice(&self, kind: WeightsKind) -> Result<Arc<Vec<u8>>> {
+        let (info_opt, cache, name): (&Option<ZipEntryInfo>, &Mutex<Option<Arc<Vec<u8>>>>, &str) = match kind {
             WeightsKind::Positive => (&self.weights_pos, &self.pos_cache, "weights_positive.safetensors"),
             WeightsKind::Negative => (&self.weights_neg, &self.neg_cache, "weights_negative.safetensors"),
             WeightsKind::Combined => (&self.weights_comb, &self.comb_cache, "weights_combined.safetensors"),
@@ -181,14 +184,14 @@ impl MmapAdapter {
         if info.is_stored() {
             let start = info.offset as usize;
             let end = start + (info.compressed_size as usize);
-            return Ok(&self.mmap[start..end]);
+            return Ok(Arc::new(self.mmap[start..end].to_vec()));
         }
 
         // Deflated: decompress lazily and cache
         {
             let guard = cache.lock();
             if let Some(ref v) = *guard {
-                return Ok(v.as_slice());
+                return Ok(Arc::clone(v));
             }
         }
         // Decompress and populate cache
@@ -201,9 +204,12 @@ impl MmapAdapter {
             .map_err(|_| AosError::Training(format!("Missing {} in .aos file", name)))?;
         file.read_to_end(&mut buf)
             .map_err(|e| AosError::Io(format!("Failed to read {}: {}", name, e)))?;
-        let slice_ref: &mut Option<Vec<u8>> = &mut *cache.lock();
-        *slice_ref = Some(buf);
-        Ok(slice_ref.as_ref().unwrap().as_slice())
+        let arc_buf = Arc::new(buf);
+        {
+            let mut guard = cache.lock();
+            *guard = Some(Arc::clone(&arc_buf));
+        }
+        Ok(arc_buf)
     }
 
     pub fn to_standard_adapter(&self) -> Result<SingleFileAdapter> {
@@ -252,16 +258,16 @@ impl MmapAdapter {
             };
 
             let positive = crate::weights::deserialize_weight_group(
-                self.get_weights_slice(WeightsKind::Positive)?,
+                self.get_weights_slice(WeightsKind::Positive)?.as_slice(),
                 disk_meta_to_rt(&info.positive, WeightGroupType::Positive),
             )?;
             let negative = crate::weights::deserialize_weight_group(
-                self.get_weights_slice(WeightsKind::Negative)?,
+                self.get_weights_slice(WeightsKind::Negative)?.as_slice(),
                 disk_meta_to_rt(&info.negative, WeightGroupType::Negative),
             )?;
             let combined = match (self.weights_comb.as_ref(), info.combined.as_ref()) {
                 (Some(_), Some(meta)) => Some(crate::weights::deserialize_weight_group(
-                    self.get_weights_slice(WeightsKind::Combined)?,
+                    self.get_weights_slice(WeightsKind::Combined)?.as_slice(),
                     disk_meta_to_rt(meta, WeightGroupType::Combined),
                 )?),
                 _ => None,
@@ -516,7 +522,9 @@ impl MmapAdapterLoader {
                 let cursor = Cursor::new(&adapter.mmap[..]);
                 let mut zip = ZipArchive::new(cursor)
                     .map_err(|e| AosError::Io(format!("Failed to open ZIP archive: {}", e)))?;
-                zip.by_name("signature.sig").is_ok()
+                let result = zip.by_name("signature.sig").is_ok();
+                drop(zip);
+                result
             };
             if has_sig {
                 if !adapter.verify_signature()? {
@@ -687,7 +695,7 @@ mod tests {
                 let a = l
                     .load(&p, &LoadOptions { skip_verification: true, skip_signature_check: true, use_mmap: true })
                     .unwrap();
-                let _ = a.get_weights_slice(WeightsKind::Positive).unwrap();
+                let _slice = a.get_weights_slice(WeightsKind::Positive).unwrap();
             });
         }
         while let Some(res) = set.join_next().await {

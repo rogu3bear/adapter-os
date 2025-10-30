@@ -22,7 +22,7 @@ Request → API → Worker → Router → Kernels → Response
 
 ### 2. Policy Engine
 
-Enforces 20 policy packs covering:
+Enforces 22 policy packs covering:
 - Network egress
 - Determinism
 - Evidence requirements

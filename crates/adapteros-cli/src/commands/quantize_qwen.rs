@@ -108,12 +108,12 @@ fn quantize_safetensors_file(path: &Path, out_dir: &Path, manifest: &mut Quantiz
         // Read tensor as f32
         let f32_data = match tv.dtype() {
             safetensors::Dtype::F32 => {
-                let view: &[f32] = bytemuck::try_from_bytes(tv.data()).map_err(|_| AosError::Parse("Failed to view f32 tensor".to_string()))?;
+                let view: &[f32] = bytemuck::cast_slice(tv.data());
                 view.to_vec()
             }
             safetensors::Dtype::F16 => {
                 // Convert FP16 → f32
-                let halfs: &[u16] = bytemuck::try_from_bytes(tv.data()).map_err(|_| AosError::Parse("Failed to view f16 tensor".to_string()))?;
+                let halfs: &[u16] = bytemuck::cast_slice(tv.data());
                 halfs.iter().map(|h| half::f16::from_bits(*h).to_f32()).collect::<Vec<f32>>()
             }
             _ => unreachable!(),

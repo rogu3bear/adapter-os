@@ -66,9 +66,6 @@ pub use unified_events::{
     TelemetryFilters,
 };
 
-// Re-export in-memory buffer types at module level
-pub use self::{LogBuffer, TelemetryLogger};
-
 /// Telemetry writer with background thread
 pub struct TelemetryWriter {
     sender: Sender<UnifiedTelemetryEvent>,
