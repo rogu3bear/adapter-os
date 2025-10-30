@@ -2,7 +2,7 @@
 
 ## Overview
 
-This implementation adds continuous federation verification with automatic quarantine enforcement to AdapterOS. The system runs periodic verification sweeps and triggers quarantine when signature chains break or policy hashes drift, fully conforming to the 20 policy packs.
+This implementation adds continuous federation verification with automatic quarantine enforcement to AdapterOS. The system runs periodic verification sweeps and triggers quarantine when signature chains break or policy hashes drift, fully conforming to the 22 policy packs.
 
 ## Implementation Status: ✅ COMPLETE
 
@@ -677,7 +677,7 @@ cargo test --test federation_daemon -- --nocapture
 This implementation successfully integrates continuous federation verification with automatic quarantine enforcement into AdapterOS. The system:
 
 1. **Runs continuously** with configurable intervals
-2. **Enforces policies** per 20 policy packs
+2. **Enforces policies** per 22 policy packs
 3. **Triggers quarantine** automatically on violations
 4. **Logs telemetry** with 100% sampling
 5. **Provides UI** for real-time monitoring

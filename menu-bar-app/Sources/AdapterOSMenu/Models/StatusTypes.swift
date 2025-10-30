@@ -3,6 +3,7 @@ import Foundation
 /// AdapterOS status model decoded from /var/run/adapteros_status.json
 /// Unknown keys are ignored by default Decodable behavior.
 struct AdapterOSStatus: Decodable {
+    let schema_version: String    // Schema version for compatibility
     let status: String            // "ok" | "degraded" | "error"
     let uptime_secs: UInt64
     let adapters_loaded: Int

@@ -402,7 +402,7 @@ impl<K: FusedKernels> Worker<K> {
         let mut lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
             adapter_names,
             &manifest.policies,
-            adapters_path,
+            adapters_path.clone(),
             Some(telemetry.clone()),
             manifest.router.k_sparse,
         );
@@ -414,7 +414,7 @@ impl<K: FusedKernels> Worker<K> {
                     .ok()
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(512);
-                lifecycle = lifecycle.with_mmap_loader(cache_size);
+                lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), cache_size);
                 tracing::info!("Memory-mapped adapter loading enabled (cache: {} MB)", cache_size);
             }
         }

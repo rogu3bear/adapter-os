@@ -262,8 +262,9 @@ impl TrainArgs {
                     .unwrap_or_default()
                     .into_iter()
                     .map(|(k, v)| {
+                        let k = k.clone();
                         v.as_str()
-                            .map(|value| (k, value.to_string()))
+                            .map(|value| (k.clone(), value.to_string()))
                             .ok_or_else(|| {
                                 AosError::Validation(format!(
                                     "Metadata value for key '{}' must be a string",

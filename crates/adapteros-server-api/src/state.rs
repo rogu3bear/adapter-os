@@ -1,5 +1,5 @@
 use adapteros_crypto::Keypair;
-use adapteros_db::postgres::PostgresDb;
+use adapteros_db::{self as db, Db, PostgresDb};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_orchestrator::{TrainingService};
 #[cfg(feature = "cdp")]
@@ -83,7 +83,7 @@ impl Default for CryptoState {
 /// Shared application state passed to all handlers
 #[derive(Clone)]
 pub struct AppState {
-    pub db: PostgresDb,
+    pub db: db::Database,
     pub jwt_secret: Arc<Vec<u8>>,
     pub config: Arc<RwLock<ApiConfig>>,
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
@@ -104,7 +104,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        db: PostgresDb,
+        db: db::Database,
         jwt_secret: Vec<u8>,
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
@@ -128,6 +128,28 @@ impl AppState {
                 crate::model_runtime::ModelRuntime::new(),
             ))),
         }
+    }
+
+    /// Create AppState with SQLite database (development)
+    pub fn with_sqlite(
+        db: Db,
+        jwt_secret: Vec<u8>,
+        config: Arc<RwLock<ApiConfig>>,
+        metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
+        training_service: Arc<TrainingService>,
+    ) -> Self {
+        Self::new(db::Database::Sqlite(db), jwt_secret, config, metrics_exporter, training_service)
+    }
+
+    /// Create AppState with PostgreSQL database (production)
+    pub fn with_postgres(
+        db: PostgresDb,
+        jwt_secret: Vec<u8>,
+        config: Arc<RwLock<ApiConfig>>,
+        metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
+        training_service: Arc<TrainingService>,
+    ) -> Self {
+        Self::new(db::Database::Postgres(db), jwt_secret, config, metrics_exporter, training_service)
     }
 
     pub fn with_lifecycle(mut self, lifecycle_manager: Arc<Mutex<LifecycleManager>>) -> Self {

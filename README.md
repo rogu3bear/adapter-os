@@ -31,7 +31,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 │  ┌──────────────┐    ┌──────────────┐   ┌───────────┐ │
 │  │   Policy     │───▶│   Router     │──▶│  Modular  │ │
 │  │  Registry   │    │ (Q15 Gates)  │   │  Kernels  │ │
-│  │  (20 Packs) │    │ K-Sparse     │   │ (.metallib)│ │
+│  │  (22 Packs) │    │ K-Sparse     │   │ (.metallib)│ │
 │  └──────────────┘    └──────────────┘   └───────────┘ │
 │         │                    │                  │       │
 │         ▼                    ▼                  ▼       │
@@ -69,7 +69,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 3. **Configure Cursor IDE** - Guided setup wizard for IDE integration
 4. **Start Coding** - Use your model in Cursor with zero configuration
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for detailed setup instructions.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for deployment and configuration details.
 
 ### Option 1: Graphical Installer (Recommended)
 
@@ -146,7 +146,7 @@ cargo build --release
 ./target/release/aosctl serve --plan <plan-id>
 
 # Or use the integrated server
-./target/release/mplora-server --config configs/cp.toml
+./target/release/adapteros-server --config configs/cp.toml
 ```
 
 Note: If your policy requires open-book (evidence) serving, the server refuses to start unless a RAG index is available (pgvector or local index). See docs/rag-pgvector.md for setup.

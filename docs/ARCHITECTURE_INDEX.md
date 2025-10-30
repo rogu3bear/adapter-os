@@ -74,7 +74,7 @@ Complete index of all architecture documentation with quick navigation.
    
 2. **[Precision Diagrams § 1](architecture/precision-diagrams.md#1-system-architecture)** - Isolation model
    
-3. **[Policy Rulesets](../CLAUDE.md)** - 20 policy packs
+3. **[Policy Rulesets](../CLAUDE.md)** - 22 policy packs
 
 **Time**: 2-3 hours  
 **Outcome**: Security and compliance understanding
@@ -181,7 +181,7 @@ Located in `runtime-diagrams.md` - Archived (not maintained)
 ### Advanced (1+ months experience)
 
 **System Mastery**:
-- Study all 20 policy packs
+- Study all 22 policy packs
 - Review all workflow diagrams
 - Read code intelligence docs
 - Understand deterministic execution
@@ -416,7 +416,8 @@ mmdc -i docs/architecture/precision-diagrams.md --dry-run
 # Validate all markdown files
 ./scripts/validate_diagrams.sh
 
-# Check for outdated crate names
+# Crate Naming (Updated 2025-01-15)
+# All crates use "adapteros-*" prefix (updated from legacy "mplora-*")
 grep -r "mplora-" docs/architecture/precision-diagrams.md
 # Should return no results
 ```
@@ -573,7 +574,7 @@ docs/
 | Workflow Diagrams | ✅ Current | 2025-01-14 |
 | API Documentation | ✅ Current | 2025-01-14 |
 | Code References | ✅ Current | 2025-01-14 |
-| Legacy Diagrams | ⚠️ Outdated | 2025-10-09 |
+| Legacy Diagrams | ✅ Removed | 2025-01-15 (cleaned up) |
 
 ---
 

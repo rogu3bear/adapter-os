@@ -229,7 +229,7 @@ let config = ExecutorConfig {
 - **Global Executor**: Singleton pattern for system-wide deterministic execution
 - **HKDF Seeding**: All randomness derived from global seed via HKDF labels
 - **Telemetry Integration**: Events can be exported to telemetry system
-- **Policy Compliance**: Supports all 20 policy packs for deterministic execution
+- **Policy Compliance**: Supports all 22 policy packs for deterministic execution
 
 ### Metal & Numerical Gaps
 

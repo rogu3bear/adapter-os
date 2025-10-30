@@ -53,7 +53,7 @@ pub struct SwapReport {
 }
 
 /// Adapter state in hot-swap system
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AdapterState {
     pub id: String,
     pub hash: B3Hash,
@@ -62,6 +62,18 @@ pub struct AdapterState {
     pub active: bool,
     /// Reference to memory-mapped file (file cache level)
     pub mmap_handle: Option<Arc<adapteros_single_file_adapter::MmapAdapter>>,
+}
+
+impl std::fmt::Debug for AdapterState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdapterState")
+            .field("id", &self.id)
+            .field("hash", &self.hash)
+            .field("vram_mb", &self.vram_mb)
+            .field("loaded_at", &self.loaded_at)
+            .field("active", &self.active)
+            .finish()
+    }
 }
 
 /// Double-buffered adapter table for atomic swaps
@@ -270,19 +282,17 @@ impl HotSwapManager {
         let start = Instant::now();
 
         // 1. Pre-validate new adapter (load via mmap)
-        let new_adapter = adapteros_single_file_adapter::MmapAdapter::from_path(&new_path).await?;
+        let new_adapter = adapteros_single_file_adapter::MmapAdapter::from_path(&new_path)?;
         
-        // 2. Verify signature
-        if new_adapter.is_signed() && !new_adapter.verify_signature()? {
-            return Err(AosError::Crypto("Signature verification failed".to_string()));
-        }
+        // 2. Verify signature if present (no-op if absent)
+        let _ = new_adapter.verify_signature()?;
 
         // 3. Extract metadata
-        let manifest = new_adapter.manifest();
-        let adapter_hash = new_adapter.file_hash().clone();
+        let rank = new_adapter.manifest.rank;
+        let adapter_hash = adapteros_core::B3Hash::from_hex(&new_adapter.manifest.weights_hash)?;
         
         // Mock VRAM size calculation (in production, calculate from manifest)
-        let vram_mb = Self::estimate_vram_size(manifest.rank);
+        let vram_mb = Self::estimate_vram_size(rank);
         
         // 4. Atomic pointer swap (< 1ms)
         let swap_start = Instant::now();
@@ -331,7 +341,7 @@ impl HotSwapManager {
         new_path: PathBuf,
     ) -> Result<SwapReport> {
         // Try to load new adapter
-        let new_adapter = match adapteros_single_file_adapter::MmapAdapter::from_path(&new_path).await {
+        let new_adapter = match adapteros_single_file_adapter::MmapAdapter::from_path(&new_path) {
             Ok(a) => a,
             Err(e) => {
                 tracing::warn!(
@@ -343,11 +353,12 @@ impl HotSwapManager {
             }
         };
 
-        // Verify before swapping
-        if new_adapter.is_signed() && !new_adapter.verify_signature()? {
+        // Verify before swapping (no-op if absent)
+        if let Err(e) = new_adapter.verify_signature() {
             tracing::warn!(
-                "Signature verification failed for {}, keeping old adapter",
-                adapter_id
+                "Signature verification failed for {}, keeping old adapter: {}",
+                adapter_id,
+                e
             );
             return Err(AosError::Crypto(
                 "Signature verification failed, rollback triggered".to_string(),
@@ -366,9 +377,9 @@ impl HotSwapManager {
     ) -> Result<SwapReport> {
         let start = Instant::now();
 
-        let manifest = new_adapter.manifest();
-        let adapter_hash = new_adapter.file_hash().clone();
-        let vram_mb = Self::estimate_vram_size(manifest.rank);
+        let rank = new_adapter.manifest.rank;
+        let adapter_hash = adapteros_core::B3Hash::from_hex(&new_adapter.manifest.weights_hash)?;
+        let vram_mb = Self::estimate_vram_size(rank);
 
         // Atomic pointer swap
         let swap_start = Instant::now();

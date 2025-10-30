@@ -2195,3 +2195,52 @@
     --color-red-500: var(--error);
   }
 }
+
+/* View Transitions API Support */
+/* Provides smooth page transitions with fallback support */
+
+@view-transition {
+  navigation: auto;
+}
+
+/* Default view transition - subtle crossfade */
+::view-transition-old(root) {
+  animation: fade-out 0.3s ease-in-out;
+}
+
+::view-transition-new(root) {
+  animation: fade-in 0.3s ease-in-out;
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Page-specific transitions can be added here */
+/* Example: Dashboard to Inference transition */
+/*
+::view-transition-old(dashboard) {
+  animation: slide-out-left 0.4s ease-out;
+}
+
+::view-transition-new(inference) {
+  animation: slide-in-right 0.4s ease-out;
+}
+*/
+
+/* Fallback for browsers without View Transitions API */
+/* These styles are ignored in supporting browsers */
+@supports not (view-transition-name: none) {
+  /* Add fallback styles if needed */
+}

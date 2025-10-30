@@ -1,8 +1,7 @@
 mod assets;
 
 use adapteros_core::AosError;
-use adapteros_core::init_global_executor;
-use adapteros_db::postgres::PostgresDb;
+use adapteros_db::Database;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
@@ -170,6 +169,53 @@ async fn main() -> Result<()> {
     let runtime = init_global_executor(global_seed)?;
     info!("Deterministic executor initialized");
 
+    // Production mode validation and enforcement (M1 hardening)
+    {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        
+        if cfg.server.production_mode {
+            info!("🔒 Production mode enabled - enforcing M1 security requirements");
+            
+            // Enforce UDS-only serving
+            if cfg.server.uds_socket.is_none() {
+                return Err(AosError::Config(
+                    "Production mode requires uds_socket to be configured. TCP serving is disabled in production.".to_string()
+                ).into());
+            }
+            
+            // Enforce Ed25519 JWTs (block HMAC)
+            let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hmac");
+            if jwt_mode != "eddsa" {
+                return Err(AosError::Config(
+                    format!("Production mode requires jwt_mode = 'eddsa' (found: '{}'). HMAC is not allowed in production.", jwt_mode)
+                ).into());
+            }
+            
+            if cfg.security.jwt_public_key_pem.is_none() {
+                return Err(AosError::Config(
+                    "Production mode requires jwt_public_key_pem to be set for Ed25519 validation.".to_string()
+                ).into());
+            }
+            
+            // Block egress skip override
+            if cli.skip_pf_check {
+                return Err(AosError::Config(
+                    "--skip-pf-check is not allowed in production mode. Zero egress must be enforced.".to_string()
+                ).into());
+            }
+            
+            if !cfg.security.require_pf_deny {
+                return Err(AosError::Config(
+                    "Production mode requires security.require_pf_deny = true".to_string()
+                ).into());
+            }
+            
+            info!("✓ Production mode validation passed");
+        }
+    }
+
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
     {
@@ -180,6 +226,11 @@ async fn main() -> Result<()> {
             PfGuard::preflight(&cfg.security)?;
         } else if cli.skip_pf_check {
             warn!("⚠️  PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
+            if cfg.server.production_mode {
+                return Err(AosError::Config(
+                    "Cannot skip PF check in production mode".to_string()
+                ).into());
+            }
         }
     }
 
@@ -272,9 +323,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Connect to PostgreSQL database
-    info!("Connecting to PostgreSQL database (from DATABASE_URL)");
-    let db = PostgresDb::connect_env().await?;
+    // Connect to database
+    info!("Connecting to database (from DATABASE_URL)");
+    let db = Database::connect_env().await?;
 
     // Run migrations
     info!("Running database migrations");
@@ -797,6 +848,7 @@ async fn main() -> Result<()> {
         .nest("/api", api_routes);
 
     // Choose serving mode: UDS (M1+) or TCP (dev)
+    // In production_mode, UDS is required and TCP is blocked
     let cfg_guard = config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
@@ -862,12 +914,19 @@ async fn main() -> Result<()> {
             }
         }
     } else {
-        // TCP (development)
+        // TCP (development only)
+        let production_mode = cfg_guard.server.production_mode;
+        if production_mode {
+            return Err(AosError::Config(
+                "Production mode requires uds_socket configuration. TCP serving is disabled.".to_string()
+            ).into());
+        }
+        
         let port = cfg_guard.server.port;
         let bind = cfg_guard.server.bind.clone();
         drop(cfg_guard);
         let addr: SocketAddr = format!("{}:{}", bind, port).parse().unwrap_or(SocketAddr::from(([127,0,0,1], port)));
-        info!("Starting control plane on {}", addr);
+        warn!("⚠️  Starting control plane on TCP (development mode)");
         info!("UI available at http://{}:{}/", addr.ip(), port);
         info!("API available at http://{}:{}/api/", addr.ip(), port);
         let listener = tokio::net::TcpListener::bind(addr).await?;

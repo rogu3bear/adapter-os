@@ -5,6 +5,7 @@ import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import apiClient from '../../api/client';
 import { useSSE } from '../../hooks/useSSE';
+import { logger, toError } from '../../utils/logger';
 
 interface LogEvent {
   id: string;
@@ -50,7 +51,7 @@ export function LogStream() {
         const data = await apiClient.request<LogEvent[]>(`/api/logs/query?${params}`);
         setLogs(data);
       } catch (err) {
-        console.error('Failed to fetch logs', err);
+        logger.error('Failed to fetch logs', { component: 'LogStream', operation: 'fetchLogs' }, toError(err));
       }
     };
 

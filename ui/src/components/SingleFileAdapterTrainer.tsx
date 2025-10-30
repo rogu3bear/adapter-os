@@ -22,6 +22,10 @@ import {
   TrendingUp
 } from 'lucide-react';
 import type { TrainingJob, TrainingConfig, InferRequest, InferResponse } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
+import { ProgressIndicator, ContextualLoading, LoadingStates } from './ui/progress-indicator';
+import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
+import { useViewTransition } from '../hooks/useViewTransition';
 
 type TrainingStep = 'upload' | 'configure' | 'training' | 'complete';
 
@@ -58,6 +62,9 @@ export function SingleFileAdapterTrainer() {
   const [testPrompt, setTestPrompt] = useState('');
   const [testResult, setTestResult] = useState<InferResponse | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+
+  // View transitions for smooth navigation
+  const transitionTo = useViewTransition();
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0];
@@ -141,7 +148,7 @@ export function SingleFileAdapterTrainer() {
           setIsTraining(false);
         }
       } catch (error) {
-        console.error('Failed to poll training job:', error);
+        logger.error('Failed to poll training job', { component: 'SingleFileAdapterTrainer', operation: 'pollTrainingJob' }, toError(error));
         clearInterval(pollInterval);
         setIsTraining(false);
         setTrainingError('Lost connection to training job');
@@ -169,7 +176,7 @@ export function SingleFileAdapterTrainer() {
 
       setTestResult(response);
     } catch (error) {
-      console.error('Inference test failed:', error);
+      logger.error('Inference test failed', { component: 'SingleFileAdapterTrainer', operation: 'testInference' }, toError(error));
       setTestResult({
         text: 'Error: ' + (error instanceof Error ? error.message : 'Unknown error'),
         finish_reason: 'error',
@@ -203,6 +210,36 @@ export function SingleFileAdapterTrainer() {
     setTrainingError(null);
     setTestPrompt('');
     setTestResult(null);
+  };
+
+  const handleUploadToServer = async () => {
+    if (!trainingJob?.artifact_path) {
+      toast.error('No artifact available to upload');
+      return;
+    }
+
+    try {
+      // Download the artifact
+      const response = await fetch(`/api/v1/training/jobs/${trainingJob.id}/artifacts`);
+      if (!response.ok) {
+        throw new Error('Failed to download artifact');
+      }
+
+      const blob = await response.blob();
+      const file = new File([blob], `${trainingJob.adapter_name || 'adapter'}.aos`, { type: 'application/octet-stream' });
+
+      // Upload via import API
+      const adapter = await apiClient.importAdapter(file, true);
+      toast.success(`Adapter uploaded to server: ${adapter.name}`);
+
+      // Optionally navigate to inference
+      if (window.confirm('Adapter uploaded successfully! Would you like to chat with it now?')) {
+        window.location.href = `/inference?adapter=${adapter.adapter_id}`;
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
+      toast.error(`Upload to server failed: ${errorMsg}`);
+    }
   };
 
   return (
@@ -420,28 +457,20 @@ export function SingleFileAdapterTrainer() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="text-center py-8">
-              <Loader2 className="w-16 h-16 animate-spin text-blue-500 mx-auto mb-4" />
-              <p className="text-lg font-medium">Training your adapter...</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                This may take several minutes depending on file size
-              </p>
-            </div>
+            <ContextualLoading
+              type="training"
+              progress={trainingMetrics?.progress}
+              eta={trainingMetrics?.progress < 50 ? "2-8 minutes" : "1-4 minutes"}
+            />
 
             {trainingMetrics && (
               <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium">Progress</span>
-                    <span className="text-sm font-bold">{trainingMetrics.progress.toFixed(1)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-                    <div
-                      className="bg-blue-600 h-3 rounded-full transition-all"
-                      style={{ width: `${trainingMetrics.progress}%` }}
-                    />
-                  </div>
-                </div>
+                <ProgressIndicator
+                  progress={trainingMetrics.progress}
+                  status={`Epoch ${trainingMetrics.epoch}/${config.epochs}`}
+                  eta={trainingMetrics.progress < 50 ? "2-8 minutes" : "1-4 minutes"}
+                  confidence={Math.round(trainingMetrics.progress)}
+                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <Card>
@@ -474,20 +503,17 @@ export function SingleFileAdapterTrainer() {
         </Card>
       )}
 
-      {/* Step 4: Complete - Test & Download */}
+      {/* Step 4: Complete - Success & Next Steps */}
       {step === 'complete' && (
         <div className="space-y-6">
-          <Card className="border-green-500">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                <h2 className="text-2xl font-bold mb-2">Training Complete!</h2>
-                <p className="text-muted-foreground">
-                  Your adapter <span className="font-mono font-medium">{adapterName}</span> is ready
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          {SuccessTemplates.trainingComplete(
+            adapterName,
+            () => setActiveTab('test'),
+            () => {
+              handleUploadToServer();
+              transitionTo('/inference?adapter=' + trainingJob?.adapter_id);
+            }
+          )}
 
           {/* Test Inference */}
           <Card>
@@ -551,6 +577,10 @@ export function SingleFileAdapterTrainer() {
               <Button onClick={handleDownloadAdapter} variant="outline" className="w-full">
                 <Download className="w-4 h-4 mr-2" />
                 Download Adapter (.aos file)
+              </Button>
+              <Button onClick={handleUploadToServer} className="w-full">
+                <Upload className="w-4 h-4 mr-2" />
+                Upload to Server & Chat
               </Button>
               <Button onClick={resetTrainer} variant="outline" className="w-full">
                 Train Another Adapter

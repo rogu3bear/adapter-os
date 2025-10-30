@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
+use adapteros_single_file_adapter::MmapAdapterLoader;
+use adapteros_aos::HotSwapManager;
 
 /// Telemetry event for adapter state transitions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,11 +157,12 @@ impl LifecycleManager {
     pub fn with_mmap_loader(mut self, _base_path: std::path::PathBuf, _max_cache_mb: usize) -> Self {
         // Current MmapAdapterLoader does not require base path or cache config.
         // Keep the signature for forward compatibility and policy-level configuration.
-        let loader = MmapAdapterLoader::new();
+        let loader = MmapAdapterLoader::with_capacity_bytes(_max_cache_mb.saturating_mul(1024 * 1024));
         let arc_loader = Arc::new(tokio::sync::Mutex::new(loader));
         self.mmap_loader = Some(arc_loader.clone());
         // Also surface to AdapterLoader
-        if let Ok(mut l) = self.loader.write() {
+        {
+            let mut l = self.loader.write();
             l.set_mmap_loader(Some(arc_loader));
         }
         self

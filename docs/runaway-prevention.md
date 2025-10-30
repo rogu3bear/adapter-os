@@ -301,7 +301,7 @@ nix = { workspace = true }  # For signal handling
 
 1. **Error Handling**: Consistent use of `AosError` and `Result<T>` types
 2. **Telemetry**: Integration with existing telemetry system
-3. **Policy Enforcement**: Alignment with 20 policy packs
+3. **Policy Enforcement**: Alignment with 22 policy packs
 4. **Configuration**: TOML-based configuration management
 5. **Testing**: Comprehensive test coverage
 6. **Documentation**: Inline documentation and examples

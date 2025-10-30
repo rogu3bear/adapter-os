@@ -88,7 +88,7 @@ graph TB
             
             Router["Router<br/>adapteros-lora-router/lib.rs<br/>K-sparse selection<br/>Q15 gates"]
             
-            Policy["PolicyEngine<br/>adapteros-policy<br/>20 policy packs"]
+            Policy["PolicyEngine<br/>adapteros-policy<br/>22 policy packs"]
             
             Kernels["FusedKernels<br/>adapteros-lora-kernel-mtl<br/>Metal backend<br/>Precompiled metallib"]
             
@@ -999,7 +999,7 @@ graph TB
         end
         
         subgraph "Inference Components"
-            PolicyEng["PolicyEngine<br/>adapteros-policy<br/>20 policy packs<br/>Gate enforcement"]
+            PolicyEng["PolicyEngine<br/>adapteros-policy<br/>22 policy packs<br/>Gate enforcement"]
             RouterComp["Router<br/>adapteros-lora-router<br/>K-sparse selection<br/>Feature weights"]
             RAGComp["RAG Engine<br/>adapteros-lora-rag<br/>HNSW index<br/>Evidence retrieval"]
             KernelsComp["FusedKernels<br/>adapteros-lora-kernel-mtl<br/>Metal backend<br/>Attention+MLP+LoRA"]

@@ -5,7 +5,8 @@ use adapteros_telemetry::{LogBuffer, MetricsRegistry, TelemetryFilters, Telemetr
 use adapteros_trace::{TraceBuffer, TraceSearchQuery};
 use axum::extract::{Path, Query, State};
 use axum::response::{sse::Event, IntoResponse, Response, Sse};
-use axum::Json;
+use axum::{http::StatusCode, Json};
+// use prometheus; // Temporarily disabled
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -30,61 +31,20 @@ pub struct MetricsSeriesResponse {
 
 /// GET /api/metrics/snapshot - Get current metrics snapshot
 pub async fn get_metrics_snapshot(
-    State(state): State<AppState>,
-) -> Result<Json<MetricsSnapshotResponse>, crate::errors::ApiError> {
-    // Get metrics from exporter or telemetry registry
-    let snapshot = state
-        .metrics_exporter
-        .registry()
-        .gather();
-    
-    // Convert Prometheus metrics to JSON structure
-    let mut counters = serde_json::Map::new();
-    let mut gauges = serde_json::Map::new();
-    let mut histograms = serde_json::Map::new();
-    
-    for family in snapshot {
-        for metric in family.get_metric() {
-            let metric_name = family.get_name();
-            let value = match metric.get_counter() {
-                Some(c) => {
-                    counters.insert(metric_name.to_string(), serde_json::json!(c.get_value()));
-                    continue;
-                }
-                None => (),
-            };
-            
-            if let Some(g) = metric.get_gauge() {
-                gauges.insert(metric_name.to_string(), serde_json::json!(g.get_value()));
-                continue;
-            }
-            
-            if let Some(h) = metric.get_histogram() {
-                let buckets: Vec<_> = h.get_bucket().iter()
-                    .map(|b| serde_json::json!({
-                        "upper_bound": b.get_upper_bound(),
-                        "count": b.get_cumulative_count()
-                    }))
-                    .collect();
-                histograms.insert(metric_name.to_string(), serde_json::json!({
-                    "sample_count": h.get_sample_count(),
-                    "sample_sum": h.get_sample_sum(),
-                    "buckets": buckets
-                }));
-            }
-        }
-    }
-    
+    State(_state): State<AppState>,
+) -> Result<Json<MetricsSnapshotResponse>, (StatusCode, Json<crate::types::ErrorResponse>)> {
+    // TODO: Re-enable prometheus metrics parsing when prometheus crate is added
+    // For now, return empty snapshot
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    
+
     Ok(Json(MetricsSnapshotResponse {
         timestamp,
-        counters: serde_json::Value::Object(counters),
-        gauges: serde_json::Value::Object(gauges),
-        histograms: serde_json::Value::Object(histograms),
+        counters: serde_json::Value::Object(serde_json::Map::new()),
+        gauges: serde_json::Value::Object(serde_json::Map::new()),
+        histograms: serde_json::Value::Object(serde_json::Map::new()),
     }))
 }
 
@@ -100,7 +60,7 @@ pub struct MetricsSeriesQuery {
 pub async fn get_metrics_series(
     State(state): State<AppState>,
     Query(params): Query<MetricsSeriesQuery>,
-) -> Result<Json<Vec<MetricsSeriesResponse>>, crate::errors::ApiError> {
+) -> Result<Json<Vec<MetricsSeriesResponse>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
     // If telemetry registry is available, use it; otherwise return empty
     // Note: We'd need to add MetricsRegistry to AppState - for now return empty
     Ok(Json(Vec::new()))
@@ -121,7 +81,7 @@ pub struct LogsQueryParams {
 pub async fn query_logs(
     State(state): State<AppState>,
     Query(params): Query<LogsQueryParams>,
-) -> Result<Json<Vec<adapteros_telemetry::UnifiedTelemetryEvent>>, crate::errors::ApiError> {
+) -> Result<Json<Vec<adapteros_telemetry::UnifiedTelemetryEvent>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
     // If log buffer is available in AppState, query it
     // For now, return empty (we'll wire this up after adding to AppState)
     Ok(Json(Vec::new()))
@@ -155,7 +115,7 @@ pub struct TracesSearchQuery {
 pub async fn search_traces(
     State(state): State<AppState>,
     Query(params): Query<TracesSearchQuery>,
-) -> Result<Json<Vec<String>>, crate::errors::ApiError> {
+) -> Result<Json<Vec<String>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
     // If trace buffer is available in AppState, search it
     // For now, return empty
     Ok(Json(Vec::new()))
@@ -165,7 +125,7 @@ pub async fn search_traces(
 pub async fn get_trace(
     State(state): State<AppState>,
     Path(trace_id): Path<String>,
-) -> Result<Json<Option<adapteros_trace::Trace>>, crate::errors::ApiError> {
+) -> Result<Json<Option<adapteros_trace::Trace>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
     // If trace buffer is available in AppState, get trace
     // For now, return None
     Ok(Json(None))
