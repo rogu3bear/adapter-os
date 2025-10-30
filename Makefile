@@ -1,4 +1,4 @@
-.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install
+.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install dup
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -77,5 +77,8 @@ openapi-docs: ## Generate OpenAPI documentation
 
 validate-openapi: ## Validate OpenAPI documentation
 	./scripts/validate_openapi_docs.sh
+
+dup: ## Scan repository for code duplication (reports under var/reports/jscpd)
+	bash scripts/run_jscpd.sh
 
 .DEFAULT_GOAL := help

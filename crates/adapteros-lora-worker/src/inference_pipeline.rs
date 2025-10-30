@@ -293,9 +293,17 @@ impl InferencePipeline {
         }
 
         // 3. Initialize generation state
-        let mut generated_tokens = Vec::new();
-        let mut router_decisions = Vec::new();
+        let mut generated_tokens = Vec::with_capacity(request.max_tokens);
+        let mut router_decisions = Vec::with_capacity(request.max_tokens);
         let mut current_tokens = input_tokens.clone();
+
+        // Cache code features for this prompt and reuse per step
+        let cached_code_features = self.create_code_features(&formatted_prompt);
+        let mut features_vec = cached_code_features.to_vector();
+
+        // Reuse IO buffers and router ring across steps to reduce allocations
+        let mut io_buffers = IoBuffers::new(self.config.vocab_size);
+        let mut router_ring = RouterRing::new(self.router.get_k());
 
         // 4. Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -311,9 +319,7 @@ impl InferencePipeline {
                 std::slice::from_ref(last_token)
             };
 
-            // 5. Router decision: select K adapters
-            // Build code features from prompt context with sliding-window entropy
-            let code_features = self.create_code_features(&formatted_prompt);
+            // 5. Router decision: select K adapters (features cached)
 
             // Compute priors
             let priors = if let Some(pc) = &self.prior_context {
@@ -326,7 +332,7 @@ impl InferencePipeline {
                     // Framework prior boosts from features
                     for (i, fw) in pc.adapter_framework_ids.iter().enumerate() {
                         if let Some(framework) = fw {
-                            if let Some(boost) = code_features.framework_prior.get(framework) {
+                            if let Some(boost) = cached_code_features.framework_prior.get(framework) {
                                 priors[i] += boost * 0.5; // scale framework boost
                             }
                         }
@@ -352,7 +358,6 @@ impl InferencePipeline {
             }
 
             // Route using computed features and priors
-            let features_vec = code_features.to_vector();
             let decision = self.router.route(&features_vec, &priors);
 
             // 6. Check policy: entropy floor (simplified for now)
@@ -362,18 +367,13 @@ impl InferencePipeline {
                 warn!("Router entropy below floor: {:.4}", entropy);
             }
 
-            // 7. Execute kernel inference
-            let mut io_buffers = IoBuffers {
-                input_ids: input_ids.to_vec(),
-                output_logits: vec![0.0; self.config.vocab_size],
-                position: current_tokens.len() - 1,
-            };
+            // 7. Execute kernel inference (reuse buffers)
+            io_buffers.input_ids.clear();
+            io_buffers.input_ids.extend_from_slice(input_ids);
+            io_buffers.position = current_tokens.len() - 1;
 
-            let router_ring = RouterRing {
-                indices: decision.indices.to_vec(),
-                gates_q15: decision.gates_q15.to_vec(),
-                position: step,
-            };
+            router_ring.set(&decision.indices, &decision.gates_q15);
+            router_ring.position = step;
 
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;

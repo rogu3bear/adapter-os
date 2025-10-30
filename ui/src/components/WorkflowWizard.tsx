@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { logger, toError } from '@/utils/logger';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -267,7 +268,7 @@ export function WorkflowWizard() {
         setDismissed(data.dismissed || false);
       }
     } catch (err) {
-      console.error('Failed to load workflow progress', err);
+      logger.error('Failed to load workflow progress', { component: 'WorkflowWizard', operation: 'loadProgress' }, toError(err));
     }
   }, []);
 
@@ -278,7 +279,7 @@ export function WorkflowWizard() {
         dismissed: isDismissed
       }));
     } catch (err) {
-      console.error('Failed to save workflow progress', err);
+      logger.error('Failed to save workflow progress', { component: 'WorkflowWizard', operation: 'saveProgress' }, toError(err));
     }
   };
 
@@ -507,4 +508,3 @@ export function WorkflowWizard() {
     </div>
   );
 }
-

@@ -78,6 +78,10 @@ pub struct LifecycleManager {
     db: Option<Db>,
     /// Rolling activation tracker fed by router decisions
     activation_tracker: Arc<RwLock<ActivationTracker>>,
+    /// Optional: mmap-based .aos adapter loader
+    mmap_loader: Option<Arc<tokio::sync::Mutex<MmapAdapterLoader>>>,
+    /// Optional: hot-swap manager for zero-downtime updates
+    hot_swap: Option<Arc<HotSwapManager>>,
 }
 
 impl LifecycleManager {
@@ -106,6 +110,8 @@ impl LifecycleManager {
             category_policies: CategoryPolicyManager::new(),
             db: None,
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
+            mmap_loader: None,
+            hot_swap: None,
         }
     }
 
@@ -140,14 +146,48 @@ impl LifecycleManager {
             category_policies: CategoryPolicyManager::new(),
             db: Some(db),
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
+            mmap_loader: None,
+            hot_swap: None,
         }
     }
+
+    /// Enable memory-mapped loading for .aos files
+    pub fn with_mmap_loader(mut self, _base_path: std::path::PathBuf, _max_cache_mb: usize) -> Self {
+        // Current MmapAdapterLoader does not require base path or cache config.
+        // Keep the signature for forward compatibility and policy-level configuration.
+        let loader = MmapAdapterLoader::new();
+        let arc_loader = Arc::new(tokio::sync::Mutex::new(loader));
+        self.mmap_loader = Some(arc_loader.clone());
+        // Also surface to AdapterLoader
+        if let Ok(mut l) = self.loader.write() {
+            l.set_mmap_loader(Some(arc_loader));
+        }
+        self
+    }
+
+    /// Enable hot-swap capabilities (requires mmap loader)
+    pub fn with_hot_swap(mut self) -> Self {
+        if let Some(ref mmap_loader) = self.mmap_loader {
+            let hs = HotSwapManager::new();
+            self.hot_swap = Some(Arc::new(hs));
+        }
+        self
+    }
+
+    /// Expose hot-swap manager to external callers (e.g., server API)
+    pub fn hot_swap_manager(&self) -> Option<Arc<HotSwapManager>> {
+        self.hot_swap.clone()
+    }
+
+    
 
     /// Update rolling activation tracker window size (primarily for tests).
     pub fn set_activation_window(&self, window: usize) {
         let mut tracker = self.activation_tracker.write();
         *tracker = ActivationTracker::new(window);
     }
+
+    
 
     /// Record router selection results to update activation percentages.
     pub async fn record_router_decision(&self, selected: &[u16]) -> Result<()> {

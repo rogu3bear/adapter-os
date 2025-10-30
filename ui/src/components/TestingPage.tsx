@@ -32,8 +32,8 @@ export function TestingPage() {
   useEffect(() => {
     const fetchAdapters = async () => {
       try {
-        const adaptersData = await apiClient.listAdapters(); // Assuming this lists completed training adapters ready for testing
-        setAdapters(adaptersData.filter(a => a.current_state === 'completed' || a.active)); // Filter for testable adapters
+        const adaptersData = await apiClient.listAdapters();
+        setAdapters(adaptersData.filter(a => a.active));
       } catch (err) {
         logger.error('Failed to fetch adapters for testing', { component: 'TestingPage' }, toError(err));
         toast.error('Failed to load adapters');
@@ -59,7 +59,7 @@ export function TestingPage() {
         golden: testConfig.selectedGolden,
         bundle_id: selectedAdapter, // Assuming adapterId is used as bundle_id for comparison
         strictness: 'epsilon-tolerant',
-        epsilon_threshold: testConfig.epsilonThreshold,
+        epsilon_tolerance: testConfig.epsilonThreshold,
       });
       setTestResults(report);
       setIsCompareModalOpen(true);

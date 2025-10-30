@@ -23,11 +23,14 @@ import {
   Split,
   FileText,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Code
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
-import { InferRequest, InferResponse, InferenceSession } from '../api/types';
+import { InferRequest, InferResponse, InferenceSession, Adapter } from '../api/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Label } from './ui/label';
 import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
 
@@ -43,6 +46,8 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [adapters, setAdapters] = useState<Adapter[]>([]);
+  const [selectedAdapterId, setSelectedAdapterId] = useState<string>('');
   
   // Inference configurations
   const [configA, setConfigA] = useState<InferenceConfig>({
@@ -87,6 +92,25 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         }, toError(err));
       }
     }
+
+    // Load adapters
+    const loadAdapters = async () => {
+      try {
+        const adapterList = await apiClient.listAdapters();
+        setAdapters(adapterList);
+        // Select first active adapter if available
+        const activeAdapter = adapterList.find((a: Adapter) => ['hot', 'warm', 'resident'].includes(a.current_state));
+        if (activeAdapter) {
+          setSelectedAdapterId(activeAdapter.id);
+        }
+      } catch (err) {
+        logger.error('Failed to load adapters', {
+          component: 'InferencePlayground',
+          operation: 'loadAdapters',
+        }, toError(err));
+      }
+    };
+    loadAdapters();
   }, []);
 
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
@@ -123,7 +147,12 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     setResponse(null);
 
     try {
-      const response = await apiClient.infer(config);
+      // Include adapters array if selected
+      const inferenceRequest: InferRequest = {
+        ...config,
+        adapters: selectedAdapterId ? [selectedAdapterId] : undefined,
+      };
+      const response = await apiClient.infer(inferenceRequest);
       setResponse(response);
       saveSession(config, response);
       toast.success('Inference completed');
@@ -135,6 +164,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         operation: 'infer',
         configId: config.id,
         tenantId: selectedTenant,
+        adapterId: selectedAdapterId,
       }, toError(err));
     } finally {
       setLoading(false);
@@ -377,6 +407,32 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                 <CardTitle className="text-base">Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="adapter">Adapter (Optional)</Label>
+                  <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId}>
+                    <SelectTrigger id="adapter">
+                      <SelectValue placeholder="Select adapter or use default..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Default (No adapter)</SelectItem>
+                      {adapters.map((adapter) => (
+                        <SelectItem key={adapter.id} value={adapter.id}>
+                          <div className="flex items-center gap-2">
+                            <Code className="h-4 w-4" />
+                            <span>{adapter.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              ({adapter.current_state})
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Select a trained adapter to use for inference. Leave empty to use base model.
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="prompt">Prompt</Label>
                   <Textarea

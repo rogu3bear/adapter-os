@@ -60,25 +60,23 @@ kernel void fused_mlp(
     // Load input value
     float input_val = input[batch_idx * lora_config.rank + hidden_idx];
     
-    // Compute gate projection with LoRA
+    // Compute gate projection with LoRA (fused base + delta in a single pass)
     float gate_val = 0.0f;
-    for (uint i = 0; i < lora_config.rank; i++) {
-        float base_weight = gate_weight[hidden_idx * lora_config.rank + i];
+    const uint r = lora_config.rank;
+    for (uint i = 0; i < r; i++) {
+        float base_weight = gate_weight[hidden_idx * r + i];
         float lora_delta = 0.0f;
-        
-        // Apply LoRA for active adapters
+        // Accumulate weighted LoRA delta across active adapters
         for (uint k = 0; k < ring_buffer.top_k; k++) {
-            uint adapter_idx = ring_buffer.adapter_indices[k];
-            float gate_q15 = q15_to_float(ring_buffer.gates[k]);
-            
-            if (adapter_idx < lora_config.rank) {
-                float lora_a = gate_lora_a[hidden_idx * lora_config.rank + adapter_idx];
-                float lora_b = gate_lora_b[adapter_idx * lora_config.rank + i];
-                lora_delta += gate_q15 * lora_a * lora_b;
+            const uint adapter_idx = ring_buffer.adapter_indices[k];
+            if (adapter_idx < r) {
+                const float gate_f = q15_to_float(ring_buffer.gates[k]);
+                const float lora_a = gate_lora_a[hidden_idx * r + adapter_idx];
+                const float lora_b = gate_lora_b[adapter_idx * r + i];
+                lora_delta = fma(gate_f, lora_a * lora_b, lora_delta);
             }
         }
-        
-        gate_val += input_val * (base_weight + lora_delta);
+        gate_val = fma(input_val, base_weight + lora_delta, gate_val);
     }
     
     // Add gate bias if provided
@@ -95,25 +93,21 @@ kernel void fused_mlp(
         gate_activated *= dropout_mask;
     }
     
-    // Compute up projection with LoRA
+    // Compute up projection with LoRA (fused)
     float up_val = 0.0f;
-    for (uint i = 0; i < lora_config.rank; i++) {
-        float base_weight = up_weight[hidden_idx * lora_config.rank + i];
+    for (uint i = 0; i < r; i++) {
+        float base_weight = up_weight[hidden_idx * r + i];
         float lora_delta = 0.0f;
-        
-        // Apply LoRA for active adapters
         for (uint k = 0; k < ring_buffer.top_k; k++) {
-            uint adapter_idx = ring_buffer.adapter_indices[k];
-            float gate_q15 = q15_to_float(ring_buffer.gates[k]);
-            
-            if (adapter_idx < lora_config.rank) {
-                float lora_a = up_lora_a[hidden_idx * lora_config.rank + adapter_idx];
-                float lora_b = up_lora_b[adapter_idx * lora_config.rank + i];
-                lora_delta += gate_q15 * lora_a * lora_b;
+            const uint adapter_idx = ring_buffer.adapter_indices[k];
+            if (adapter_idx < r) {
+                const float gate_f = q15_to_float(ring_buffer.gates[k]);
+                const float lora_a = up_lora_a[hidden_idx * r + adapter_idx];
+                const float lora_b = up_lora_b[adapter_idx * r + i];
+                lora_delta = fma(gate_f, lora_a * lora_b, lora_delta);
             }
         }
-        
-        up_val += input_val * (base_weight + lora_delta);
+        up_val = fma(input_val, base_weight + lora_delta, up_val);
     }
     
     // Add up bias if provided
@@ -124,25 +118,21 @@ kernel void fused_mlp(
     // Element-wise multiplication (SwiGLU)
     float intermediate_val = gate_activated * up_val;
     
-    // Compute down projection with LoRA
+    // Compute down projection with LoRA (fused)
     float down_val = 0.0f;
-    for (uint i = 0; i < lora_config.rank; i++) {
-        float base_weight = down_weight[intermediate_idx * lora_config.rank + i];
+    for (uint i = 0; i < r; i++) {
+        float base_weight = down_weight[intermediate_idx * r + i];
         float lora_delta = 0.0f;
-        
-        // Apply LoRA for active adapters
         for (uint k = 0; k < ring_buffer.top_k; k++) {
-            uint adapter_idx = ring_buffer.adapter_indices[k];
-            float gate_q15 = q15_to_float(ring_buffer.gates[k]);
-            
-            if (adapter_idx < lora_config.rank) {
-                float lora_a = down_lora_a[intermediate_idx * lora_config.rank + adapter_idx];
-                float lora_b = down_lora_b[adapter_idx * lora_config.rank + i];
-                lora_delta += gate_q15 * lora_a * lora_b;
+            const uint adapter_idx = ring_buffer.adapter_indices[k];
+            if (adapter_idx < r) {
+                const float gate_f = q15_to_float(ring_buffer.gates[k]);
+                const float lora_a = down_lora_a[intermediate_idx * r + adapter_idx];
+                const float lora_b = down_lora_b[adapter_idx * r + i];
+                lora_delta = fma(gate_f, lora_a * lora_b, lora_delta);
             }
         }
-        
-        down_val += intermediate_val * (base_weight + lora_delta);
+        down_val = fma(intermediate_val, base_weight + lora_delta, down_val);
     }
     
     // Add down bias if provided

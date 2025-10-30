@@ -1,9 +1,9 @@
 import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import MonitoringDashboard from './MonitoringDashboard';
-import ResourceMonitor from './ResourceMonitor';
-import RealtimeMetrics from './RealtimeMetrics';
-import AlertsPage from './AlertsPage';
+import { MonitoringDashboard } from './MonitoringDashboard';
+import { ResourceMonitor } from './ResourceMonitor';
+import { RealtimeMetrics } from './RealtimeMetrics';
+import { AlertsPage } from './AlertsPage';
 
 export function MonitoringPage() {
   return (
@@ -30,7 +30,7 @@ export function MonitoringPage() {
         </TabsContent>
         
         <TabsContent value="metrics">
-          <RealtimeMetrics user={{ role: 'Admin' }} selectedTenant="default" /> {/* Adjust props as needed */}
+          <RealtimeMetrics user={{} as any} selectedTenant="default" />
         </TabsContent>
       </Tabs>
     </div>

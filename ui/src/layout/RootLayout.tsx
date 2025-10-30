@@ -26,7 +26,7 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
-import type { UserRole, LucideIcon } from '@/api/types';
+import type { UserRole } from '@/api/types';
 
 export default function RootLayout() {
   const { theme, toggleTheme } = useTheme();
@@ -242,7 +242,8 @@ export default function RootLayout() {
 
       {/* Toaster at z-40 */}
       <Toaster position="top-right" className="z-40" />
+      {/* Live region for screen reader announcements */}
+      <div id="sr-announcer" aria-live="polite" aria-atomic="true" className="sr-only" />
     </div>
   );
 }
-
