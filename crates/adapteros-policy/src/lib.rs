@@ -5,6 +5,7 @@ pub mod policy_packs;
 pub mod registry;
 pub mod unified_enforcement;
 pub mod validation;
+pub mod evidence_tracker;
 
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
@@ -64,6 +65,9 @@ pub use unified_enforcement::{
     EnforcementAction, Operation, OperationType, PolicyComplianceReport, PolicyEnforcementResult,
     PolicyEnforcer, PolicyRequest, PolicyValidationResult, PolicyViolation, RequestType,
     UnifiedPolicyEnforcer, ViolationSeverity,
+};
+pub use evidence_tracker::{
+    create_evidence_record, EvidenceRecord, EvidenceTracker, KernelToleranceCheck, ModelProvenance,
 };
 
 /// Policy engine for enforcing all 20 policy packs

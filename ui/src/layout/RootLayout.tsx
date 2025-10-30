@@ -5,24 +5,25 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
 import { useTheme, useAuth, useTenant } from './LayoutProvider';
-import { 
-  Lock, 
-  Menu, 
-  X, 
-  Compass, 
-  LayoutDashboard, 
-  Zap, 
-  FlaskConical, 
-  GitCompare, 
-  TrendingUp, 
-  Box, 
-  Route, 
-  Play, 
-  Activity, 
-  Shield, 
-  Eye, 
-  RotateCcw, 
+import {
+  Lock,
+  Menu,
+  X,
+  Compass,
+  LayoutDashboard,
+  Zap,
+  FlaskConical,
+  GitCompare,
+  TrendingUp,
+  Box,
+  Route,
+  Play,
+  Activity,
+  Shield,
+  Eye,
+  RotateCcw,
   FileText,
+  Building,
   ChevronDown,
   ChevronRight,
   Settings,
@@ -88,51 +89,47 @@ export default function RootLayout() {
 
   const navigationGroups: NavGroup[] = [
     {
-      title: 'Workflow',
+      title: 'Overview',
       items: [
-        { to: '/workflow', label: 'Getting Started', icon: Compass },
         { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }
       ]
     },
     {
-      title: 'ML Lifecycle',
+      title: 'Management',
       items: [
-        { to: '/training', label: 'Train', icon: Zap },
-        { to: '/testing', label: 'Test & Validate', icon: FlaskConical },
-        { to: '/golden', label: 'Compare Baselines', icon: GitCompare },
-        { to: '/promotion', label: 'Promote', icon: TrendingUp },
-        { to: '/adapters', label: 'Deploy & Manage', icon: Box }
+        { to: '/tenants', label: 'Tenants', icon: Building },
+        { to: '/adapters', label: 'Adapters', icon: Box },
+        { to: '/policies', label: 'Policies', icon: Shield },
+        { to: '/metrics', label: 'Metrics', icon: Activity }
       ]
     },
     {
       title: 'Operations',
       items: [
-        { to: '/routing', label: 'Routing Inspector', icon: Route },
-        { to: '/inference', label: 'Inference Playground', icon: Play },
-        { to: '/monitoring', label: 'System Health', icon: Activity }
+        { to: '/inference', label: 'Inference', icon: Play },
+        { to: '/telemetry', label: 'Telemetry', icon: Eye },
+        { to: '/audit', label: 'Audit', icon: FileText }
       ]
     },
     {
-      title: 'Security & Compliance',
+      title: 'Advanced',
       items: [
-        { to: '/policies', label: 'Policies', icon: Shield },
-        { to: '/telemetry', label: 'Telemetry', icon: Eye },
-        { to: '/replay', label: 'Replay & Verify', icon: RotateCcw },
-        { to: '/audit', label: 'Audit Trails', icon: FileText }
-      ],
-      roles: ['Admin', 'Compliance', 'Auditor']
-    },
-    {
-      title: 'Tools',
-      items: [
-        { to: '/trainer', label: 'Single-File Trainer', icon: Upload },
-        { to: '/reports', label: 'Reports & Activity', icon: BarChart3 }
+        { to: '/workflow', label: 'Getting Started', icon: Compass },
+        { to: '/routing', label: 'Routing Inspector', icon: Route },
+        { to: '/monitoring', label: 'System Health', icon: Activity },
+        { to: '/training', label: 'Training', icon: Zap },
+        { to: '/testing', label: 'Testing', icon: FlaskConical },
+        { to: '/golden', label: 'Golden Runs', icon: GitCompare },
+        { to: '/promotion', label: 'Promotion', icon: TrendingUp },
+        { to: '/replay', label: 'Replay', icon: RotateCcw }
       ]
     },
     {
       title: 'Administration',
       items: [
-        { to: '/admin', label: 'IT Admin', icon: Settings }
+        { to: '/admin', label: 'IT Admin', icon: Settings },
+        { to: '/reports', label: 'Reports', icon: BarChart3 },
+        { to: '/trainer', label: 'Single-File Trainer', icon: Upload }
       ],
       roles: ['Admin']
     }

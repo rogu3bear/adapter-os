@@ -3,28 +3,41 @@
   import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
   import RootLayout from "./layout/RootLayout";
   import FeatureLayout from "./layout/FeatureLayout";
-  import { LayoutProvider, useAuth, useTenant } from "./layout/LayoutProvider";
-  import { Dashboard } from "./components/Dashboard";
-  import { Telemetry } from "./components/Telemetry";
-  import { AlertsPage } from "./components/AlertsPage";
-  import { ReplayPanel } from "./components/ReplayPanel";
-  import { Policies } from "./components/Policies";
-  import { RoutingInspector } from "./components/RoutingInspector";
-  import { LoginForm } from "./components/LoginForm";
-  import { GoldenRuns } from "./components/GoldenRuns";
-  import { Journeys } from "./components/Journeys";
-  import { Promotion } from "./components/Promotion";
-  import { InferencePlayground } from "./components/InferencePlayground";
-  import { WorkflowWizard } from "./components/WorkflowWizard";
-  import { TrainingPage } from "./components/TrainingPage";
-  import { TestingPage } from "./components/TestingPage";
-  import { AdaptersPage } from "./components/AdaptersPage";
-  import { MonitoringPage } from "./components/MonitoringPage";
-  import { AuditDashboard } from "./components/AuditDashboard";
-  import { ITAdminDashboard } from "./components/ITAdminDashboard";
-  import { UserReportsPage } from "./components/UserReportsPage";
-  import { SingleFileAdapterTrainer } from "./components/SingleFileAdapterTrainer";
-  import "./index.css";
+  import { LayoutProvider, useAuth, useTenant, RequireAuth } from "./layout/LayoutProvider";
+import { Dashboard } from "./components/Dashboard";
+import { Telemetry } from "./components/Telemetry";
+import { AlertsPage } from "./components/AlertsPage";
+import { ReplayPanel } from "./components/ReplayPanel";
+import { Policies } from "./components/Policies";
+
+import { RoutingInspector } from "./components/RoutingInspector";
+import { LoginForm } from "./components/LoginForm";
+import { GoldenRuns } from "./components/GoldenRuns";
+import { Journeys } from "./components/Journeys";
+import { Promotion } from "./components/Promotion";
+import { InferencePlayground } from "./components/InferencePlayground";
+
+import { WorkflowWizard } from "./components/WorkflowWizard";
+import { TrainingPage } from "./components/TrainingPage";
+import { TestingPage } from "./components/TestingPage";
+import { AdaptersPage as AdaptersComponent } from "./components/AdaptersPage";
+import { MonitoringPage } from "./components/MonitoringPage";
+import { AuditDashboard } from "./components/AuditDashboard";
+import { ITAdminDashboard } from "./components/ITAdminDashboard";
+import { UserReportsPage } from "./components/UserReportsPage";
+import { SingleFileAdapterTrainer } from "./components/SingleFileAdapterTrainer";
+
+// M0 Pages
+import TenantsPage from "./pages/TenantsPage";
+import AdaptersPage from "./pages/AdaptersPage";
+import PoliciesPage from "./pages/PoliciesPage";
+import MetricsPage from "./pages/MetricsPage";
+import TelemetryPage from "./pages/TelemetryPage";
+import InferencePage from "./pages/InferencePage";
+import AuditPage from "./pages/AuditPage";
+import { ObservabilityDashboard } from "./components/ObservabilityDashboard";
+
+import "./index.css";
 
   function DashboardRoute() {
     const { user } = useAuth();
@@ -100,11 +113,12 @@
   function JourneysRoute() {
     const { user } = useAuth();
     const { selectedTenant } = useTenant();
-    if (!user) return <Navigate to="/login" replace />;
     return (
-      <FeatureLayout title="Journeys" description="User workflow journeys and visualizations">
-        <Journeys user={user} selectedTenant={selectedTenant} />
-      </FeatureLayout>
+      <RequireAuth>
+        <FeatureLayout title="Journeys" description="User workflow journeys and visualizations">
+          <Journeys user={user} selectedTenant={selectedTenant} />
+        </FeatureLayout>
+      </RequireAuth>
     );
   }
 
@@ -128,12 +142,12 @@
   }
 
   function WorkflowWizardRoute() {
-    const { user } = useAuth();
-    if (!user) return <Navigate to="/login" replace />;
     return (
-      <FeatureLayout title="Getting Started" description="Onboarding and workflow wizard">
-        <WorkflowWizard />
-      </FeatureLayout>
+      <RequireAuth>
+        <FeatureLayout title="Getting Started" description="Onboarding and workflow wizard">
+          <WorkflowWizard />
+        </FeatureLayout>
+      </RequireAuth>
     );
   }
 
@@ -240,12 +254,28 @@
       <LayoutProvider>
         <Routes>
           <Route element={<RootLayout />}> 
-            <Route index element={<Navigate to="/workflow" replace />} />
+            <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/login" element={<LoginRoute />} />
-            
-            {/* Workflow & Dashboard */}
-            <Route path="/workflow" element={<WorkflowWizardRoute />} />
+
+            {/* M0 Core Features */}
             <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route path="/tenants" element={<TenantsPage />} />
+            <Route path="/adapters" element={<AdaptersPage />} />
+            <Route path="/policies" element={<PoliciesPage />} />
+            <Route path="/metrics" element={<MetricsPage />} />
+            <Route path="/telemetry" element={<TelemetryPage />} />
+            <Route path="/observability" element={
+              <RequireAuth>
+                <FeatureLayout title="Observability" description="Live metrics, traces, and logs">
+                  <ObservabilityDashboard />
+                </FeatureLayout>
+              </RequireAuth>
+            } />
+            <Route path="/inference" element={<InferencePage />} />
+            <Route path="/audit" element={<AuditPage />} />
+
+            {/* Workflow & Advanced Features */}
+            <Route path="/workflow" element={<WorkflowWizardRoute />} />
             
             {/* ML Lifecycle */}
             <Route path="/training" element={<TrainingRoute />} />
@@ -271,10 +301,10 @@
             <Route path="/trainer" element={<SingleFileTrainerRoute />} />
             
             {/* Legacy redirects */}
-            <Route path="/alerts" element={<Navigate to="/monitoring" replace />} />
+            <Route path="/alerts" element={<Navigate to="/metrics" replace />} />
             <Route path="/journeys" element={<Navigate to="/audit" replace />} />
-            
-            <Route path="*" element={<Navigate to="/workflow" replace />} />
+
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>
       </LayoutProvider>

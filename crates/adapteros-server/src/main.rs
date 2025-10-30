@@ -2,7 +2,7 @@ mod assets;
 
 use adapteros_core::AosError;
 use adapteros_core::init_global_executor;
-use adapteros_db::Db;
+use adapteros_db::postgres::PostgresDb;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
@@ -272,15 +272,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Connect to database
-    let db_path = config
-        .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-        .db
-        .path
-        .clone();
-    info!("Connecting to database: {}", db_path);
-    let db = Db::connect(&db_path).await?;
+    // Connect to PostgreSQL database
+    info!("Connecting to PostgreSQL database (from DATABASE_URL)");
+    let db = PostgresDb::connect_env().await?;
 
     // Run migrations
     info!("Running database migrations");
@@ -323,6 +317,10 @@ async fn main() -> Result<()> {
             },
             golden_gate,
             bundles_root: cfg.paths.bundles_root.clone(),
+            rate_limits: Some(adapteros_server_api::state::RateLimitApiConfig {
+                requests_per_minute: cfg.rate_limits.requests_per_minute,
+                burst_size: cfg.rate_limits.burst_size,
+            }),
         }))
     };
 
@@ -373,6 +371,10 @@ async fn main() -> Result<()> {
                                         bundle_path: gg.bundle_path.clone(),
                                     });
                                 api_cfg.bundles_root = new_config.paths.bundles_root.clone();
+                                api_cfg.rate_limits = Some(adapteros_server_api::state::RateLimitApiConfig {
+                                    requests_per_minute: new_config.rate_limits.requests_per_minute,
+                                    burst_size: new_config.rate_limits.burst_size,
+                                });
                             }
                             Err(e) => {
                                 error!("API config lock poisoned during reload: {}", e);
@@ -606,13 +608,32 @@ async fn main() -> Result<()> {
         )?)
     };
 
-    // Build application state
-    let jwt_secret = config
-        .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-        .security
-        .jwt_secret
-        .clone();
+    // Build application state - load JWT secret from file or use inline
+    let jwt_secret = {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        
+        if let Some(ref secret_file) = cfg.security.jwt_secret_file {
+            // Load from file
+            match std::fs::read_to_string(secret_file) {
+                Ok(contents) => {
+                    info!("Loaded JWT secret from file: {}", secret_file);
+                    contents.trim().as_bytes().to_vec()
+                }
+                Err(e) => {
+                    return Err(AosError::Config(format!(
+                        "Failed to read JWT secret file {}: {}",
+                        secret_file, e
+                    )).into());
+                }
+            }
+        } else {
+            // Use inline secret
+            info!("Using inline JWT secret from config");
+            cfg.security.jwt_secret.as_bytes().to_vec()
+        }
+    };
 
     let orchestrator_base_model = {
         let cfg = config
@@ -625,7 +646,7 @@ async fn main() -> Result<()> {
 
     let mut state = AppState::new(
         db.clone(),
-        jwt_secret.as_bytes().to_vec(),
+        jwt_secret,
         api_config.clone(),
         Arc::clone(&metrics_exporter),
         Arc::clone(&training_service),
@@ -775,21 +796,85 @@ async fn main() -> Result<()> {
         .merge(ui_routes)
         .nest("/api", api_routes);
 
-    // Bind and serve
-    let port = config
+    // Choose serving mode: UDS (M1+) or TCP (dev)
+    let cfg_guard = config
         .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-        .server
-        .port;
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    info!("Starting control plane on {}", addr);
-    info!("UI available at http://127.0.0.1:{}/", port);
-    info!("API available at http://127.0.0.1:{}/api/", port);
+        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+    if let Some(ref uds_path) = cfg_guard.server.uds_socket {
+        use std::os::unix::fs::PermissionsExt;
+        use tokio::net::UnixListener;
+        use hyper_util::rt::TokioIo;
+        use hyper_util::server::conn::auto::Builder as HyperBuilder;
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        let socket_path = std::path::PathBuf::from(uds_path);
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(&socket_path);
+        }
+        if let Some(parent) = socket_path.parent() { std::fs::create_dir_all(parent)?; }
+
+        let listener = UnixListener::bind(&socket_path)?;
+        // Restrictive permissions: 600
+        let mut perms = std::fs::metadata(&socket_path)?.permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&socket_path, perms)?;
+
+        info!("Starting control plane (UDS) on {}", socket_path.display());
+
+        let app_service = app.clone();
+        let builder = HyperBuilder::new(hyper_util::rt::TokioExecutor::new());
+
+        let shutdown = shutdown_signal();
+        tokio::pin!(shutdown);
+
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut shutdown => {
+                    info!("Shutdown signal received");
+                    break;
+                }
+                accept_res = listener.accept() => {
+                    match accept_res {
+                        Ok((stream, _)) => {
+                            let svc = app_service.clone();
+                            tokio::spawn(async move {
+                                let io = TokioIo::new(stream);
+                                let hyper_svc = hyper::service::service_fn(move |req| {
+                                    let mut svc_clone = svc.clone();
+                                    async move {
+                                        svc_clone.call(req).await.map_err(|e| {
+                                            tracing::error!("Service error: {}", e);
+                                            hyper::Error::new_body_write_aborted()
+                                        })
+                                    }
+                                });
+                                if let Err(e) = builder.serve_connection(io, hyper_svc).await {
+                                    tracing::error!("UDS connection error: {}", e);
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!("UDS accept error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // TCP (development)
+        let port = cfg_guard.server.port;
+        let bind = cfg_guard.server.bind.clone();
+        drop(cfg_guard);
+        let addr: SocketAddr = format!("{}:{}", bind, port).parse().unwrap_or(SocketAddr::from(([127,0,0,1], port)));
+        info!("Starting control plane on {}", addr);
+        info!("UI available at http://{}:{}/", addr.ip(), port);
+        info!("API available at http://{}:{}/api/", addr.ip(), port);
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+    }
 
     Ok(())
 }

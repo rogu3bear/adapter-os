@@ -469,7 +469,7 @@ pub async fn run(
 
     // 5. Create worker with all components
     output.info("Creating worker instance...");
-    let worker = adapteros_lora_worker::Worker::new(
+    let mut worker = adapteros_lora_worker::Worker::new(
         manifest.clone(),
         kernels,
         rag,
@@ -479,6 +479,22 @@ pub async fn run(
     )
     .await?;
     output.success("Worker initialized");
+
+    // Run a lightweight warmup to validate tokenizer and a single kernel step
+    match worker.warmup().await {
+        Ok(report) => {
+            output.success(format!(
+                "Warmup complete: steps={} duration={}ms",
+                report.steps, report.duration_ms
+            ));
+        }
+        Err(e) => {
+            output.warning(format!(
+                "Warmup failed (continuing in dev mode): {}",
+                e
+            ));
+        }
+    }
 
     output.blank();
     output.success("Server configuration complete");

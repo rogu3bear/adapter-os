@@ -27,6 +27,9 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_bind")]
     pub bind: String,
+    /// Optional Unix Domain Socket path for UDS-only serving (M1+). If set, TCP is disabled.
+    #[serde(default)]
+    pub uds_socket: Option<String>,
     /// Enable memory-mapped adapter loading
     #[serde(default = "default_false")]
     pub enable_mmap_adapters: bool,
@@ -58,6 +61,9 @@ pub struct SecurityConfig {
     #[serde(default = "default_false")]
     pub mtls_required: bool,
     pub jwt_secret: String,
+    /// Optional path to a file containing the HS256 secret. If set, takes precedence over jwt_secret.
+    #[serde(default)]
+    pub jwt_secret_file: Option<String>,
     /// JWT mode: "hmac" (default) or "eddsa"
     #[serde(default)]
     pub jwt_mode: Option<String>,

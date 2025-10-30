@@ -68,6 +68,9 @@ hyper-util = "0.1"
 tower = "0.4"
 once_cell = "1.19"
 uuid = { version = "1.6", features = ["v4", "serde"] }
+safetensors = { workspace = true }
+bytemuck = { workspace = true }
+half = "2.0"
 
 [features]
 experimental-backends = []

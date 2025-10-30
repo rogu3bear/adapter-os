@@ -24,4 +24,4 @@ echo "Building React application..."
 pnpm build
 
 echo "Web UI built successfully!"
-echo "Output: crates/mplora-server/static/"
+echo "Output: crates/adapteros-server/static/"

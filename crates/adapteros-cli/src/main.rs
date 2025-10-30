@@ -1028,6 +1028,39 @@ enum Commands {
         args: commands::manual::ManualArgs,
     },
 
+    /// Quantize Qwen FP16 weights to int4 and write manifest
+    #[command(after_help = r#"Examples:
+  # Quantize a directory of .safetensors into artifacts/qwen2_5_7b_int4
+  aosctl quantize-qwen \
+    --input ./models/qwen2.5-7b-fp16 \
+    --output ./artifacts/qwen2_5_7b_int4 \
+    --model-name qwen2.5-7b-instruct
+
+  # Emit JSON manifest to stdout
+  aosctl quantize-qwen --input ./fp16.safetensors --output ./artifacts --json
+"#)]
+    QuantizeQwen {
+        /// Input path (.safetensors file or directory containing them)
+        #[arg(long)]
+        input: PathBuf,
+
+        /// Output directory for .bin and manifest.json
+        #[arg(long)]
+        output: PathBuf,
+
+        /// Model name for manifest metadata
+        #[arg(long, default_value = "qwen2.5-7b-instruct")]
+        model_name: String,
+
+        /// Optional block size for stats (currently unused)
+        #[arg(long)]
+        group_size: Option<usize>,
+
+        /// Output manifest JSON to stdout
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
     /// Train a LoRA adapter
     #[command(after_help = r#"Examples:
   # Train adapter with default settings
@@ -1614,6 +1647,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::manual::run_manual(args.clone())?;
         }
 
+        Commands::QuantizeQwen { input, output: out_dir, model_name, group_size, json } => {
+            commands::quantize_qwen::run(&input, &out_dir, &model_name, *group_size, *json, &output).await?;
+        }
+
         Commands::Train { args } => {
             args.execute().await?;
         }
@@ -1691,6 +1728,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::CodeList { .. } => "code-list",
         Commands::CodeStatus { .. } => "code-status",
         Commands::VerifyAdapter { .. } => "verify-adapter",
+        Commands::QuantizeQwen { .. } => "quantize-qwen",
         Commands::Infer { .. } => "infer",
     }
     .to_string()

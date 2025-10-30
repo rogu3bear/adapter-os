@@ -392,14 +392,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         </div>
       )}
 
-      {state.dataSourceType === 'file' && uploadedFile && (
-        <div className="space-y-2">
-          <Label>File Preview</Label>
-          <div className="p-3 bg-muted rounded-lg max-h-40 overflow-auto">
-            <pre className="text-xs whitespace-pre-wrap">{fileContent.substring(0, 500)}{fileContent.length > 500 ? '...' : ''}</pre>
-          </div>
-        </div>
-      )}
+      {/* TODO: File preview functionality removed due to missing fileContent/uploadedFile state */}
 
       {state.dataSourceType === 'custom' && (
         <div className="space-y-2">
