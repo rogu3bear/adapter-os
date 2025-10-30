@@ -2,7 +2,7 @@
 
 ## Overview
 
-Code intelligence adds new policy requirements beyond the existing 20 AdapterOS policy packs. These focus on evidence grounding, patch safety, and preventing code injection attacks.
+Code intelligence adds new policy requirements beyond the existing 22 AdapterOS policy packs. These focus on evidence grounding, patch safety, and preventing code injection attacks.
 
 ---
 
@@ -558,4 +558,4 @@ Code policies augment existing AdapterOS policies:
 - **Memory policy**: Code adapters follow same eviction rules
 - **Telemetry policy**: Code events use same sampling
 
-All 20 existing policy packs remain enforced; code policies add an additional layer specific to code modification operations.
+All 22 existing policy packs remain enforced; code policies add an additional layer specific to code modification operations.
