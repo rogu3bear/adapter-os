@@ -24,7 +24,10 @@ import {
   RotateCcw, 
   FileText,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Settings,
+  BarChart3,
+  Upload
 } from 'lucide-react';
 import type { UserRole } from '@/api/types';
 
@@ -118,6 +121,20 @@ export default function RootLayout() {
         { to: '/audit', label: 'Audit Trails', icon: FileText }
       ],
       roles: ['Admin', 'Compliance', 'Auditor']
+    },
+    {
+      title: 'Tools',
+      items: [
+        { to: '/trainer', label: 'Single-File Trainer', icon: Upload },
+        { to: '/reports', label: 'Reports & Activity', icon: BarChart3 }
+      ]
+    },
+    {
+      title: 'Administration',
+      items: [
+        { to: '/admin', label: 'IT Admin', icon: Settings }
+      ],
+      roles: ['Admin']
     }
   ];
 
