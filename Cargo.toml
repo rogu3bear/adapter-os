@@ -43,7 +43,9 @@ members = [
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
     "crates/adapteros-lora-lifecycle",
+    "crates/adapteros-aos",
     "crates/adapteros-single-file-adapter",
+    "crates/adapteros-aos",
     "crates/adapteros-storage",
     "crates/adapteros-temp",
     "crates/adapteros-secure-fs",
@@ -64,6 +66,7 @@ members = [
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
+    "crates/adapteros-aos",
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)

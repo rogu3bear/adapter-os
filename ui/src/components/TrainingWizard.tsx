@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Alert, AlertDescription } from './ui/alert';
-import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
@@ -37,11 +37,13 @@ interface WizardState {
   scope: AdapterScope;
   
   // Step 3: Data Source
-  dataSourceType: 'repository' | 'template' | 'custom';
+  dataSourceType: 'repository' | 'template' | 'custom' | 'directory';
   repositoryId?: string;
   templateId?: string;
   customData?: string;
   datasetPath?: string;
+  directoryRoot?: string;
+  directoryPath?: string;
   
   // Step 4: Category-specific config
   // Code adapter
@@ -238,57 +240,121 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   );
 
   // Step 3: Data Source Selection
-  const DataSourceStep = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card
-          className={`cursor-pointer transition-all ${
-            state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'template' })}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Template
-              {state.dataSourceType === 'template' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-            </CardTitle>
-            <CardDescription>Use a pre-configured training template</CardDescription>
-          </CardHeader>
-        </Card>
+  const DataSourceStep = () => {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card
+            className={`cursor-pointer transition-all ${
+              state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
+            }`}
+            onClick={() => updateState({ dataSourceType: 'template' })}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Template
+                {state.dataSourceType === 'template' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+              </CardTitle>
+              <CardDescription>Use a pre-configured training template</CardDescription>
+            </CardHeader>
+          </Card>
 
-        <Card
-          className={`cursor-pointer transition-all ${
-            state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'repository' })}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GitBranch className="h-5 w-5" />
-              Repository
-              {state.dataSourceType === 'repository' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-            </CardTitle>
-            <CardDescription>Train from a registered repository</CardDescription>
-          </CardHeader>
-        </Card>
+          <Card
+            className={`cursor-pointer transition-all ${
+              state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
+            }`}
+            onClick={() => updateState({ dataSourceType: 'repository' })}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <GitBranch className="h-5 w-5" />
+                Repository
+                {state.dataSourceType === 'repository' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+              </CardTitle>
+              <CardDescription>Train from a registered repository</CardDescription>
+            </CardHeader>
+          </Card>
 
-        <Card
-          className={`cursor-pointer transition-all ${
-            state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'custom' })}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Code className="h-5 w-5" />
-              Custom
-              {state.dataSourceType === 'custom' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-            </CardTitle>
-            <CardDescription>Provide custom training data</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
+          <Card
+            className={`cursor-pointer transition-all ${
+              state.dataSourceType === 'directory' ? 'border-primary bg-primary/5' : ''
+            }`}
+            onClick={() => updateState({ dataSourceType: 'directory' })}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Folder className="h-5 w-5" />
+                Directory
+                {state.dataSourceType === 'directory' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+              </CardTitle>
+              <CardDescription>Train from a directory on the system</CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card
+            className={`cursor-pointer transition-all ${
+              state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
+            }`}
+            onClick={() => updateState({ dataSourceType: 'custom' })}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Code className="h-5 w-5" />
+                Custom
+                {state.dataSourceType === 'custom' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+              </CardTitle>
+              <CardDescription>Provide custom training data</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+
+      {state.dataSourceType === 'directory' && (
+        <div className="space-y-4 pt-4 border-t">
+          <Alert>
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>
+              Directory-based training uses the codegraph analyzer to automatically build training examples from your code directory.
+              No pre-tokenized JSON required!
+            </AlertDescription>
+          </Alert>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="directoryRoot">Directory Root (Absolute Path)</Label>
+              <Input
+                id="directoryRoot"
+                placeholder="/absolute/path/to/repo"
+                value={state.directoryRoot || ''}
+                onChange={(e) => updateState({ directoryRoot: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Absolute path to the repository root directory. Required for directory-based training.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="directoryPath">Subdirectory (Optional)</Label>
+              <Input
+                id="directoryPath"
+                placeholder="src or . (for entire repo)"
+                value={state.directoryPath || ''}
+                onChange={(e) => updateState({ directoryPath: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Relative path under root. Defaults to "." (entire repository).
+              </p>
+            </div>
+          </div>
+          {state.directoryRoot && (
+            <div className="p-3 bg-muted rounded-lg">
+              <p className="text-sm font-medium">Training Path:</p>
+              <p className="text-xs text-muted-foreground font-mono">
+                {state.directoryRoot}
+                {state.directoryPath ? `/${state.directoryPath}` : ''}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {state.dataSourceType === 'template' && (
         <div className="space-y-2">
@@ -323,6 +389,15 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               ))}
             </SelectContent>
           </Select>
+        </div>
+      )}
+
+      {state.dataSourceType === 'file' && uploadedFile && (
+        <div className="space-y-2">
+          <Label>File Preview</Label>
+          <div className="p-3 bg-muted rounded-lg max-h-40 overflow-auto">
+            <pre className="text-xs whitespace-pre-wrap">{fileContent.substring(0, 500)}{fileContent.length > 500 ? '...' : ''}</pre>
+          </div>
         </div>
       )}
 
@@ -692,6 +767,11 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
             <div>
               <p className="font-medium">Data Source</p>
               <p className="text-muted-foreground capitalize">{state.dataSourceType}</p>
+              {state.dataSourceType === 'directory' && state.directoryRoot && (
+                <p className="text-xs text-muted-foreground font-mono mt-1">
+                  {state.directoryRoot}{state.directoryPath ? `/${state.directoryPath}` : ''}
+                </p>
+              )}
             </div>
             <div>
               <p className="font-medium">Rank</p>
@@ -754,18 +834,44 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       };
 
       // Start training
-      const job = await apiClient.startTraining({
+      const trainingRequest: any = {
         adapter_name: state.name,
         config: trainingConfig,
-        template_id: state.dataSourceType === 'template' ? state.templateId : undefined,
-        repo_id: state.dataSourceType === 'repository' ? state.repositoryId : undefined,
-        dataset_path: state.datasetPath || undefined,
         adapters_root: state.adaptersRoot || undefined,
         package: !!state.packageAfter,
         register: !!state.registerAfter,
         adapter_id: state.adapterId || undefined,
         tier: state.tier,
-      } as any);
+      };
+
+      // Add data source based on type
+      if (state.dataSourceType === 'template' && state.templateId) {
+        trainingRequest.template_id = state.templateId;
+      } else if (state.dataSourceType === 'repository' && state.repositoryId) {
+        trainingRequest.repo_id = state.repositoryId;
+      } else if (state.dataSourceType === 'directory') {
+        // Directory-based training
+        if (!state.directoryRoot) {
+          toast.error('Please provide a directory root path for directory-based training');
+          setIsLoading(false);
+          return;
+        }
+        trainingRequest.directory_root = state.directoryRoot;
+        trainingRequest.directory_path = state.directoryPath || '.';
+      } else if (state.dataSourceType === 'custom') {
+        // For custom, require dataset_path
+        if (!state.datasetPath) {
+          toast.error('For custom training, please provide a dataset_path pointing to a training JSON file');
+          setIsLoading(false);
+          return;
+        }
+      }
+      
+      if (state.datasetPath) {
+        trainingRequest.dataset_path = state.datasetPath;
+      }
+
+      const job = await apiClient.startTraining(trainingRequest);
 
       toast.success(`Training job ${job.id} started successfully!`);
       onComplete(job.id);
@@ -822,8 +928,12 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           toast.error('Please select a repository');
           return false;
         }
-        if (state.dataSourceType === 'custom' && !state.customData?.trim()) {
-          toast.error('Please provide custom training data');
+        if (state.dataSourceType === 'directory' && !state.directoryRoot?.trim()) {
+          toast.error('Please provide a directory root path');
+          return false;
+        }
+        if (state.dataSourceType === 'custom' && !state.datasetPath?.trim()) {
+          toast.error('Please provide a dataset_path for custom training');
           return false;
         }
         return true;

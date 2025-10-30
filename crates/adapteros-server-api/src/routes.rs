@@ -59,19 +59,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_training_metrics,
         handlers::list_training_templates,
         handlers::get_training_template,
-        // Git integration handlers
-        handlers::git::git_status,
-        handlers::git::start_git_session,
-        handlers::git::end_git_session,
-        handlers::git::list_git_branches,
-        handlers::git::file_changes_stream,
-        // Code intelligence handlers
-        handlers::code::register_repo,
-        handlers::code::scan_repo,
-        handlers::code::get_scan_status,
-        handlers::code::list_repositories,
-        handlers::code::get_repository,
-        handlers::code::create_commit_delta,
+        // Git integration handlers excluded from OpenAPI documentation
+        // Code intelligence handlers (disabled by default)
         // Federation handlers (TODO: integrate with AppState)
         // handlers::federation::get_federation_status,
         // handlers::federation::get_quarantine_status,
@@ -476,8 +465,16 @@ pub fn build(state: AppState) -> Router {
             post(handlers::unload_adapter),
         )
         .route(
+            "/v1/adapters/:adapter_id/hot-swap",
+            post(handlers::hot_swap_adapter),
+        )
+        .route(
             "/v1/adapters/:adapter_id/activations",
             get(handlers::get_adapter_activations),
+        )
+        .route(
+            "/v1/adapters/:adapter_id/hot-swap",
+            post(handlers::hot_swap_adapter),
         )
         .route(
             "/v1/adapters/:adapter_id/promote",
@@ -568,28 +565,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/streams/training", get(handlers::training_stream))
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
-        // Code intelligence routes
-        .route(
-            "/v1/code/register-repo",
-            post(handlers::code::register_repo),
-        )
-        .route("/v1/code/scan", post(handlers::code::scan_repo))
-        .route(
-            "/v1/code/scan/:job_id",
-            get(handlers::code::get_scan_status),
-        )
-        .route(
-            "/v1/code/repositories",
-            get(handlers::code::list_repositories),
-        )
-        .route(
-            "/v1/code/repositories/:repo_id",
-            get(handlers::code::get_repository),
-        )
-        .route(
-            "/v1/code/commit-delta",
-            post(handlers::code::create_commit_delta),
-        )
+        // Code intelligence routes (compiled only with "cdp" feature)
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
         // Metrics routes
@@ -650,6 +626,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/jobs/:job_id/logs",
             get(handlers::get_training_logs),
+        )
+        .route(
+            "/v1/training/sessions/:session_id/pause",
+            post(handlers::pause_training_session),
+        )
+        .route(
+            "/v1/training/sessions/:session_id/resume",
+            post(handlers::resume_training_session),
         )
         .route(
             "/v1/training/jobs/:job_id/metrics",
