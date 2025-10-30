@@ -631,6 +631,69 @@ async fn main() -> Result<()> {
         Arc::clone(&training_service),
     );
 
+    // Optionally initialize LifecycleManager with mmap/hot-swap
+    {
+        use adapteros_lora_lifecycle::LifecycleManager;
+        use adapteros_manifest::Policies;
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        let adapters_path = std::path::PathBuf::from(cfg.paths.adapters_root.clone());
+        let mut lifecycle = LifecycleManager::new(
+            Vec::new(),
+            &Policies::default(),
+            adapters_path.clone(),
+            None,
+            3,
+        );
+        if cfg.server.enable_mmap_adapters {
+            lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), cfg.server.mmap_cache_size_mb);
+        }
+        if cfg.server.enable_hot_swap {
+            lifecycle = lifecycle.with_hot_swap();
+        }
+        state = state.with_lifecycle(Arc::new(tokio::sync::Mutex::new(lifecycle)));
+    }
+
+    // Optionally initialize LifecycleManager with mmap/hot-swap per config
+    {
+        use adapteros_manifest::Policies;
+        use adapteros_lora_lifecycle::LifecycleManager;
+
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        let adapters_path = std::path::PathBuf::from(&cfg.paths.adapters_root);
+        let enable_mmap = cfg.server.enable_mmap_adapters;
+        let mmap_mb = cfg.server.mmap_cache_size_mb;
+        let enable_hot_swap = cfg.server.enable_hot_swap;
+        drop(cfg);
+
+        // Collect adapter names from DB
+        let adapter_rows = db.list_adapters().await.unwrap_or_default();
+        let adapter_names: Vec<String> = adapter_rows
+            .into_iter()
+            .map(|a| a.adapter_id)
+            .collect();
+
+        let policies = Policies::default();
+        let mut lifecycle = LifecycleManager::new(
+            adapter_names,
+            &policies,
+            adapters_path.clone(),
+            None,
+            3,
+        );
+        if enable_mmap {
+            lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), mmap_mb);
+        }
+        if enable_hot_swap {
+            lifecycle = lifecycle.with_hot_swap();
+        }
+
+        state = state.with_lifecycle(Arc::new(tokio::sync::Mutex::new(lifecycle)));
+    }
+
     let paths_config = config.read().unwrap().paths.clone();
     let orchestrator_config = config.read().unwrap().orchestrator.clone();
     let code_job_manager = Arc::new(CodeJobManager::new(db.clone(), paths_config, orchestrator_config));

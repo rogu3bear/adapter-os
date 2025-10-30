@@ -194,30 +194,159 @@ float compute_attention_scale(constant GqaConfig& gqa_config) {
         : 1.0f / sqrt(float(gqa_config.head_dim));
 }
 
-// LoRA helper functions
-float compute_lora_delta(
-    device const float* lora_a,
-    device const float* lora_b,
-    constant LoraConfig& lora_config,
-    constant RingBuffer& ring_buffer,
-    uint input_idx,
-    uint output_idx
+// Vectorized memory access helpers (best-effort; alignment not guaranteed)
+inline float4 load_float4(device const float* base, uint idx4) {
+    const uint offset = idx4 * 4u;
+    return float4(base[offset + 0], base[offset + 1], base[offset + 2], base[offset + 3]);
+}
+
+inline void store_float4(device float* base, uint idx4, float4 v) {
+    const uint offset = idx4 * 4u;
+    base[offset + 0] = v.x;
+    base[offset + 1] = v.y;
+    base[offset + 2] = v.z;
+    base[offset + 3] = v.w;
+}
+
+// Fused LoRA utilities
+#define MAX_ADAPTER_SLOTS 8
+#define MAX_LORA_RANK 64
+
+// Compute s_r = x^T A[:, r] per active adapter and store in thread-local buffer
+// Layout assumptions:
+//  - A buffers are laid out as [max_adapters, in_dim, rank]
+//  - B buffers are laid out as [max_adapters, rank, out_dim]
+//  - Adapter index comes from ring_buffer.adapter_indices[k] and must be < max_adapters
+inline void compute_lora_ax_thread(
+    device const float* __restrict lora_a,
+    device const float* __restrict input_vec, // [in_dim]
+    uint in_dim,
+    uint rank,
+    constant RingBuffer& ring,
+    uint max_adapters,
+    thread float ax_buf[MAX_ADAPTER_SLOTS * MAX_LORA_RANK]
 ) {
-    float lora_delta = 0.0f;
-    
-    // Apply LoRA for active adapters
-    for (uint k = 0; k < ring_buffer.top_k; k++) {
-        uint adapter_idx = ring_buffer.adapter_indices[k];
-        float gate_q15 = q15_to_float(ring_buffer.gates[k]);
-        
-        if (adapter_idx < lora_config.rank) {
-            float lora_a_val = lora_a[input_idx * lora_config.rank + adapter_idx];
-            float lora_b_val = lora_b[adapter_idx * lora_config.rank + output_idx];
-            lora_delta += gate_q15 * lora_a_val * lora_b_val;
+    const uint R = min(rank, (uint)MAX_LORA_RANK);
+    const uint K = min(ring.top_k, (uint)MAX_ADAPTER_SLOTS);
+
+    // Zero initialize
+    for (uint k = 0; k < K; ++k) {
+        for (uint r = 0; r < R; ++r) {
+            ax_buf[k * MAX_LORA_RANK + r] = 0.0f;
         }
     }
-    
-    return lora_delta;
+
+    // Accumulate for each active adapter slot
+    for (uint kslot = 0; kslot < K; ++kslot) {
+        const uint adapter_idx = ring.adapter_indices[kslot];
+        if (adapter_idx >= max_adapters) {
+            continue;
+        }
+        const float gate = q15_to_float(ring.gates[kslot]);
+        if (gate == 0.0f) {
+            continue;
+        }
+
+        const uint a_base = adapter_idx * in_dim * rank;
+        for (uint r = 0; r < R; ++r) {
+            float acc = 0.0f;
+            for (uint i = 0; i < in_dim; ++i) {
+                const float a = lora_a[a_base + i * rank + r];
+                acc += input_vec[i] * a;
+            }
+            // Apply gate weighting here to reduce ops later
+            ax_buf[kslot * MAX_LORA_RANK + r] = acc * gate;
+        }
+    }
+}
+
+// Accumulate delta for output column j using precomputed ax_buf
+inline float accumulate_lora_delta_column(
+    device const float* __restrict lora_b,
+    uint out_dim,
+    uint rank,
+    constant RingBuffer& ring,
+    uint max_adapters,
+    thread const float ax_buf[MAX_ADAPTER_SLOTS * MAX_LORA_RANK],
+    uint j
+) {
+    const uint R = min(rank, (uint)MAX_LORA_RANK);
+    const uint K = min(ring.top_k, (uint)MAX_ADAPTER_SLOTS);
+    float delta = 0.0f;
+
+    for (uint kslot = 0; kslot < K; ++kslot) {
+        const uint adapter_idx = ring.adapter_indices[kslot];
+        if (adapter_idx >= max_adapters) {
+            continue;
+        }
+        const uint b_base = adapter_idx * rank * out_dim;
+        const uint ax_off = kslot * MAX_LORA_RANK;
+        for (uint r = 0; r < R; ++r) {
+            const float s = ax_buf[ax_off + r];
+            const float b = lora_b[b_base + r * out_dim + j];
+            delta += s * b;
+        }
+    }
+    return delta;
+}
+
+// Precompute dB_r = B[r, hidden_idx] per active adapter for down-proj
+inline void precompute_db_for_hidden(
+    device const float* __restrict down_lora_b,
+    uint hidden_size,
+    uint rank,
+    constant RingBuffer& ring,
+    uint max_adapters,
+    uint hidden_idx,
+    thread float db_buf[MAX_ADAPTER_SLOTS * MAX_LORA_RANK]
+) {
+    const uint R = min(rank, (uint)MAX_LORA_RANK);
+    const uint K = min(ring.top_k, (uint)MAX_ADAPTER_SLOTS);
+
+    for (uint kslot = 0; kslot < K; ++kslot) {
+        const uint adapter_idx = ring.adapter_indices[kslot];
+        if (adapter_idx >= max_adapters) {
+            continue;
+        }
+        const uint b_base = adapter_idx * rank * hidden_size;
+        for (uint r = 0; r < R; ++r) {
+            db_buf[kslot * MAX_LORA_RANK + r] = down_lora_b[b_base + r * hidden_size + hidden_idx];
+        }
+    }
+}
+
+// Accumulate down-proj LoRA delta for column j using precomputed dB
+inline float accumulate_down_lora_delta(
+    device const float* __restrict down_lora_a,
+    uint intermediate_size,
+    uint rank,
+    constant RingBuffer& ring,
+    uint max_adapters,
+    thread const float db_buf[MAX_ADAPTER_SLOTS * MAX_LORA_RANK],
+    uint j
+) {
+    const uint R = min(rank, (uint)MAX_LORA_RANK);
+    const uint K = min(ring.top_k, (uint)MAX_ADAPTER_SLOTS);
+    float delta = 0.0f;
+
+    for (uint kslot = 0; kslot < K; ++kslot) {
+        const uint adapter_idx = ring.adapter_indices[kslot];
+        if (adapter_idx >= max_adapters) {
+            continue;
+        }
+        const float gate = q15_to_float(ring.gates[kslot]);
+        if (gate == 0.0f) {
+            continue;
+        }
+        const uint a_base = adapter_idx * intermediate_size * rank;
+        const uint db_off = kslot * MAX_LORA_RANK;
+        for (uint r = 0; r < R; ++r) {
+            const float a = down_lora_a[a_base + j * rank + r];
+            const float db = db_buf[db_off + r];
+            delta += (a * db) * gate;
+        }
+    }
+    return delta;
 }
 
 #endif // COMMON_METAL

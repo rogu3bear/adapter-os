@@ -56,6 +56,8 @@ pub struct KvCache {
     next_seq_id: SequenceId,
     /// Bytes per layer per token
     bytes_per_token: u64,
+    /// Free regions (offset, size) available for reuse
+    free_regions: Vec<(u64, u64)>,
 }
 
 impl KvCache {
@@ -73,6 +75,7 @@ impl KvCache {
             allocations: HashMap::new(),
             next_seq_id: 1,
             bytes_per_token: 8192, // Default: 32 layers * 128 heads * 2 bytes (fp16)
+            free_regions: Vec::new(),
         }
     }
 
@@ -104,6 +107,7 @@ impl KvCache {
             allocations: HashMap::new(),
             next_seq_id: 1,
             bytes_per_token,
+            free_regions: Vec::new(),
         })
     }
 
@@ -111,7 +115,17 @@ impl KvCache {
     ///
     /// Returns sequence ID that can be used to free the allocation later.
     pub fn allocate(&mut self, seq_len: usize) -> Result<SequenceId> {
-        let required_bytes = (seq_len as u64) * self.bytes_per_token;
+        // Round sequence length to slab sizes to improve reuse
+        let rounded_len = if seq_len <= 128 {
+            128
+        } else if seq_len <= 256 {
+            256
+        } else if seq_len <= 512 {
+            512
+        } else {
+            seq_len
+        } as u64;
+        let required_bytes = rounded_len * self.bytes_per_token;
 
         // Check capacity
         if self.used_bytes + required_bytes * 2 > self.capacity_bytes {
@@ -124,11 +138,32 @@ impl KvCache {
         let seq_id = self.next_seq_id;
         self.next_seq_id += 1;
 
-        // Allocate K and V buffers sequentially
-        let k_offset = self.used_bytes;
-        let k_size = required_bytes;
-        let v_offset = k_offset + k_size;
-        let v_size = required_bytes;
+        // Try to use a free region first
+        let mut k_offset;
+        let mut k_size = required_bytes;
+        let mut v_offset;
+        let mut v_size = required_bytes;
+        if let Some((idx, &(off, size))) = self
+            .free_regions
+            .iter()
+            .enumerate()
+            .find(|(_, &(_off, size))| size >= required_bytes * 2)
+        {
+            // Use this region and adjust remaining
+            k_offset = off;
+            v_offset = k_offset + k_size;
+            let consumed = k_size + v_size;
+            let remaining = size - consumed;
+            let start = off + consumed;
+            self.free_regions.remove(idx);
+            if remaining > 0 {
+                self.free_regions.push((start, remaining));
+            }
+        } else {
+            // Append at the end
+            k_offset = self.used_bytes;
+            v_offset = k_offset + k_size;
+        }
 
         let allocation = KvAllocation {
             _sequence_id: seq_id,
@@ -139,7 +174,11 @@ impl KvCache {
         };
 
         self.allocations.insert(seq_id, allocation);
-        self.used_bytes += k_size + v_size;
+        // Update used pointer only if we appended
+        let end_pos = v_offset + v_size;
+        if end_pos > self.used_bytes {
+            self.used_bytes = end_pos;
+        }
 
         tracing::debug!(
             "Allocated KV cache for seq {}: {} tokens, {} bytes (K: {}+{}, V: {}+{})",
@@ -159,9 +198,16 @@ impl KvCache {
     pub fn free(&mut self, seq_id: SequenceId) -> Result<()> {
         if let Some(allocation) = self.allocations.remove(&seq_id) {
             let freed_bytes = allocation.k_size + allocation.v_size;
-            self.used_bytes = self.used_bytes.saturating_sub(freed_bytes);
+            // Mark the region as free and coalesce
+            self.free_regions.push((allocation.k_offset, freed_bytes));
+            self.coalesce_free_regions();
 
-            tracing::debug!("Freed KV cache for seq {}: {} bytes", seq_id, freed_bytes);
+            tracing::debug!(
+                "Freed KV cache for seq {}: {} bytes (offset {})",
+                seq_id,
+                freed_bytes,
+                allocation.k_offset
+            );
 
             Ok(())
         } else {
@@ -234,6 +280,7 @@ impl KvCache {
         // Clear allocations
         self.allocations.clear();
         self.used_bytes = 0;
+        self.free_regions.clear();
     }
 
     /// Zeroize specific sequence for security
@@ -294,6 +341,29 @@ impl KvCache {
 impl ZeroizableBuffer for KvCache {
     fn zeroize(&mut self) {
         self.zeroize()
+    }
+}
+
+impl KvCache {
+    /// Coalesce adjacent free regions
+    fn coalesce_free_regions(&mut self) {
+        if self.free_regions.is_empty() {
+            return;
+        }
+        self.free_regions.sort_by_key(|(off, _)| *off);
+        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(self.free_regions.len());
+        let mut current = self.free_regions[0];
+        for &(off, size) in self.free_regions.iter().skip(1) {
+            let (cur_off, cur_size) = current;
+            if off == cur_off + cur_size {
+                current = (cur_off, cur_size + size);
+            } else {
+                merged.push(current);
+                current = (off, size);
+            }
+        }
+        merged.push(current);
+        self.free_regions = merged;
     }
 }
 

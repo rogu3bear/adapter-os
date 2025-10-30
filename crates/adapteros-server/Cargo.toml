@@ -20,7 +20,7 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-verify = { path = "../adapteros-verify" }
-adapteros-git = { path = "../adapteros-git", optional = true }
+adapteros-git = { path = "../adapteros-git" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 anyhow = { workspace = true }

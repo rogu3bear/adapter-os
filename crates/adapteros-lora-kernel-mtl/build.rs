@@ -2,14 +2,18 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../../metal/aos_kernels.metal");
-    println!("cargo:rerun-if-changed=../../metal/common.metal");
-    println!("cargo:rerun-if-changed=../../metal/fused_attention.metal");
-    println!("cargo:rerun-if-changed=../../metal/fused_mlp.metal");
+    // Rebuild if any kernel sources change
+    println!("cargo:rerun-if-changed=../../metal/src/kernels/adapteros_kernels.metal");
+    println!("cargo:rerun-if-changed=../../metal/src/kernels/common.metal");
+    println!("cargo:rerun-if-changed=../../metal/src/kernels/attention.metal");
+    println!("cargo:rerun-if-changed=../../metal/src/kernels/mlp.metal");
+    println!("cargo:rerun-if-changed=../../metal/src/kernels/flash_attention.metal");
+    println!("cargo:rerun-if-changed=../../metal/src/kernels/mplora.metal");
     println!("cargo:rerun-if-changed=../../metal/toolchain.toml");
 
     // Compile Metal kernels
     let metal_dir = Path::new("../../metal");
+    let kernel_src_dir = metal_dir.join("src/kernels");
     let shaders_dir = Path::new("shaders");
 
     // Create shaders directory if it doesn't exist
@@ -21,12 +25,12 @@ fn main() {
             "macosx",
             "metal",
             "-c",
-            "aos_kernels.metal",
+            "adapteros_kernels.metal",
             "-o",
-            "aos_kernels.air",
+            "adapteros_kernels.air",
             "-std=metal3.1",
         ])
-        .current_dir(metal_dir)
+        .current_dir(&kernel_src_dir)
         .output()
         .expect("Failed to compile Metal shaders");
 
@@ -42,11 +46,11 @@ fn main() {
             "-sdk",
             "macosx",
             "metallib",
-            "aos_kernels.air",
+            "adapteros_kernels.air",
             "-o",
-            "aos_kernels.metallib",
+            "adapteros_kernels.metallib",
         ])
-        .current_dir(metal_dir)
+        .current_dir(&kernel_src_dir)
         .output()
         .expect("Failed to link metallib");
 
@@ -57,8 +61,8 @@ fn main() {
     }
 
     // Compute BLAKE3 hash
-    let metallib_bytes =
-        std::fs::read(metal_dir.join("aos_kernels.metallib")).expect("Failed to read metallib");
+    let metallib_bytes = std::fs::read(kernel_src_dir.join("adapteros_kernels.metallib"))
+        .expect("Failed to read metallib");
     let hash = blake3::hash(&metallib_bytes);
     let hash_hex = hash.to_hex();
 
@@ -69,8 +73,8 @@ fn main() {
 
     // Copy metallib to shaders directory
     std::fs::copy(
-        metal_dir.join("aos_kernels.metallib"),
-        shaders_dir.join("aos_kernels.metallib"),
+        kernel_src_dir.join("adapteros_kernels.metallib"),
+        shaders_dir.join("adapteros_kernels.metallib"),
     )
     .expect("Failed to copy metallib");
 
@@ -93,7 +97,7 @@ fn main() {
         .expect("Failed to write metadata");
 
     // Clean up intermediate files
-    let _ = std::fs::remove_file(metal_dir.join("aos_kernels.air"));
+    let _ = std::fs::remove_file(kernel_src_dir.join("adapteros_kernels.air"));
 }
 
 fn get_xcrun_version() -> String {

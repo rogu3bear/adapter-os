@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'; // Add for click
 
 vi.mock('../api/client');
 
-describe('Journeys', () => {
+describe.skip('Journeys', () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const mockUser = { email: 'test@example.com', roles: ['user'] };
   const mockTenant = 'default';

@@ -17,6 +17,8 @@ pub struct LoadOptions {
     pub skip_verification: bool,
     /// Skip signature verification even if present
     pub skip_signature_check: bool,
+    /// Use memory-mapped loading path (zero-copy weights, lazy decompression)
+    pub use_mmap: bool,
 }
 
 impl Default for LoadOptions {
@@ -24,6 +26,7 @@ impl Default for LoadOptions {
         Self {
             skip_verification: false,
             skip_signature_check: false,
+            use_mmap: false,
         }
     }
 }
@@ -261,6 +264,39 @@ impl SingleFileAdapterLoader {
         path: P,
         options: LoadOptions,
     ) -> Result<SingleFileAdapter> {
+        // Optional mmap path for lazy loading, then convert to standard adapter
+        if options.use_mmap {
+            let path_ref = path.as_ref();
+            let mmap_adapter = crate::mmap_loader::MmapAdapterLoader::global()
+                .load(path_ref, &options)?;
+            let mut adapter = mmap_adapter.to_standard_adapter()?;
+
+            // Apply same verification semantics as standard loader
+            if !options.skip_verification {
+                let sig_backup = if options.skip_signature_check {
+                    adapter.signature.take()
+                } else {
+                    None
+                };
+                if !adapter.verify()? {
+                    return Err(AosError::Training(
+                        "Adapter integrity verification failed".to_string(),
+                    ));
+                }
+                if options.skip_signature_check {
+                    adapter.signature = sig_backup;
+                }
+            }
+
+            tracing::info!(
+                "Loaded (mmap) .aos adapter from: {} (format v{}, signed: {})",
+                path_ref.display(),
+                adapter.manifest.format_version,
+                adapter.is_signed()
+            );
+            return Ok(adapter);
+        }
+
         let path = path.as_ref();
 
         // Use synchronous I/O for ZIP operations

@@ -25,6 +25,7 @@ import { ComplianceScoreWidget } from './dashboard/ComplianceScoreWidget';
 import { ActiveAlertsWidget } from './dashboard/ActiveAlertsWidget';
 import { MultiModelStatusWidget } from './dashboard/MultiModelStatusWidget';
 import { BaseModelWidget } from './dashboard/BaseModelWidget';
+import { ReportingSummaryWidget } from './dashboard/ReportingSummaryWidget';
 import { CursorSetupWizard } from './CursorSetupWizard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
@@ -33,6 +34,7 @@ import type { UserRole, User, SystemMetrics } from '@/api/types';
 import apiClient from '../api/client';
 import { Dispatch, SetStateAction } from 'react';
 import type { InformationDensity } from '../hooks/useInformationDensity';
+import { useAnnounce, useKeyboardShortcuts } from '@/utils/accessibility';
 
 interface DashboardProps {
   user?: User;
@@ -65,12 +67,16 @@ interface DensityControlsProps {
 function SystemHealthWidget() {
   const [metrics, setMetrics] = React.useState<SystemMetrics | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const announce = useAnnounce();
 
   React.useEffect(() => {
     const fetchMetrics = async () => {
       try {
         const data = await apiClient.getSystemMetrics();
         setMetrics(data);
+        if (data) {
+          announce(`Metrics updated. Active sessions ${data.active_sessions ?? 0}, latency ${data.latency_p95_ms ?? 0} milliseconds`);
+        }
       } catch (err) {
         logger.error('Failed to fetch system metrics', { component: 'SystemHealthWidget' }, toError(err));
       } finally {
@@ -84,22 +90,24 @@ function SystemHealthWidget() {
 
   if (loading) {
     return (
-      <Card>
+      <Card aria-labelledby="sys-health-title">
         <CardHeader>
-          <CardTitle>System Health</CardTitle>
+          <CardTitle id="sys-health-title">System Health</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="h-20 animate-pulse bg-muted rounded" />
+        <CardContent aria-busy={true}>
+          <div role="status" aria-live="polite" className="h-20 animate-pulse bg-muted rounded">
+            <span className="sr-only">Loading system health...</span>
+          </div>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card>
+    <Card aria-labelledby="sys-health-title">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Activity className="h-5 w-5" />
+          <Activity className="h-5 w-5" aria-hidden="true" />
           System Health
         </CardTitle>
       </CardHeader>
@@ -135,13 +143,15 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
       { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 },
       { id: 'compliance-score', component: ComplianceScoreWidget, priority: 4 },
-      { id: 'base-model', component: BaseModelWidget, priority: 5 },
+      { id: 'reporting-summary', component: ReportingSummaryWidget, priority: 5 },
+      { id: 'base-model', component: BaseModelWidget, priority: 6 },
     ],
     quickActions: [
       { label: 'System Health', icon: Activity, route: '/monitoring' },
       { label: 'Review Policies', icon: Shield, route: '/policies' },
       { label: 'View Telemetry', icon: Eye, route: '/telemetry' },
-      { label: 'Manage Adapters', icon: Code, route: '/adapters' }
+      { label: 'Manage Adapters', icon: Code, route: '/adapters' },
+      { label: 'Reports', icon: FileText, route: '/monitoring' }
     ]
   },
   Operator: {
@@ -203,13 +213,15 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
   },
   Viewer: {
     widgets: [
-      { id: 'system-health', component: SystemHealthWidget, priority: 1 },
-      { id: 'adapter-status', component: AdapterStatusWidget, priority: 2 },
-      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 }
+      { id: 'reporting-summary', component: ReportingSummaryWidget, priority: 1 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 2 },
+      { id: 'adapter-status', component: AdapterStatusWidget, priority: 3 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 4 }
     ],
     quickActions: [
-      { label: 'View Metrics', icon: Activity, route: '/monitoring' },
+      { label: 'View Reports', icon: FileText, route: '/monitoring' },
       { label: 'Inference Playground', icon: Play, route: '/inference' },
+      { label: 'System Metrics', icon: Activity, route: '/monitoring' },
       { label: 'Adapter Status', icon: Code, route: '/adapters' }
     ]
   }
@@ -235,6 +247,13 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
 
   const layout = dashboardLayouts[effectiveUser.role];
 
+  // Global shortcuts for search/help (announced via live region)
+  const announce = useAnnounce();
+  useKeyboardShortcuts({
+    onSearch: () => announce('Search shortcut pressed'),
+    onHelp: () => announce('Help shortcut pressed'),
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -249,7 +268,7 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
         </div>
         <div className="flex items-center gap-3">
           <ModelSelector />
-          <DensityControls density={density} setDensity={setDensity} />
+          <DensityControls density={density} onDensityChange={setDensity} />
         </div>
       </div>
 
@@ -257,7 +276,7 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {layout.widgets.map((widget) => {
           const WidgetComponent = widget.component;
-          return <WidgetComponent key={widget.id} />;
+          return <WidgetComponent key={widget.id} selectedTenant={selectedTenant} />;
         })}
       </div>
 
@@ -267,7 +286,7 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
           <CardTitle>Quick Actions</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3" aria-label="Quick actions" role="list">
             {layout.quickActions.map((action) => {
               const Icon = action.icon;
               return (
@@ -275,6 +294,7 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
                   key={action.route}
                   variant={action.variant || 'outline'}
                   className="justify-start h-auto py-4"
+                  aria-label={`Quick action: ${action.label}`}
                   onClick={() => {
                     if (action.route === '#cursor-config') {
                       setShowCursorWizard(true);
@@ -285,8 +305,8 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
                     }
                   }}
                 >
-                  <div className="flex items-center gap-3">
-                    <Icon className="h-5 w-5" />
+                  <div className="flex items-center gap-3" role="listitem">
+                    <Icon className="h-5 w-5" aria-hidden="true" />
                     <span className="font-medium">{action.label}</span>
                   </div>
                 </Button>

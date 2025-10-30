@@ -27,10 +27,23 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_bind")]
     pub bind: String,
+    /// Enable memory-mapped adapter loading
+    #[serde(default = "default_false")]
+    pub enable_mmap_adapters: bool,
+    /// Maximum cache size for memory-mapped adapters (MB)
+    #[serde(default = "default_mmap_cache_size")]
+    pub mmap_cache_size_mb: usize,
+    /// Enable hot-swap capabilities
+    #[serde(default = "default_false")]
+    pub enable_hot_swap: bool,
 }
 
 fn default_bind() -> String {
     "127.0.0.1".to_string()
+}
+
+fn default_mmap_cache_size() -> usize {
+    512
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
