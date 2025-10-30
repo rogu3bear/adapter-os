@@ -1,7 +1,9 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_lora_lifecycle::LifecycleManager;
-use adapteros_orchestrator::{CodeJobManager, TrainingService};
+use adapteros_orchestrator::{TrainingService};
+#[cfg(feature = "cdp")]
+use adapteros_orchestrator::CodeJobManager;
 use adapteros_verify::StrictnessLevel;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
@@ -76,9 +78,10 @@ pub struct AppState {
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
     pub training_service: Arc<TrainingService>,
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
-    pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>>,
+    pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<adapteros_api_types::git::FileChangeEvent>>>,
     pub crypto: Arc<CryptoState>,
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
+    #[cfg(feature = "cdp")]
     pub code_job_manager: Option<Arc<CodeJobManager>>,
     /// JWT validation mode
     pub jwt_mode: JwtMode,
@@ -106,6 +109,7 @@ impl AppState {
             file_change_tx: None,
             crypto: Arc::new(CryptoState::new()),
             lifecycle_manager: None,
+            #[cfg(feature = "cdp")]
             code_job_manager: None,
             jwt_mode: JwtMode::Hmac,
             jwt_public_key_pem: None,
@@ -123,13 +127,14 @@ impl AppState {
     pub fn with_git(
         mut self,
         git_subsystem: Arc<adapteros_git::GitSubsystem>,
-        file_change_tx: Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>,
+        file_change_tx: Arc<tokio::sync::broadcast::Sender<adapteros_api_types::git::FileChangeEvent>>,
     ) -> Self {
         self.git_subsystem = Some(git_subsystem);
         self.file_change_tx = Some(file_change_tx);
         self
     }
 
+    #[cfg(feature = "cdp")]
     pub fn with_code_jobs(mut self, code_job_manager: Arc<CodeJobManager>) -> Self {
         self.code_job_manager = Some(code_job_manager);
         self

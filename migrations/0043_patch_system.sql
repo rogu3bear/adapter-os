@@ -37,5 +37,6 @@ CREATE INDEX idx_patch_signatures_hash ON patch_signatures(patch_hash);
 
 -- Extend existing tables for patch relationships
 -- Citation: existing pattern from migration 0028
-ALTER TABLE base_model_status ADD COLUMN IF NOT EXISTS last_patch_applied TEXT;
-ALTER TABLE adapter_lifecycle ADD COLUMN IF NOT EXISTS patches_applied JSON;
+-- Use plain ADD COLUMN for broad SQLite compatibility (older versions lack IF NOT EXISTS)
+ALTER TABLE base_model_status ADD COLUMN last_patch_applied TEXT;
+-- Removed invalid ALTER on non-existent table 'adapter_lifecycle'

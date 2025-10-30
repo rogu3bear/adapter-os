@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{error, info};
 
 /// Training job state
@@ -21,6 +22,7 @@ use tracing::{error, info};
 pub enum TrainingJobStatus {
     Pending,
     Running,
+    Paused,
     Completed,
     Failed,
     Cancelled,
@@ -31,6 +33,7 @@ impl std::fmt::Display for TrainingJobStatus {
         match self {
             TrainingJobStatus::Pending => write!(f, "pending"),
             TrainingJobStatus::Running => write!(f, "running"),
+            TrainingJobStatus::Paused => write!(f, "paused"),
             TrainingJobStatus::Completed => write!(f, "completed"),
             TrainingJobStatus::Failed => write!(f, "failed"),
             TrainingJobStatus::Cancelled => write!(f, "cancelled"),
@@ -111,11 +114,29 @@ pub struct TrainingTemplate {
     pub config: TrainingConfig,
 }
 
+/// Per-job control handle for pause/resume/cancel
+pub struct JobControl {
+    paused: AtomicBool,
+    cancelled: AtomicBool,
+    resume_notify: tokio::sync::Notify,
+}
+
+impl JobControl {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            paused: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+            resume_notify: tokio::sync::Notify::new(),
+        })
+    }
+}
+
 /// Training service for managing jobs
 pub struct TrainingService {
     jobs: Arc<RwLock<HashMap<String, TrainingJob>>>,
     templates: Arc<RwLock<HashMap<String, TrainingTemplate>>>,
     base_model: Arc<String>,
+    controls: Arc<RwLock<HashMap<String, Arc<JobControl>>>>,
 }
 
 const DEFAULT_BASE_MODEL: &str = "qwen2.5-7b";
@@ -135,6 +156,7 @@ impl TrainingService {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             templates: Arc::new(RwLock::new(templates)),
             base_model,
+            controls: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -276,6 +298,12 @@ impl TrainingService {
             jobs.insert(job_id.clone(), job.clone());
         }
 
+        // Initialize job control entry
+        {
+            let mut controls = self.controls.write().await;
+            controls.insert(job_id.clone(), JobControl::new());
+        }
+
         // Spawn background training task
         let jobs_ref = self.jobs.clone();
         let cfg_for_run = job.config.clone();
@@ -286,9 +314,12 @@ impl TrainingService {
         let adapters_root_for_run = adapters_root.clone();
         let package_for_run = package;
         let adapter_id_for_run = adapter_id.clone();
+        let controls_ref = self.controls.clone();
+        let base_model_for_run = Arc::clone(&self.base_model);
         tokio::spawn(async move {
             if let Err(e) = run_training_job(
                 jobs_ref,
+                controls_ref,
                 job_id_for_run.clone(),
                 cfg_for_run,
                 dataset_for_run,
@@ -297,6 +328,7 @@ impl TrainingService {
                 adapters_root_for_run,
                 package_for_run,
                 adapter_id_for_run,
+                base_model_for_run,
             )
             .await
             {
@@ -311,10 +343,20 @@ impl TrainingService {
 
     /// Cancel a training job
     pub async fn cancel_job(&self, job_id: &str) -> Result<()> {
+        // Set cancelled flag and wake any paused waiters
+        if let Some(control) = self.controls.read().await.get(job_id).cloned() {
+            control.cancelled.store(true, Ordering::SeqCst);
+            control.resume_notify.notify_waiters();
+        }
+
         let mut jobs = self.jobs.write().await;
         if let Some(job) = jobs.get_mut(job_id) {
-            if job.status == TrainingJobStatus::Running || job.status == TrainingJobStatus::Pending
-            {
+            if matches!(
+                job.status,
+                TrainingJobStatus::Running
+                    | TrainingJobStatus::Pending
+                    | TrainingJobStatus::Paused
+            ) {
                 job.status = TrainingJobStatus::Cancelled;
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                 info!("Training job cancelled: {}", job_id);
@@ -328,6 +370,84 @@ impl TrainingService {
         } else {
             Err(AosError::Internal(format!("Training job not found: {}", job_id)).into())
         }
+    }
+
+    /// Pause a training job (idempotent)
+    pub async fn pause_job(&self, job_id: &str) -> Result<()> {
+        // Update job status with validation
+        {
+            let mut jobs = self.jobs.write().await;
+            let job = jobs
+                .get_mut(job_id)
+                .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?;
+
+            match job.status {
+                TrainingJobStatus::Completed
+                | TrainingJobStatus::Failed
+                | TrainingJobStatus::Cancelled => {
+                    return Err(AosError::Internal("Cannot pause terminal job".to_string()).into())
+                }
+                TrainingJobStatus::Paused => {
+                    // Idempotent
+                    return Ok(());
+                }
+                _ => {
+                    job.status = TrainingJobStatus::Paused;
+                }
+            }
+        }
+
+        // Set paused flag in control map
+        let control = {
+            let controls = self.controls.read().await;
+            controls
+                .get(job_id)
+                .cloned()
+                .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?
+        };
+        control.paused.store(true, Ordering::SeqCst);
+        info!("Training job paused: {}", job_id);
+        Ok(())
+    }
+
+    /// Resume a training job (idempotent)
+    pub async fn resume_job(&self, job_id: &str) -> Result<()> {
+        let mut should_notify = false;
+
+        // Update job status with validation
+        {
+            let mut jobs = self.jobs.write().await;
+            let job = jobs
+                .get_mut(job_id)
+                .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?;
+
+            match job.status {
+                TrainingJobStatus::Completed
+                | TrainingJobStatus::Failed
+                | TrainingJobStatus::Cancelled => {
+                    return Err(AosError::Internal("Cannot resume terminal job".to_string()).into())
+                }
+                TrainingJobStatus::Running | TrainingJobStatus::Pending => {
+                    // Idempotent
+                    return Ok(());
+                }
+                TrainingJobStatus::Paused => {
+                    job.status = TrainingJobStatus::Running;
+                    should_notify = true;
+                }
+            }
+        }
+
+        // Update controls and wake waiters
+        if should_notify {
+            if let Some(control) = self.controls.read().await.get(job_id).cloned() {
+                control.paused.store(false, Ordering::SeqCst);
+                control.resume_notify.notify_waiters();
+            }
+        }
+
+        info!("Training job resumed: {}", job_id);
+        Ok(())
     }
 
     /// Update job progress (called by training worker)
@@ -423,6 +543,7 @@ impl Default for TrainingService {
 /// config, runs training with per-epoch callback, and updates the shared job map.
 async fn run_training_job(
     jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
+    controls_ref: Arc<RwLock<HashMap<String, Arc<JobControl>>>>,
     job_id: String,
     orchestrator_cfg: TrainingConfig,
     dataset_path: Option<String>,
@@ -431,6 +552,7 @@ async fn run_training_job(
     adapters_root: Option<String>,
     package: bool,
     adapter_id_opt: Option<String>,
+    base_model: Arc<String>,
 ) -> Result<()> {
     // Transition to running
     {
@@ -575,11 +697,46 @@ async fn run_training_job(
 
     let mut trainer = WorkerTrainer::new(worker_cfg)?;
 
+    // Respect pause/cancel before starting
+    let control = {
+        let controls = controls_ref.read().await;
+        controls
+            .get(&job_id)
+            .cloned()
+            .ok_or_else(|| AosError::Internal("Job control not found".to_string()))?
+    };
+    if control.cancelled.load(Ordering::SeqCst) {
+        let mut jobs = jobs_ref.write().await;
+        if let Some(job) = jobs.get_mut(&job_id) {
+            job.status = TrainingJobStatus::Cancelled;
+            job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+        return Ok(());
+    }
+
     // Run with per-epoch callback to update progress
     let job_id_clone = job_id.clone();
     let jobs_ref_clone = jobs_ref.clone();
     let result = trainer
         .train_with_callback(&examples, move |epoch, loss| {
+            // If paused, busy-wait with small sleep until resumed or cancelled
+            while control.paused.load(Ordering::SeqCst) {
+                if control.cancelled.load(Ordering::SeqCst) {
+                    break;
+                }
+                // Best-effort status update to Paused while we wait
+                let jobs_ref_inner = jobs_ref_clone.clone();
+                let job_id_inner = job_id_clone.clone();
+                tokio::spawn(async move {
+                    let mut jobs = jobs_ref_inner.write().await;
+                    if let Some(job) = jobs.get_mut(&job_id_inner) {
+                        if job.status == TrainingJobStatus::Running {
+                            job.status = TrainingJobStatus::Paused;
+                        }
+                    }
+                });
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
             let jobs_ref_inner = jobs_ref_clone.clone();
             let job_id_inner = job_id_clone.clone();
             // Fire-and-forget async update
@@ -590,6 +747,9 @@ async fn run_training_job(
                     job.current_loss = loss;
                     if job.total_epochs > 0 {
                         job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+                    }
+                    if job.status == TrainingJobStatus::Paused {
+                        job.status = TrainingJobStatus::Running;
                     }
                 }
             });
@@ -625,7 +785,7 @@ async fn run_training_job(
                     let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(
                         &chosen_root,
                     );
-                    let base_model = self.base_model.clone();
+                    let base_model = (*base_model).clone();
                     match packager
                         .package(
                             &aid_for_pack,
@@ -761,6 +921,8 @@ mod tests {
         assert_eq!(updated_job.current_epoch, 1);
         assert!((updated_job.current_loss - 0.5).abs() < 0.01);
     }
+
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_list_templates() {

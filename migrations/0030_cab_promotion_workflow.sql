@@ -47,50 +47,8 @@ CREATE TABLE IF NOT EXISTS promotion_history (
 CREATE INDEX IF NOT EXISTS idx_promotion_history_cpid ON promotion_history(cpid);
 CREATE INDEX IF NOT EXISTS idx_promotion_history_promoted_at ON promotion_history(promoted_at DESC);
 
-<<<<<<< HEAD
 -- Note: cp_pointers, plans, and artifacts table extensions now handled by migration 0040
 -- This migration focuses on new tables specific to CAB promotion workflow
-=======
--- CP pointers - named pointers to active CPIDs
-CREATE TABLE IF NOT EXISTS cp_pointers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE, -- 'production', 'staging', 'canary'
-    active_cpid TEXT,
-    before_cpid TEXT, -- Track previous CPID for instant rollback
-    approval_signature TEXT,
-    promoted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Initialize production pointer
-INSERT OR IGNORE INTO cp_pointers (name) VALUES ('production');
-INSERT OR IGNORE INTO cp_pointers (name) VALUES ('staging');
-INSERT OR IGNORE INTO cp_pointers (name) VALUES ('canary');
-
--- Add cpid column to plans table (already exists from migration 0001)
--- Note: SQLite doesn't support adding NOT NULL columns with ALTER TABLE directly
--- We add it as nullable first, then we can enforce NOT NULL constraint via CHECK
-ALTER TABLE plans ADD COLUMN cpid TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_cpid_unique ON plans(cpid) WHERE cpid IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_plans_cpid ON plans(cpid);
-
--- Artifacts table (if not exists) - stores SBOMs and signatures
-CREATE TABLE IF NOT EXISTS artifacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    artifact_id TEXT NOT NULL UNIQUE,
-    cpid TEXT NOT NULL,
-    artifact_type TEXT NOT NULL, -- 'sbom', 'signature', 'metallib'
-    content_hash TEXT NOT NULL, -- BLAKE3 hash
-    content BLOB NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    UNIQUE(cpid, artifact_type)
-);
-
-CREATE INDEX IF NOT EXISTS idx_artifacts_cpid ON artifacts(cpid);
-CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
->>>>>>> d313374 (WIP: Fix migration conflicts - needs schema alignment)
 
 -- Quality gate results - store hallucination metrics per CPID
 CREATE TABLE IF NOT EXISTS quality_gate_results (
@@ -109,5 +67,4 @@ CREATE TABLE IF NOT EXISTS quality_gate_results (
 
 CREATE INDEX IF NOT EXISTS idx_quality_gate_cpid ON quality_gate_results(cpid);
 CREATE INDEX IF NOT EXISTS idx_quality_gate_run_at ON quality_gate_results(run_at DESC);
-
 

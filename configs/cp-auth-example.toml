@@ -6,6 +6,16 @@
 # - docs/AUTHENTICATION.md: Authentication architecture
 # - docs/DEPLOYMENT_AUTH.md: Deployment procedures
 
+[server]
+port = 8080
+bind = "127.0.0.1"
+# Enable memory-mapped adapter loading for faster cold-start
+enable_mmap_adapters = true
+# Maximum cache size for memory-mapped adapters (MB)
+mmap_cache_size_mb = 512
+# Enable hot-swap capabilities for dynamic adapter loading/unloading
+enable_hot_swap = true
+
 # Authentication Configuration
 [auth]
 # Authentication mode: "development", "production", or "mixed"
