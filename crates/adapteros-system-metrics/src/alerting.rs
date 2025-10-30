@@ -380,27 +380,28 @@ impl AlertEvaluator {
     async fn is_in_cooldown(&self, rule_id: &str, cooldown_seconds: i64) -> Result<bool> {
         let cutoff_time = chrono::Utc::now() - chrono::Duration::seconds(cooldown_seconds);
 
-        let recent_alert = sqlx::query!(
+        let recent_alert = sqlx::query(
             "SELECT created_at FROM process_alerts 
              WHERE rule_id = ? AND status IN ('active', 'acknowledged') 
              ORDER BY created_at DESC LIMIT 1",
-            rule_id
         )
+        .bind(rule_id)
         .fetch_optional(self.db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to check cooldown: {}", e))
         })?;
 
-        if let Some(alert) = recent_alert {
-            let alert_time = match &alert.created_at {
-                Some(dt) => chrono::DateTime::parse_from_rfc3339(
-                    &dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                ),
+        if let Some(row) = recent_alert {
+            let created_at_str: Option<String> = row.get("created_at");
+            let alert_time = match created_at_str {
+                Some(dt_str) => {
+                    chrono::DateTime::parse_from_rfc3339(&dt_str)
+                        .map_err(|e| adapteros_core::AosError::Database(format!("Invalid alert time: {}", e)))?
+                        .with_timezone(&chrono::Utc)
+                },
                 None => return Ok(false), // No created_at means we can't check cooldown
-            }
-            .map_err(|e| adapteros_core::AosError::Database(format!("Invalid alert time: {}", e)))?
-            .with_timezone(&chrono::Utc);
+            };
 
             Ok(alert_time > cutoff_time)
         } else {

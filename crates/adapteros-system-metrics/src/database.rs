@@ -7,7 +7,7 @@
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Database operations for system metrics

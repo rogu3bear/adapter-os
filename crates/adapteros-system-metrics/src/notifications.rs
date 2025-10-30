@@ -11,6 +11,7 @@ use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
 use async_trait::async_trait;
 use reqwest::Client;
+use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -212,19 +213,19 @@ impl NotificationService {
         let id = uuid::Uuid::new_v4().to_string();
 
         let notification_type_str = notification.notification_type.to_string();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_monitoring_notifications (
                 id, alert_id, notification_type, recipient, message, status
             ) VALUES (?, ?, ?, ?, ?, ?)
             "#,
-            id,
-            notification.alert_id,
-            notification_type_str,
-            notification.recipient,
-            notification.message,
-            "pending"
         )
+        .bind(&id)
+        .bind(&notification.alert_id)
+        .bind(&notification_type_str)
+        .bind(&notification.recipient)
+        .bind(&notification.message)
+        .bind("pending")
         .execute(self.db.pool())
         .await
         .map_err(|e| {
@@ -248,16 +249,16 @@ impl NotificationService {
             Err(e) => ("failed", Some(e.to_string())),
         };
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE process_monitoring_notifications 
             SET status = ?, error_message = ?, sent_at = CURRENT_TIMESTAMP
             WHERE id = ?
             "#,
-            status,
-            error_message,
-            notification_id
         )
+        .bind(status)
+        .bind(&error_message)
+        .bind(notification_id)
         .execute(self.db.pool())
         .await
         .map_err(|e| {
@@ -479,28 +480,41 @@ impl NotificationService {
 
     /// Get notification delivery status
     pub async fn get_notification_status(&self, alert_id: &str) -> Result<Vec<NotificationStatus>> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             "SELECT * FROM process_monitoring_notifications WHERE alert_id = ? ORDER BY created_at DESC",
-            alert_id
         )
+        .bind(alert_id)
         .fetch_all(self.db.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get notification status: {}", e)))?;
 
         let mut notifications = Vec::new();
         for row in rows {
+            let sent_at_str: Option<String> = row.get("sent_at");
+            let delivered_at_str: Option<String> = row.get("delivered_at");
             notifications.push(NotificationStatus {
-                id: row.id.unwrap_or_default(),
-                alert_id: row.alert_id,
-                notification_type: NotificationType::from_string(row.notification_type),
-                recipient: row.recipient,
-                message: row.message,
-                status: crate::monitoring_types::NotificationStatus::from_string(row.status),
-                sent_at: row.sent_at.map(|dt| dt.and_utc()),
-                delivered_at: row.delivered_at.map(|dt| dt.and_utc()),
-                error_message: row.error_message,
-                retry_count: row.retry_count.unwrap_or(0),
-                created_at: row.created_at.unwrap_or_default().and_utc(),
+                id: row.get::<String, _>("id"),
+                alert_id: row.get::<String, _>("alert_id"),
+                notification_type: NotificationType::from_string(
+                    row.get::<String, _>("notification_type")
+                ),
+                recipient: row.get::<String, _>("recipient"),
+                message: row.get::<String, _>("message"),
+                status: crate::monitoring_types::NotificationStatus::from_string(
+                    row.get::<String, _>("status")
+                ),
+                sent_at: sent_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                delivered_at: delivered_at_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                error_message: row.get::<Option<String>, _>("error_message"),
+                retry_count: row.get::<i64, _>("retry_count"),
+                created_at: {
+                    let created_at_str: String = row.get("created_at");
+                    chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map_err(|e| adapteros_core::AosError::Database(format!("Invalid created_at: {}", e)))?
+                        .with_timezone(&chrono::Utc)
+                },
             });
         }
 
