@@ -844,3 +844,160 @@ pub fn export_prometheus(registry: &Registry) -> Result<String> {
     String::from_utf8(buffer)
         .map_err(|e| AosError::Telemetry(format!("Failed to convert metrics to UTF-8: {}", e)))
 }
+
+// ============================================================
+// Time series buffer for metrics dashboard (offline, in-memory)
+// ============================================================
+
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// A single data point in a time series
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricDataPoint {
+    pub timestamp_ms: u64,
+    pub value: f64,
+}
+
+/// A time series with a fixed resolution window
+#[derive(Debug, Clone)]
+pub struct MetricTimeSeries {
+    name: String,
+    resolution_ms: u64,
+    max_points: usize,
+    inner: Arc<RwLock<VecDeque<MetricDataPoint>>>,
+}
+
+impl MetricTimeSeries {
+    /// Create a new time series with specified resolution and max points
+    pub fn new(name: String, resolution_ms: u64, max_points: usize) -> Self {
+        Self {
+            name,
+            resolution_ms,
+            max_points,
+            inner: Arc::new(RwLock::new(VecDeque::with_capacity(max_points))),
+        }
+    }
+
+    /// Record a value at the current time (or specified time)
+    pub fn record(&self, value: f64, timestamp_ms: Option<u64>) {
+        let ts = timestamp_ms.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
+        
+        let mut guard = self.inner.write().expect("metric time series poisoned");
+        
+        // Evict old points if over capacity
+        while guard.len() >= self.max_points {
+            guard.pop_front();
+        }
+        
+        guard.push_back(MetricDataPoint {
+            timestamp_ms: ts,
+            value,
+        });
+    }
+
+    /// Get recent points within a time window (or all if None)
+    pub fn get_points(&self, start_ms: Option<u64>, end_ms: Option<u64>) -> Vec<MetricDataPoint> {
+        let guard = self.inner.read().expect("metric time series poisoned");
+        
+        guard.iter()
+            .filter(|pt| {
+                if let Some(start) = start_ms {
+                    if pt.timestamp_ms < start {
+                        return false;
+                    }
+                }
+                if let Some(end) = end_ms {
+                    if pt.timestamp_ms > end {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Get the most recent value
+    pub fn latest(&self) -> Option<MetricDataPoint> {
+        let guard = self.inner.read().expect("metric time series poisoned");
+        guard.back().cloned()
+    }
+}
+
+/// Registry of metric time series for dashboard queries
+#[derive(Debug, Clone)]
+pub struct MetricsRegistry {
+    series: Arc<RwLock<HashMap<String, Arc<MetricTimeSeries>>>>,
+    collector: Arc<MetricsCollector>,
+}
+
+impl MetricsRegistry {
+    /// Create a new metrics registry
+    pub fn new(collector: Arc<MetricsCollector>) -> Self {
+        Self {
+            series: Arc::new(RwLock::new(HashMap::new())),
+            collector,
+        }
+    }
+
+    /// Get or create a time series for a metric name
+    pub fn get_or_create_series(
+        &self,
+        name: String,
+        resolution_ms: u64,
+        max_points: usize,
+    ) -> Arc<MetricTimeSeries> {
+        let mut guard = self.series.write().expect("metrics registry poisoned");
+        
+        guard
+            .entry(name.clone())
+            .or_insert_with(|| {
+                Arc::new(MetricTimeSeries::new(name, resolution_ms, max_points))
+            })
+            .clone()
+    }
+
+    /// Record a snapshot of current metrics to time series (periodic, e.g., every 1s)
+    pub async fn record_snapshot(&self) -> Result<()> {
+        let snapshot = self.collector.get_metrics_snapshot().await;
+        let ts_ms = snapshot.timestamp * 1000; // Convert to ms
+        
+        // Record key metrics
+        let series_map = self.series.read().expect("metrics registry poisoned");
+        
+        // Record latency metrics
+        if let Some(s) = series_map.get("inference_latency_p95_ms") {
+            s.record(snapshot.latency.inference_p95_ms, Some(ts_ms));
+        }
+        if let Some(s) = series_map.get("queue_depth") {
+            s.record(snapshot.queue_depth.request_queue, Some(ts_ms));
+        }
+        if let Some(s) = series_map.get("tokens_per_second") {
+            s.record(snapshot.throughput.tokens_per_second, Some(ts_ms));
+        }
+        if let Some(s) = series_map.get("memory_usage_mb") {
+            s.record(snapshot.system.memory_usage_mb, Some(ts_ms));
+        }
+        
+        Ok(())
+    }
+
+    /// Get all registered time series names
+    pub fn list_series(&self) -> Vec<String> {
+        let guard = self.series.read().expect("metrics registry poisoned");
+        guard.keys().cloned().collect()
+    }
+
+    /// Get a time series by name
+    pub fn get_series(&self, name: &str) -> Option<Arc<MetricTimeSeries>> {
+        let guard = self.series.read().expect("metrics registry poisoned");
+        guard.get(name).cloned()
+    }
+}

@@ -679,6 +679,13 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
+        // Telemetry endpoints for offline dashboard
+        .route("/api/metrics/snapshot", get(handlers::telemetry::get_metrics_snapshot))
+        .route("/api/metrics/series", get(handlers::telemetry::get_metrics_series))
+        .route("/api/logs/query", get(handlers::telemetry::query_logs))
+        .route("/api/logs/stream", get(handlers::telemetry::stream_logs))
+        .route("/api/traces/search", get(handlers::telemetry::search_traces))
+        .route("/api/traces/:trace_id", get(handlers::telemetry::get_trace))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

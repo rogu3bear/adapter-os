@@ -211,6 +211,96 @@ impl PostgresDb {
 pub mod adapters;
 pub use adapters::AdapterRow;
 
+// Re-export adapter types from SQLite module for compatibility
+pub use crate::adapters::{Adapter, AdapterActivation};
+
+// Compatibility methods to match SQLite Db interface
+impl PostgresDb {
+    /// List all adapters (compatibility method matching SQLite Db interface)
+    /// 
+    /// Note: For M0, returns all active adapters. Future versions should accept tenant_id filter.
+    pub async fn list_adapters(&self) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "SELECT id, adapter_id, name, hash_b3, rank, 
+                    CASE tier 
+                        WHEN 'persistent' THEN 0 
+                        WHEN 'warm' THEN 1 
+                        WHEN 'ephemeral' THEN 2 
+                        ELSE 0 
+                    END as tier,
+                    languages_json, framework,
+                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
+                    current_state, pinned, memory_bytes::bigint as memory_bytes, 
+                    last_activated, activation_count::bigint as activation_count,
+                    expires_at, created_at::text as created_at, updated_at::text as updated_at, active 
+             FROM adapters 
+             WHERE active = 1 
+             ORDER BY tier ASC, created_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
+        Ok(adapters)
+    }
+
+    /// Get adapter by adapter_id (compatibility method)
+    pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
+        let adapter = sqlx::query_as::<_, Adapter>(
+            "SELECT id, adapter_id, name, hash_b3, rank, 
+                    CASE tier 
+                        WHEN 'persistent' THEN 0 
+                        WHEN 'warm' THEN 1 
+                        WHEN 'ephemeral' THEN 2 
+                        ELSE 0 
+                    END as tier,
+                    languages_json, framework,
+                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
+                    current_state, pinned, memory_bytes::bigint as memory_bytes, 
+                    last_activated, activation_count::bigint as activation_count,
+                    expires_at, created_at::text as created_at, updated_at::text as updated_at, active 
+             FROM adapters 
+             WHERE adapter_id = $1"
+        )
+        .bind(adapter_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?;
+        Ok(adapter)
+    }
+
+    /// Delete adapter by ID (compatibility method)
+    pub async fn delete_adapter(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM adapters WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete adapter: {}", e)))?;
+        Ok(())
+    }
+
+    /// Get adapter statistics (compatibility method)
+    pub async fn get_adapter_stats(&self, adapter_id: &str) -> Result<(i64, i64, f64)> {
+        let row = sqlx::query(
+            "SELECT 
+                COUNT(*) as total,
+                SUM(selected) as selected_count,
+                AVG(gate_value) as avg_gate
+             FROM adapter_activations 
+             WHERE adapter_id = $1"
+        )
+        .bind(adapter_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get adapter stats: {}", e)))?;
+
+        let total: i64 = row.try_get("total").unwrap_or(0);
+        let selected: i64 = row.try_get("selected_count").unwrap_or(0);
+        let avg_gate: f64 = row.try_get("avg_gate").unwrap_or(0.0);
+
+        Ok((total, selected, avg_gate))
+    }
+}
+
 // Re-export sqlx types for PostgreSQL
 pub use sqlx::postgres::{PgQueryResult, PgRow};
 pub use sqlx::Row as PgRowTrait;

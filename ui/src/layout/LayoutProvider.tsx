@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';
 import type { Tenant, User, UserRole } from '@/api/types';
@@ -63,11 +64,24 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const verify = async () => {
-      try {
-        const token = apiClient.getToken();
-        if (token) {
+  const verifyAuth = useCallback(async () => {
+    try {
+      const currentUser = await apiClient.getCurrentUser();
+      setUser({
+        id: currentUser.user_id,
+        email: currentUser.email,
+        display_name: currentUser.email.split('@')[0],
+        role: currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1) as UserRole,
+        tenant_id: 'default',
+        permissions: [],
+      });
+    } catch (error: any) {
+      // If 401, try refresh if available
+      if (error.message?.includes('401')) {
+        try {
+          // Attempt refresh - assuming server supports /v1/auth/refresh
+          await apiClient.request('/v1/auth/refresh', { method: 'POST' });
+          // Retry getting user after refresh
           const currentUser = await apiClient.getCurrentUser();
           setUser({
             id: currentUser.user_id,
@@ -77,16 +91,18 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
             tenant_id: 'default',
             permissions: [],
           });
+        } catch {
+          setUser(null);
         }
-      } catch {
-        apiClient.setToken(null);
+      } else {
         setUser(null);
-      } finally {
-        setIsLoading(false);
       }
-    };
-    void verify();
+    }
   }, []);
+
+  useEffect(() => {
+    void verifyAuth().finally(() => setIsLoading(false));
+  }, [verifyAuth]);
 
   const login = useCallback(async (credentials: { email: string; password: string }) => {
     const response = await apiClient.login(credentials);
@@ -113,6 +129,32 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
+}
+
+// Route guard component
+export function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      navigate('/login', { replace: true });
+    }
+  }, [user, isLoading, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return <>{children}</>;
 }
 
 // Tenant

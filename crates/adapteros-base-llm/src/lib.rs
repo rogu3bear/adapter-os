@@ -17,12 +17,16 @@ pub mod metadata;
 pub mod qwen;
 #[cfg(feature = "mlx-ffi")]
 pub mod mlx_ffi;
+#[cfg(feature = "mlx-ffi")]
+pub mod qwen_int4_mlx;
 
 pub use error::{BaseLLMError, Result as BaseLLMResult};
 pub use metadata::{BaseLLMMetadata, ModelArchitecture};
 pub use qwen::QwenBaseLLM;
 #[cfg(feature = "mlx-ffi")]
 pub use mlx_ffi::QwenMlxFfi;
+#[cfg(feature = "mlx-ffi")]
+pub use qwen_int4_mlx::Qwen25Int4Mlx;
 
 /// Base LLM trait for foundation models
 ///

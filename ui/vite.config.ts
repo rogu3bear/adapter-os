@@ -54,7 +54,7 @@
     },
     build: {
       target: 'esnext',
-      outDir: '../crates/mplora-server/static',
+      outDir: '../crates/adapteros-server/static',
       emptyOutDir: true,
       minify: 'terser',
       terserOptions: {

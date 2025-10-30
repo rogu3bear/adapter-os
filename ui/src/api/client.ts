@@ -11,36 +11,19 @@ import * as types from './types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 
 class ApiClient {
   private baseUrl: string;
-  private token: string | null = null;
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
-    // Replace: console.log('API Client initialized with base URL:', this.baseUrl);
-    logger.info('API Client initialized', { 
+    logger.info('API Client initialized', {
       component: 'ApiClient',
       operation: 'constructor',
-      baseUrl: this.baseUrl 
+      baseUrl: this.baseUrl
     });
-    // Load token from localStorage
-    this.token = localStorage.getItem('aos_token');
-  }
-
-  setToken(token: string | null) {
-    this.token = token;
-    if (token) {
-      localStorage.setItem('aos_token', token);
-    } else {
-      localStorage.removeItem('aos_token');
-    }
-  }
-
-  getToken(): string | null {
-    return this.token;
   }
 
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
@@ -69,26 +52,22 @@ class ApiClient {
     return this.requestLog;
   }
 
-  private async request<T>(
+  async request<T>(
     path: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    
+
     // Compute deterministic request ID
     const method = options.method || 'GET';
     const body = options.body || '';
     const requestId = await this.computeRequestId(method, path, body.toString());
-    
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'X-Request-ID': requestId,
       ...options.headers,
     };
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
 
     // Store in local audit buffer
     this.logRequest(requestId, method, path);
@@ -96,17 +75,17 @@ class ApiClient {
     const response = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include', // Send httpOnly cookies
     });
     
     // Validate returned request ID matches
     const returnedId = response.headers.get('X-Request-ID');
     if (returnedId && returnedId !== requestId) {
-      // Replace: console.warn('Request ID mismatch:', { sent: requestId, received: returnedId });
-      logger.warn('Request ID mismatch', { 
+      logger.warn('Request ID mismatch', {
         component: 'ApiClient',
         operation: 'request_validation',
-        sent: requestId, 
-        received: returnedId 
+        sent: requestId,
+        received: returnedId
       });
     }
 
@@ -131,13 +110,13 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
-    this.setToken(response.token);
+    // Token is now stored in httpOnly cookie by server
     return response;
   }
 
   async logout(): Promise<void> {
     await this.request('/v1/auth/logout', { method: 'POST' });
-    this.setToken(null);
+    // Cookie is cleared by server
   }
 
   async getCurrentUser(): Promise<types.UserInfoResponse> {
@@ -282,11 +261,7 @@ class ApiClient {
 
   async exportPlanManifest(planId: string): Promise<Blob> {
     const url = `${this.baseUrl}/v1/plans/${planId}/manifest`;
-    const headers: HeadersInit = {};
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { credentials: 'include' });
     if (!response.ok) {
       throw new Error(`Failed to export plan manifest: ${response.statusText}`);
     }
@@ -355,6 +330,15 @@ class ApiClient {
     return this.request<types.TelemetryBundle[]>('/v1/telemetry/bundles');
   }
 
+  async getTelemetryLogs(filters?: { category?: string; limit?: number; offset?: number }): Promise<types.TelemetryEvent[]> {
+    const params = new URLSearchParams();
+    if (filters?.category) params.append('category', filters.category);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.offset) params.append('offset', filters.offset.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.TelemetryEvent[]>(`/v1/telemetry/logs${query}`);
+  }
+
   async listContacts(tenantId: string): Promise<types.Contact[]> {
     const params = new URLSearchParams({ tenant_id: tenantId });
     return this.request<types.Contact[]>(`/v1/contacts?${params.toString()}`);
@@ -399,6 +383,18 @@ class ApiClient {
   async deleteAdapter(adapterId: string): Promise<void> {
     return this.request<void>(`/v1/adapters/${adapterId}`, {
       method: 'DELETE',
+    });
+  }
+
+  async upsertAdapterDirectory(data: {
+    tenant_id: string;
+    root: string;
+    path: string;
+    activate: boolean;
+  }): Promise<{ adapter_id: string }> {
+    return this.request<{ adapter_id: string }>('/v1/adapters/directory/upsert', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 
@@ -1010,15 +1006,10 @@ class ApiClient {
   }
 
   subscribeToMetrics(callback: (metrics: SystemMetrics | null) => void): () => void {
-    const token = localStorage.getItem('aos_token');
-    if (!token) {
-      callback(null);
-      return () => {}; // No-op cleanup
-    }
-
-    const sseUrl = import.meta.env.VITE_SSE_URL 
-      ? `ws://${import.meta.env.VITE_SSE_URL}/metrics?token=${encodeURIComponent(token)}`
-      : `${import.meta.env.VITE_API_URL}/stream/metrics?token=${encodeURIComponent(token)}`;
+    // With cookie-based auth, cookies are sent automatically with credentials: 'include'
+    const sseUrl = import.meta.env.VITE_SSE_URL
+      ? `ws://${import.meta.env.VITE_SSE_URL}/metrics`
+      : `${import.meta.env.VITE_API_URL}/stream/metrics`;
 
     const eventSource = new EventSource(sseUrl);
     let reconnectAttempts = 0;
