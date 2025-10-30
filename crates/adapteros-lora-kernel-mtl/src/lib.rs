@@ -156,6 +156,13 @@ pub struct MetalKernels {
     // Language modeling head for vocabulary projection
     lm_head_weights: Option<LmHeadWeights>,
     lm_head_pipeline: Option<ComputePipelineState>,
+    // Reusable output logits buffer to avoid per-step allocations
+    logits_buffer: Option<Buffer>,
+    // Current intermediate buffer batch capacity
+    batch_capacity: usize,
+    // Reusable constant buffers for shader parameters
+    hidden_size_const: Option<Buffer>,
+    vocab_size_const: Option<Buffer>,
     adapter_index_map: Vec<String>,
     adapter_weights: HashMap<String, AdapterWeights>,
     plan_seed: [u8; 32],
@@ -196,6 +203,10 @@ impl MetalKernels {
             intermediate_buffers: None,
             lm_head_weights: None,
             lm_head_pipeline: None,
+            logits_buffer: None,
+            batch_capacity: 1,
+            hidden_size_const: None,
+            vocab_size_const: None,
             adapter_index_map: Vec::new(),
             adapter_weights: HashMap::new(),
             plan_seed: [0u8; 32],
@@ -1608,8 +1619,8 @@ impl MetalKernels {
 
     /// Create intermediate buffers for transformer computation
     fn create_intermediate_buffers(&mut self) -> Result<IntermediateBuffers> {
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let seq_len = 1; // Single token for now
+        let hidden_size = 3584; // Qwen2.5-7B hidden size (default until weights parsed)
+        let seq_len = self.batch_capacity.max(1);
 
         let buffer_size = hidden_size * seq_len * std::mem::size_of::<f32>() as u64;
 
@@ -1621,15 +1632,19 @@ impl MetalKernels {
             .device
             .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
-        let k_output = self.device.new_buffer(
-            (hidden_size / 8) * seq_len * std::mem::size_of::<f32>() as u64, // GQA
-            MTLResourceOptions::StorageModeShared,
-        );
-
-        let v_output = self.device.new_buffer(
-            (hidden_size / 8) * seq_len * std::mem::size_of::<f32>() as u64, // GQA
-            MTLResourceOptions::StorageModeShared,
-        );
+        // kv_width derived from gqa_config if available, else default to hidden_size/8
+        let kv_width = self
+            .qkv_kernel
+            .as_ref()
+            .map(|k| k.gqa_config().kv_width as usize)
+            .unwrap_or(hidden_size / 8);
+        let kv_bytes = (kv_width * seq_len * std::mem::size_of::<f32>()) as u64;
+        let k_output = self
+            .device
+            .new_buffer(kv_bytes, MTLResourceOptions::StorageModeShared);
+        let v_output = self
+            .device
+            .new_buffer(kv_bytes, MTLResourceOptions::StorageModeShared);
 
         let attention_output = self
             .device
@@ -1649,6 +1664,18 @@ impl MetalKernels {
             attention_output,
             mlp_output,
         })
+    }
+
+    /// Ensure intermediate buffers are allocated for at least `batch` tokens
+    fn ensure_intermediate_capacity(&mut self, batch: usize) -> Result<()> {
+        let needed = batch.max(1);
+        if self.batch_capacity >= needed {
+            return Ok(());
+        }
+
+        self.batch_capacity = needed;
+        self.intermediate_buffers = Some(self.create_intermediate_buffers()?);
+        Ok(())
     }
 
     /// Load transformer weights and create intermediate buffers
@@ -1928,8 +1955,11 @@ impl MetalKernels {
             ring_buffer_ref.capacity()
         };
 
-        let (adapter_delta_host, total_gate_weight, active_slots) =
-            self.prepare_adapter_delta_buffer(adapters, hidden_state, vocab_size, slot_capacity)?;
+        // Skip CPU-side adapter delta computation; LoRA effects are applied in GPU kernels for
+        // transformer layers. This reduces CPU-GPU transfers during vocab projection.
+        let adapter_delta_host: Vec<f32> = Vec::new();
+        let total_gate_weight: f32 = 0.0;
+        let active_slots: usize = 0;
 
         let lm_head_weights = self
             .lm_head_weights
@@ -1958,25 +1988,28 @@ impl MetalKernels {
             .get_buffer()
             .ok_or_else(|| AosError::Kernel("Ring buffer GPU buffer missing".to_string()))?;
 
-        // Create output buffer for logits
-        let logits_buffer = self.device.new_buffer(
-            (vocab_size * std::mem::size_of::<f32>()) as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
+        // Reuse output buffer across steps when possible
+        let needed_bytes = (vocab_size * std::mem::size_of::<f32>()) as u64;
+        let logits_buffer = match &self.logits_buffer {
+            Some(buf) if buf.length() == needed_bytes => buf.clone(),
+            _ => {
+                let buf = self
+                    .device
+                    .new_buffer(needed_bytes, MTLResourceOptions::StorageModeShared);
+                self.logits_buffer = Some(buf.clone());
+                buf
+            }
+        };
 
-        // Shallow buffers for constants
-        let hidden_size_value = hidden_size as u32;
-        let vocab_size_value = vocab_size as u32;
-        let hidden_size_buffer = self.device.new_buffer_with_data(
-            &hidden_size_value as *const u32 as *const std::ffi::c_void,
-            std::mem::size_of::<u32>() as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
-        let vocab_size_buffer = self.device.new_buffer_with_data(
-            &vocab_size_value as *const u32 as *const std::ffi::c_void,
-            std::mem::size_of::<u32>() as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
+        // Use preallocated constant buffers
+        let hidden_size_buffer = self
+            .hidden_size_const
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Missing hidden size const buffer".to_string()))?;
+        let vocab_size_buffer = self
+            .vocab_size_const
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Missing vocab size const buffer".to_string()))?;
 
         // Create command buffer for vocabulary projection
         let command_buffer = self._queue.new_command_buffer();
@@ -2120,6 +2153,22 @@ impl FusedKernels for MetalKernels {
         let lm_head_weights = self.parse_lm_head_weights(plan_bytes)?;
         self.lm_head_weights = Some(lm_head_weights);
 
+        // Preallocate constant buffers that remain stable across steps
+        if let Some(dims) = &self.embedding_dimensions {
+            let hidden_size_value = dims.hidden_size as u32;
+            let vocab_size_value = dims.vocab_size as u32;
+            self.hidden_size_const = Some(self.device.new_buffer_with_data(
+                &hidden_size_value as *const u32 as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u64,
+                MTLResourceOptions::StorageModeShared,
+            ));
+            self.vocab_size_const = Some(self.device.new_buffer_with_data(
+                &vocab_size_value as *const u32 as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u64,
+                MTLResourceOptions::StorageModeShared,
+            ));
+        }
+
         tracing::info!(
             "Metal kernels initialized with embedding, transformer, and LM head weights loaded"
         );
@@ -2167,6 +2216,9 @@ impl FusedKernels for MetalKernels {
         if let Some(ref mut ring_buffer) = self.ring_buffer {
             ring_buffer.update(&adapters)?;
         }
+
+        // Ensure intermediate buffers can hold the current batch of tokens
+        self.ensure_intermediate_capacity(io.input_ids.len())?;
 
         // Perform embedding lookup using Metal kernels
         self.perform_embedding_lookup(io)?;

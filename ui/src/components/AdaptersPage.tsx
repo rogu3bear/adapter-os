@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import AdapterStateVisualization from './AdapterStateVisualization';
-import AdapterMemoryMonitor from './AdapterMemoryMonitor';
+import { AdapterStateVisualization } from './AdapterStateVisualization';
+import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
 import apiClient from '../api/client';
 import { Adapter } from '../api/types';
 import { toast } from 'sonner';
@@ -92,7 +92,20 @@ export function AdaptersPage() {
 
       {/* Visualizations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <AdapterStateVisualization adapters={adapters} totalMemory={totalMemory} />
+        {(() => {
+          const stateRecords = adapters.map((a, idx) => ({
+            adapter_id: a.adapter_id || a.id,
+            adapter_idx: idx,
+            state: a.current_state as any,
+            pinned: a.pinned,
+            memory_bytes: a.memory_bytes,
+            category: a.category,
+            scope: a.scope,
+            last_activated: a.last_activated,
+            activation_count: a.activation_count,
+          }));
+          return <AdapterStateVisualization adapters={stateRecords as any} totalMemory={totalMemory} />;
+        })()}
         <AdapterMemoryMonitor
           adapters={adapters}
           totalMemory={totalMemory}

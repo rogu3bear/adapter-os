@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Optional duplication check on commit. Opt-in enforcement via JSCFD_ENFORCE=1
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+echo "[pre-commit:jscpd] Scanning for duplication (advisory)..."
+
+# Run scan (advisory)
+bash "$ROOT/scripts/run_jscpd.sh" >/dev/null 2>&1 || true
+latest_dir=$(ls -1t "$ROOT/var/reports/jscpd" | head -n1)
+json="$ROOT/var/reports/jscpd/$latest_dir/report.json"
+
+if [[ -f "$json" ]] && command -v node >/dev/null 2>&1; then
+  clones=$(node -e 'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log((j.clones&&j.clones.length)||0)}catch{console.log(0)}' "$json")
+  echo "[pre-commit:jscpd] Found $clones duplicate code blocks (see var/reports/jscpd/$latest_dir)."
+  if [[ "${JSCPD_ENFORCE:-0}" == "1" && "$clones" -gt 0 ]]; then
+    echo "[pre-commit:jscpd] Enforcement enabled (JSCPD_ENFORCE=1). Blocking commit."
+    exit 1
+  fi
+else
+  echo "[pre-commit:jscpd] Report or node unavailable; skipping summary."
+fi
+
+exit 0

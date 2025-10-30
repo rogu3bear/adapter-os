@@ -26,9 +26,9 @@ impl MploraKernel {
     pub fn new(device: Arc<Device>) -> Result<Self> {
         let command_queue = device.new_command_queue();
 
-        // Load the Metal library
+        // Load the Metal library from the crate's embedded metallib, aligned with other kernels
         let library = device
-            .new_library_with_data(include_bytes!("../../../metal/aos_kernels.metallib"))
+            .new_library_with_data(include_bytes!("../shaders/adapteros_kernels.metallib"))
             .map_err(|e| AosError::Mtl(format!("Failed to load Metal library: {}", e)))?;
 
         // Get the MPLoRA function

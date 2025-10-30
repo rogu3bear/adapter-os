@@ -399,13 +399,32 @@ impl<K: FusedKernels> Worker<K> {
                 std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
             std::path::PathBuf::from(root)
         };
-        let lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
+        let mut lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
             adapter_names,
             &manifest.policies,
             adapters_path,
             Some(telemetry.clone()),
             manifest.router.k_sparse,
         );
+
+        // Apply optional mmap and hot-swap configuration from environment
+        if let Ok(val) = std::env::var("AOS_ENABLE_MMAP_ADAPTERS") {
+            if val == "true" || val == "1" {
+                let cache_size = std::env::var("AOS_MMAP_CACHE_SIZE_MB")
+                    .ok()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(512);
+                lifecycle = lifecycle.with_mmap_loader(cache_size);
+                tracing::info!("Memory-mapped adapter loading enabled (cache: {} MB)", cache_size);
+            }
+        }
+
+        if let Ok(val) = std::env::var("AOS_ENABLE_HOT_SWAP") {
+            if val == "true" || val == "1" {
+                lifecycle = lifecycle.with_hot_swap();
+                tracing::info!("Hot-swap capabilities enabled");
+            }
+        }
 
         Ok(Self {
             manifest: manifest.clone(),

@@ -5,6 +5,13 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Enable Commit Delta Pack (CDP) and code jobs pipeline
+cdp = []
+# Enable federation daemon (optional)
+federation = []
+
 [dependencies]
 # Core
 anyhow.workspace = true
@@ -27,7 +34,7 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-registry = { path = "../adapteros-registry" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-git = { path = "../adapteros-git" }
-adapteros-cdp = { path = "../adapteros-cdp" }
+adapteros-cdp = { path = "../adapteros-cdp", optional = true }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter"}
 bincode = "1.3"
