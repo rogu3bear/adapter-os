@@ -118,22 +118,10 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
           <CardContent className="pt-6">
             <div className="text-sm space-y-2">
               <p className="font-medium text-muted-foreground">Demo Credentials:</p>
-              <div className="grid grid-cols-2 gap-4 text-xs">
+              <div className="space-y-2 text-xs">
                 <div>
-                  <p className="font-medium">Admin:</p>
-                  <p>admin@aos.local / password</p>
-                </div>
-                <div>
-                  <p className="font-medium">Operator:</p>
-                  <p>operator@aos.local / password</p>
-                </div>
-                <div>
-                  <p className="font-medium">SRE:</p>
-                  <p>sre@aos.local / password</p>
-                </div>
-                <div>
-                  <p className="font-medium">Viewer:</p>
-                  <p>viewer@aos.local / password</p>
+                  <p className="font-medium">Admin User:</p>
+                  <p className="font-mono text-muted-foreground">admin@example.com / password</p>
                 </div>
               </div>
             </div>

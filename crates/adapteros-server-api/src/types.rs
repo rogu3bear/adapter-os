@@ -1429,6 +1429,14 @@ pub struct DiscoveryStreamQuery {
     pub repo: Option<String>,
 }
 
+/// Training control response for pause/resume endpoints
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingControlResponse {
+    pub session_id: String,
+    pub status: String,
+    pub message: String,
+}
+
 // ============================================================================
 // Training API Types - Type definitions are imported from adapteros-api-types
 // Helper functions for orchestrator integration (can't use From trait due to orphan rules)

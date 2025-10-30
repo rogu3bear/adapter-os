@@ -1,7 +1,7 @@
 -- ============================================================================
 -- AOS COORDINATION HEADER
 -- ============================================================================
--- File: migrations/0042_aos_adapters.sql
+-- File: migrations/0045_aos_adapters.sql
 -- Phase: 2 - System Integration (Database Schema)
 -- Assigned: Intern D (Database Team)
 -- Status: Complete - Schema changes implemented

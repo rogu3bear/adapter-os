@@ -5,16 +5,20 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "cdp")]
 pub mod code_jobs;
 pub mod dataset_builder;
+#[cfg(feature = "federation")]
 pub mod federation_daemon;
 pub mod gates;
 pub mod report;
 pub mod supervisor;
 pub mod training;
 
+#[cfg(feature = "cdp")]
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
 pub use dataset_builder::{build_from_directory, DatasetBuilderConfig};
+#[cfg(feature = "federation")]
 pub use federation_daemon::{
     FederationDaemon, FederationDaemonConfig, FederationVerificationReport,
 };

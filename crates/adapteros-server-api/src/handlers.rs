@@ -15,8 +15,10 @@ use axum::response::Response;
 use sqlx::Row;
 
 pub mod batch;
+#[cfg(feature = "cdp")]
 pub mod code;
 pub mod domain_adapters;
+#[cfg(feature = "federation")]
 pub mod federation;
 pub mod git;
 pub mod git_repository;
@@ -40,6 +42,60 @@ pub use domain_adapters::*;
 use serde::Deserialize;
 // use serde_json::json; // unused
 use adapteros_verify::{verify_against_golden, ComparisonConfig};
+
+/// Hot-swap an adapter with zero downtime
+pub async fn hot_swap_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<adapteros_api_types::adapters::HotSwapRequest>,
+) -> Result<Json<adapteros_api_types::adapters::HotSwapResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let lifecycle = state.lifecycle_manager.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Hot-swap not enabled").with_code("NOT_CONFIGURED")),
+        )
+    })?;
+
+    let hot_swap = {
+        let mgr = lifecycle.lock().await;
+        mgr.hot_swap_manager().ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse::new("Hot-swap not enabled").with_code("NOT_CONFIGURED")),
+            )
+        })?
+    };
+
+    // Measure elapsed time and compute previous adapter id (if any)
+    let start = std::time::Instant::now();
+    let old_id = hot_swap
+        .get_active(&adapter_id)
+        .map(|a| a.adapter().manifest.adapter_id.clone());
+
+    hot_swap
+        .swap_single(&adapter_id, req.new_path.clone())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Hot-swap failed")
+                        .with_code("SWAP_FAILED")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let elapsed = start.elapsed();
+    Ok(Json(adapteros_api_types::adapters::HotSwapResponse {
+        adapter_id,
+        swap_time_ms: elapsed.as_millis() as u64,
+        old_adapter: old_id,
+    }))
+}
 use anyhow::Context as _;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::{self, Stream, StreamExt};
@@ -48,6 +104,53 @@ use std::convert::Infallible;
 use std::path::Path as StdPath;
 use std::time::Duration;
 use tokio_stream::wrappers::ReceiverStream;
+
+/// Hot-swap an adapter with zero downtime
+pub async fn hot_swap_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<adapteros_api_types::adapters::HotSwapRequest>,
+)
+    -> Result<Json<adapteros_api_types::adapters::HotSwapResponse>, (StatusCode, Json<ErrorResponse>)>
+{
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Get hot-swap manager from lifecycle
+    let lifecycle = state.lifecycle_manager.clone().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Lifecycle not available").with_code("NOT_CONFIGURED")),
+        )
+    })?;
+    let lifecycle = lifecycle.lock().await;
+    let hot_swap = lifecycle.hot_swap_manager().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Hot-swap not enabled").with_code("NOT_CONFIGURED")),
+        )
+    })?;
+
+    let report = hot_swap
+        .swap(&adapter_id, StdPath::new(&req.new_path).to_path_buf())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Hot-swap failed")
+                        .with_code("SWAP_FAILED")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(adapteros_api_types::adapters::HotSwapResponse {
+        adapter_id: report.adapter_id,
+        swap_time_ms: report.swap_time.as_millis() as u64,
+        old_adapter: report.old_adapter,
+    }))
+}
 
 // Helper: CAB Golden Gate verification (read-only)
 async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
@@ -1579,7 +1682,7 @@ pub async fn get_all_models_status(
         return Ok(Json(crate::types::AllModelsStatusResponse {
             models,
             total_memory_mb: total_mem,
-            active_model_count: active,
+            active_model_count: active as i32,
         }));
     }
 
@@ -6745,6 +6848,238 @@ pub async fn start_training(
     }
 
     Ok(Json(job.into()))
+}
+
+/// Pause training session
+#[utoipa::path(
+    post,
+    path = "/v1/training/sessions/{session_id}/pause",
+    params(
+        ("session_id" = String, Path, description = "Training session ID")
+    ),
+    responses(
+        (status = 200, description = "Training paused", body = TrainingControlResponse),
+        (status = 404, description = "Training session not found", body = ErrorResponse),
+        (status = 409, description = "Conflict pausing training", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "training",
+    security(("bearer_token" = []))
+)]
+pub async fn pause_training_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+) -> Result<Json<TrainingControlResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator])?;
+
+    // Load DB job for existence and terminal state checks
+    let job = state
+        .db
+        .get_training_job(&session_id)
+        .await
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ))?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("training job not found").with_code("NOT_FOUND")),
+        ))?;
+
+    if matches!(job.status.as_str(), "completed" | "failed" | "cancelled") {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("cannot pause terminal job")
+                    .with_code("CONFLICT")
+                    .with_string_details(format!("status is '{}'", job.status)),
+            ),
+        ));
+    }
+
+    // Orchestrator first: ensure runtime paused
+    if let Err(e) = state.training_service.pause_job(&session_id).await {
+        if let Some(ae) = e.downcast_ref::<adapteros_core::AosError>() {
+            return Err(match ae {
+                adapteros_core::AosError::NotFound(_) => (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("training job not found").with_code("NOT_FOUND")),
+                ),
+                adapteros_core::AosError::Internal(msg)
+                    if msg.contains("Cannot pause terminal job") =>
+                {
+                    (
+                        StatusCode::CONFLICT,
+                        Json(
+                            ErrorResponse::new("cannot pause terminal job")
+                                .with_code("CONFLICT")
+                                .with_string_details(msg.clone()),
+                        ),
+                    )
+                }
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to pause training")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(ae.to_string()),
+                    ),
+                ),
+            });
+        } else {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to pause training")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    }
+
+    // Persist DB state after successful orchestrator action
+    state
+        .db
+        .update_training_status(&session_id, "paused")
+        .await
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to pause training")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ))?;
+
+    tracing::info!("Training job paused: {} by {}", session_id, claims.email);
+
+    Ok(Json(TrainingControlResponse {
+        session_id,
+        status: "paused".to_string(),
+        message: "Training job paused successfully".to_string(),
+    }))
+}
+
+/// Resume training session
+#[utoipa::path(
+    post,
+    path = "/v1/training/sessions/{session_id}/resume",
+    params(
+        ("session_id" = String, Path, description = "Training session ID")
+    ),
+    responses(
+        (status = 200, description = "Training resumed", body = TrainingControlResponse),
+        (status = 404, description = "Training session not found", body = ErrorResponse),
+        (status = 409, description = "Conflict resuming training", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "training",
+    security(("bearer_token" = []))
+)]
+pub async fn resume_training_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+) -> Result<Json<TrainingControlResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator])?;
+
+    // Load DB job for existence and terminal state checks
+    let job = state
+        .db
+        .get_training_job(&session_id)
+        .await
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ))?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("training job not found").with_code("NOT_FOUND")),
+        ))?;
+
+    if matches!(job.status.as_str(), "completed" | "failed" | "cancelled") {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("cannot resume terminal job")
+                    .with_code("CONFLICT")
+                    .with_string_details(format!("status is '{}'", job.status)),
+            ),
+        ));
+    }
+
+    // Orchestrator first: ensure runtime running
+    if let Err(e) = state.training_service.resume_job(&session_id).await {
+        if let Some(ae) = e.downcast_ref::<adapteros_core::AosError>() {
+            return Err(match ae {
+                adapteros_core::AosError::NotFound(_) => (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("training job not found").with_code("NOT_FOUND")),
+                ),
+                adapteros_core::AosError::Internal(msg)
+                    if msg.contains("Cannot resume terminal job") =>
+                {
+                    (
+                        StatusCode::CONFLICT,
+                        Json(
+                            ErrorResponse::new("cannot resume terminal job")
+                                .with_code("CONFLICT")
+                                .with_string_details(msg.clone()),
+                        ),
+                    )
+                }
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to resume training")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(ae.to_string()),
+                    ),
+                ),
+            });
+        } else {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to resume training")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    }
+
+    // Persist DB state after successful orchestrator action (idempotently set to running)
+    state
+        .db
+        .update_training_status(&session_id, "running")
+        .await
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to resume training")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ))?;
+
+    tracing::info!("Training job resumed: {} by {}", session_id, claims.email);
+
+    Ok(Json(TrainingControlResponse {
+        session_id,
+        status: "running".to_string(),
+        message: "Training job resumed successfully".to_string(),
+    }))
 }
 
 /// Get training job artifacts and verify packaging/signature
