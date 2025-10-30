@@ -149,7 +149,6 @@ export const MonitoringDashboard: React.FC = () => {
       isMounted = false;
       window.clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const evaluateAlerts = (

@@ -2,6 +2,15 @@
 port = 8080
 bind_address = "0.0.0.0"
 workers = 8
+enable_mmap_adapters = true
+mmap_cache_size_mb = 512
+enable_hot_swap = true
+# Enable memory-mapped adapter loading for improved performance
+enable_mmap_adapters = true
+# Cache size for mmap adapters (increase for more adapters)
+mmap_cache_size_mb = 2048
+# Enable hot-swap for zero-downtime adapter updates
+enable_hot_swap = true
 
 [db]
 url = "postgresql://adapteros:secure_password@postgres-primary:5432/adapteros_prod"
@@ -104,4 +113,3 @@ report_generation_enabled = true
 max_latency_p95_ms = 100
 min_throughput_tps = 30
 max_queue_depth = 1000
-

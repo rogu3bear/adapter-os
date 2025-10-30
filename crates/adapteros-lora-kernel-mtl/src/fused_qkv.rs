@@ -240,14 +240,16 @@ impl FusedQkvKernel {
 
         encoder.set_buffer(0, Some(&params_buffer), 0);
 
-        let threadgroup_size = MTLSize::new(1, 1, 1);
-        let grid_size = MTLSize::new(
-            batch_size as u64,
+        // Threads cover (batch, heads, head_dim). Use 64 threads in X to tile batch.
+        let threads_per_group = MTLSize::new(64, 1, 1);
+        let groups_x = ((batch_size as u64) + threads_per_group.width - 1) / threads_per_group.width;
+        let grid_groups = MTLSize::new(
+            groups_x,
             self.gqa_config.num_attention_heads as u64,
             self.gqa_config.head_dim as u64,
         );
 
-        encoder.dispatch_thread_groups(grid_size, threadgroup_size);
+        encoder.dispatch_thread_groups(grid_groups, threads_per_group);
         encoder.end_encoding();
 
         command_buffer.commit();

@@ -213,6 +213,7 @@ export interface GoldenCompareRequest {
   golden: string;
   bundle_id: string;
   strictness?: Strictness;
+  epsilon_tolerance?: number; // Optional epsilon threshold for epsilon-tolerant strictness
   verify_toolchain?: boolean;
   verify_adapters?: boolean;
   verify_device?: boolean;
@@ -240,6 +241,7 @@ export interface EpsilonComparison {
   missing_in_current: string[];
   missing_in_golden: string[];
   tolerance: number;
+  pass_rate?: number; // Percentage of layers passing tolerance (0-100)
 }
 
 export interface ToolchainMetadata {

@@ -10,10 +10,7 @@ The AdapterOS Server API provides endpoints for managing tenants, adapters, repo
 
 The following demo credentials are available for testing:
 
-- **Admin:** admin@aos.local / password
-- **Operator:** operator@aos.local / password  
-- **SRE:** sre@aos.local / password
-- **Viewer:** viewer@aos.local / password
+- **Admin:** admin@example.com / password
 
 ## OpenAPI Specification
 
@@ -4331,7 +4328,7 @@ All protected endpoints require a JWT token obtained from the login endpoint:
 # Login
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@aos.local","password":"password"}'
+  -d '{"email":"admin@example.com","password":"password"}'
 
 # Use token in subsequent requests
 curl -H "Authorization: Bearer <token>" \

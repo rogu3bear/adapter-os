@@ -68,11 +68,11 @@ export function ActiveAlertsWidget() {
   };
 
   return (
-    <Card>
+    <Card aria-labelledby="active-alerts-title">
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
+        <CardTitle id="active-alerts-title" className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
+            <Bell className="h-5 w-5" aria-hidden="true" />
             <span>Active Alerts</span>
           </div>
           <Badge variant={activeAlerts.length > 0 ? 'destructive' : 'default'}>
@@ -80,10 +80,10 @@ export function ActiveAlertsWidget() {
           </Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3" aria-live="polite">
         {alerts.length === 0 ? (
           <div className="text-center py-8">
-            <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-2 opacity-20" />
+            <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-2 opacity-20" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">No active alerts</p>
           </div>
         ) : (
@@ -91,7 +91,7 @@ export function ActiveAlertsWidget() {
             {criticalCount > 0 && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                 <div className="flex items-center gap-2 text-red-900">
-                  <AlertTriangle className="h-5 w-5" />
+                  <AlertTriangle className="h-5 w-5" aria-hidden="true" />
                   <span className="font-medium text-sm">
                     {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} require immediate attention
                   </span>
@@ -99,7 +99,7 @@ export function ActiveAlertsWidget() {
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="space-y-2" role="list" aria-label="Alerts list">
               {alerts.map((alert) => {
                 const Icon = getSeverityIcon(alert.severity);
                 return (
@@ -111,12 +111,12 @@ export function ActiveAlertsWidget() {
                         : getSeverityColor(alert.severity)
                     }`}
                   >
-                    <div className="flex items-start gap-2">
-                      <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <div className="flex items-start gap-2" role="listitem">
+                      <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">{alert.title}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <Clock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                           <span className="text-xs text-muted-foreground">{alert.timestamp}</span>
                           {alert.acknowledged && (
                             <Badge variant="outline" className="text-xs">
@@ -145,4 +145,3 @@ export function ActiveAlertsWidget() {
     </Card>
   );
 }
-

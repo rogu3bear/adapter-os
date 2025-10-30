@@ -83,20 +83,7 @@ export const MultiModelStatusWidget: React.FC = () => {
     );
   }
 
-  if (status.error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Loaded Models</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-sm text-destructive">
-            Failed to load model status: {status.error}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // No explicit error field in AllModelsStatusResponse; errors are handled via logging and defaults
 
   const models = status.models;
   const totalMemoryMb = status.total_memory_mb;
