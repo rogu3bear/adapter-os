@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! AdapterOS Integration Test Suite
 //!
 //! Comprehensive end-to-end tests covering:

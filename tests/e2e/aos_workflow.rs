@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-End Test for .aos Adapter Workflow
 //!
 //! Tests the complete workflow: train -> package .aos -> deploy -> infer

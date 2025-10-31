@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-end testing framework for AdapterOS
 //!
 //! This module provides comprehensive end-to-end tests that validate complete

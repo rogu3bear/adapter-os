@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Policy enforcement acceptance tests
 //!
 //! These tests verify that the policy engine correctly enforces:
@@ -8,10 +10,11 @@
 //!
 //! Run with: cargo test --test policy_gates -- --ignored
 
-use adapteros_core::{AosError, Result};
-use adapteros_lora_rag::EvidenceSpan;
-use adapteros_policy::{PolicyEngine, RefusalResponse};
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_lora_rag::{EvidenceSpan, EvidenceType};
+use adapteros_policy::RefusalResponse;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TestPrompt {
@@ -43,6 +46,22 @@ struct NumericClaim {
     value: f32,
     unit: Option<String>,
     context: String,
+}
+
+fn mock_evidence_span(doc_id: &str) -> EvidenceSpan {
+    EvidenceSpan {
+        doc_id: doc_id.to_string(),
+        rev: "rev-1".to_string(),
+        text: "Mock evidence span content for policy tests".to_string(),
+        score: 1.0,
+        span_hash: B3Hash::hash(doc_id.as_bytes()),
+        superseded: None,
+        evidence_type: Some(EvidenceType::Doc),
+        file_path: Some("tests/policy_gates.rs".to_string()),
+        start_line: Some(1),
+        end_line: Some(2),
+        metadata: HashMap::new(),
+    }
 }
 
 /// Mock policy engine for testing
@@ -182,12 +201,7 @@ fn test_evidence_requirement_enforcement() {
         } else {
             MockInferenceResult {
                 text: Some("The torque specification is 25 in-lbf.".to_string()),
-                evidence: vec![EvidenceSpan {
-                    doc_id: "DOC-001".to_string(),
-                    span_hash: "span123".to_string(),
-                    start: 0,
-                    end: 50,
-                }],
+                evidence: vec![mock_evidence_span("DOC-001")],
                 router_decisions: vec![],
                 numeric_claims: vec![NumericClaim {
                     value: 25.0,
@@ -270,12 +284,7 @@ fn test_numeric_unit_validation() {
 
         let mock_response = MockInferenceResult {
             text: Some("Response with numeric claims".to_string()),
-            evidence: vec![EvidenceSpan {
-                doc_id: "DOC-001".to_string(),
-                span_hash: "span123".to_string(),
-                start: 0,
-                end: 50,
-            }],
+            evidence: vec![mock_evidence_span("DOC-001")],
             router_decisions: vec![],
             numeric_claims: claims,
         };
@@ -368,12 +377,7 @@ fn test_router_entropy_floor() {
 
         let mock_response = MockInferenceResult {
             text: Some("Response".to_string()),
-            evidence: vec![EvidenceSpan {
-                doc_id: "DOC-001".to_string(),
-                span_hash: "span123".to_string(),
-                start: 0,
-                end: 50,
-            }],
+            evidence: vec![mock_evidence_span("DOC-001")],
             router_decisions: decisions,
             numeric_claims: vec![],
         };

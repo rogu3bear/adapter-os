@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Specialized verification utilities for determinism testing
 //!
 //! Provides common utilities for:

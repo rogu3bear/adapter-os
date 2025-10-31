@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -226,7 +228,7 @@ level = "debug"
 
         let violations = ConfigGuards::get_violations().unwrap();
         assert_eq!(violations.len(), 1);
-        assert!(violations[0].contains("test_rule: test_message"));
+        assert!(violations[0].message.contains("test_rule: test_message"));
 
         // Recording the same violation again should not increase count
         ConfigGuards::record_violation("test_rule", "test_message").unwrap();

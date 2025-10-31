@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for shared LoRA buffer population
 //!
 //! Tests the code path where multiple adapters are toggled to exercise

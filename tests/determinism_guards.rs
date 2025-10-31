@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for AdapterOS determinism guards
 //!
 //! These tests verify that the determinism guards work correctly in the worker

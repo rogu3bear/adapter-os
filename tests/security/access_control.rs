@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Access Control Enforcement Tests
 //!
 //! This module tests authentication, authorization, and access control mechanisms

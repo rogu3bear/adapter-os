@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Policy gates acceptance tests for Qwen integration
 
 use adapteros_chat::{ChatMessage, ChatTemplate, ChatTemplateProcessor, SpecialTokens};

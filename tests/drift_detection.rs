@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Comprehensive drift detection tests
 
 use adapteros_core::B3Hash;

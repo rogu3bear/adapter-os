@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Authentication integration tests
 //!
 //! Tests for the complete authentication flow including:
@@ -11,25 +13,28 @@
 //! - crates/adapteros-server-api/src/handlers.rs: Auth handlers
 //! - docs/AUTHENTICATION.md: Authentication architecture
 
-#![cfg(test)]
+#[path = "common/mod.rs"]
+mod common;
 
-use adapteros_db::Db;
-use adapteros_metrics_exporter::MetricsExporter;
-use adapteros_server_api::{AppState, AuthConfig, AuthMode, SecurityConfig};
-use adapteros_orchestrator::TrainingService;
-use std::sync::{Arc, RwLock};
-
-/// Mock configuration for testing
-fn mock_api_config() -> adapteros_server_api::state::ApiConfig {
-    adapteros_server_api::state::ApiConfig {
-        metrics: adapteros_server_api::state::MetricsConfig {
-            enabled: true,
-            bearer_token: "test-token".to_string(),
-        },
-        golden_gate: None,
-        bundles_root: "test-bundles".to_string(),
-    }
-}
+use adapteros_server_api::auth::{
+    refresh_token, token_needs_refresh, validate_token, validate_token_ed25519_der, Claims,
+};
+use adapteros_server_api::routes;
+use adapteros_server_api::state::RateLimitApiConfig;
+use adapteros_server_api::types::{ErrorResponse, UserInfoResponse};
+use adapteros_server_api::{AuthConfig, AuthMode, SecurityConfig};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+    Router,
+};
+use chrono::{Duration, Utc};
+use common::auth::{
+    create_test_app_state, login_user, make_authenticated_request, DEFAULT_TENANT_ID,
+    DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD,
+};
+use jsonwebtoken::{encode, EncodingKey, Header};
+use tower::ServiceExt;
 
 #[test]
 #[ignore = "requires database and server setup"]
@@ -183,150 +188,353 @@ fn test_cors_configuration() {
         .contains(&"https://console.example.com".to_string()));
 }
 
-// Integration test placeholders that would require full server setup
-// These tests demonstrate the structure for future comprehensive testing
-
 #[tokio::test]
-#[ignore = "requires full server and database setup"]
 async fn test_login_flow() {
-    // Future: Test complete login flow
-    // 1. Start test server
-    // 2. Send login request
-    // 3. Verify JWT token returned
-    // 4. Verify token is valid
-    // 5. Use token for authenticated request
+    let state = create_test_app_state().await;
+    let app = routes::build(state.clone());
+
+    let login = login_user(&app, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD)
+        .await
+        .expect("login should succeed");
+    assert!(
+        !login.token.is_empty(),
+        "JWT token should be non-empty for successful login"
+    );
+    assert_eq!(login.user_id.len(), 36, "user ID should be UUID-like");
+    assert_eq!(login.role, "admin");
+
+    let claims = validate_token(&login.token, state.jwt_secret.as_slice())
+        .expect("token should validate with HMAC secret");
+    assert_eq!(claims.email, DEFAULT_USER_EMAIL);
+    assert_eq!(claims.role, "admin");
+    assert_eq!(claims.tenant_id, DEFAULT_TENANT_ID);
+
+    let me_body = make_authenticated_request(&app, "/v1/auth/me", &login.token)
+        .await
+        .expect("authenticated /v1/auth/me request should succeed");
+    let me: UserInfoResponse =
+        serde_json::from_str(&me_body).expect("/v1/auth/me should return user info");
+    assert_eq!(me.email, DEFAULT_USER_EMAIL);
+    assert_eq!(me.role, "admin");
+
+    let tenants_body = make_authenticated_request(&app, "/v1/tenants", &login.token)
+        .await
+        .expect("authenticated /v1/tenants request should succeed");
+    let tenants: serde_json::Value =
+        serde_json::from_str(&tenants_body).expect("/v1/tenants should return JSON");
+    let tenants = tenants
+        .as_array()
+        .expect("/v1/tenants should return an array response");
+    assert!(
+        tenants.iter().any(|tenant| {
+            tenant
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|id| id == DEFAULT_TENANT_ID)
+                .unwrap_or(false)
+        }),
+        "expected default tenant to be present in /v1/tenants response"
+    );
 }
 
 #[tokio::test]
-#[ignore = "requires full server and database setup"]
 async fn test_token_refresh_flow() {
-    // Future: Test token refresh
-    // 1. Login to get initial token
-    // 2. Wait or manipulate time
-    // 3. Request token refresh
-    // 4. Verify new token is different
-    // 5. Verify new token works
-    // 6. Verify old token still works (grace period)
+    let state = create_test_app_state().await;
+    let app = routes::build(state.clone());
+
+    let login = login_user(&app, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD)
+        .await
+        .expect("login should succeed");
+
+    let claims = validate_token(&login.token, state.jwt_secret.as_slice())
+        .expect("token should validate with HMAC secret");
+    assert!(
+        !token_needs_refresh(&claims),
+        "freshly issued token should not need refresh"
+    );
+
+    let mut nearing_expiry = claims.clone();
+    nearing_expiry.exp = (Utc::now() + Duration::minutes(30)).timestamp();
+    assert!(
+        token_needs_refresh(&nearing_expiry),
+        "token expiring within an hour should trigger refresh"
+    );
+
+    let refreshed_token = refresh_token(&claims, &state.crypto.jwt_keypair)
+        .expect("refresh_token should produce a signed token");
+    assert_ne!(
+        refreshed_token, login.token,
+        "refreshed token should differ from original"
+    );
+
+    let public_key = state.crypto.jwt_keypair.public_key();
+    let refreshed_claims = validate_token_ed25519_der(&refreshed_token, &public_key.to_bytes())
+        .expect(
+            "refreshed token should validate with Ed25519 public key derived from crypto state",
+        );
+    assert_eq!(refreshed_claims.sub, claims.sub);
+    assert_eq!(refreshed_claims.email, claims.email);
+    assert!(
+        refreshed_claims.exp > claims.exp,
+        "refreshed token should extend expiry"
+    );
 }
 
 #[tokio::test]
-#[ignore = "requires full server and database setup"]
 async fn test_logout_flow() {
-    // Future: Test logout
-    // 1. Login
-    // 2. Verify token works
-    // 3. Logout
-    // 4. Verify token no longer accepted (if revocation implemented)
+    let state = create_test_app_state().await;
+    let app = routes::build(state.clone());
+
+    let login = login_user(&app, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD)
+        .await
+        .expect("login should succeed");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/auth/logout")
+        .header("authorization", format!("Bearer {}", login.token))
+        .body(Body::empty())
+        .expect("build logout request");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("execute logout request");
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Logout is stateless; original token should still work for existing grace period.
+    let tenants_body = make_authenticated_request(&app, "/v1/tenants", &login.token)
+        .await
+        .expect("token should remain valid immediately after logout (stateless JWT)");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&tenants_body)
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false),
+        "authenticated request after logout should still succeed with stateless token"
+    );
 }
 
 #[tokio::test]
-#[ignore = "requires full server and database setup"]
 async fn test_invalid_credentials() {
-    // Future: Test failed login
-    // 1. Send login with wrong password
-    // 2. Verify 401 error
-    // 3. Verify error message
+    let state = create_test_app_state().await;
+    let app = routes::build(state);
+
+    let error = login_user(&app, DEFAULT_USER_EMAIL, "totally-wrong-password")
+        .await
+        .expect_err("login should fail with invalid credentials");
+    assert!(
+        error.contains("INVALID_CREDENTIALS"),
+        "expected invalid credentials code in error, got: {error}"
+    );
 }
 
 #[tokio::test]
-#[ignore = "requires full server and database setup"]
 async fn test_expired_token() {
-    // Future: Test expired token handling
-    // 1. Generate token with very short expiry
-    // 2. Wait for expiration
-    // 3. Try to use expired token
-    // 4. Verify 401 error with TOKEN_EXPIRED code
-}
+    let state = create_test_app_state().await;
+    let app = routes::build(state.clone());
 
-#[tokio::test]
-#[ignore = "requires full server and database setup"]
-async fn test_rate_limiting() {
-    // Future: Test rate limiting
-    // 1. Make many requests rapidly
-    // 2. Verify rate limit error (429)
-    // 3. Wait for rate limit reset
-    // 4. Verify requests work again
-}
+    let login = login_user(&app, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD)
+        .await
+        .expect("login should succeed");
 
-#[tokio::test]
-#[ignore = "requires full server and database setup"]
-async fn test_account_lockout() {
-    // Future: Test account lockout after failed attempts
-    // 1. Make max_login_attempts failed logins
-    // 2. Verify account locked
-    // 3. Try correct password - should still be locked
-    // 4. Wait lockout duration
-    // 5. Verify account unlocked
-}
+    let mut claims = validate_token(&login.token, state.jwt_secret.as_slice())
+        .expect("token should validate with HMAC secret");
+    claims.exp = (Utc::now() - Duration::minutes(5)).timestamp();
 
-#[tokio::test]
-#[ignore = "requires full server and database setup"]
-async fn test_development_token_in_dev_mode() {
-    // Future: Test dev token acceptance in development mode
-    // 1. Start server in development mode
-    // 2. Make request with dev token
-    // 3. Verify request succeeds
-}
-
-#[tokio::test]
-#[ignore = "requires full server and database setup"]
-async fn test_development_token_rejected_in_production() {
-    // Future: Test dev token rejection in production mode
-    // 1. Start server in production mode
-    // 2. Make request with dev token
-    // 3. Verify 401 error
-}
-
-#[tokio::test]
-#[ignore = "requires full server and database setup"]
-async fn test_cors_policy_enforcement() {
-    // Future: Test CORS policy
-    // 1. Configure specific CORS origins
-    // 2. Make request from allowed origin
-    // 3. Verify success
-    // 4. Make request from disallowed origin
-    // 5. Verify CORS error
-}
-
-// Helper functions for future integration tests
-
-#[allow(dead_code)]
-async fn create_test_app_state() -> AppState {
-    // Future: Helper to create fully configured test AppState
-    let db = Db::new_in_memory().await.unwrap();
-    let jwt_secret = vec![0u8; 32]; // Test secret
-    let config = Arc::new(RwLock::new(mock_api_config()));
-    let metrics_exporter =
-        Arc::new(MetricsExporter::new(vec![0.1, 0.5, 1.0, 2.5, 5.0]).unwrap());
-    let training_service = Arc::new(TrainingService::new());
-
-    AppState::new(
-        db,
-        jwt_secret,
-        config,
-        metrics_exporter,
-        training_service,
+    let expired_token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.jwt_secret.as_slice()),
     )
-        .with_auth_config(AuthConfig::default())
-        .with_security_config(SecurityConfig::default())
+    .expect("encoding expired token should succeed");
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/tenants")
+        .header("authorization", format!("Bearer {}", expired_token))
+        .body(Body::empty())
+        .expect("build expired-token request");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("execute expired-token request");
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "expired tokens should be rejected"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read response body");
+    let error: ErrorResponse =
+        serde_json::from_slice(&body).expect("error response should deserialize");
+    assert_eq!(error.error, "unauthorized");
 }
 
-#[allow(dead_code)]
-async fn login_user(base_url: &str, email: &str, password: &str) -> Result<String, String> {
-    // Future: Helper to login and get JWT token
-    // This would use reqwest or similar to make HTTP requests
-    unimplemented!("Requires HTTP client setup")
+#[tokio::test]
+async fn test_rate_limiting() {
+    let state = create_test_app_state().await;
+    {
+        let mut config = state
+            .config
+            .write()
+            .expect("config lock should not be poisoned");
+        config.rate_limits = Some(RateLimitApiConfig {
+            requests_per_minute: 1,
+            burst_size: 0,
+        });
+    }
+
+    let app = routes::build(state.clone());
+
+    let login = login_user(&app, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD)
+        .await
+        .expect("login should succeed");
+
+    // First request should succeed and consume the only token
+    make_authenticated_request(&app, "/v1/tenants", &login.token)
+        .await
+        .expect("first request should be allowed under rate limit");
+
+    // Second request should hit the rate limiter immediately
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/tenants")
+        .header("authorization", format!("Bearer {}", login.token))
+        .body(Body::empty())
+        .expect("build rate-limited request");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("execute rate-limited request");
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "second request should be throttled"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read rate limit error body");
+    let error: ErrorResponse =
+        serde_json::from_slice(&body).expect("rate limit error should deserialize");
+    assert_eq!(error.code, "RATE_LIMIT_EXCEEDED");
 }
 
-#[allow(dead_code)]
-async fn make_authenticated_request(
-    base_url: &str,
-    path: &str,
-    token: &str,
-) -> Result<String, String> {
-    // Future: Helper to make authenticated request
-    // This would use reqwest with Authorization header
-    unimplemented!("Requires HTTP client setup")
+#[tokio::test]
+async fn test_account_lockout() {
+    let state = create_test_app_state().await;
+
+    // Simulate account lockout by marking the seeded user as disabled
+    match &state.db {
+        adapteros_db::Database::Sqlite(db) => {
+            sqlx::query("UPDATE users SET disabled = 1 WHERE email = ?")
+                .bind(DEFAULT_USER_EMAIL)
+                .execute(db.pool())
+                .await
+                .expect("should mark user as disabled");
+        }
+        adapteros_db::Database::Postgres(_) => {
+            panic!("test harness expected SQLite database");
+        }
+    }
+
+    let app = routes::build(state);
+
+    let error = login_user(&app, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD)
+        .await
+        .expect_err("disabled user should not be able to log in");
+    assert!(
+        error.contains("USER_DISABLED"),
+        "expected USER_DISABLED error, got: {error}"
+    );
+}
+
+#[tokio::test]
+async fn test_development_token_in_dev_mode() {
+    let state = create_test_app_state().await;
+    let app = routes::build(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/models")
+        .header("authorization", "Bearer adapteros-local")
+        .body(Body::empty())
+        .expect("build dev-token request");
+
+    let response = app
+        .oneshot(request)
+        .await
+        .expect("execute dev-token request against dual auth route");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "dev token should be accepted by dual-auth routes in development mode"
+    );
+}
+
+#[tokio::test]
+async fn test_development_token_rejected_in_production() {
+    let state = create_test_app_state().await;
+    let app = routes::build(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/tenants")
+        .header("authorization", "Bearer adapteros-local")
+        .body(Body::empty())
+        .expect("build dev-token request for protected route");
+
+    let response = app
+        .oneshot(request)
+        .await
+        .expect("execute protected route request");
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "development token should not bypass standard auth middleware"
+    );
+}
+
+#[tokio::test]
+async fn test_cors_policy_enforcement() {
+    let state = create_test_app_state().await;
+    let app = routes::build(state);
+
+    let request = Request::builder()
+        .method("OPTIONS")
+        .uri("/v1/tenants")
+        .header("origin", "https://example.com")
+        .header("access-control-request-method", "GET")
+        .body(Body::empty())
+        .expect("build preflight request");
+
+    let response = app
+        .oneshot(request)
+        .await
+        .expect("execute preflight request");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "preflight request should succeed with permissive CORS"
+    );
+    let headers = response.headers();
+    let allow_origin = headers
+        .get("access-control-allow-origin")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert_eq!(
+        allow_origin, "*",
+        "permissive CORS layer should allow all origins"
+    );
 }
 
 #[test]

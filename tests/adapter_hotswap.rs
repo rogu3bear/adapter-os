@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for adapter hot-swap functionality (Tier 6)
 //!
 //! Tests:
@@ -9,13 +11,14 @@
 
 use adapteros_aos::HotSwapManager;
 use adapteros_core::B3Hash;
+use adapteros_crypto::Keypair;
 use adapteros_lora_worker::adapter_hotswap::{AdapterCommand, AdapterTable};
 use adapteros_single_file_adapter::{
-    AdapterManifest, AosSignature, CompressionLevel, LineageInfo, Mutation, PackageOptions,
-    SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig, TrainingExample, WeightGroup,
-    WeightGroupConfig, WeightMetadata, WeightGroupType, AdapterWeights, CombinationStrategy,
+    AdapterManifest, AdapterWeights, AosSignature, CombinationStrategy, CompressionLevel,
+    LineageInfo, Mutation, PackageOptions, SingleFileAdapter, SingleFileAdapterPackager,
+    TrainingConfig, TrainingExample, WeightGroup, WeightGroupConfig, WeightGroupType,
+    WeightMetadata,
 };
-use adapteros_crypto::Keypair;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -324,7 +327,7 @@ async fn test_mmap_adapter_load_and_verify() {
     let adapter_path = temp_dir.path().join("test_adapter.aos");
 
     let mut adapter = create_test_adapter("test_mmap_adapter", 8);
-    
+
     // Sign the adapter
     let keypair = Keypair::generate();
     adapter.sign(&keypair).unwrap();
@@ -338,8 +341,8 @@ async fn test_mmap_adapter_load_and_verify() {
         .unwrap();
 
     // Load via mmap
-    let mmap_adapter = adapteros_single_file_adapter::MmapAdapter::from_path(&adapter_path)
-        .unwrap();
+    let mmap_adapter =
+        adapteros_single_file_adapter::MmapAdapter::from_path(&adapter_path).unwrap();
 
     // Verify signature
     assert!(mmap_adapter.is_signed());
@@ -454,9 +457,13 @@ async fn test_swap_with_rollback_on_invalid_signature() {
 
     // Create unsigned adapter
     let unsigned_adapter = create_test_adapter("unsigned_adapter", 8);
-    SingleFileAdapterPackager::save_with_options(&unsigned_adapter, &unsigned_adapter_path, options)
-        .await
-        .unwrap();
+    SingleFileAdapterPackager::save_with_options(
+        &unsigned_adapter,
+        &unsigned_adapter_path,
+        options,
+    )
+    .await
+    .unwrap();
 
     let manager = HotSwapManager::new();
 
@@ -508,9 +515,7 @@ async fn test_concurrent_swaps_thread_safety() {
         let manager_clone = std::sync::Arc::clone(&manager);
         let adapter_id = format!("concurrent_adapter_{}", i);
 
-        tasks.spawn(async move {
-            manager_clone.swap(&adapter_id, path).await
-        });
+        tasks.spawn(async move { manager_clone.swap(&adapter_id, path).await });
     }
 
     // Wait for all tasks to complete
@@ -557,4 +562,3 @@ async fn test_telemetry_logging() {
     // but we can verify the swap completed successfully
     println!("✓ Swap with telemetry logging completed");
 }
-

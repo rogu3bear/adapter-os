@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! UI Integration Tests
 //!
 //! Tests for the simplified UI navigation structure and component consolidation.

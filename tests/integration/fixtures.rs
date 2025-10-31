@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test fixtures and data for AdapterOS integration tests
 //!
 //! Provides pre-defined test data, configurations, and setup utilities

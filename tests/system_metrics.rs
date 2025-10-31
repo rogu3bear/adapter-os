@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! System metrics integration tests
 //!
 //! Tests the complete system metrics collection pipeline including

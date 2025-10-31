@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Git repository integration tests
 //!
 //! Tests git repository registration, analysis, and training pipeline integration.

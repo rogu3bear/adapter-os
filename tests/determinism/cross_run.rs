@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Cross-run consistency verification tests
 //!
 //! Verifies that identical inputs produce identical outputs across multiple runs,

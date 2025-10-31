@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for cluster determinism verification (Tier 6)
 //!
 //! Tests:

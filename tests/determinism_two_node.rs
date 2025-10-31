@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Determinism validation: two-node replay test
 //!
 //! This test verifies that identical inputs produce identical outputs

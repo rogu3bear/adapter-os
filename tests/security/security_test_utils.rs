@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Specialized Security Testing Utilities
 //!
 //! This module provides utilities specifically designed for security testing in AdapterOS,

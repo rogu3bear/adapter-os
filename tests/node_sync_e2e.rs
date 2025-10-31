@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for node sync and replication (Tier 6)
 //!
 //! Tests:

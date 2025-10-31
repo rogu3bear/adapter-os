@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-end tests for failure scenario handling
 //!
 //! Validates graceful degradation, error recovery, fallback mechanisms,

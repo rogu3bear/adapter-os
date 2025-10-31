@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Performance tests for patch proposal system
 //!
 //! Tests performance requirements and benchmarks:

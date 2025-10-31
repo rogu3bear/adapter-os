@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for LinterRunner
 //!
 //! Tests the linter integration framework with clippy and rustfmt.

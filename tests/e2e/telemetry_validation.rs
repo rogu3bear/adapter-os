@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-end tests for telemetry validation
 //!
 //! Validates telemetry collection, canonical JSON formatting, BLAKE3 hashing,

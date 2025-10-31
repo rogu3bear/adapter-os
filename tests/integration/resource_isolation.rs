@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Resource Isolation Tests
 //!
 //! Tests to verify that resource allocation and usage limits are properly

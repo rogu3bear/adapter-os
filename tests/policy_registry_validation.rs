@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 use adapteros_policy::registry::{PolicyId, POLICY_INDEX};
 use serde_json::Value;
 

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;

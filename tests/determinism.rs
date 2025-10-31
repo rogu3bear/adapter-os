@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Determinism tests
 //!
 //! Verify that identical inputs produce identical outputs

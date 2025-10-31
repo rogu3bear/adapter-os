@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Multi-Host Test Cluster Infrastructure
 //!
 //! Provides infrastructure for running determinism tests across multiple

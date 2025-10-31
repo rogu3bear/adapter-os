@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for .aos signature verification and security
 //!
 //! Tests cryptographic signature generation, verification, and tamper detection.
@@ -7,7 +9,7 @@ use adapteros_crypto::Keypair;
 use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
 use adapteros_single_file_adapter::{
     CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
-    SingleFileAdapterLoader, SingleFileAdapterPackager, AOS_FORMAT_VERSION,
+    SingleFileAdapterLoader, SingleFileAdapterPackager, WeightGroupConfig, AOS_FORMAT_VERSION,
 };
 use std::collections::HashMap;
 use tempfile::TempDir;

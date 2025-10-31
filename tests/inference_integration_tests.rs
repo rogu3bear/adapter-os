@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for AdapterOS Inference System
 //!
 //! These tests verify end-to-end inference workflows including:

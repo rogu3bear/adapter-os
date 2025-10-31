@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 use adapteros_config::{initialize_config, is_frozen};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 

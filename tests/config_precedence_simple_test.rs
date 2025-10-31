@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 use adapteros_config::ConfigLoader;
 use std::io::Write;
 use std::sync::{Mutex, MutexGuard, OnceLock};

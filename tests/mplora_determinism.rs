@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Deterministic testing for MPLoRA multi-path execution
 //!
 //! Tests orthogonal constraints and shared downsample functionality

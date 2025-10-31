@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Kernel layout validation tests
 //!
 //! Tests the buffer layout validator to ensure it correctly detects

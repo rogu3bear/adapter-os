@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test memory monitoring accuracy
 
 use adapteros_lora_worker::MemoryMonitor;

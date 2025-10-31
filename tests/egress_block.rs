@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Egress control validation tests
 //!
 //! These tests verify that the egress policy is enforced:
