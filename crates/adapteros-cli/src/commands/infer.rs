@@ -38,7 +38,7 @@ pub async fn run(
         }))?;
 
         let _ = client
-            .send_request(&socket, "POST", "/adapter", Some(&preload_body))
+            .send_request(socket.as_path(), "POST", "/adapter", Some(&preload_body))
             .await
             .context("Failed to preload adapter")?;
 
@@ -50,14 +50,14 @@ pub async fn run(
         }))?;
 
         let _ = client
-            .send_request(&socket, "POST", "/adapter", Some(&swap_body))
+            .send_request(socket.as_path(), "POST", "/adapter", Some(&swap_body))
             .await
             .context("Failed to swap adapter")?;
     }
 
     let body = serde_json::to_string(&request)?;
     let resp = client
-        .send_request(&socket, "POST", "/inference", Some(&body))
+        .send_request(socket.as_path(), "POST", "/inference", Some(&body))
         .await
         .context("Inference request failed")?;
 

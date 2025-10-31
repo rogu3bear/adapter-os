@@ -1,23 +1,28 @@
-//! Unix Domain Socket client for communicating with workers
+//! Unix Domain Socket client for communicating with workers.
 //!
-//! This module provides functionality to connect to worker UDS servers
-//! and forward inference requests from the CLI.
+//! The worker control plane speaks simple HTTP over Unix domain sockets.
+//! This module provides a small async client that handles request formatting,
+//! response parsing (including status/headers), and optional signal streaming
+//! over Server-Sent Events (SSE).
 //!
-//! **Signal Protocol Support**: Extended to support receiving signals from
-//! workers during inference via Server-Sent Events (SSE).
-//!
-//! Citation: docs/llm-interface-specification.md §5.1
+//! # Citations
+//! - docs/llm-interface-specification.md §5.1 (signal protocol)
+//! - crates/adapteros-lora-worker/src/uds_server.rs (server counterpart)
 
 use crate::{types::*, AdapterOSClient};
 use anyhow::Result;
 use futures_util::stream::BoxStream;
-use serde_json;
-use std::path::Path;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio::sync::{mpsc, oneshot};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
 
-/// Error types for UDS client operations
+/// Error types for UDS client operations.
 #[derive(Debug, thiserror::Error)]
 pub enum UdsClientError {
     #[error("Connection failed: {0}")]
@@ -32,18 +37,193 @@ pub enum UdsClientError {
     WorkerNotAvailable(String),
 }
 
-/// UDS client for communicating with workers
+/// Parsed HTTP response returned by the worker.
+#[derive(Debug)]
+struct HttpResponse {
+    status_code: u16,
+    reason: String,
+    headers: HashMap<String, String>,
+    body: Vec<u8>,
+}
+
+impl HttpResponse {
+    fn is_success(&self) -> bool {
+        (200..300).contains(&self.status_code)
+    }
+
+    fn header(&self, name: &str) -> Option<&str> {
+        let key = name.to_ascii_lowercase();
+        self.headers.get(&key).map(|s| s.as_str())
+    }
+
+    fn into_utf8(self) -> Result<String, UdsClientError> {
+        String::from_utf8(self.body).map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
+
+    fn body_bytes(&self) -> &[u8] {
+        &self.body
+    }
+}
+
+/// Streaming inference handle.
+///
+/// The worker streams signals as SSE events while the inference is running.
+/// Final completion metadata (including the worker response payload) is sent
+/// as the last `event: complete` message.  We expose the streaming channel
+/// alongside a one-shot receiver that resolves once the completion event is
+/// observed.
+pub struct InferenceSession {
+    /// Receiver for the final worker response (as raw JSON string).
+    pub response: oneshot::Receiver<Result<String, UdsClientError>>,
+    /// Stream of real-time worker signals.
+    pub signals: BoxStream<'static, Result<Signal, UdsClientError>>,
+}
+
+/// UDS client for communicating with workers.
+#[derive(Debug, Clone)]
 pub struct UdsClient {
     timeout: Duration,
 }
 
 impl UdsClient {
-    /// Create a new UDS client
+    /// Create a new UDS client with the specified timeout.
     pub fn new(timeout: Duration) -> Self {
         Self { timeout }
     }
 
-    /// Send a generic request to worker via UDS
+    /// Return the configured timeout.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// Establish a Unix domain socket connection with timeout.
+    async fn connect(&self, uds_path: &Path) -> Result<UnixStream, UdsClientError> {
+        tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))
+    }
+
+    /// Send an HTTP request and read the complete response.
+    async fn send_http_request_internal(
+        &self,
+        uds_path: &Path,
+        method: &str,
+        path: &str,
+        headers: Vec<(String, String)>,
+        body: Option<&[u8]>,
+    ) -> Result<HttpResponse, UdsClientError> {
+        let mut stream = self.connect(uds_path).await?;
+
+        let body_bytes = body.unwrap_or(&[]);
+        let mut request = String::new();
+        request.push_str(&format!("{} {} HTTP/1.1\r\n", method, path));
+
+        // Track explicit headers to avoid duplicates.
+        let mut header_map = HashMap::new();
+
+        // Default headers that we always send.
+        header_map.insert("host".to_string(), "worker".to_string());
+        header_map.insert("connection".to_string(), "close".to_string());
+
+        for (name, value) in headers {
+            header_map.insert(name.to_ascii_lowercase(), value);
+        }
+
+        if !body_bytes.is_empty() {
+            header_map
+                .entry("content-type".to_string())
+                .or_insert_with(|| "application/json".to_string());
+            header_map.insert("content-length".to_string(), body_bytes.len().to_string());
+        }
+
+        for (name, value) in &header_map {
+            request.push_str(&format!("{}: {}\r\n", name, value));
+        }
+        request.push_str("\r\n");
+
+        // Write request head.
+        tokio::time::timeout(self.timeout, stream.write_all(request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        // Write request body (if present).
+        if !body_bytes.is_empty() {
+            tokio::time::timeout(self.timeout, stream.write_all(body_bytes))
+                .await
+                .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
+
+        self.read_http_response(&mut stream).await
+    }
+
+    /// Read and parse an HTTP response from the provided stream.
+    async fn read_http_response(
+        &self,
+        stream: &mut UnixStream,
+    ) -> Result<HttpResponse, UdsClientError> {
+        let mut reader = BufReader::new(stream);
+        let mut status_line = String::new();
+
+        tokio::time::timeout(self.timeout, reader.read_line(&mut status_line))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        if status_line.trim().is_empty() {
+            return Err(UdsClientError::RequestFailed(
+                "Empty response from worker".to_string(),
+            ));
+        }
+
+        let (status_code, reason) = parse_status_line(&status_line)?;
+        let mut headers = HashMap::new();
+
+        loop {
+            let mut line = String::new();
+            tokio::time::timeout(self.timeout, reader.read_line(&mut line))
+                .await
+                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+            let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
+            if trimmed.is_empty() {
+                break;
+            }
+
+            if let Some((name, value)) = trimmed.split_once(':') {
+                headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+            }
+        }
+
+        let mut body = Vec::new();
+        if let Some(length) = headers.get("content-length") {
+            let expected = length.parse::<usize>().map_err(|e| {
+                UdsClientError::RequestFailed(format!("Invalid Content-Length: {}", e))
+            })?;
+            body.resize(expected, 0);
+            tokio::time::timeout(self.timeout, reader.read_exact(&mut body))
+                .await
+                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        } else {
+            tokio::time::timeout(self.timeout, reader.read_to_end(&mut body))
+                .await
+                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
+
+        Ok(HttpResponse {
+            status_code,
+            reason,
+            headers,
+            body,
+        })
+    }
+
+    /// Send a generic request to a worker. Returns the raw response body as UTF-8.
     pub async fn send_request(
         &self,
         uds_path: &Path,
@@ -51,124 +231,82 @@ impl UdsClient {
         path: &str,
         body: Option<&str>,
     ) -> Result<String, UdsClientError> {
-        // Connect to UDS
-        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
-            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
-
-        // Create HTTP request
-        let http_request = if let Some(body_content) = body {
-            format!(
-                "{} {} HTTP/1.1\r\n\
-                 Host: worker\r\n\
-                 Content-Type: application/json\r\n\
-                 Content-Length: {}\r\n\
-                 \r\n\
-                 {}",
+        let response = self
+            .send_http_request_internal(
+                uds_path,
                 method,
                 path,
-                body_content.len(),
-                body_content
+                Vec::new(),
+                body.map(|s| s.as_bytes()),
             )
-        } else {
-            format!(
-                "{} {} HTTP/1.1\r\n\
-                 Host: worker\r\n\
-                 \r\n",
-                method, path
-            )
-        };
+            .await?;
 
-        // Send request
-        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-        // Read response
-        let mut response_buffer = Vec::new();
-        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-        // Parse HTTP response
-        let response_str = String::from_utf8_lossy(&response_buffer);
-        let lines: Vec<&str> = response_str.lines().collect();
-
-        if lines.is_empty() {
-            return Err(UdsClientError::RequestFailed("Empty response".to_string()));
-        }
-
-        // Check status line
-        let status_line = lines[0];
-        if !status_line.contains("200 OK") {
+        if !response.is_success() {
+            let body_text = String::from_utf8_lossy(response.body_bytes());
             return Err(UdsClientError::RequestFailed(format!(
-                "Worker returned error: {}",
-                status_line
+                "Worker returned {} {}: {}",
+                response.status_code, response.reason, body_text
             )));
         }
 
-        // Find JSON body (after double CRLF)
-        let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
-        let json_str = &response_str[body_start..];
-
-        Ok(json_str.to_string())
+        response.into_utf8()
     }
 
-    /// Check if a worker is healthy via UDS
+    /// Send a request and deserialize the JSON body into the requested type.
+    pub async fn send_json<T: serde::de::DeserializeOwned>(
+        &self,
+        uds_path: &Path,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> Result<T, UdsClientError> {
+        let raw = self.send_request(uds_path, method, path, body).await?;
+        serde_json::from_str(&raw).map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
+
+    /// Check if a worker is healthy via UDS.
     pub async fn health_check(&self, uds_path: &Path) -> Result<bool, UdsClientError> {
-        // Connect to UDS
-        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
-            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+        let response = self
+            .send_http_request_internal(uds_path, "GET", "/health", Vec::new(), None)
+            .await?;
 
-        // Send health check request
-        let health_request = "GET /health HTTP/1.1\r\nHost: worker\r\n\r\n";
+        if !response.is_success() {
+            return Ok(false);
+        }
 
-        tokio::time::timeout(self.timeout, stream.write_all(health_request.as_bytes()))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-        // Read response
-        let mut response_buffer = Vec::new();
-        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-        // Check if response contains 200 OK
-        let response_str = String::from_utf8_lossy(&response_buffer);
-        Ok(response_str.contains("200 OK"))
+        let body = response.into_utf8()?;
+        let value: Value = serde_json::from_str(&body)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+        Ok(value
+            .get("status")
+            .and_then(|s| s.as_str())
+            .map(|s| s.eq_ignore_ascii_case("healthy") || s.eq_ignore_ascii_case("ok"))
+            .unwrap_or(false))
     }
 
-    /// Send an adapter command to worker
+    /// Send an adapter command to worker.
     pub async fn adapter_command(
         &self,
         uds_path: &Path,
         adapter_id: &str,
         command: &str,
     ) -> Result<(), UdsClientError> {
-        let _response = self
-            .send_request(
-                uds_path,
-                "POST",
-                &format!("/adapter/{}/{}", adapter_id, command),
-                None,
-            )
-            .await?;
-        Ok(())
+        self.send_request(
+            uds_path,
+            "POST",
+            &format!("/adapter/{}/{}", adapter_id, command),
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 
-    /// List all adapters from worker
+    /// List all adapters from worker (raw JSON string).
     pub async fn list_adapters(&self, uds_path: &Path) -> Result<String, UdsClientError> {
         self.send_request(uds_path, "GET", "/adapters", None).await
     }
 
-    /// Get adapter profile
+    /// Get adapter profile (raw JSON string).
     pub async fn get_adapter_profile(
         &self,
         uds_path: &Path,
@@ -178,210 +316,259 @@ impl UdsClient {
             .await
     }
 
-    /// Get profiling snapshot
+    /// Get profiling snapshot (raw JSON string).
     pub async fn get_profiling_snapshot(&self, uds_path: &Path) -> Result<String, UdsClientError> {
         self.send_request(uds_path, "GET", "/profile/snapshot", None)
             .await
     }
 
-    /// Stream signals from worker via Server-Sent Events (SSE)
+    /// Start an inference request with signal streaming support.
     ///
-    /// This method establishes a persistent connection to the worker's signal endpoint
-    /// and streams signals in real-time as they are emitted during inference.
-    ///
-    /// Citation: docs/llm-interface-specification.md §5.1
-    pub async fn stream_signals(
-        &self,
-        uds_path: &Path,
-        trace_id: Option<&str>,
-    ) -> Result<BoxStream<'static, Result<Signal, UdsClientError>>, UdsClientError> {
-        let timeout = self.timeout;
-        let uds_path = uds_path.to_path_buf();
-        let trace_id = trace_id.map(|s| s.to_string());
-
-        // Connect to UDS
-        let mut stream = tokio::time::timeout(timeout, UnixStream::connect(&uds_path))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
-            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
-
-        // Create SSE request
-        let mut request = "GET /signals HTTP/1.1\r\n\
-             Host: worker\r\n\
-             Accept: text/event-stream\r\n\
-             Cache-Control: no-cache\r\n"
-            .to_string();
-
-        // Add trace ID filter if provided
-        if let Some(trace) = &trace_id {
-            request.push_str(&format!("X-Trace-ID: {}\r\n", trace));
-        }
-
-        request.push_str("\r\n");
-
-        // Send request
-        tokio::time::timeout(timeout, stream.write_all(request.as_bytes()))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-        // Read initial response headers
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-
-        // Skip HTTP headers until we reach the SSE stream
-        loop {
-            tokio::time::timeout(timeout, reader.read_line(&mut line))
-                .await
-                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
-                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-            if line.trim().is_empty() {
-                break; // End of headers
-            }
-
-            line.clear();
-        }
-
-        // Create SSE stream
-        let stream = async_stream::stream! {
-            let mut buffer = String::new();
-            let mut event_data = String::new();
-            let mut event_type = String::new();
-            let mut event_id = String::new();
-
-            loop {
-                match tokio::time::timeout(timeout, reader.read_line(&mut buffer)).await {
-                    Ok(Ok(0)) => break, // EOF
-                    Ok(Ok(_)) => {
-                        let line = buffer.trim();
-
-                        if line.is_empty() {
-                            // End of event - process accumulated data
-                            if !event_data.is_empty() {
-                                match serde_json::from_str::<Signal>(&event_data) {
-                                    Ok(signal) => yield Ok(signal),
-                                    Err(e) => yield Err(UdsClientError::SerializationError(
-                                        format!("Failed to parse signal: {}", e)
-                                    )),
-                                }
-                            }
-
-                            // Reset for next event
-                            event_data.clear();
-                            event_type.clear();
-                            event_id.clear();
-                        } else if line.starts_with("data: ") {
-                            event_data.push_str(&line[6..]);
-                        } else if line.starts_with("event: ") {
-                            event_type = line[7..].to_string();
-                        } else if line.starts_with("id: ") {
-                            event_id = line[4..].to_string();
-                        }
-
-                        buffer.clear();
-                    }
-                    Ok(Err(e)) => {
-                        yield Err(UdsClientError::RequestFailed(e.to_string()));
-                        break;
-                    }
-                    Err(_) => {
-                        yield Err(UdsClientError::Timeout("Read timed out".to_string()));
-                        break;
-                    }
-                }
-            }
-        };
-
-        Ok(Box::pin(stream))
-    }
-
-    /// Send inference request and stream signals in real-time
-    ///
-    /// This method sends an inference request to the worker and returns both
-    /// the final response and a stream of signals emitted during inference.
+    /// The returned [`InferenceSession`] exposes a `signals` stream for
+    /// real-time updates and a one-shot `response` receiver that resolves
+    /// once the worker sends the terminal completion event.
     pub async fn inference_with_signals(
         &self,
         uds_path: &Path,
         request_body: &str,
         trace_id: Option<&str>,
-    ) -> Result<(String, BoxStream<'static, Result<Signal, UdsClientError>>), UdsClientError> {
-        // Start signal stream first
-        let signal_stream = self.stream_signals(uds_path, trace_id).await?;
+    ) -> Result<InferenceSession, UdsClientError> {
+        let mut stream = self.connect(uds_path).await?;
 
-        // Send inference request
-        let response = self
-            .send_request(uds_path, "POST", "/inference", Some(request_body))
-            .await?;
+        // Prepare headers required for SSE streaming.
+        let mut headers = vec![
+            ("accept".to_string(), "text/event-stream".to_string()),
+            ("cache-control".to_string(), "no-cache".to_string()),
+            ("connection".to_string(), "keep-alive".to_string()),
+            ("x-signal-stream".to_string(), "true".to_string()),
+        ];
+        if let Some(trace) = trace_id {
+            headers.push(("x-trace-id".to_string(), trace.to_string()));
+        }
 
-        Ok((response, signal_stream))
+        // Write request with streaming headers.
+        let body_bytes = request_body.as_bytes();
+        let mut request = String::new();
+        request.push_str("POST /inference HTTP/1.1\r\n");
+        request.push_str("Host: worker\r\n");
+        request.push_str("Content-Type: application/json\r\n");
+        request.push_str(&format!("Content-Length: {}\r\n", body_bytes.len()));
+        for (name, value) in &headers {
+            request.push_str(&format!("{}: {}\r\n", name, value));
+        }
+        request.push_str("\r\n");
+
+        tokio::time::timeout(self.timeout, stream.write_all(request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        tokio::time::timeout(self.timeout, stream.write_all(body_bytes))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let mut reader = BufReader::new(stream);
+        let mut status_line = String::new();
+        tokio::time::timeout(self.timeout, reader.read_line(&mut status_line))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let (status_code, reason) = parse_status_line(&status_line)?;
+        if status_code != 200 {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned {} {}",
+                status_code, reason
+            )));
+        }
+
+        // Consume header lines until blank separator.
+        loop {
+            let mut line = String::new();
+            tokio::time::timeout(self.timeout, reader.read_line(&mut line))
+                .await
+                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+            if line.trim().is_empty() {
+                break;
+            }
+        }
+
+        let (signal_tx, signal_rx) = mpsc::channel::<Result<Signal, UdsClientError>>(64);
+        let (response_tx, response_rx) = oneshot::channel::<Result<String, UdsClientError>>();
+        let timeout = self.timeout;
+
+        tokio::spawn(async move {
+            let mut reader = reader;
+            let mut line_buf = String::new();
+            let mut event_type: Option<String> = None;
+            let mut data_buf = String::new();
+            let mut completion_result: Option<Result<String, UdsClientError>> = None;
+
+            loop {
+                line_buf.clear();
+                let read = tokio::time::timeout(timeout, reader.read_line(&mut line_buf)).await;
+
+                match read {
+                    Ok(Ok(0)) => break, // EOF
+                    Ok(Ok(_)) => {
+                        let trimmed = line_buf.trim_end_matches(&['\r', '\n'][..]);
+                        if trimmed.is_empty() {
+                            if let Some(ref ty) = event_type {
+                                match ty.as_str() {
+                                    "signal" => {
+                                        if !data_buf.is_empty() {
+                                            let result = serde_json::from_str::<Signal>(&data_buf)
+                                                .map_err(|e| {
+                                                    UdsClientError::SerializationError(
+                                                        e.to_string(),
+                                                    )
+                                                });
+                                            let _ = signal_tx.send(result).await;
+                                        }
+                                    }
+                                    "complete" => {
+                                        if completion_result.is_none() {
+                                            completion_result = Some(Ok(data_buf.clone()));
+                                            break; // Exit the loop after receiving completion
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            event_type = None;
+                            data_buf.clear();
+                        } else if let Some(rest) = trimmed.strip_prefix("event:") {
+                            event_type = Some(rest.trim().to_string());
+                        } else if let Some(rest) = trimmed.strip_prefix("data:") {
+                            if !data_buf.is_empty() {
+                                data_buf.push('\n');
+                            }
+                            data_buf.push_str(rest.trim_start());
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        let _ = signal_tx
+                            .send(Err(UdsClientError::RequestFailed(e.to_string())))
+                            .await;
+                        completion_result = Some(Err(UdsClientError::RequestFailed(e.to_string())));
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = signal_tx
+                            .send(Err(UdsClientError::Timeout("Read timed out".to_string())))
+                            .await;
+                        completion_result =
+                            Some(Err(UdsClientError::Timeout("Read timed out".to_string())));
+                        break;
+                    }
+                }
+            }
+
+            // Send the completion result (success or error)
+            let result = completion_result.unwrap_or_else(|| {
+                Err(UdsClientError::RequestFailed(
+                    "Inference stream closed before completion event".to_string(),
+                ))
+            });
+            let _ = response_tx.send(result);
+        });
+
+        let signal_stream = ReceiverStream::new(signal_rx).map(|item| item);
+
+        Ok(InferenceSession {
+            response: response_rx,
+            signals: Box::pin(signal_stream),
+        })
     }
 
-    /// Create a connection pool for efficient UDS communication
-    ///
-    /// This method creates a reusable connection pool that can be used
-    /// for multiple requests to the same worker endpoint.
+    /// Create a connection pool for efficient UDS communication.
     pub async fn create_connection_pool(
         &self,
         uds_path: &Path,
         pool_size: usize,
     ) -> Result<ConnectionPool, UdsClientError> {
-        let mut connections = Vec::with_capacity(pool_size);
-
-        for _ in 0..pool_size {
-            let stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
-                .await
-                .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
-                .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
-
-            connections.push(stream);
-        }
-
-        Ok(ConnectionPool {
-            connections,
-            timeout: self.timeout,
-        })
+        ConnectionPool::new(uds_path, pool_size, self.timeout).await
     }
 }
 
-/// Connection pool for efficient UDS communication
+/// Connection pool for efficient UDS communication.
 pub struct ConnectionPool {
-    connections: Vec<UnixStream>,
+    socket_path: PathBuf,
     timeout: Duration,
+    max_size: usize,
+    connections: Vec<UnixStream>,
 }
 
 impl ConnectionPool {
-    /// Get an available connection from the pool
-    pub async fn get_connection(&mut self) -> Result<UnixStream, UdsClientError> {
-        if let Some(stream) = self.connections.pop() {
-            Ok(stream)
-        } else {
-            Err(UdsClientError::WorkerNotAvailable(
-                "No available connections".to_string(),
-            ))
+    /// Establish a new pool with the requested number of eager connections.
+    pub async fn new(
+        socket_path: &Path,
+        pool_size: usize,
+        timeout: Duration,
+    ) -> Result<Self, UdsClientError> {
+        let mut connections = Vec::with_capacity(pool_size);
+        for _ in 0..pool_size {
+            let stream = tokio::time::timeout(timeout, UnixStream::connect(socket_path))
+                .await
+                .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+                .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+            connections.push(stream);
+        }
+
+        Ok(Self {
+            socket_path: socket_path.to_path_buf(),
+            timeout,
+            max_size: pool_size,
+            connections,
+        })
+    }
+
+    /// Acquire an available connection from the pool.
+    pub fn get_connection(&mut self) -> Result<UnixStream, UdsClientError> {
+        self.connections.pop().ok_or_else(|| {
+            UdsClientError::WorkerNotAvailable("No available connections".to_string())
+        })
+    }
+
+    /// Return a connection back to the pool.
+    pub fn return_connection(&mut self, stream: UnixStream) {
+        if self.connections.len() < self.max_size {
+            self.connections.push(stream);
         }
     }
 
-    /// Return a connection to the pool
-    pub fn return_connection(&mut self, stream: UnixStream) {
-        self.connections.push(stream);
-    }
-
-    /// Check if the pool has available connections
+    /// Check if the pool has idle connections.
     pub fn has_available(&self) -> bool {
         !self.connections.is_empty()
     }
 
-    /// Get the number of available connections
+    /// Number of idle connections.
     pub fn available_count(&self) -> usize {
         self.connections.len()
     }
+
+    /// Maximum size requested at construction.
+    pub fn size(&self) -> usize {
+        self.max_size
+    }
+
+    /// Socket path backing this pool.
+    pub fn socket_path(&self) -> &Path {
+        &self.socket_path
+    }
+
+    /// Timeout configured for pooled connections.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
 }
 
-/// Signal type for client consumption
+/// Signal type for client consumption.
 ///
 /// Simplified signal structure for client-side processing.
-/// Full signal definition is in mplora-worker/src/signal.rs
+/// The full worker definition lives in `mplora-worker/src/signal.rs`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Signal {
     #[serde(rename = "type")]
@@ -399,341 +586,529 @@ impl Default for UdsClient {
     }
 }
 
+fn parse_status_line(line: &str) -> Result<(u16, String), UdsClientError> {
+    let mut parts = line.split_whitespace();
+    let http_version = parts
+        .next()
+        .ok_or_else(|| UdsClientError::RequestFailed("Invalid status line".to_string()))?;
+    if !http_version.starts_with("HTTP/") {
+        return Err(UdsClientError::RequestFailed(format!(
+            "Unexpected status line: {}",
+            line.trim()
+        )));
+    }
+    let status_code = parts
+        .next()
+        .ok_or_else(|| UdsClientError::RequestFailed("Missing status code".to_string()))?;
+    let status_code: u16 = status_code
+        .parse()
+        .map_err(|e| UdsClientError::RequestFailed(format!("Invalid status code: {}", e)))?;
+    let reason = parts.collect::<Vec<_>>().join(" ");
+    Ok((
+        status_code,
+        if reason.is_empty() {
+            "OK".to_string()
+        } else {
+            reason
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_uds_client_creation() {
+    async fn client_holds_timeout() {
         let client = UdsClient::new(Duration::from_secs(5));
-        assert_eq!(client.timeout, Duration::from_secs(5));
+        assert_eq!(client.timeout(), Duration::from_secs(5));
     }
 
     #[tokio::test]
-    async fn test_uds_client_default() {
-        let client = UdsClient::default();
-        assert_eq!(client.timeout, Duration::from_secs(30));
-    }
-
-    #[tokio::test]
-    async fn test_signal_structure() {
-        let signal = Signal {
-            signal_type: "adapter_activate".to_string(),
-            timestamp: 1234567890,
-            payload: serde_json::json!({"adapter_id": "test-adapter"}),
-            priority: "normal".to_string(),
-            trace_id: Some("trace-123".to_string()),
+    async fn connection_pool_metadata() {
+        let pool = ConnectionPool {
+            socket_path: PathBuf::from("/tmp/test.sock"),
+            timeout: Duration::from_secs(2),
+            max_size: 3,
+            connections: Vec::new(),
         };
 
-        // Test serialization
-        let json = serde_json::to_string(&signal).unwrap();
-        assert!(json.contains("adapter_activate"));
-        assert!(json.contains("test-adapter"));
-
-        // Test deserialization
-        let deserialized: Signal = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.signal_type, "adapter_activate");
-        assert_eq!(deserialized.trace_id, Some("trace-123".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_connection_pool_creation() {
-        // This test would require a real UDS socket, so we'll just test the structure
-        let client = UdsClient::new(Duration::from_secs(5));
-        assert_eq!(client.timeout, Duration::from_secs(5));
+        assert_eq!(pool.size(), 3);
+        assert_eq!(pool.timeout(), Duration::from_secs(2));
+        assert_eq!(pool.socket_path(), Path::new("/tmp/test.sock"));
     }
 }
 
 impl AdapterOSClient for UdsClient {
     // Health & Auth
-    async fn health(&self) -> Result<HealthResponse> {
-        // UDS clients typically don't implement health checks
-        // Return a mock response for now
-        Ok(HealthResponse {
-            status: "healthy".to_string(),
-            version: "1.0.0".to_string(),
-        })
+    fn health(&self) -> impl std::future::Future<Output = Result<HealthResponse>> + Send {
+        async {
+            Ok(HealthResponse {
+                status: "uds".to_string(),
+                version: "unavailable".to_string(),
+            })
+        }
     }
 
-    async fn login(&self, _req: LoginRequest) -> Result<LoginResponse> {
-        // UDS clients don't implement authentication
-        // Return a mock response for now
-        Ok(LoginResponse {
-            token: "uds-token".to_string(),
-            user_id: "uds-user".to_string(),
-            role: "admin".to_string(),
-        })
+    fn login(
+        &self,
+        _req: LoginRequest,
+    ) -> impl std::future::Future<Output = Result<LoginResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement authentication"
+            ))
+        }
     }
 
-    async fn logout(&self) -> Result<()> {
-        // UDS clients don't implement logout
-        Ok(())
+    fn logout(&self) -> impl std::future::Future<Output = Result<()>> + Send {
+        async { Ok(()) }
     }
 
-    async fn me(&self) -> Result<UserInfoResponse> {
-        // UDS clients don't implement user info
-        Ok(UserInfoResponse {
-            user_id: "uds-user".to_string(),
-            email: "uds@example.com".to_string(),
-            role: "admin".to_string(),
-            created_at: "2025-01-01T00:00:00Z".to_string(),
-        })
+    fn me(&self) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement user information"
+            ))
+        }
     }
 
     // Tenants
-    async fn list_tenants(&self) -> Result<Vec<TenantResponse>> {
-        // UDS clients typically work with a single tenant
-        Ok(vec![TenantResponse {
-            id: "default".to_string(),
-            name: "Default Tenant".to_string(),
-            itar_flag: false,
-            created_at: "2025-01-01T00:00:00Z".to_string(),
-            status: "active".to_string(),
-        }])
+    fn list_tenants(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<TenantResponse>>> + Send {
+        async { Ok(Vec::new()) }
     }
 
-    async fn create_tenant(&self, _req: CreateTenantRequest) -> Result<TenantResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support tenant creation"))
+    fn create_tenant(
+        &self,
+        _req: CreateTenantRequest,
+    ) -> impl std::future::Future<Output = Result<TenantResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not manage control-plane tenants"
+            ))
+        }
     }
 
     // Adapters
-    async fn list_adapters(&self) -> Result<Vec<AdapterResponse>> {
-        // UDS clients would need to connect to worker socket
-        // For now, return empty list
-        Ok(vec![])
+    fn list_adapters(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<AdapterResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not expose structured adapter listings"
+            ))
+        }
     }
 
-    async fn register_adapter(&self, _req: RegisterAdapterRequest) -> Result<AdapterResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support adapter registration"
-        ))
+    fn register_adapter(
+        &self,
+        _req: RegisterAdapterRequest,
+    ) -> impl std::future::Future<Output = Result<AdapterResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not register adapters with control plane"
+            ))
+        }
     }
 
-    async fn evict_adapter(&self, _adapter_id: &str) -> Result<()> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support adapter eviction"
-        ))
+    fn evict_adapter(
+        &self,
+        _adapter_id: &str,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not manage adapter eviction via control plane"
+            ))
+        }
     }
 
-    async fn pin_adapter(&self, _adapter_id: &str, _pinned: bool) -> Result<()> {
-        Err(anyhow::anyhow!("UDS clients don't support adapter pinning"))
+    fn pin_adapter(
+        &self,
+        _adapter_id: &str,
+        _pinned: bool,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not manage adapter pinning via control plane"
+            ))
+        }
     }
 
     // Memory Management
-    async fn get_memory_usage(&self) -> Result<MemoryUsageResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support memory management"
-        ))
+    fn get_memory_usage(
+        &self,
+    ) -> impl std::future::Future<Output = Result<MemoryUsageResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not expose control-plane memory usage"
+            ))
+        }
     }
 
     // Training
-    async fn start_adapter_training(
+    fn start_adapter_training(
         &self,
         _req: StartTrainingRequest,
-    ) -> Result<TrainingSessionResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support training"))
+    ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send {
+        async { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
     }
 
-    async fn get_training_session(&self, _session_id: &str) -> Result<TrainingSessionResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support training"))
+    fn get_training_session(
+        &self,
+        _session_id: &str,
+    ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send {
+        async { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
     }
 
-    async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support training"))
+    fn list_training_sessions(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<TrainingSessionResponse>>> + Send {
+        async { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
     }
 
     // Telemetry
-    async fn get_telemetry_events(
+    fn get_telemetry_events(
         &self,
         _filters: TelemetryFilters,
-    ) -> Result<Vec<TelemetryEvent>> {
-        Err(anyhow::anyhow!("UDS clients don't support telemetry"))
+    ) -> impl std::future::Future<Output = Result<Vec<TelemetryEvent>>> + Send {
+        async { Err(anyhow::anyhow!("Telemetry via UDS client is unsupported")) }
     }
 
     // Nodes
-    async fn list_nodes(&self) -> Result<Vec<NodeResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support node management"))
+    fn list_nodes(&self) -> impl std::future::Future<Output = Result<Vec<NodeResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Node management via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn register_node(&self, _req: RegisterNodeRequest) -> Result<NodeResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support node registration"
-        ))
+    fn register_node(
+        &self,
+        _req: RegisterNodeRequest,
+    ) -> impl std::future::Future<Output = Result<NodeResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Node registration via UDS client is unsupported"
+            ))
+        }
     }
 
     // Plans
-    async fn list_plans(&self, _tenant_id: Option<String>) -> Result<Vec<PlanResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support plan management"))
+    fn list_plans(
+        &self,
+        _tenant_id: Option<String>,
+    ) -> impl std::future::Future<Output = Result<Vec<PlanResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Plan management via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn build_plan(&self, _req: BuildPlanRequest) -> Result<JobResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support plan building"))
+    fn build_plan(
+        &self,
+        _req: BuildPlanRequest,
+    ) -> impl std::future::Future<Output = Result<JobResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Plan building via UDS client is unsupported"
+            ))
+        }
     }
 
     // Workers
-    async fn list_workers(&self, _tenant_id: Option<String>) -> Result<Vec<WorkerResponse>> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support worker management"
-        ))
+    fn list_workers(
+        &self,
+        _tenant_id: Option<String>,
+    ) -> impl std::future::Future<Output = Result<Vec<WorkerResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Worker management via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn spawn_worker(&self, _req: SpawnWorkerRequest) -> Result<()> {
-        Err(anyhow::anyhow!("UDS clients don't support worker spawning"))
+    fn spawn_worker(
+        &self,
+        _req: SpawnWorkerRequest,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Worker spawning via UDS client is unsupported"
+            ))
+        }
     }
 
     // CP Operations
-    async fn promote_cp(&self, _req: PromoteCPRequest) -> Result<PromotionResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support CP operations"))
+    fn promote_cp(
+        &self,
+        _req: PromoteCPRequest,
+    ) -> impl std::future::Future<Output = Result<PromotionResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Control-plane promotion via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn promotion_gates(&self, _cpid: String) -> Result<PromotionGatesResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support CP operations"))
+    fn promotion_gates(
+        &self,
+        _cpid: String,
+    ) -> impl std::future::Future<Output = Result<PromotionGatesResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Control-plane promotion via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn rollback_cp(&self, _req: RollbackCPRequest) -> Result<RollbackResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support CP operations"))
+    fn rollback_cp(
+        &self,
+        _req: RollbackCPRequest,
+    ) -> impl std::future::Future<Output = Result<RollbackResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Control-plane rollback via UDS client is unsupported"
+            ))
+        }
     }
 
     // Jobs
-    async fn list_jobs(&self, _tenant_id: Option<String>) -> Result<Vec<JobResponse>> {
-        Err(anyhow::anyhow!("UDS clients don't support job management"))
+    fn list_jobs(
+        &self,
+        _tenant_id: Option<String>,
+    ) -> impl std::future::Future<Output = Result<Vec<JobResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Job management via UDS client is unsupported"
+            ))
+        }
     }
 
     // Models
-    async fn import_model(&self, _req: ImportModelRequest) -> Result<()> {
-        Err(anyhow::anyhow!("UDS clients don't support model import"))
+    fn import_model(
+        &self,
+        _req: ImportModelRequest,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Model import via UDS client is unsupported"
+            ))
+        }
     }
 
     // Policies
-    async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support policy management"
-        ))
+    fn list_policies(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<PolicyPackResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Policy management via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn get_policy(&self, _cpid: String) -> Result<PolicyPackResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support policy management"
-        ))
+    fn get_policy(
+        &self,
+        _cpid: String,
+    ) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Policy management via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn validate_policy(
+    fn validate_policy(
         &self,
         _req: ValidatePolicyRequest,
-    ) -> Result<PolicyValidationResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support policy management"
-        ))
+    ) -> impl std::future::Future<Output = Result<PolicyValidationResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Policy management via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn apply_policy(&self, _req: ApplyPolicyRequest) -> Result<PolicyPackResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support policy management"
-        ))
+    fn apply_policy(
+        &self,
+        _req: ApplyPolicyRequest,
+    ) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Policy management via UDS client is unsupported"
+            ))
+        }
     }
 
     // Telemetry Bundles
-    async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support telemetry bundles"
-        ))
+    fn list_telemetry_bundles(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<TelemetryBundleResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Telemetry bundles via UDS client are unsupported"
+            ))
+        }
     }
 
     // Code Intelligence
-    async fn register_repo(&self, _req: RegisterRepoRequest) -> Result<RepoResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    fn register_repo(
+        &self,
+        _req: RegisterRepoRequest,
+    ) -> impl std::future::Future<Output = Result<RepoResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn scan_repo(&self, _req: ScanRepoRequest) -> Result<JobResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    fn scan_repo(
+        &self,
+        _req: ScanRepoRequest,
+    ) -> impl std::future::Future<Output = Result<JobResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn list_repos(&self) -> Result<Vec<RepoResponse>> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    fn list_repos(&self) -> impl std::future::Future<Output = Result<Vec<RepoResponse>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn list_adapters_by_tenant(&self, _tenant_id: String) -> Result<ListAdaptersResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    fn list_adapters_by_tenant(
+        &self,
+        _tenant_id: String,
+    ) -> impl std::future::Future<Output = Result<ListAdaptersResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    fn get_adapter_activations(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<ActivationData>>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn create_commit_delta(&self, _req: CommitDeltaRequest) -> Result<CommitDeltaResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    fn create_commit_delta(
+        &self,
+        _req: CommitDeltaRequest,
+    ) -> impl std::future::Future<Output = Result<CommitDeltaResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn get_commit_details(
+    fn get_commit_details(
         &self,
         _repo_id: String,
         _commit: String,
-    ) -> Result<CommitDetailsResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support code intelligence"
-        ))
+    ) -> impl std::future::Future<Output = Result<CommitDetailsResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Code intelligence via UDS client is unsupported"
+            ))
+        }
     }
 
     // Routing Inspector
-    async fn extract_router_features(
+    fn extract_router_features(
         &self,
         _req: RouterFeaturesRequest,
-    ) -> Result<RouterFeaturesResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support routing inspector"
-        ))
+    ) -> impl std::future::Future<Output = Result<RouterFeaturesResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Routing inspector via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn score_adapters(&self, _req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support routing inspector"
-        ))
+    fn score_adapters(
+        &self,
+        _req: ScoreAdaptersRequest,
+    ) -> impl std::future::Future<Output = Result<ScoreAdaptersResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Routing inspector via UDS client is unsupported"
+            ))
+        }
     }
 
     // Patch Lab
-    async fn propose_patch(&self, _req: ProposePatchRequest) -> Result<ProposePatchResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support patch lab"))
+    fn propose_patch(
+        &self,
+        _req: ProposePatchRequest,
+    ) -> impl std::future::Future<Output = Result<ProposePatchResponse>> + Send {
+        async { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
     }
 
-    async fn validate_patch(&self, _req: ValidatePatchRequest) -> Result<ValidatePatchResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support patch lab"))
+    fn validate_patch(
+        &self,
+        _req: ValidatePatchRequest,
+    ) -> impl std::future::Future<Output = Result<ValidatePatchResponse>> + Send {
+        async { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
     }
 
-    async fn apply_patch(&self, _req: ApplyPatchRequest) -> Result<ApplyPatchResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support patch lab"))
+    fn apply_patch(
+        &self,
+        _req: ApplyPatchRequest,
+    ) -> impl std::future::Future<Output = Result<ApplyPatchResponse>> + Send {
+        async { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
     }
 
     // Code Policy
-    async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        Err(anyhow::anyhow!("UDS clients don't support code policy"))
+    fn get_code_policy(
+        &self,
+    ) -> impl std::future::Future<Output = Result<GetCodePolicyResponse>> + Send {
+        async { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
     }
 
-    async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
-        Err(anyhow::anyhow!("UDS clients don't support code policy"))
+    fn update_code_policy(
+        &self,
+        _req: UpdateCodePolicyRequest,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        async { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
     }
 
     // Metrics Dashboard
-    async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support metrics dashboard"
-        ))
+    fn get_code_metrics(
+        &self,
+        _req: CodeMetricsRequest,
+    ) -> impl std::future::Future<Output = Result<CodeMetricsResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Metrics dashboard via UDS client is unsupported"
+            ))
+        }
     }
 
-    async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support metrics dashboard"
-        ))
+    fn compare_metrics(
+        &self,
+        _req: CompareMetricsRequest,
+    ) -> impl std::future::Future<Output = Result<CompareMetricsResponse>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "Metrics dashboard via UDS client is unsupported"
+            ))
+        }
     }
 }

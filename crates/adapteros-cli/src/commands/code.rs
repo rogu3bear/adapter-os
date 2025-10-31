@@ -30,7 +30,7 @@ pub struct _ScanJobStatus {
 
 /// Initialize a code repository for scanning
 pub async fn code_init(repo_path: &PathBuf, tenant_id: &str, output: &OutputWriter) -> Result<()> {
-    output.info(&format!("Initializing repository at {:?}", repo_path));
+    output.info(format!("Initializing repository at {:?}", repo_path));
 
     // Detect languages (simplified)
     let languages = detect_languages(repo_path)?;
@@ -60,7 +60,7 @@ pub async fn code_init(repo_path: &PathBuf, tenant_id: &str, output: &OutputWrit
         .await?;
 
     if response.status().is_success() {
-        output.success(&format!("Repository {} registered successfully", repo_id));
+        output.success(format!("Repository {} registered successfully", repo_id));
         output.json(&json!({
             "status": "registered",
             "repo_id": repo_id,
@@ -81,7 +81,7 @@ pub async fn code_update(
     commit: Option<&str>,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(&format!("Triggering scan for repository {}", repo_id));
+    output.info(format!("Triggering scan for repository {}", repo_id));
 
     // Get current commit if not provided (would use git2)
     let commit_sha = commit.unwrap_or("HEAD").to_string();
@@ -103,7 +103,7 @@ pub async fn code_update(
         let result: serde_json::Value = response.json().await?;
         let job_id = result["job_id"].as_str().unwrap_or("unknown");
 
-        output.success(&format!("Scan job created: {}", job_id));
+        output.success(format!("Scan job created: {}", job_id));
         output.json(&result)?;
 
         // Poll for job completion
@@ -140,7 +140,7 @@ pub async fn code_list(tenant_id: &str, output: &OutputWriter) -> Result<()> {
             if repos.is_empty() {
                 output.info("No repositories registered");
             } else {
-                output.info(&format!("Registered repositories ({}):", repos.len()));
+                output.info(format!("Registered repositories ({}):", repos.len()));
                 for repo in repos {
                     let repo_id = repo["repo_id"].as_str().unwrap_or("unknown");
                     let status = repo["status"].as_str().unwrap_or("unknown");
@@ -162,7 +162,7 @@ pub async fn code_list(tenant_id: &str, output: &OutputWriter) -> Result<()> {
 pub async fn code_status(repo_id: &str, tenant_id: &str, output: &OutputWriter) -> Result<()> {
     let client = reqwest::Client::new();
     let response = client
-        .get(&format!(
+        .get(format!(
             "http://localhost:8080/api/v1/code/repositories/{}",
             repo_id
         ))
@@ -188,7 +188,7 @@ pub async fn code_status(repo_id: &str, tenant_id: &str, output: &OutputWriter) 
                 })
                 .unwrap_or_default();
 
-            output.info(&format!("Repository: {}", repo_id));
+            output.info(format!("Repository: {}", repo_id));
             println!("  Status: {}", status);
             println!("  Path: {}", path);
             println!("  Languages: {}", languages);
@@ -217,10 +217,7 @@ async fn poll_scan_job(job_id: &str, output: &OutputWriter) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let response = client
-            .get(&format!(
-                "http://localhost:8080/api/v1/code/scan/{}",
-                job_id
-            ))
+            .get(format!("http://localhost:8080/api/v1/code/scan/{}", job_id))
             .send()
             .await?;
 
@@ -236,7 +233,7 @@ async fn poll_scan_job(job_id: &str, output: &OutputWriter) -> Result<()> {
             .unwrap_or("unknown");
 
         if progress > last_progress {
-            output.info(&format!("Progress: {}% ({})", progress, stage));
+            output.info(format!("Progress: {}% ({})", progress, stage));
             last_progress = progress;
         }
 

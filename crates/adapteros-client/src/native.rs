@@ -1,4 +1,4 @@
-use crate::{types::*, AdapterOSClient};
+use crate::*;
 use anyhow::{Context, Result};
 
 pub struct NativeClient {
@@ -6,7 +6,14 @@ pub struct NativeClient {
     client: reqwest::Client,
 }
 
-impl AdapterOSClient for NativeClient {
+impl NativeClient {
+    pub fn new(base_url: String) -> Self {
+        Self {
+            base_url,
+            client: reqwest::Client::new(),
+        }
+    }
+
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse> {
         let url = format!("{}/healthz", self.base_url);
@@ -393,11 +400,64 @@ impl AdapterOSClient for NativeClient {
     }
 }
 
-impl NativeClient {
-    pub fn new(base_url: String) -> Self {
-        Self {
-            base_url,
-            client: reqwest::Client::new(),
-        }
-    }
+macro_rules! forward_async_methods {
+    ($($name:ident ( $($arg:ident : $typ:ty),* ) -> $ret:ty),+ $(,)?) => {
+        $(
+            fn $name(&self, $($arg: $typ),*) -> impl std::future::Future<Output = Result<$ret>> + Send {
+                NativeClient::$name(self, $($arg),*)
+            }
+        )+
+    };
+}
+
+impl AdapterOSClient for NativeClient {
+    forward_async_methods!(
+        health() -> HealthResponse,
+        login(req: LoginRequest) -> LoginResponse,
+        logout() -> (),
+        me() -> UserInfoResponse,
+        list_tenants() -> Vec<TenantResponse>,
+        create_tenant(req: CreateTenantRequest) -> TenantResponse,
+        list_adapters() -> Vec<AdapterResponse>,
+        register_adapter(req: RegisterAdapterRequest) -> AdapterResponse,
+        evict_adapter(adapter_id: &str) -> (),
+        pin_adapter(adapter_id: &str, pinned: bool) -> (),
+        get_memory_usage() -> MemoryUsageResponse,
+        start_adapter_training(req: StartTrainingRequest) -> TrainingSessionResponse,
+        get_training_session(session_id: &str) -> TrainingSessionResponse,
+        list_training_sessions() -> Vec<TrainingSessionResponse>,
+        get_telemetry_events(filters: TelemetryFilters) -> Vec<TelemetryEvent>,
+        list_nodes() -> Vec<NodeResponse>,
+        register_node(req: RegisterNodeRequest) -> NodeResponse,
+        list_plans(tenant_id: Option<String>) -> Vec<PlanResponse>,
+        build_plan(req: BuildPlanRequest) -> JobResponse,
+        list_workers(tenant_id: Option<String>) -> Vec<WorkerResponse>,
+        spawn_worker(req: SpawnWorkerRequest) -> (),
+        promote_cp(req: PromoteCPRequest) -> PromotionResponse,
+        promotion_gates(cpid: String) -> PromotionGatesResponse,
+        rollback_cp(req: RollbackCPRequest) -> RollbackResponse,
+        list_jobs(tenant_id: Option<String>) -> Vec<JobResponse>,
+        import_model(req: ImportModelRequest) -> (),
+        list_policies() -> Vec<PolicyPackResponse>,
+        get_policy(cpid: String) -> PolicyPackResponse,
+        validate_policy(req: ValidatePolicyRequest) -> PolicyValidationResponse,
+        apply_policy(req: ApplyPolicyRequest) -> PolicyPackResponse,
+        list_telemetry_bundles() -> Vec<TelemetryBundleResponse>,
+        register_repo(req: RegisterRepoRequest) -> RepoResponse,
+        scan_repo(req: ScanRepoRequest) -> JobResponse,
+        list_repos() -> Vec<RepoResponse>,
+        list_adapters_by_tenant(tenant_id: String) -> ListAdaptersResponse,
+        get_adapter_activations() -> Vec<ActivationData>,
+        create_commit_delta(req: CommitDeltaRequest) -> CommitDeltaResponse,
+        get_commit_details(repo_id: String, commit: String) -> CommitDetailsResponse,
+        extract_router_features(req: RouterFeaturesRequest) -> RouterFeaturesResponse,
+        score_adapters(req: ScoreAdaptersRequest) -> ScoreAdaptersResponse,
+        propose_patch(req: ProposePatchRequest) -> ProposePatchResponse,
+        validate_patch(req: ValidatePatchRequest) -> ValidatePatchResponse,
+        apply_patch(req: ApplyPatchRequest) -> ApplyPatchResponse,
+        get_code_policy() -> GetCodePolicyResponse,
+        update_code_policy(req: UpdateCodePolicyRequest) -> (),
+        get_code_metrics(req: CodeMetricsRequest) -> CodeMetricsResponse,
+        compare_metrics(req: CompareMetricsRequest) -> CompareMetricsResponse
+    );
 }

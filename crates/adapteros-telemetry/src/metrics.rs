@@ -7,19 +7,51 @@
 //! - Prometheus/OpenMetrics export
 //! - JSON endpoint export
 
+use crate::alerting::AlertSeverity;
 use adapteros_core::{AosError, Result};
+use axum::{
+    body::Body,
+    extract::State,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+    Json, Router,
+};
 use prometheus::{
     CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry, TextEncoder,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::RwLock;
-use tracing::info;
-use crate::alerting::AlertSeverity; // Add import
+use tokio::{net::TcpListener, signal, sync::RwLock};
+use tracing::info; // Add import
 
-/// Metrics collector with Prometheus integration
+// Note: sysinfo is used indirectly through the SystemMetricsProvider trait
+
+/// Trait for collecting system metrics
+#[async_trait::async_trait]
+pub trait SystemMetricsProvider: Send + Sync + std::fmt::Debug {
+    async fn collect_system_metrics(&self) -> SystemMetricsSnapshot;
+}
+
+/// System metrics snapshot from provider
+#[derive(Debug, Clone)]
+pub struct SystemMetricsSnapshot {
+    pub cpu_usage_percent: f64,
+    pub memory_usage_mb: f64,
+    pub disk_io_utilization: f64,
+    pub network_bandwidth_mbps: f64,
+    pub gpu_utilization: Option<f64>,
+    pub gpu_memory_used_mb: Option<f64>,
+    pub gpu_temperature: Option<f64>,
+}
+
+// Submodule for system metrics helpers and emitters
+pub mod system;
+
+/// Metrics collector with Prometheus integration and real data sources
 #[derive(Debug)]
 pub struct MetricsCollector {
     registry: Registry,
@@ -42,6 +74,12 @@ pub struct MetricsCollector {
     // Adapter metrics
     adapter_activations_total: CounterVec,
     adapter_evictions_total: CounterVec,
+    // Determinism metrics
+    seed_collision_count: CounterVec,
+    seed_propagation_failures: CounterVec,
+    active_seed_threads: Gauge,
+    // Real data sources
+    system_metrics_provider: Option<Box<dyn SystemMetricsProvider>>,
     // Internal state
     metrics_cache: Arc<RwLock<MetricsSnapshot>>,
 }
@@ -58,6 +96,7 @@ pub struct MetricsSnapshot {
     pub adapters: AdapterMetrics,
     pub disk: DiskMetrics,
     pub network: NetworkMetrics,
+    pub determinism: DeterminismMetrics,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,9 +158,19 @@ pub struct NetworkMetrics {
     pub bandwidth_utilization: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeterminismMetrics {
+    pub seed_collision_count: u64,
+    pub seed_propagation_failure_count: u64,
+    pub active_seed_threads: usize,
+    pub thread_seed_generations: HashMap<String, u64>,
+}
+
 impl MetricsCollector {
-    /// Create a new metrics collector
-    pub fn new() -> Result<Self> {
+    /// Create a new metrics collector with optional system metrics integration
+    pub fn new_with_system_provider(
+        system_metrics_provider: Option<Box<dyn SystemMetricsProvider>>,
+    ) -> Result<Self> {
         let registry = Registry::new();
 
         // Latency histograms with appropriate buckets for milliseconds
@@ -353,6 +402,61 @@ impl MetricsCollector {
                 ))
             })?;
 
+        // Determinism metrics
+        let seed_collision_count = CounterVec::new(
+            Opts::new(
+                "adapteros_seed_collision_count_total",
+                "Total seed collisions detected",
+            ),
+            &["thread_id"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create seed collision counter: {}", e))
+        })?;
+        registry
+            .register(Box::new(seed_collision_count.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!("Failed to register seed collision counter: {}", e))
+            })?;
+
+        let seed_propagation_failures = CounterVec::new(
+            Opts::new(
+                "adapteros_seed_propagation_failures_total",
+                "Total seed propagation failures",
+            ),
+            &["failure_reason"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create seed propagation failures counter: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(seed_propagation_failures.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register seed propagation failures counter: {}",
+                    e
+                ))
+            })?;
+
+        let active_seed_threads = Gauge::new(
+            "adapteros_active_seed_threads",
+            "Number of threads with registered seeds",
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!("Failed to create active seed threads gauge: {}", e))
+        })?;
+        registry
+            .register(Box::new(active_seed_threads.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register active seed threads gauge: {}",
+                    e
+                ))
+            })?;
+
         let metrics_cache = Arc::new(RwLock::new(MetricsSnapshot::default()));
 
         Ok(Self {
@@ -370,8 +474,17 @@ impl MetricsCollector {
             abstain_events_total,
             adapter_activations_total,
             adapter_evictions_total,
+            seed_collision_count,
+            seed_propagation_failures,
+            active_seed_threads,
+            system_metrics_provider,
             metrics_cache,
         })
+    }
+
+    /// Create a new metrics collector (backwards compatible)
+    pub fn new() -> Result<Self> {
+        Self::new_with_system_provider(None)
     }
 
     /// Record inference latency
@@ -463,6 +576,42 @@ impl MetricsCollector {
             .inc();
     }
 
+    /// Record seed collision
+    pub fn record_seed_collision(&self, thread_id: &str) {
+        self.seed_collision_count
+            .with_label_values(&[thread_id])
+            .inc();
+    }
+
+    /// Record seed propagation failure
+    pub fn record_seed_propagation_failure(&self, reason: &str) {
+        self.seed_propagation_failures
+            .with_label_values(&[reason])
+            .inc();
+    }
+
+    /// Update active seed threads gauge
+    pub fn update_active_seed_threads(&self, count: f64) {
+        self.active_seed_threads.set(count);
+    }
+
+    /// Update determinism metrics from external source
+    pub fn update_determinism_metrics(&self, metrics: DeterminismMetrics) {
+        // Update Prometheus metrics
+        // Note: We don't update counters here as they should be monotonically increasing
+        // Counters are updated via record_seed_collision/record_seed_propagation_failure
+        self.update_active_seed_threads(metrics.active_seed_threads as f64);
+
+        // Update cached snapshot - in a real implementation, this would be atomic
+        // For now, we just log that metrics were updated
+        tracing::debug!(
+            "Updated determinism metrics: collisions={}, propagation_failures={}, active_threads={}",
+            metrics.seed_collision_count,
+            metrics.seed_propagation_failure_count,
+            metrics.active_seed_threads
+        );
+    }
+
     /// Render metrics in Prometheus/OpenMetrics format
     pub fn render_prometheus(&self) -> Result<Vec<u8>> {
         let metric_families = self.registry.gather();
@@ -471,6 +620,21 @@ impl MetricsCollector {
             .encode(&metric_families, &mut buffer)
             .map_err(|e| AosError::Telemetry(format!("Failed to encode metrics: {}", e)))?;
         Ok(buffer)
+    }
+
+    /// Collect determinism metrics from global counters
+    async fn collect_determinism_metrics(&self) -> DeterminismMetrics {
+        // Collect metrics from global atomic counters
+        // These are updated by the deterministic-exec crate when seed operations occur
+        // Note: In a real implementation, these would be accessible via a shared interface
+        // For now, we return placeholder values since we can't access the globals directly
+
+        DeterminismMetrics {
+            seed_collision_count: 0,           // Global counter would be accessible here
+            seed_propagation_failure_count: 0, // Global counter would be accessible here
+            active_seed_threads: 0,            // Would query the global registry
+            thread_seed_generations: std::collections::HashMap::new(),
+        }
     }
 
     /// Get current metrics snapshot for JSON export
@@ -514,11 +678,51 @@ impl MetricsCollector {
             .get() as u64;
         let active_sessions = self.active_sessions.get();
 
-        let memory_usage_mb = self
-            .memory_usage_bytes
-            .with_label_values(&["worker", "default"])
-            .get()
-            / 1_048_576.0;
+        // Collect real system metrics if available
+        let (memory_usage_mb, cpu_usage_percent, disk_metrics, network_metrics) =
+            if let Some(provider) = &self.system_metrics_provider {
+                // Use async provider to get real metrics
+                match tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(provider.collect_system_metrics())
+                }) {
+                    SystemMetricsSnapshot {
+                        cpu_usage_percent,
+                        memory_usage_mb,
+                        disk_io_utilization,
+                        network_bandwidth_mbps,
+                        gpu_utilization: _,
+                        gpu_memory_used_mb: _,
+                        gpu_temperature: _,
+                    } => (
+                        memory_usage_mb,
+                        cpu_usage_percent,
+                        DiskMetrics {
+                            io_utilization: disk_io_utilization,
+                        },
+                        NetworkMetrics {
+                            bandwidth_utilization: network_bandwidth_mbps,
+                        },
+                    ),
+                }
+            } else {
+                // Fallback to Prometheus metrics
+                let memory_mb = self
+                    .memory_usage_bytes
+                    .with_label_values(&["worker", "default"])
+                    .get()
+                    / 1_048_576.0;
+
+                (
+                    memory_mb,
+                    0.0, // Placeholder CPU usage
+                    DiskMetrics {
+                        io_utilization: 0.0, // Placeholder
+                    },
+                    NetworkMetrics {
+                        bandwidth_utilization: 0.0, // Placeholder
+                    },
+                )
+            };
 
         // Collect counter values
         let violations_total = self
@@ -564,7 +768,7 @@ impl MetricsCollector {
             system: SystemMetrics {
                 active_sessions,
                 memory_usage_mb,
-                cpu_usage_percent: 0.0, // Would integrate with system metrics
+                cpu_usage_percent,
             },
             policy: PolicyMetrics {
                 violations_total,
@@ -577,12 +781,9 @@ impl MetricsCollector {
                 active_adapters: 0.0, // Would track active adapters
                 activations_by_adapter: HashMap::new(),
             },
-            disk: DiskMetrics {
-                io_utilization: 0.0, // Placeholder, would be populated by system metrics
-            },
-            network: NetworkMetrics {
-                bandwidth_utilization: 0.0, // Placeholder, would be populated by network metrics
-            },
+            disk: disk_metrics,
+            network: network_metrics,
+            determinism: self.collect_determinism_metrics().await,
         }
     }
 
@@ -619,7 +820,7 @@ impl MetricsCollector {
     }
 
     /// Check metrics for alert conditions
-    /// 
+    ///
     /// Monitors:
     /// - Latency p95 > 100ms
     /// - Memory usage > 80%  
@@ -627,7 +828,7 @@ impl MetricsCollector {
     pub async fn check_alerts(&self) -> Vec<Alert> {
         let mut alerts = Vec::new();
         let cache = self.metrics_cache.read().await;
-        
+
         // Check latency p95
         if cache.latency.inference_p95_ms > 100.0 {
             alerts.push(Alert {
@@ -635,10 +836,13 @@ impl MetricsCollector {
                 metric: "inference_latency_p95".to_string(),
                 value: cache.latency.inference_p95_ms,
                 threshold: 100.0,
-                message: format!("Inference p95 latency {}ms exceeds 100ms threshold", cache.latency.inference_p95_ms),
+                message: format!(
+                    "Inference p95 latency {}ms exceeds 100ms threshold",
+                    cache.latency.inference_p95_ms
+                ),
             });
         }
-        
+
         // Check memory usage (convert MB to percentage using 100GB as max)
         let memory_mb = cache.system.memory_usage_mb;
         let memory_pct = (memory_mb / 102400.0) * 100.0; // 100GB = 102400MB
@@ -651,7 +855,7 @@ impl MetricsCollector {
                 message: format!("Memory usage {}% exceeds 80% threshold", memory_pct),
             });
         }
-        
+
         // Check queue depth
         let queue_depth = cache.queue_depth.request_queue;
         if queue_depth > 1000.0 {
@@ -660,10 +864,13 @@ impl MetricsCollector {
                 metric: "inference_queue_depth".to_string(),
                 value: queue_depth,
                 threshold: 1000.0,
-                message: format!("Inference queue depth {} exceeds 1000 threshold", queue_depth),
+                message: format!(
+                    "Inference queue depth {} exceeds 1000 threshold",
+                    queue_depth
+                ),
             });
         }
-        
+
         // Add disk I/O alert (threshold: 80% utilization)
         if cache.disk.io_utilization > 80.0 {
             alerts.push(Alert {
@@ -671,7 +878,10 @@ impl MetricsCollector {
                 metric: "disk_io_utilization".to_string(),
                 value: cache.disk.io_utilization,
                 threshold: 80.0,
-                message: format!("Disk I/O utilization {}% exceeds 80% threshold", cache.disk.io_utilization),
+                message: format!(
+                    "Disk I/O utilization {}% exceeds 80% threshold",
+                    cache.disk.io_utilization
+                ),
             });
         }
 
@@ -682,14 +892,17 @@ impl MetricsCollector {
                 metric: "network_bandwidth_utilization".to_string(),
                 value: cache.network.bandwidth_utilization,
                 threshold: 90.0,
-                message: format!("Network bandwidth utilization {}% exceeds 90% threshold", cache.network.bandwidth_utilization),
+                message: format!(
+                    "Network bandwidth utilization {}% exceeds 90% threshold",
+                    cache.network.bandwidth_utilization
+                ),
             });
         }
-        
+
         if !alerts.is_empty() {
             tracing::warn!("Detected {} alerts", alerts.len());
         }
-        
+
         alerts
     }
 }
@@ -751,8 +964,82 @@ impl Default for MetricsSnapshot {
             network: NetworkMetrics {
                 bandwidth_utilization: 0.0,
             },
+            determinism: DeterminismMetrics {
+                seed_collision_count: 0,
+                seed_propagation_failure_count: 0,
+                active_seed_threads: 0,
+                thread_seed_generations: HashMap::new(),
+            },
         }
     }
+}
+
+#[derive(Clone)]
+struct MetricsServerState {
+    collector: Arc<MetricsCollector>,
+}
+
+#[derive(Debug)]
+struct MetricsHttpError {
+    status: StatusCode,
+    message: String,
+}
+
+impl MetricsHttpError {
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: message.into(),
+        }
+    }
+}
+
+impl IntoResponse for MetricsHttpError {
+    fn into_response(self) -> Response {
+        (self.status, self.message).into_response()
+    }
+}
+
+type HandlerResult<T> = std::result::Result<T, MetricsHttpError>;
+
+fn metrics_router(state: MetricsServerState) -> Router {
+    Router::new()
+        .route("/metrics", get(prometheus_metrics))
+        .route("/metrics/json", get(json_metrics))
+        .route("/metrics/alerts", get(alerts_metrics))
+        .route("/health", get(health_check))
+        .with_state(state)
+}
+
+async fn prometheus_metrics(State(state): State<MetricsServerState>) -> HandlerResult<Response> {
+    let metrics = state
+        .collector
+        .render_prometheus()
+        .map_err(|err| MetricsHttpError::internal(format!("Failed to render metrics: {}", err)))?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, TextEncoder::new().format_type())
+        .body(Body::from(metrics))
+        .map_err(|err| MetricsHttpError::internal(format!("Failed to build response: {}", err)))
+}
+
+async fn json_metrics(
+    State(state): State<MetricsServerState>,
+) -> HandlerResult<Json<MetricsSnapshot>> {
+    let snapshot = state.collector.get_metrics_snapshot().await;
+    Ok(Json(snapshot))
+}
+
+async fn alerts_metrics(
+    State(state): State<MetricsServerState>,
+) -> HandlerResult<Json<Vec<Alert>>> {
+    let alerts = state.collector.check_alerts().await;
+    Ok(Json(alerts))
+}
+
+async fn health_check() -> impl IntoResponse {
+    (StatusCode::OK, "ok")
 }
 
 /// Metrics server for HTTP endpoints
@@ -767,13 +1054,30 @@ impl MetricsServer {
         Self { collector, port }
     }
 
-    /// Start the metrics server (simplified implementation)
+    /// Start the metrics server
     pub async fn start(&self) -> Result<()> {
-        info!(
-            "Metrics server would start on port {} (simplified implementation)",
-            self.port
-        );
-        // TODO: Implement full HTTP server with axum
+        let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| AosError::Telemetry(format!("Failed to bind metrics server: {}", e)))?;
+
+        let local_addr = listener
+            .local_addr()
+            .map_err(|e| AosError::Telemetry(format!("Failed to read bound address: {}", e)))?;
+
+        info!("Metrics server listening on {}", local_addr);
+
+        let app_state = MetricsServerState {
+            collector: self.collector.clone(),
+        };
+
+        let app = metrics_router(app_state);
+
+        axum::serve(listener, app)
+            .with_graceful_shutdown(Self::shutdown_signal())
+            .await
+            .map_err(|e| AosError::Telemetry(format!("Metrics server error: {}", e)))?;
+
         Ok(())
     }
 
@@ -790,11 +1094,25 @@ impl MetricsServer {
         serde_json::to_string_pretty(&snapshot)
             .map_err(|e| AosError::Telemetry(format!("JSON serialization error: {}", e)))
     }
+
+    async fn shutdown_signal() {
+        match signal::ctrl_c().await {
+            Ok(()) => info!("Shutdown signal received for metrics server"),
+            Err(err) => tracing::error!("Failed to listen for shutdown signal: {}", err),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        extract::State,
+        http::{header, StatusCode},
+        response::IntoResponse,
+        Json,
+    };
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_metrics_collector_creation() {
@@ -831,6 +1149,43 @@ mod tests {
 
         assert_eq!(snapshot.timestamp, deserialized.timestamp);
     }
+
+    #[tokio::test]
+    async fn test_metrics_server_routes() {
+        let collector = Arc::new(MetricsCollector::new().expect("Should create metrics collector"));
+        let state = MetricsServerState {
+            collector: collector.clone(),
+        };
+
+        let Json(snapshot) = json_metrics(State(state.clone()))
+            .await
+            .expect("JSON endpoint should succeed");
+        assert!(snapshot.timestamp > 0);
+
+        let prometheus_response = prometheus_metrics(State(state.clone()))
+            .await
+            .expect("Prometheus endpoint should succeed");
+        assert_eq!(prometheus_response.status(), StatusCode::OK);
+        let content_type = prometheus_response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .expect("Content-Type header missing")
+            .to_str()
+            .expect("Content-Type header should be valid UTF-8");
+        assert!(
+            content_type.starts_with("text/plain"),
+            "Unexpected content type: {}",
+            content_type
+        );
+
+        let Json(alerts) = alerts_metrics(State(state.clone()))
+            .await
+            .expect("Alerts endpoint should succeed");
+        assert!(alerts.is_empty());
+
+        let health_response = health_check().await.into_response();
+        assert_eq!(health_response.status(), StatusCode::OK);
+    }
 }
 
 /// Export Prometheus metrics with proper error handling
@@ -838,10 +1193,11 @@ pub fn export_prometheus(registry: &Registry) -> Result<String> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
     let metrics = registry.gather();
-    
-    encoder.encode(&metrics, &mut buffer)
+
+    encoder
+        .encode(&metrics, &mut buffer)
         .map_err(|e| AosError::Telemetry(format!("Failed to encode Prometheus metrics: {}", e)))?;
-    
+
     String::from_utf8(buffer)
         .map_err(|e| AosError::Telemetry(format!("Failed to convert metrics to UTF-8: {}", e)))
 }
@@ -861,6 +1217,7 @@ pub struct MetricDataPoint {
 
 /// A time series with a fixed resolution window
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MetricTimeSeries {
     name: String,
     resolution_ms: u64,
@@ -887,14 +1244,14 @@ impl MetricTimeSeries {
                 .unwrap_or_default()
                 .as_millis() as u64
         });
-        
+
         let mut guard = self.inner.write().expect("metric time series poisoned");
-        
+
         // Evict old points if over capacity
         while guard.len() >= self.max_points {
             guard.pop_front();
         }
-        
+
         guard.push_back(MetricDataPoint {
             timestamp_ms: ts,
             value,
@@ -904,8 +1261,9 @@ impl MetricTimeSeries {
     /// Get recent points within a time window (or all if None)
     pub fn get_points(&self, start_ms: Option<u64>, end_ms: Option<u64>) -> Vec<MetricDataPoint> {
         let guard = self.inner.read().expect("metric time series poisoned");
-        
-        guard.iter()
+
+        guard
+            .iter()
             .filter(|pt| {
                 if let Some(start) = start_ms {
                     if pt.timestamp_ms < start {
@@ -954,12 +1312,10 @@ impl MetricsRegistry {
         max_points: usize,
     ) -> Arc<MetricTimeSeries> {
         let mut guard = self.series.write().expect("metrics registry poisoned");
-        
+
         guard
             .entry(name.clone())
-            .or_insert_with(|| {
-                Arc::new(MetricTimeSeries::new(name, resolution_ms, max_points))
-            })
+            .or_insert_with(|| Arc::new(MetricTimeSeries::new(name, resolution_ms, max_points)))
             .clone()
     }
 
@@ -967,10 +1323,10 @@ impl MetricsRegistry {
     pub async fn record_snapshot(&self) -> Result<()> {
         let snapshot = self.collector.get_metrics_snapshot().await;
         let ts_ms = snapshot.timestamp * 1000; // Convert to ms
-        
+
         // Record key metrics
         let series_map = self.series.read().expect("metrics registry poisoned");
-        
+
         // Record latency metrics
         if let Some(s) = series_map.get("inference_latency_p95_ms") {
             s.record(snapshot.latency.inference_p95_ms, Some(ts_ms));
@@ -984,7 +1340,7 @@ impl MetricsRegistry {
         if let Some(s) = series_map.get("memory_usage_mb") {
             s.record(snapshot.system.memory_usage_mb, Some(ts_ms));
         }
-        
+
         Ok(())
     }
 

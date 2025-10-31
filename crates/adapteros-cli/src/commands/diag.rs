@@ -121,7 +121,7 @@ impl DiagnosticRunner {
         self.check_permissions();
 
         // Database check
-        self.check_database().await;
+        self.check_database().await?;
 
         // Kernel check
         self.check_kernels();
@@ -348,7 +348,7 @@ impl DiagnosticRunner {
         let db_path_str = db_path
             .to_str()
             .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
-        match adapteros_db::Db::connect(db_path_str).await {
+        match adapteros_db::Database::connect_env().await {
             Ok(_db) => {
                 self.check(
                     "Database",
@@ -428,7 +428,7 @@ impl DiagnosticRunner {
         };
 
         // Check tenant registry
-        self.check_tenant_registry(&tenant_id).await;
+        self.check_tenant_registry(&tenant_id).await?;
 
         // Check telemetry
         self.check_telemetry(&tenant_id);
@@ -452,15 +452,21 @@ impl DiagnosticRunner {
         let db_path_str = db_path
             .to_str()
             .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
-        match adapteros_db::Db::connect(db_path_str).await {
+        match adapteros_db::Database::connect_env().await {
             Ok(db) => {
-                // Check if tenant exists
-                let query = "SELECT uid, gid FROM tenants WHERE id = ?";
-                match sqlx::query(query)
-                    .bind(tenant_id)
-                    .fetch_optional(db.pool())
-                    .await
-                {
+                // Check if tenant exists - use appropriate query syntax
+                let result = if db.as_sqlite().is_some() {
+                    sqlx::query("SELECT uid, gid FROM tenants WHERE id = ?")
+                        .bind(tenant_id)
+                        .fetch_optional(db.pool())
+                        .await
+                } else {
+                    sqlx::query("SELECT uid, gid FROM tenants WHERE id = $1")
+                        .bind(tenant_id)
+                        .fetch_optional(db.postgres_pool())
+                        .await
+                };
+                match result {
                     Ok(Some(row)) => {
                         let uid: i64 = row.try_get("uid").unwrap_or(0);
                         let gid: i64 = row.try_get("gid").unwrap_or(0);
@@ -605,30 +611,27 @@ impl DiagnosticRunner {
             return;
         }
 
-        match std::fs::metadata(heartbeat_path) {
-            Ok(meta) => {
-                if let Ok(modified) = meta.modified() {
-                    if let Ok(elapsed) = modified.elapsed() {
-                        let secs = elapsed.as_secs();
-                        let status = if secs < 30 {
-                            CheckStatus::Pass
-                        } else if secs < 120 {
-                            CheckStatus::Warning
-                        } else {
-                            CheckStatus::Fail
-                        };
+        if let Ok(meta) = std::fs::metadata(heartbeat_path) {
+            if let Ok(modified) = meta.modified() {
+                if let Ok(elapsed) = modified.elapsed() {
+                    let secs = elapsed.as_secs();
+                    let status = if secs < 30 {
+                        CheckStatus::Pass
+                    } else if secs < 120 {
+                        CheckStatus::Warning
+                    } else {
+                        CheckStatus::Fail
+                    };
 
-                        self.check(
-                            "Service Heartbeat",
-                            status,
-                            format!("Last heartbeat: {} seconds ago", secs),
-                            None,
-                        );
-                        return;
-                    }
+                    self.check(
+                        "Service Heartbeat",
+                        status,
+                        format!("Last heartbeat: {} seconds ago", secs),
+                        None,
+                    );
+                    return;
                 }
             }
-            Err(_) => {}
         }
 
         self.check(

@@ -4,7 +4,6 @@
 
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
-use tracing::debug;
 
 /// Common platform utilities
 pub struct PlatformUtils;
@@ -21,7 +20,7 @@ impl PlatformUtils {
         #[cfg(target_os = "linux")]
         return "linux";
 
-        #[cfg(unix)]
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
         return "unix";
 
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux", unix)))]

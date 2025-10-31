@@ -152,9 +152,8 @@ async fn main() -> Result<()> {
     // =========================================================================================
     // The executor is seeded from the manifest to ensure all async tasks are deterministic.
     let seed_hex = &config.security.global_seed;
-    let seed_bytes = hex::decode(seed_hex).map_err(|e| {
-        AosError::Config(format!("Invalid hex for global_seed: {}", e))
-    })?;
+    let seed_bytes = hex::decode(seed_hex)
+        .map_err(|e| AosError::Config(format!("Invalid hex for global_seed: {}", e)))?;
 
     if seed_bytes.len() != 32 {
         return Err(AosError::Config(format!(
@@ -174,17 +173,17 @@ async fn main() -> Result<()> {
         let cfg = config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-        
+
         if cfg.server.production_mode {
             info!("🔒 Production mode enabled - enforcing M1 security requirements");
-            
+
             // Enforce UDS-only serving
             if cfg.server.uds_socket.is_none() {
                 return Err(AosError::Config(
                     "Production mode requires uds_socket to be configured. TCP serving is disabled in production.".to_string()
                 ).into());
             }
-            
+
             // Enforce Ed25519 JWTs (block HMAC)
             let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hmac");
             if jwt_mode != "eddsa" {
@@ -192,26 +191,29 @@ async fn main() -> Result<()> {
                     format!("Production mode requires jwt_mode = 'eddsa' (found: '{}'). HMAC is not allowed in production.", jwt_mode)
                 ).into());
             }
-            
+
             if cfg.security.jwt_public_key_pem.is_none() {
                 return Err(AosError::Config(
-                    "Production mode requires jwt_public_key_pem to be set for Ed25519 validation.".to_string()
-                ).into());
+                    "Production mode requires jwt_public_key_pem to be set for Ed25519 validation."
+                        .to_string(),
+                )
+                .into());
             }
-            
+
             // Block egress skip override
             if cli.skip_pf_check {
                 return Err(AosError::Config(
                     "--skip-pf-check is not allowed in production mode. Zero egress must be enforced.".to_string()
                 ).into());
             }
-            
+
             if !cfg.security.require_pf_deny {
                 return Err(AosError::Config(
-                    "Production mode requires security.require_pf_deny = true".to_string()
-                ).into());
+                    "Production mode requires security.require_pf_deny = true".to_string(),
+                )
+                .into());
             }
-            
+
             info!("✓ Production mode validation passed");
         }
     }
@@ -228,8 +230,9 @@ async fn main() -> Result<()> {
             warn!("⚠️  PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
             if cfg.server.production_mode {
                 return Err(AosError::Config(
-                    "Cannot skip PF check in production mode".to_string()
-                ).into());
+                    "Cannot skip PF check in production mode".to_string(),
+                )
+                .into());
             }
         }
     }
@@ -422,10 +425,13 @@ async fn main() -> Result<()> {
                                         bundle_path: gg.bundle_path.clone(),
                                     });
                                 api_cfg.bundles_root = new_config.paths.bundles_root.clone();
-                                api_cfg.rate_limits = Some(adapteros_server_api::state::RateLimitApiConfig {
-                                    requests_per_minute: new_config.rate_limits.requests_per_minute,
-                                    burst_size: new_config.rate_limits.burst_size,
-                                });
+                                api_cfg.rate_limits =
+                                    Some(adapteros_server_api::state::RateLimitApiConfig {
+                                        requests_per_minute: new_config
+                                            .rate_limits
+                                            .requests_per_minute,
+                                        burst_size: new_config.rate_limits.burst_size,
+                                    });
                             }
                             Err(e) => {
                                 error!("API config lock poisoned during reload: {}", e);
@@ -469,11 +475,24 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(&bundles_path)
             .map_err(|e| AosError::Io(format!("Failed to create bundles directory: {}", e)))?;
 
-        let telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new(
+        // Create broadcast channel for live telemetry streaming
+        let (telemetry_tx, _telemetry_rx) = tokio::sync::broadcast::channel(256);
+
+        let telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new_with_broadcast(
             &bundles_path,
             10000,            // max_events_per_bundle
             50 * 1024 * 1024, // max_bundle_size (50MB)
+            Some(telemetry_tx.clone()),
         )?);
+
+        // Create metrics collector and registry for AppState
+        let metrics_collector = Arc::new(
+            adapteros_telemetry::MetricsCollector::new_with_system_provider(None)
+                .expect("metrics collector")
+        );
+        let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
+            metrics_collector.clone(),
+        ));
 
         // Create policy hash watcher
         let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(
@@ -664,7 +683,7 @@ async fn main() -> Result<()> {
         let cfg = config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-        
+
         if let Some(ref secret_file) = cfg.security.jwt_secret_file {
             // Load from file
             match std::fs::read_to_string(secret_file) {
@@ -676,7 +695,8 @@ async fn main() -> Result<()> {
                     return Err(AosError::Config(format!(
                         "Failed to read JWT secret file {}: {}",
                         secret_file, e
-                    )).into());
+                    ))
+                    .into());
                 }
             }
         } else {
@@ -693,14 +713,19 @@ async fn main() -> Result<()> {
         cfg.orchestrator.base_model.clone()
     };
 
-    let training_service = Arc::new(TrainingService::new_with_base_model(orchestrator_base_model));
+    let training_service = Arc::new(TrainingService::new_with_base_model(
+        orchestrator_base_model,
+    ));
 
     let mut state = AppState::new(
         db.clone(),
         jwt_secret,
         api_config.clone(),
         Arc::clone(&metrics_exporter),
-        Arc::clone(&training_service),
+        metrics_collector,
+        metrics_registry,
+        training_service,
+        Some(telemetry_tx),
     );
 
     // Optionally initialize LifecycleManager with mmap/hot-swap
@@ -719,7 +744,8 @@ async fn main() -> Result<()> {
             3,
         );
         if cfg.server.enable_mmap_adapters {
-            lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), cfg.server.mmap_cache_size_mb);
+            lifecycle =
+                lifecycle.with_mmap_loader(adapters_path.clone(), cfg.server.mmap_cache_size_mb);
         }
         if cfg.server.enable_hot_swap {
             lifecycle = lifecycle.with_hot_swap();
@@ -729,8 +755,8 @@ async fn main() -> Result<()> {
 
     // Optionally initialize LifecycleManager with mmap/hot-swap per config
     {
-        use adapteros_manifest::Policies;
         use adapteros_lora_lifecycle::LifecycleManager;
+        use adapteros_manifest::Policies;
 
         let cfg = config
             .read()
@@ -743,19 +769,11 @@ async fn main() -> Result<()> {
 
         // Collect adapter names from DB
         let adapter_rows = db.list_adapters().await.unwrap_or_default();
-        let adapter_names: Vec<String> = adapter_rows
-            .into_iter()
-            .map(|a| a.adapter_id)
-            .collect();
+        let adapter_names: Vec<String> = adapter_rows.into_iter().map(|a| a.adapter_id).collect();
 
         let policies = Policies::default();
-        let mut lifecycle = LifecycleManager::new(
-            adapter_names,
-            &policies,
-            adapters_path.clone(),
-            None,
-            3,
-        );
+        let mut lifecycle =
+            LifecycleManager::new(adapter_names, &policies, adapters_path.clone(), None, 3);
         if enable_mmap {
             lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), mmap_mb);
         }
@@ -768,7 +786,11 @@ async fn main() -> Result<()> {
 
     let paths_config = config.read().unwrap().paths.clone();
     let orchestrator_config = config.read().unwrap().orchestrator.clone();
-    let code_job_manager = Arc::new(CodeJobManager::new(db.clone(), paths_config, orchestrator_config));
+    let code_job_manager = Arc::new(CodeJobManager::new(
+        db.clone(),
+        paths_config,
+        orchestrator_config,
+    ));
     state = state.with_code_jobs(code_job_manager);
 
     // Configure JWT mode from config (HMAC by default, EdDSA optional)
@@ -847,22 +869,47 @@ async fn main() -> Result<()> {
         .merge(ui_routes)
         .nest("/api", api_routes);
 
+    // Start real-time metrics update task
+    {
+        let metrics_collector = api_state.metrics_collector.clone();
+        let metrics_registry = api_state.metrics_registry.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30)); // Update every 30 seconds
+            loop {
+                interval.tick().await;
+
+                // Update metrics cache
+                if let Err(e) = metrics_collector.update_cache().await {
+                    error!("Failed to update metrics cache: {}", e);
+                }
+
+                // Record time series data
+                if let Err(e) = metrics_registry.record_snapshot().await {
+                    error!("Failed to record metrics snapshot: {}", e);
+                }
+            }
+        });
+        info!("Real-time metrics update task started");
+    }
+
     // Choose serving mode: UDS (M1+) or TCP (dev)
     // In production_mode, UDS is required and TCP is blocked
     let cfg_guard = config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
     if let Some(ref uds_path) = cfg_guard.server.uds_socket {
-        use std::os::unix::fs::PermissionsExt;
-        use tokio::net::UnixListener;
         use hyper_util::rt::TokioIo;
         use hyper_util::server::conn::auto::Builder as HyperBuilder;
+        use std::os::unix::fs::PermissionsExt;
+        use tokio::net::UnixListener;
 
         let socket_path = std::path::PathBuf::from(uds_path);
         if socket_path.exists() {
             let _ = std::fs::remove_file(&socket_path);
         }
-        if let Some(parent) = socket_path.parent() { std::fs::create_dir_all(parent)?; }
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
         let listener = UnixListener::bind(&socket_path)?;
         // Restrictive permissions: 600
@@ -918,14 +965,18 @@ async fn main() -> Result<()> {
         let production_mode = cfg_guard.server.production_mode;
         if production_mode {
             return Err(AosError::Config(
-                "Production mode requires uds_socket configuration. TCP serving is disabled.".to_string()
-            ).into());
+                "Production mode requires uds_socket configuration. TCP serving is disabled."
+                    .to_string(),
+            )
+            .into());
         }
-        
+
         let port = cfg_guard.server.port;
         let bind = cfg_guard.server.bind.clone();
         drop(cfg_guard);
-        let addr: SocketAddr = format!("{}:{}", bind, port).parse().unwrap_or(SocketAddr::from(([127,0,0,1], port)));
+        let addr: SocketAddr = format!("{}:{}", bind, port)
+            .parse()
+            .unwrap_or(SocketAddr::from(([127, 0, 0, 1], port)));
         warn!("⚠️  Starting control plane on TCP (development mode)");
         info!("UI available at http://{}:{}/", addr.ip(), port);
         info!("API available at http://{}:{}/api/", addr.ip(), port);

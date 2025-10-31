@@ -1,4 +1,4 @@
-use adapteros_base_llm::{BaseLLM, BaseLLMConfig, BaseLLMFactory, BaseLLMMetadata, ModelType};
+use adapteros_base_llm::{BaseLLMConfig, BaseLLMFactory, BaseLLMMetadata, ModelType};
 use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
 
 fn main() -> adapteros_core::Result<()> {
@@ -16,6 +16,10 @@ fn main() -> adapteros_core::Result<()> {
     model.load(&mut exec)?;
 
     let logits = model.forward(&[1, 2, 3, 4])?;
-    println!("FFI logits len = {} nonzero={}", logits.len(), logits.iter().filter(|v| **v != 0.0).count());
+    println!(
+        "FFI logits len = {} nonzero={}",
+        logits.len(),
+        logits.iter().filter(|v| **v != 0.0).count()
+    );
     Ok(())
 }

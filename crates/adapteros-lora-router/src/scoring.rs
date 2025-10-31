@@ -168,11 +168,8 @@ impl ScoringFunction for AdapterAwareScorer {
         eps: f32,
     ) -> Decision {
         // Base: priors
-        let mut scores: Vec<(usize, f32)> = priors
-            .iter()
-            .enumerate()
-            .map(|(i, &p)| (i, p))
-            .collect();
+        let mut scores: Vec<(usize, f32)> =
+            priors.iter().enumerate().map(|(i, &p)| (i, p)).collect();
 
         // Framework contributions from features[8..11]
         let fw_signals = if features.len() >= 11 {

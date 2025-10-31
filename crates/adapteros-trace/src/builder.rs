@@ -1,7 +1,6 @@
 //! In-memory trace builder with bounded buffers for live dashboard
 
-use crate::schema::{Event, TraceBundle};
-use adapteros_core::B3Hash;
+use crate::schema::TraceBundle;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
@@ -66,18 +65,18 @@ impl TraceBuffer {
     pub fn add_trace(&self, trace: Trace) {
         let mut guard = self.inner.write().expect("trace buffer poisoned");
         let mut idx_guard = self.span_index.write().expect("span index poisoned");
-        
+
         // Evict oldest if at capacity
         if guard.len() >= self.capacity {
             if let Some(old_trace) = guard.pop_front() {
                 idx_guard.remove(&old_trace.trace_id);
             }
         }
-        
+
         // Index span IDs by trace ID
         let span_ids: Vec<String> = trace.spans.iter().map(|s| s.span_id.clone()).collect();
         idx_guard.insert(trace.trace_id.clone(), span_ids);
-        
+
         guard.push_back(trace);
     }
 
@@ -91,48 +90,57 @@ impl TraceBuffer {
     pub fn search(&self, query: &TraceSearchQuery) -> Vec<String> {
         let guard = self.inner.read().expect("trace buffer poisoned");
         let mut results = Vec::new();
-        
+
         for trace in guard.iter() {
             let mut matches = true;
-            
+
             if let Some(ref span_name) = query.span_name {
                 if !trace.spans.iter().any(|s| &s.name == span_name) {
                     matches = false;
                 }
             }
-            
-            if let Some(ref status) = query.status {
-                if !trace.spans.iter().any(|s| matches!(&s.status, status)) {
+
+            if let Some(ref _status) = query.status {
+                if !trace.spans.iter().any(|s| matches!(&s.status, _status)) {
                     matches = false;
                 }
             }
-            
+
             if let Some(start_ns) = query.start_time_ns {
                 // Check if any span starts after this time
                 if !trace.spans.iter().any(|s| s.start_ns >= start_ns) {
                     matches = false;
                 }
             }
-            
+
             if let Some(end_ns) = query.end_time_ns {
                 // Check if any span ends before this time
-                if !trace.spans.iter().any(|s| s.end_ns.unwrap_or(u64::MAX) <= end_ns) {
+                if !trace
+                    .spans
+                    .iter()
+                    .any(|s| s.end_ns.unwrap_or(u64::MAX) <= end_ns)
+                {
                     matches = false;
                 }
             }
-            
+
             if matches {
                 results.push(trace.trace_id.clone());
             }
         }
-        
+
         results
     }
 
     /// Get all trace IDs (newest first, up to limit)
     pub fn list_traces(&self, limit: usize) -> Vec<String> {
         let guard = self.inner.read().expect("trace buffer poisoned");
-        guard.iter().rev().take(limit).map(|t| t.trace_id.clone()).collect()
+        guard
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|t| t.trace_id.clone())
+            .collect()
     }
 
     /// Current number of traces retained
@@ -183,7 +191,7 @@ impl TraceBuilder {
         if self.root_span_id.is_none() && parent_id.is_none() {
             self.root_span_id = Some(span_id.clone());
         }
-        
+
         let span = Span {
             span_id,
             trace_id: self.trace_id.clone(),
@@ -195,7 +203,7 @@ impl TraceBuilder {
             events: Vec::new(),
             status: SpanStatus::Unset,
         };
-        
+
         self.spans.insert(span.span_id.clone(), span);
     }
 
@@ -241,29 +249,39 @@ impl Default for TraceBuilder {
 pub fn bundle_to_trace(bundle: &TraceBundle) -> Trace {
     let mut spans = Vec::new();
     let mut root_span_id: Option<String> = None;
-    
+
     for (idx, event) in bundle.events.iter().enumerate() {
         let span_id = format!("span_{}", idx);
-        
+
         if idx == 0 {
             root_span_id = Some(span_id.clone());
         }
-        
-        let start_ns = event.logical_timestamp.global_tick as u64 * 1000; // Approximate ns
+
+        let start_ns = event.logical_timestamp.global_tick * 1000; // Approximate ns
         let end_ns = if idx < bundle.events.len() - 1 {
-            Some((event.logical_timestamp.global_tick + 1) as u64 * 1000)
+            Some((event.logical_timestamp.global_tick + 1) * 1000)
         } else {
             None
         };
-        
+
         let mut attributes = HashMap::new();
-        attributes.insert("op_id".to_string(), serde_json::Value::String(event.op_id.clone()));
-        attributes.insert("event_type".to_string(), serde_json::Value::String(event.event_type.clone()));
-        
+        attributes.insert(
+            "op_id".to_string(),
+            serde_json::Value::String(event.op_id.clone()),
+        );
+        attributes.insert(
+            "event_type".to_string(),
+            serde_json::Value::String(event.event_type.clone()),
+        );
+
         let span = Span {
             span_id,
             trace_id: bundle.bundle_id.to_string(),
-            parent_id: if idx > 0 { Some(format!("span_{}", idx - 1)) } else { None },
+            parent_id: if idx > 0 {
+                Some(format!("span_{}", idx - 1))
+            } else {
+                None
+            },
             name: event.event_type.clone(),
             start_ns,
             end_ns,
@@ -271,10 +289,10 @@ pub fn bundle_to_trace(bundle: &TraceBundle) -> Trace {
             events: Vec::new(),
             status: SpanStatus::Ok,
         };
-        
+
         spans.push(span);
     }
-    
+
     Trace {
         trace_id: bundle.bundle_id.to_string(),
         spans,

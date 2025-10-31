@@ -81,6 +81,7 @@ pub async fn get_journey(
     );
 
     let mut states = Vec::new();
+    #[allow(unused_assignments)]
     let mut data = serde_json::json!({});
 
     match journey_type.as_str() {
@@ -206,7 +207,7 @@ pub async fn get_journey(
 
             for metric in metrics {
                 let timestamp: DateTime<Utc> =
-                    DateTime::from_timestamp(metric.timestamp, 0).unwrap_or_else(|| Utc::now());
+                    DateTime::from_timestamp(metric.timestamp, 0).unwrap_or_else(Utc::now);
 
                 states.push(JourneyState {
                     state: format!(

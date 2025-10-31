@@ -16,7 +16,7 @@ pub enum RouterCmd {
 }
 
 #[derive(Debug, Parser, Clone)]
-pub(crate) struct CalibrateArgs {
+pub struct CalibrateArgs {
     /// Path to calibration dataset (JSON file)
     #[arg(short, long)]
     dataset: PathBuf,
@@ -39,7 +39,7 @@ pub(crate) struct CalibrateArgs {
 }
 
 #[derive(Debug, Parser, Clone)]
-pub(crate) struct ValidateArgs {
+pub struct ValidateArgs {
     /// Path to calibration dataset (JSON file)
     #[arg(short, long)]
     dataset: PathBuf,
@@ -50,7 +50,7 @@ pub(crate) struct ValidateArgs {
 }
 
 #[derive(Debug, Parser, Clone)]
-pub(crate) struct ShowArgs {
+pub struct ShowArgs {
     /// Path to weights file (if not specified, show default weights)
     #[arg(short, long)]
     weights: Option<PathBuf>,

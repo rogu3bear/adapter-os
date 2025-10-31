@@ -59,8 +59,8 @@
 
 pub mod format;
 pub mod loader;
-pub mod mmap_loader;
 pub mod migration;
+pub mod mmap_loader;
 pub mod packager;
 pub mod training;
 pub mod validator;
@@ -72,8 +72,8 @@ pub use format::{
     AOS_FORMAT_VERSION,
 };
 pub use loader::{LoadOptions, SingleFileAdapterLoader};
-pub use mmap_loader::{MmapAdapter, MmapAdapterLoader, WeightsKind};
 pub use migration::{migrate_adapter, migrate_file, MigrationResult};
+pub use mmap_loader::{MmapAdapter, MmapAdapterLoader, WeightsKind};
 pub use packager::{PackageOptions, SingleFileAdapterPackager};
 pub use training::{TrainingConfig, TrainingExample};
 pub use validator::{SingleFileAdapterValidator, ValidationResult};

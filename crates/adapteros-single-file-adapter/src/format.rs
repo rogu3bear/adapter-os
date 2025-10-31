@@ -355,10 +355,8 @@ pub fn get_compatibility_report(file_version: u8) -> CompatibilityReport {
             "File format v{} is newer than supported v{}",
             file_version, current_version
         ));
-    } else if file_version < current_version {
-        if file_version < 2 {
-            warnings.push("File uses old format without separate weight groups".to_string());
-        }
+    } else if file_version < current_version && file_version < 2 {
+        warnings.push("File uses old format without separate weight groups".to_string());
     }
 
     CompatibilityReport {

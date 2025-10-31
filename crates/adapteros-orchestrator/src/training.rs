@@ -3,115 +3,144 @@
 //! Handles scheduling, executing, and monitoring adapter training jobs.
 //! Integrates with MLX backend for actual training operations.
 
+use adapteros_api_types::training::{
+    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
+};
 use adapteros_core::AosError;
 use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{error, info};
 
-/// Training job state
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TrainingJobStatus {
-    Pending,
-    Running,
-    Paused,
-    Completed,
-    Failed,
-    Cancelled,
+/// Builder for creating training job parameters
+#[derive(Debug, Default)]
+pub struct TrainingJobBuilder {
+    adapter_name: Option<String>,
+    config: Option<TrainingConfig>,
+    template_id: Option<String>,
+    repo_id: Option<String>,
+    dataset_path: Option<String>,
+    directory_root: Option<String>,
+    directory_path: Option<String>,
+    tenant_id: Option<String>,
+    adapters_root: Option<String>,
+    package: Option<bool>,
+    adapter_id: Option<String>,
 }
 
-impl std::fmt::Display for TrainingJobStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TrainingJobStatus::Pending => write!(f, "pending"),
-            TrainingJobStatus::Running => write!(f, "running"),
-            TrainingJobStatus::Paused => write!(f, "paused"),
-            TrainingJobStatus::Completed => write!(f, "completed"),
-            TrainingJobStatus::Failed => write!(f, "failed"),
-            TrainingJobStatus::Cancelled => write!(f, "cancelled"),
-        }
-    }
-}
-
-/// Training job information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingJob {
-    pub id: String,
+/// Parameters for training job creation
+#[derive(Debug)]
+pub struct TrainingJobParams {
     pub adapter_name: String,
+    pub config: TrainingConfig,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
-    pub status: TrainingJobStatus,
-    pub progress_pct: f32,
-    pub current_epoch: u32,
-    pub total_epochs: u32,
-    pub current_loss: f32,
-    pub learning_rate: f32,
-    pub tokens_per_second: f32,
-    pub created_at: String,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub error_message: Option<String>,
-    pub config: TrainingConfig,
-    // Artifact metadata (populated when packaging is enabled)
-    pub artifact_path: Option<String>,
+    pub dataset_path: Option<String>,
+    pub directory_root: Option<String>,
+    pub directory_path: Option<String>,
+    pub tenant_id: Option<String>,
+    pub adapters_root: Option<String>,
+    pub package: bool,
     pub adapter_id: Option<String>,
-    pub weights_hash_b3: Option<String>,
 }
 
-/// Training configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingConfig {
-    pub rank: u32,
-    pub alpha: u32,
-    pub targets: Vec<String>,
-    pub epochs: u32,
-    pub learning_rate: f32,
-    pub batch_size: u32,
-    pub warmup_steps: Option<u32>,
-    pub max_seq_length: Option<u32>,
-    pub gradient_accumulation_steps: Option<u32>,
-}
-
-impl Default for TrainingConfig {
-    fn default() -> Self {
-        Self {
-            rank: 16,
-            alpha: 32,
-            targets: vec![
-                "q_proj".to_string(),
-                "k_proj".to_string(),
-                "v_proj".to_string(),
-                "o_proj".to_string(),
-                "gate_proj".to_string(),
-                "up_proj".to_string(),
-                "down_proj".to_string(),
-            ],
-            epochs: 3,
-            learning_rate: 0.001,
-            batch_size: 32,
-            warmup_steps: Some(100),
-            max_seq_length: Some(2048),
-            gradient_accumulation_steps: Some(4),
-        }
+impl TrainingJobBuilder {
+    /// Create a new training job builder
+    pub fn new() -> Self {
+        Self::default()
     }
-}
 
-/// Training template
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingTemplate {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub category: String,
-    pub config: TrainingConfig,
+    /// Set the adapter name (required)
+    pub fn adapter_name(mut self, adapter_name: impl Into<String>) -> Self {
+        self.adapter_name = Some(adapter_name.into());
+        self
+    }
+
+    /// Set the training configuration (required)
+    pub fn config(mut self, config: TrainingConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// Set the template ID (optional)
+    pub fn template_id(mut self, template_id: Option<impl Into<String>>) -> Self {
+        self.template_id = template_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the repository ID (optional)
+    pub fn repo_id(mut self, repo_id: Option<impl Into<String>>) -> Self {
+        self.repo_id = repo_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the dataset path (optional)
+    pub fn dataset_path(mut self, dataset_path: Option<impl Into<String>>) -> Self {
+        self.dataset_path = dataset_path.map(|s| s.into());
+        self
+    }
+
+    /// Set the directory root (optional)
+    pub fn directory_root(mut self, directory_root: Option<impl Into<String>>) -> Self {
+        self.directory_root = directory_root.map(|s| s.into());
+        self
+    }
+
+    /// Set the directory path (optional)
+    pub fn directory_path(mut self, directory_path: Option<impl Into<String>>) -> Self {
+        self.directory_path = directory_path.map(|s| s.into());
+        self
+    }
+
+    /// Set the tenant ID (optional)
+    pub fn tenant_id(mut self, tenant_id: Option<impl Into<String>>) -> Self {
+        self.tenant_id = tenant_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the adapters root directory (optional)
+    pub fn adapters_root(mut self, adapters_root: Option<impl Into<String>>) -> Self {
+        self.adapters_root = adapters_root.map(|s| s.into());
+        self
+    }
+
+    /// Set whether to package the adapter (optional, defaults to false)
+    pub fn package(mut self, package: bool) -> Self {
+        self.package = Some(package);
+        self
+    }
+
+    /// Set the adapter ID (optional)
+    pub fn adapter_id(mut self, adapter_id: Option<impl Into<String>>) -> Self {
+        self.adapter_id = adapter_id.map(|s| s.into());
+        self
+    }
+
+    /// Build the training job parameters
+    pub fn build(self) -> Result<TrainingJobParams> {
+        Ok(TrainingJobParams {
+            adapter_name: self
+                .adapter_name
+                .ok_or_else(|| anyhow!("adapter_name is required"))?,
+            config: self.config.ok_or_else(|| anyhow!("config is required"))?,
+            template_id: self.template_id,
+            repo_id: self.repo_id,
+            dataset_path: self.dataset_path,
+            directory_root: self.directory_root,
+            directory_path: self.directory_path,
+            tenant_id: self.tenant_id,
+            adapters_root: self.adapters_root,
+            package: self.package.unwrap_or(false),
+            adapter_id: self.adapter_id,
+        })
+    }
 }
 
 /// Per-job control handle for pause/resume/cancel
@@ -254,42 +283,42 @@ impl TrainingService {
     }
 
     /// Start a new training job
-    pub async fn start_training(
-        &self,
-        adapter_name: String,
-        config: TrainingConfig,
-        template_id: Option<String>,
-        repo_id: Option<String>,
-        dataset_path: Option<String>,
-        directory_root: Option<String>,
-        directory_path: Option<String>,
-        _tenant_id: Option<String>,
-        adapters_root: Option<String>,
-        package: bool,
-        adapter_id: Option<String>,
-    ) -> Result<TrainingJob> {
+    ///
+    /// Use `TrainingJobBuilder` to construct complex parameter sets:
+    /// ```rust
+    /// let config = TrainingConfig::default();
+    /// let params = TrainingJobBuilder::new()
+    ///     .adapter_name("my-adapter")
+    ///     .config(config)
+    ///     .repo_id(Some("github.com/org/repo"))
+    ///     .dataset_path(Some("/path/to/data"))
+    ///     .package(true)
+    ///     .build()?;
+    /// let job = orchestrator.start_training(params).await?;
+    /// ```
+    pub async fn start_training(&self, params: TrainingJobParams) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
         let now = chrono::Utc::now().to_rfc3339();
 
         let job = TrainingJob {
             id: job_id.clone(),
-            adapter_name,
-            template_id,
-            repo_id,
+            adapter_name: params.adapter_name.clone(),
+            template_id: params.template_id.clone(),
+            repo_id: params.repo_id.clone(),
             status: TrainingJobStatus::Pending,
             progress_pct: 0.0,
             current_epoch: 0,
-            total_epochs: config.epochs,
+            total_epochs: params.config.epochs,
             current_loss: 0.0,
-            learning_rate: config.learning_rate,
+            learning_rate: params.config.learning_rate,
             tokens_per_second: 0.0,
             created_at: now,
             started_at: None,
             completed_at: None,
             error_message: None,
-            config: config.clone(),
+            config: params.config.clone(),
             artifact_path: None,
-            adapter_id: None,
+            adapter_id: params.adapter_id.clone(),
             weights_hash_b3: None,
         };
 
@@ -308,12 +337,12 @@ impl TrainingService {
         let jobs_ref = self.jobs.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
-        let dataset_for_run = dataset_path.clone();
-        let dir_root_for_run = directory_root.clone();
-        let dir_path_for_run = directory_path.clone();
-        let adapters_root_for_run = adapters_root.clone();
-        let package_for_run = package;
-        let adapter_id_for_run = adapter_id.clone();
+        let dataset_for_run = params.dataset_path.clone();
+        let dir_root_for_run = params.directory_root.clone();
+        let dir_path_for_run = params.directory_path.clone();
+        let adapters_root_for_run = params.adapters_root.clone();
+        let package_for_run = params.package;
+        let adapter_id_for_run = params.adapter_id.clone();
         let controls_ref = self.controls.clone();
         let base_model_for_run = Arc::clone(&self.base_model);
         tokio::spawn(async move {
@@ -353,9 +382,7 @@ impl TrainingService {
         if let Some(job) = jobs.get_mut(job_id) {
             if matches!(
                 job.status,
-                TrainingJobStatus::Running
-                    | TrainingJobStatus::Pending
-                    | TrainingJobStatus::Paused
+                TrainingJobStatus::Running | TrainingJobStatus::Pending | TrainingJobStatus::Paused
             ) {
                 job.status = TrainingJobStatus::Cancelled;
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
@@ -412,6 +439,7 @@ impl TrainingService {
 
     /// Resume a training job (idempotent)
     pub async fn resume_job(&self, job_id: &str) -> Result<()> {
+        #[allow(unused_assignments)]
         let mut should_notify = false;
 
         // Update job status with validation
@@ -837,22 +865,12 @@ mod tests {
         let service = TrainingService::new();
 
         let config = TrainingConfig::default();
-        let job = service
-            .start_training(
-                "test-adapter".to_string(),
-                config,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                None,
-            )
-            .await
+        let params = TrainingJobBuilder::new()
+            .adapter_name("test-adapter")
+            .config(config)
+            .build()
             .unwrap();
+        let job = service.start_training(params).await.unwrap();
 
         assert_eq!(job.status, TrainingJobStatus::Pending);
         assert_eq!(job.adapter_name, "test-adapter");
@@ -866,22 +884,12 @@ mod tests {
         let service = TrainingService::new();
 
         let config = TrainingConfig::default();
-        let job = service
-            .start_training(
-                "test-adapter".to_string(),
-                config,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                None,
-            )
-            .await
+        let params = TrainingJobBuilder::new()
+            .adapter_name("test-adapter")
+            .config(config)
+            .build()
             .unwrap();
+        let job = service.start_training(params).await.unwrap();
 
         service.cancel_job(&job.id).await.unwrap();
 
@@ -894,22 +902,12 @@ mod tests {
         let service = TrainingService::new();
 
         let config = TrainingConfig::default();
-        let job = service
-            .start_training(
-                "test-adapter".to_string(),
-                config,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                None,
-            )
-            .await
+        let params = TrainingJobBuilder::new()
+            .adapter_name("test-adapter")
+            .config(config)
+            .build()
             .unwrap();
+        let job = service.start_training(params).await.unwrap();
 
         service
             .update_progress(&job.id, 1, 0.5, 1000.0)
@@ -921,8 +919,6 @@ mod tests {
         assert_eq!(updated_job.current_epoch, 1);
         assert!((updated_job.current_loss - 0.5).abs() < 0.01);
     }
-
-    use std::time::Duration;
 
     #[tokio::test]
     async fn test_list_templates() {
@@ -947,22 +943,14 @@ mod tests {
         let empty_sub = root.join("empty");
         std::fs::create_dir_all(&empty_sub).unwrap();
 
-        let job = service
-            .start_training(
-                "dir-fail".to_string(),
-                config,
-                None,
-                None,
-                None,
-                Some(root.display().to_string()),
-                Some("empty".to_string()),
-                None,
-                None,
-                false,
-                None,
-            )
-            .await
+        let params = TrainingJobBuilder::new()
+            .adapter_name("dir-fail")
+            .config(config)
+            .directory_root(Some(root.display().to_string()))
+            .directory_path(Some("empty".to_string()))
+            .build()
             .unwrap();
+        let job = service.start_training(params).await.unwrap();
 
         // Poll briefly for failure
         for _ in 0..60u32 {

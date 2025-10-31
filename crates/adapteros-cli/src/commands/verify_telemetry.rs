@@ -160,11 +160,11 @@ fn load_signature_metadata(sig_path: &Path) -> Result<SignatureMetadata> {
     let sig_json = fs::read_to_string(sig_path)
         .map_err(|e| AosError::Io(format!("Failed to read signature: {}", e)))?;
 
-    serde_json::from_str(&sig_json).map_err(|e| AosError::Serialization(e))
+    serde_json::from_str(&sig_json).map_err(AosError::Serialization)
 }
 
 /// Verify bundle signature
-fn verify_signature(bundle_path: &Path, metadata: &SignatureMetadata) -> Result<()> {
+fn verify_signature(_bundle_path: &Path, metadata: &SignatureMetadata) -> Result<()> {
     // Decode public key
     let pubkey_bytes = hex::decode(&metadata.public_key)
         .map_err(|e| AosError::Validation(format!("Invalid public key hex: {}", e)))?;

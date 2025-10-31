@@ -13,32 +13,23 @@ async fn pause_resume_happy_path_and_idempotent() -> anyhow::Result<()> {
     let claims: Claims = test_admin_claims();
 
     // Create orchestrator job and mirror in DB as running
-    let job = state
-        .training_service
-        .start_training(
-            "adapter-x".to_string(),
-            adapteros_orchestrator::TrainingConfig {
-                rank: 8,
-                alpha: 16,
-                targets: vec!["q_proj".to_string()],
-                epochs: 1,
-                learning_rate: 0.001,
-                batch_size: 8,
-                warmup_steps: None,
-                max_seq_length: None,
-                gradient_accumulation_steps: None,
-            },
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-        )
-        .await?;
+    let config = adapteros_orchestrator::TrainingConfig {
+        rank: 8,
+        alpha: 16,
+        targets: vec!["q_proj".to_string()],
+        epochs: 1,
+        learning_rate: 0.001,
+        batch_size: 8,
+        warmup_steps: None,
+        max_seq_length: None,
+        gradient_accumulation_steps: None,
+    };
+    let params = adapteros_orchestrator::training::TrainingJobBuilder::new()
+        .adapter_name("adapter-x")
+        .config(config)
+        .build()
+        .unwrap();
+    let job = state.training_service.start_training(params).await?;
 
     // Pre-pause orchestrator to avoid race with fast training loop
     state.training_service.pause_job(&job.id).await.unwrap();
@@ -51,7 +42,13 @@ async fn pause_resume_happy_path_and_idempotent() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(resp.status, "paused");
 
     // Pause again should be idempotent (still paused)
@@ -61,7 +58,13 @@ async fn pause_resume_happy_path_and_idempotent() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(resp2.status, "paused");
 
     // Mark DB as paused and resume
@@ -72,7 +75,13 @@ async fn pause_resume_happy_path_and_idempotent() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(resp3.status, "running");
 
     // Resume again idempotent (already effectively running)
@@ -81,7 +90,14 @@ async fn pause_resume_happy_path_and_idempotent() -> anyhow::Result<()> {
         Extension(claims.clone()),
         axum::extract::Path(job.id.clone()),
     )
-    .await?;
+    .await
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(resp4.status, "running");
 
     Ok(())
@@ -169,7 +185,13 @@ async fn resume_validations_and_transitions() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(resp.status, "running");
     Ok(())
 }
@@ -181,7 +203,9 @@ async fn training_stream_constructs_sse() -> anyhow::Result<()> {
     let _sse = handlers::training_stream(
         State(state.clone()),
         Extension(test_admin_claims()),
-        axum::extract::Query(StreamQuery { tenant: "default".to_string() }),
+        axum::extract::Query(StreamQuery {
+            tenant: "default".to_string(),
+        }),
     )
     .await;
     Ok(())

@@ -4,7 +4,7 @@
 
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Symlink protection configuration
 #[derive(Debug, Clone)]

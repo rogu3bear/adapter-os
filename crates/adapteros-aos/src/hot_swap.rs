@@ -28,6 +28,7 @@ impl SwapOperation {
 #[derive(Debug, Clone)]
 struct AdapterSlot {
     adapter: Arc<MmapAdapter>,
+    #[allow(dead_code)]
     loaded_at: Instant,
 }
 

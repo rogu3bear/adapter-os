@@ -462,7 +462,7 @@ mod tests {
         // Create a file with null bytes (corruption)
         fs::write(&test_file, b"hello\x00world").await?;
 
-        let result = detector.detect_corruption(&test_file).await?;
+        detector.detect_corruption(&test_file).await?;
         // Should detect corruption due to null bytes
 
         Ok(())

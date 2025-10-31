@@ -94,12 +94,12 @@ impl PlatformHandler for UnixHandler {
         }
     }
 
-    fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+    fn set_file_permissions(&self, _path: &Path, _permissions: u32) -> Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms).map_err(|e| {
+            let perms = std::fs::Permissions::from_mode(_permissions);
+            std::fs::set_permissions(_path, perms).map_err(|e| {
                 AosError::Platform(format!("Failed to set Unix file permissions: {}", e))
             })?;
         }
@@ -111,15 +111,15 @@ impl PlatformHandler for UnixHandler {
             ));
         }
 
-        debug!("Set Unix file permissions: {:o}", permissions);
+        debug!("Set Unix file permissions: {:o}", _permissions);
         Ok(())
     }
 
-    fn get_file_permissions(&self, path: &Path) -> Result<u32> {
+    fn get_file_permissions(&self, _path: &Path) -> Result<u32> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path).map_err(|e| {
+            let metadata = std::fs::metadata(_path).map_err(|e| {
                 AosError::Platform(format!("Failed to get Unix file metadata: {}", e))
             })?;
             Ok(metadata.permissions().mode())
@@ -133,10 +133,10 @@ impl PlatformHandler for UnixHandler {
         }
     }
 
-    fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    fn create_symlink(&self, _target: &Path, _link: &Path) -> Result<()> {
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(target, link)
+            std::os::unix::fs::symlink(_target, _link)
                 .map_err(|e| AosError::Platform(format!("Failed to create Unix symlink: {}", e)))?;
         }
 
@@ -149,16 +149,16 @@ impl PlatformHandler for UnixHandler {
 
         debug!(
             "Created Unix symlink: {} -> {}",
-            link.display(),
-            target.display()
+            _link.display(),
+            _target.display()
         );
         Ok(())
     }
 
-    fn read_symlink(&self, link: &Path) -> Result<PathBuf> {
+    fn read_symlink(&self, _link: &Path) -> Result<PathBuf> {
         #[cfg(unix)]
         {
-            std::fs::read_link(link)
+            std::fs::read_link(_link)
                 .map_err(|e| AosError::Platform(format!("Failed to read Unix symlink: {}", e)))
         }
 
@@ -170,10 +170,10 @@ impl PlatformHandler for UnixHandler {
         }
     }
 
-    fn is_symlink(&self, path: &Path) -> bool {
+    fn is_symlink(&self, _path: &Path) -> bool {
         #[cfg(unix)]
         {
-            path.is_symlink()
+            _path.is_symlink()
         }
 
         #[cfg(not(unix))]
@@ -226,15 +226,9 @@ impl PlatformHandler for UnixHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata
-                .created()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata
-                .modified()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata
-                .accessed()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata.created().unwrap_or(SystemTime::UNIX_EPOCH),
+            modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            accessed: metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })
@@ -248,10 +242,8 @@ impl PlatformHandler for UnixHandler {
         #[cfg(unix)]
         {
             use std::fs::OpenOptions;
-            use std::os::unix::fs::MetadataExt;
-            use std::os::unix::fs::OpenOptionsExt;
 
-            let file = OpenOptions::new().write(true).open(path).map_err(|e| {
+            let _file = OpenOptions::new().write(true).open(path).map_err(|e| {
                 AosError::Platform(format!("Failed to open file for metadata update: {}", e))
             })?;
 

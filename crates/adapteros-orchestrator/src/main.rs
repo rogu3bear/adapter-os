@@ -72,6 +72,8 @@ async fn main() -> Result<()> {
                 db_path,
                 bundles_path,
                 manifests_path,
+                base_model: "models/qwen2.5-7b-mlx".to_string(),
+                ephemeral_adapter_ttl_hours: 24,
             };
 
             let orchestrator = Orchestrator::new(config);

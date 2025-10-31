@@ -55,11 +55,19 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::list_training_jobs,
         handlers::get_training_job,
         handlers::start_training,
+        handlers::list_training_sessions,
+        handlers::get_training_session,
+        handlers::start_training_session,
         handlers::cancel_training,
         handlers::get_training_logs,
         handlers::get_training_metrics,
         handlers::list_training_templates,
         handlers::get_training_template,
+        handlers::get_activity_events,
+        // Log file handlers
+        handlers::list_log_files,
+        handlers::get_log_file_content,
+        handlers::stream_log_file,
         // Git integration handlers excluded from OpenAPI documentation
         // Code intelligence handlers (disabled by default)
         // Federation handlers (TODO: integrate with AppState)
@@ -173,6 +181,11 @@ use utoipa_swagger_ui::SwaggerUi;
         adapteros_api_types::openai::ChatUsage,
         adapteros_api_types::openai::ModelsListResponse,
         adapteros_api_types::openai::ModelInfo,
+        // Log file schemas
+        crate::types::LogFileInfo,
+        crate::types::ListLogFilesResponse,
+        crate::types::LogFileContentResponse,
+        crate::types::LogFileQueryParams,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -185,6 +198,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "adapters", description = "Adapter management"),
         (name = "repositories", description = "Repository management"),
         (name = "metrics", description = "System and quality metrics"),
+        (name = "logs", description = "Log file retrieval and streaming"),
         (name = "commits", description = "Commit inspection"),
         (name = "routing", description = "Routing debug and inspection"),
         (name = "contacts", description = "Contact discovery and management"),
@@ -248,7 +262,10 @@ pub fn build(state: AppState) -> Router {
         .with_state(state.clone())
         .route("/v1/auth/logout", post(handlers::auth_logout))
         .route("/v1/auth/me", get(handlers::auth_me))
-        .route("/v1/models/status/all", get(handlers::get_all_models_status))
+        .route(
+            "/v1/models/status/all",
+            get(handlers::get_all_models_status),
+        )
         .route(
             "/v1/tenants",
             get(handlers::list_tenants).post(handlers::create_tenant),
@@ -630,6 +647,14 @@ pub fn build(state: AppState) -> Router {
             get(handlers::get_training_logs),
         )
         .route(
+            "/v1/training/sessions",
+            get(handlers::list_training_sessions).post(handlers::start_training_session),
+        )
+        .route(
+            "/v1/training/sessions/:session_id",
+            get(handlers::get_training_session),
+        )
+        .route(
             "/v1/training/sessions/:session_id/pause",
             post(handlers::pause_training_session),
         )
@@ -681,12 +706,34 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
+        .route("/v1/telemetry/events", get(handlers::get_activity_events))
+        .route("/v1/telemetry/logs", post(handlers::submit_client_logs))
+        .route("/v1/audits/export", get(handlers::export_audit_logs))
+        // Log file endpoints
+        .route("/v1/logs/files", get(handlers::list_log_files))
+        .route(
+            "/v1/logs/files/:filename",
+            get(handlers::get_log_file_content),
+        )
+        .route(
+            "/v1/logs/files/:filename/stream",
+            get(handlers::stream_log_file),
+        )
         // Telemetry endpoints for offline dashboard
-        .route("/api/metrics/snapshot", get(handlers::telemetry::get_metrics_snapshot))
-        .route("/api/metrics/series", get(handlers::telemetry::get_metrics_series))
+        .route(
+            "/api/metrics/snapshot",
+            get(handlers::telemetry::get_metrics_snapshot),
+        )
+        .route(
+            "/api/metrics/series",
+            get(handlers::telemetry::get_metrics_series),
+        )
         .route("/api/logs/query", get(handlers::telemetry::query_logs))
         .route("/api/logs/stream", get(handlers::telemetry::stream_logs))
-        .route("/api/traces/search", get(handlers::telemetry::search_traces))
+        .route(
+            "/api/traces/search",
+            get(handlers::telemetry::search_traces),
+        )
         .route("/api/traces/:trace_id", get(handlers::telemetry::get_trace))
         .layer(middleware::from_fn_with_state(
             state.clone(),

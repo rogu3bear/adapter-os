@@ -1,6 +1,6 @@
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::response::sse::{Event, Sse};
 use axum::{http::StatusCode, Json};
 use futures_util::stream;
@@ -64,7 +64,9 @@ pub struct FileChangeEvent {
     pub session_id: String,
 }
 
-pub async fn git_status(State(_state): State<AppState>) -> Result<Json<GitStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn git_status(
+    State(_state): State<AppState>,
+) -> Result<Json<GitStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     Ok(Json(GitStatusResponse {
         enabled: true,
         active_sessions: 0,
@@ -122,9 +124,11 @@ pub async fn file_changes_stream(
             timestamp: chrono::Utc::now().to_rfc3339(),
             session_id: "demo".to_string(),
         };
-        let event = Event::default().event("file_change").json_data(&ev).unwrap_or_else(|_| Event::default());
+        let event = Event::default()
+            .event("file_change")
+            .json_data(&ev)
+            .unwrap_or_else(|_| Event::default());
         Some((Ok(event), i + 1))
     });
     Ok(Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new()))
 }
-

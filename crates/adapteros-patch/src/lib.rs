@@ -26,6 +26,12 @@ pub mod prelude {
 /// Placeholder PatchEngine - TODO: Implement when modules are complete
 pub struct PatchEngine;
 
+impl Default for PatchEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatchEngine {
     /// Create a new patch engine
     pub fn new() -> Self {

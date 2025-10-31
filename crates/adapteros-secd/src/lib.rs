@@ -21,12 +21,17 @@ pub mod pidfile;
 pub mod protocol;
 pub mod server;
 
+#[cfg(all(feature = "secure-enclave", target_os = "macos"))]
+pub mod secure_enclave;
+
+#[cfg(all(feature = "secure-enclave", target_os = "macos"))]
+pub use secure_enclave::{HardwareSecureEnclaveConnection, SecureEnclaveConnection};
+
 pub use audit::AuditLogger;
 pub use enclave::EnclaveManager;
 pub use heartbeat::Heartbeat;
 pub use host_identity::{
     AttestationMetadata, AttestationReport, HostIdentity, HostIdentityManager,
-    SecureEnclaveConnection,
 };
 pub use key_lifecycle::{KeyAgeWarning, KeyLifecycleManager};
 pub use pidfile::{is_process_running, read_pid, remove_pid, write_pid};

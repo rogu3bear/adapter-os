@@ -11,7 +11,7 @@ use std::path::Path;
 use zip::{result::ZipError, ZipArchive};
 
 /// Load options for .aos files
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
     /// Skip integrity verification (faster but unsafe)
     pub skip_verification: bool,
@@ -19,16 +19,6 @@ pub struct LoadOptions {
     pub skip_signature_check: bool,
     /// Use memory-mapped loading path (zero-copy weights, lazy decompression)
     pub use_mmap: bool,
-}
-
-impl Default for LoadOptions {
-    fn default() -> Self {
-        Self {
-            skip_verification: false,
-            skip_signature_check: false,
-            use_mmap: false,
-        }
-    }
 }
 
 fn read_weight_manifest<R: Read + Seek>(
@@ -159,7 +149,7 @@ fn deserialize_legacy_weights(
 ) -> Result<(AdapterWeights, WeightGroupConfig)> {
     let rank = config.rank;
     let hidden_dim = config.hidden_dim;
-    let expected_floats = (rank * hidden_dim * 2) as usize;
+    let expected_floats = rank * hidden_dim * 2;
     let expected_bytes = expected_floats * std::mem::size_of::<f32>();
 
     if bytes.len() < expected_bytes {
@@ -267,8 +257,8 @@ impl SingleFileAdapterLoader {
         // Optional mmap path for lazy loading, then convert to standard adapter
         if options.use_mmap {
             let path_ref = path.as_ref();
-            let mmap_adapter = crate::mmap_loader::MmapAdapterLoader::global()
-                .load(path_ref, &options)?;
+            let mmap_adapter =
+                crate::mmap_loader::MmapAdapterLoader::global().load(path_ref, &options)?;
             let mut adapter = mmap_adapter.to_standard_adapter()?;
 
             // Apply same verification semantics as standard loader

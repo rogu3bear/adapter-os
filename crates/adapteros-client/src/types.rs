@@ -71,6 +71,7 @@ pub struct TelemetryEvent {
     pub id: String,
     pub timestamp: String,
     pub event_type: String,
+    pub kind: Option<String>,
     pub level: String,
     pub message: String,
     pub component: Option<String>,

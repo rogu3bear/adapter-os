@@ -13,43 +13,32 @@ async fn list_and_get_training_jobs() -> anyhow::Result<()> {
     let claims: Claims = test_admin_claims();
 
     // Seed orchestrator with jobs
-    let j1 = state
-        .training_service
-        .start_training(
-            "adapter-a".to_string(),
-            adapteros_orchestrator::TrainingConfig::default(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            None,
-        )
-        .await?;
-    let _j2 = state
-        .training_service
-        .start_training(
-            "adapter-b".to_string(),
-            adapteros_orchestrator::TrainingConfig::default(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-        )
-        .await?;
+    let config = adapteros_orchestrator::TrainingConfig::default();
+    let params1 = adapteros_orchestrator::training::TrainingJobBuilder::new()
+        .adapter_name("adapter-a")
+        .config(config)
+        .package(true)
+        .build()
+        .unwrap();
+    let j1 = state.training_service.start_training(params1).await?;
+    let config2 = adapteros_orchestrator::TrainingConfig::default();
+    let params2 = adapteros_orchestrator::training::TrainingJobBuilder::new()
+        .adapter_name("adapter-b")
+        .config(config2)
+        .build()
+        .unwrap();
+    let _j2 = state.training_service.start_training(params2).await?;
 
     // List
     let Json(list) = handlers::list_training_jobs(State(state.clone()), Extension(claims.clone()))
         .await
-        .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+        .map_err(|(status, err_json)| {
+            anyhow::anyhow!(format!(
+                "handler error {}: {}",
+                status,
+                serde_json::to_string(&err_json.0).unwrap_or_default()
+            ))
+        })?;
     assert!(list.len() >= 2);
 
     // Get one
@@ -59,7 +48,13 @@ async fn list_and_get_training_jobs() -> anyhow::Result<()> {
         axum::extract::Path(j1.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(one.id, j1.id);
 
     // Get unknown should 404
@@ -107,13 +102,16 @@ async fn start_cancel_logs_metrics_artifacts_roundtrip() -> anyhow::Result<()> {
         tier: None,
     };
 
-    let Json(job) = handlers::start_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Json(req),
-    )
-    .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    let Json(job) =
+        handlers::start_training(State(state.clone()), Extension(claims.clone()), Json(req))
+            .await
+            .map_err(|(status, err_json)| {
+                anyhow::anyhow!(format!(
+                    "handler error {}: {}",
+                    status,
+                    serde_json::to_string(&err_json.0).unwrap_or_default()
+                ))
+            })?;
 
     // Cancel
     let status = handlers::cancel_training(
@@ -122,7 +120,13 @@ async fn start_cancel_logs_metrics_artifacts_roundtrip() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert_eq!(status, axum::http::StatusCode::OK);
 
     // Logs (may be empty)
@@ -140,7 +144,13 @@ async fn start_cancel_logs_metrics_artifacts_roundtrip() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert!(metrics.total_epochs >= 1);
 
     // Artifacts default response without real packaging
@@ -150,7 +160,13 @@ async fn start_cancel_logs_metrics_artifacts_roundtrip() -> anyhow::Result<()> {
         axum::extract::Path(job.id.clone()),
     )
     .await
-    .map_err(|(status, err_json)| anyhow::anyhow!(format!("handler error {}: {}", status, serde_json::to_string(&err_json.0).unwrap_or_default())))?;
+    .map_err(|(status, err_json)| {
+        anyhow::anyhow!(format!(
+            "handler error {}: {}",
+            status,
+            serde_json::to_string(&err_json.0).unwrap_or_default()
+        ))
+    })?;
     assert!(!art.ready);
     Ok(())
 }

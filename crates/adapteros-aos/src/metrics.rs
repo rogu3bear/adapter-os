@@ -18,8 +18,10 @@ impl LoadMetrics {
 
     pub fn record_load(&self, load_time: Duration, verify_time: Duration) {
         self.total_loads.fetch_add(1, Ordering::Relaxed);
-        self.total_load_time_us.fetch_add(load_time.as_micros() as u64, Ordering::Relaxed);
-        self.total_verify_time_us.fetch_add(verify_time.as_micros() as u64, Ordering::Relaxed);
+        self.total_load_time_us
+            .fetch_add(load_time.as_micros() as u64, Ordering::Relaxed);
+        self.total_verify_time_us
+            .fetch_add(verify_time.as_micros() as u64, Ordering::Relaxed);
     }
 
     pub fn record_failure(&self) {
@@ -76,7 +78,8 @@ impl CacheMetrics {
         if delta >= 0 {
             self.size_bytes.fetch_add(delta as u64, Ordering::Relaxed);
         } else {
-            self.size_bytes.fetch_sub((-delta) as u64, Ordering::Relaxed);
+            self.size_bytes
+                .fetch_sub((-delta) as u64, Ordering::Relaxed);
         }
     }
 
@@ -122,7 +125,8 @@ impl SwapMetrics {
 
     pub fn record_swap(&self, swap_time: Duration) {
         self.total_swaps.fetch_add(1, Ordering::Relaxed);
-        self.total_swap_time_us.fetch_add(swap_time.as_micros() as u64, Ordering::Relaxed);
+        self.total_swap_time_us
+            .fetch_add(swap_time.as_micros() as u64, Ordering::Relaxed);
     }
 
     pub fn record_failure(&self) {

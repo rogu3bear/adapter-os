@@ -20,6 +20,22 @@ pub struct SystemMetricsResponse {
     pub process_count: usize,
     pub load_average: LoadAverage,
     pub timestamp: u64,
+    pub memory_usage_pct: f32,
+    pub adapter_count: i32,
+    pub active_sessions: i32,
+    pub tokens_per_second: f32,
+    pub latency_p95_ms: f32,
+    pub cpu_usage_percent: Option<f32>,
+    pub memory_usage_percent: Option<f32>,
+    pub disk_usage_percent: Option<f32>,
+    pub network_rx_bytes: Option<i64>,
+    pub network_tx_bytes: Option<i64>,
+    pub network_rx_packets: Option<i64>,
+    pub network_tx_packets: Option<i64>,
+    pub network_bandwidth_mbps: Option<f32>,
+    pub gpu_utilization_percent: Option<f32>,
+    pub gpu_memory_used_gb: Option<f32>,
+    pub gpu_memory_total_gb: Option<f32>,
 }
 
 /// System load average
@@ -31,7 +47,7 @@ pub struct LoadAverage {
 }
 
 /// Historical system metrics for database storage
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SystemMetricsRecord {
     pub id: Option<i64>,
     pub timestamp: i64,
@@ -39,10 +55,15 @@ pub struct SystemMetricsRecord {
     pub memory_usage: f64, // SQLite REAL → f64
     pub disk_read_bytes: i64,
     pub disk_write_bytes: i64,
+    pub disk_usage_percent: f64,
     pub network_rx_bytes: i64,
     pub network_tx_bytes: i64,
+    pub network_rx_packets: i64,
+    pub network_tx_packets: i64,
+    pub network_bandwidth_mbps: f64,
     pub gpu_utilization: Option<f64>, // SQLite REAL → f64
     pub gpu_memory_used: Option<i64>,
+    pub gpu_memory_total: Option<i64>,
     pub uptime_seconds: i64,
     pub process_count: i32,
     pub load_1min: f64,

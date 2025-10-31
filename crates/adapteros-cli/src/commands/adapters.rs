@@ -116,12 +116,10 @@ async fn register(args: RegisterArgs, output: &OutputWriter) -> Result<()> {
     let value: serde_json::Value = resp.json().await?;
     if output.is_json() {
         output.json(&value)?;
+    } else if let Some(id) = value.get("adapter_id").and_then(|v| v.as_str()) {
+        output.success(format!("Adapter registered: {}", id));
     } else {
-        if let Some(id) = value.get("adapter_id").and_then(|v| v.as_str()) {
-            output.success(&format!("Adapter registered: {}", id));
-        } else {
-            output.success("Adapter registered");
-        }
+        output.success("Adapter registered");
     }
     Ok(())
 }

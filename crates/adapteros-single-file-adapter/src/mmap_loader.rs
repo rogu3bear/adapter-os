@@ -24,6 +24,7 @@ pub enum WeightsKind {
 
 #[derive(Debug, Clone)]
 struct ZipEntryInfo {
+    #[allow(dead_code)]
     name: &'static str,
     offset: u64,
     compressed_size: u64,
@@ -56,6 +57,7 @@ fn get_entry_info<R: std::io::Read + std::io::Seek>(
 
 pub struct MmapAdapter {
     mmap: Mmap,
+    #[allow(dead_code)]
     path: PathBuf,
     pub manifest: AdapterManifest,
     weights_pos: Option<ZipEntryInfo>,
@@ -87,9 +89,9 @@ impl MmapAdapter {
 
         // Parse manifest immediately (borrow zip for manifest, then release)
         let manifest = {
-            let mut manifest_file = zip
-                .by_name("manifest.json")
-                .map_err(|_| AosError::Training("Missing manifest.json in .aos file".to_string()))?;
+            let mut manifest_file = zip.by_name("manifest.json").map_err(|_| {
+                AosError::Training("Missing manifest.json in .aos file".to_string())
+            })?;
             let mut manifest_data = Vec::new();
             manifest_file
                 .read_to_end(&mut manifest_data)
@@ -164,22 +166,47 @@ impl MmapAdapter {
 
     pub fn is_weights_stored(&self, kind: WeightsKind) -> bool {
         match kind {
-            WeightsKind::Positive => self.weights_pos.as_ref().map(|e| e.is_stored()).unwrap_or(false),
-            WeightsKind::Negative => self.weights_neg.as_ref().map(|e| e.is_stored()).unwrap_or(false),
-            WeightsKind::Combined => self.weights_comb.as_ref().map(|e| e.is_stored()).unwrap_or(false),
+            WeightsKind::Positive => self
+                .weights_pos
+                .as_ref()
+                .map(|e| e.is_stored())
+                .unwrap_or(false),
+            WeightsKind::Negative => self
+                .weights_neg
+                .as_ref()
+                .map(|e| e.is_stored())
+                .unwrap_or(false),
+            WeightsKind::Combined => self
+                .weights_comb
+                .as_ref()
+                .map(|e| e.is_stored())
+                .unwrap_or(false),
         }
     }
 
     pub fn get_weights_slice(&self, kind: WeightsKind) -> Result<Arc<Vec<u8>>> {
-        let (info_opt, cache, name): (&Option<ZipEntryInfo>, &Mutex<Option<Arc<Vec<u8>>>>, &str) = match kind {
-            WeightsKind::Positive => (&self.weights_pos, &self.pos_cache, "weights_positive.safetensors"),
-            WeightsKind::Negative => (&self.weights_neg, &self.neg_cache, "weights_negative.safetensors"),
-            WeightsKind::Combined => (&self.weights_comb, &self.comb_cache, "weights_combined.safetensors"),
-        };
+        let (info_opt, cache, name): (&Option<ZipEntryInfo>, &Mutex<Option<Arc<Vec<u8>>>>, &str) =
+            match kind {
+                WeightsKind::Positive => (
+                    &self.weights_pos,
+                    &self.pos_cache,
+                    "weights_positive.safetensors",
+                ),
+                WeightsKind::Negative => (
+                    &self.weights_neg,
+                    &self.neg_cache,
+                    "weights_negative.safetensors",
+                ),
+                WeightsKind::Combined => (
+                    &self.weights_comb,
+                    &self.comb_cache,
+                    "weights_combined.safetensors",
+                ),
+            };
 
-        let info = info_opt.as_ref().ok_or_else(|| {
-            AosError::Training(format!("Missing {} in .aos file", name))
-        })?;
+        let info = info_opt
+            .as_ref()
+            .ok_or_else(|| AosError::Training(format!("Missing {} in .aos file", name)))?;
 
         if info.is_stored() {
             let start = info.offset as usize;
@@ -232,7 +259,7 @@ impl MmapAdapter {
 
         // Determine if separated weights are present by presence of positive/negative files
         let has_separated = self.weights_pos.is_some() && self.weights_neg.is_some();
-        let (weights, weight_config) = if has_separated {
+        let (weights, _weight_config) = if has_separated {
             // Load weight groups manifest metadata
             let info: WeightGroupsManifest = {
                 let cursor = Cursor::new(&self.mmap[..]);
@@ -242,8 +269,9 @@ impl MmapAdapter {
                     AosError::Training("Missing weight_groups.json in .aos file".to_string())
                 })?;
                 let mut data = Vec::new();
-                f.read_to_end(&mut data)
-                    .map_err(|e| AosError::Io(format!("Failed to read weight_groups.json: {}", e)))?;
+                f.read_to_end(&mut data).map_err(|e| {
+                    AosError::Io(format!("Failed to read weight_groups.json: {}", e))
+                })?;
                 serde_json::from_slice(&data).map_err(|e| {
                     AosError::Parse(format!("Failed to parse weight_groups.json: {}", e))
                 })?
@@ -303,9 +331,9 @@ impl MmapAdapter {
             let cursor = Cursor::new(&self.mmap[..]);
             let mut zip = ZipArchive::new(cursor)
                 .map_err(|e| AosError::Io(format!("Failed to open ZIP archive: {}", e)))?;
-            let mut f = zip
-                .by_name("training_data.jsonl")
-                .map_err(|_| AosError::Training("Missing training_data.jsonl in .aos file".to_string()))?;
+            let mut f = zip.by_name("training_data.jsonl").map_err(|_| {
+                AosError::Training("Missing training_data.jsonl in .aos file".to_string())
+            })?;
             let mut data = Vec::new();
             f.read_to_end(&mut data)
                 .map_err(|e| AosError::Io(format!("Failed to read training_data.jsonl: {}", e)))?;
@@ -354,9 +382,8 @@ impl MmapAdapter {
                         f.read_to_end(&mut data).map_err(|e| {
                             AosError::Io(format!("Failed to read signature.sig: {}", e))
                         })?;
-                        let sig: AosSignature = serde_json::from_slice(&data).map_err(|e| {
-                            AosError::Parse(format!("Invalid signature: {}", e))
-                        })?;
+                        let sig: AosSignature = serde_json::from_slice(&data)
+                            .map_err(|e| AosError::Parse(format!("Invalid signature: {}", e)))?;
                         Some(sig)
                     }
                     Err(_) => None,
@@ -386,7 +413,7 @@ fn deserialize_legacy_weights_mmap(
 ) -> Result<(AdapterWeights, WeightGroupConfig)> {
     let rank = config.rank;
     let hidden_dim = config.hidden_dim;
-    let expected_floats = (rank * hidden_dim * 2) as usize;
+    let expected_floats = rank * hidden_dim * 2;
     let expected_bytes = expected_floats * std::mem::size_of::<f32>();
 
     if bytes.len() < expected_bytes {
@@ -526,12 +553,10 @@ impl MmapAdapterLoader {
                 drop(zip);
                 result
             };
-            if has_sig {
-                if !adapter.verify_signature()? {
-                    return Err(AosError::Training(
-                        "Signature verification failed".to_string(),
-                    ));
-                }
+            if has_sig && !adapter.verify_signature()? {
+                return Err(AosError::Training(
+                    "Signature verification failed".to_string(),
+                ));
             }
         }
 
@@ -618,19 +643,34 @@ mod tests {
         let aos_path = temp_dir.path().join("mmap_manifest_test.aos");
 
         let adapter = create_test_adapter();
-        SingleFileAdapterPackager::save(&adapter, &aos_path).await.unwrap();
+        SingleFileAdapterPackager::save(&adapter, &aos_path)
+            .await
+            .unwrap();
 
         let loaded_std = crate::loader::SingleFileAdapterLoader::load(&aos_path)
             .await
             .unwrap();
 
         let mmap_loaded = MmapAdapterLoader::global()
-            .load(&aos_path, &LoadOptions { skip_verification: true, skip_signature_check: true, use_mmap: true })
+            .load(
+                &aos_path,
+                &LoadOptions {
+                    skip_verification: true,
+                    skip_signature_check: true,
+                    use_mmap: true,
+                },
+            )
             .unwrap();
         let converted = mmap_loaded.to_standard_adapter().unwrap();
 
-        assert_eq!(loaded_std.manifest.adapter_id, converted.manifest.adapter_id);
-        assert_eq!(loaded_std.manifest.format_version, converted.manifest.format_version);
+        assert_eq!(
+            loaded_std.manifest.adapter_id,
+            converted.manifest.adapter_id
+        );
+        assert_eq!(
+            loaded_std.manifest.format_version,
+            converted.manifest.format_version
+        );
     }
 
     #[tokio::test]
@@ -639,16 +679,28 @@ mod tests {
         let aos_path = temp_dir.path().join("mmap_zero_copy_test.aos");
 
         let adapter = create_test_adapter();
-        let options = PackageOptions { compression: crate::format::CompressionLevel::Store, ..Default::default() };
+        let options = PackageOptions {
+            compression: crate::format::CompressionLevel::Store,
+            ..Default::default()
+        };
         SingleFileAdapterPackager::save_with_options(&adapter, &aos_path, options)
             .await
             .unwrap();
 
         let mmap_loaded = MmapAdapterLoader::global()
-            .load(&aos_path, &LoadOptions { skip_verification: true, skip_signature_check: true, use_mmap: true })
+            .load(
+                &aos_path,
+                &LoadOptions {
+                    skip_verification: true,
+                    skip_signature_check: true,
+                    use_mmap: true,
+                },
+            )
             .unwrap();
         assert!(mmap_loaded.is_weights_stored(WeightsKind::Positive));
-        let slice = mmap_loaded.get_weights_slice(WeightsKind::Positive).unwrap();
+        let slice = mmap_loaded
+            .get_weights_slice(WeightsKind::Positive)
+            .unwrap();
         assert!(!slice.is_empty());
     }
 
@@ -660,15 +712,33 @@ mod tests {
 
         let adapter1 = create_test_adapter();
         let adapter2 = create_test_adapter();
-        SingleFileAdapterPackager::save(&adapter1, &aos1).await.unwrap();
-        SingleFileAdapterPackager::save(&adapter2, &aos2).await.unwrap();
+        SingleFileAdapterPackager::save(&adapter1, &aos1)
+            .await
+            .unwrap();
+        SingleFileAdapterPackager::save(&adapter2, &aos2)
+            .await
+            .unwrap();
 
         let loader = MmapAdapterLoader::with_capacity_bytes(1); // tiny cache to force eviction
         let _a1 = loader
-            .load(&aos1, &LoadOptions { skip_verification: true, skip_signature_check: true, use_mmap: true })
+            .load(
+                &aos1,
+                &LoadOptions {
+                    skip_verification: true,
+                    skip_signature_check: true,
+                    use_mmap: true,
+                },
+            )
             .unwrap();
         let _a2 = loader
-            .load(&aos2, &LoadOptions { skip_verification: true, skip_signature_check: true, use_mmap: true })
+            .load(
+                &aos2,
+                &LoadOptions {
+                    skip_verification: true,
+                    skip_signature_check: true,
+                    use_mmap: true,
+                },
+            )
             .unwrap();
 
         // With tiny capacity, at most 1 entry should remain
@@ -684,7 +754,9 @@ mod tests {
         let aos_path = temp_dir.path().join("mmap_concurrent.aos");
 
         let adapter = create_test_adapter();
-        SingleFileAdapterPackager::save(&adapter, &aos_path).await.unwrap();
+        SingleFileAdapterPackager::save(&adapter, &aos_path)
+            .await
+            .unwrap();
 
         let loader = StdArc::new(MmapAdapterLoader::with_capacity_bytes(1024 * 1024 * 100));
         let mut set = JoinSet::new();
@@ -693,7 +765,14 @@ mod tests {
             let p = aos_path.clone();
             set.spawn(async move {
                 let a = l
-                    .load(&p, &LoadOptions { skip_verification: true, skip_signature_check: true, use_mmap: true })
+                    .load(
+                        &p,
+                        &LoadOptions {
+                            skip_verification: true,
+                            skip_signature_check: true,
+                            use_mmap: true,
+                        },
+                    )
                     .unwrap();
                 let _slice = a.get_weights_slice(WeightsKind::Positive).unwrap();
             });
@@ -703,10 +782,3 @@ mod tests {
         }
     }
 }
-
-
-
-
-
-
-

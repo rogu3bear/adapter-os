@@ -41,6 +41,10 @@ pub struct OrchestratorConfig {
     pub bundles_path: String,
     /// Path to manifests
     pub manifests_path: String,
+    /// Base model path for training
+    pub base_model: String,
+    /// TTL in hours for ephemeral adapters
+    pub ephemeral_adapter_ttl_hours: i32,
 }
 
 impl Default for OrchestratorConfig {
@@ -51,6 +55,8 @@ impl Default for OrchestratorConfig {
             db_path: "var/aos-cp.sqlite3".to_string(),
             bundles_path: "/srv/aos/bundles".to_string(),
             manifests_path: "manifests".to_string(),
+            base_model: "models/qwen2.5-7b-mlx".to_string(),
+            ephemeral_adapter_ttl_hours: 24,
         }
     }
 }

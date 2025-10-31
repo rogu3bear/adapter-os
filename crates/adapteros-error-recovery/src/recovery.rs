@@ -165,7 +165,7 @@ impl BackupManager {
             "{}_{}_{}",
             path.file_name().unwrap_or_default().to_string_lossy(),
             timestamp,
-            path.to_string_lossy().replace('/', "_").replace('\\', "_")
+            path.to_string_lossy().replace(['/', '\\'], "_")
         );
 
         let backup_path = self.backup_dir.join(backup_filename);

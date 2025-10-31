@@ -139,10 +139,10 @@ impl KvCache {
         self.next_seq_id += 1;
 
         // Try to use a free region first
-        let mut k_offset;
-        let mut k_size = required_bytes;
-        let mut v_offset;
-        let mut v_size = required_bytes;
+        let k_offset;
+        let k_size = required_bytes;
+        let v_offset;
+        let v_size = required_bytes;
         if let Some((idx, &(off, size))) = self
             .free_regions
             .iter()

@@ -111,7 +111,6 @@ impl std::fmt::Display for SymbolKind {
     }
 }
 
-
 /// Git diff analyzer
 pub struct DiffAnalyzer {
     repo_path: PathBuf,
@@ -186,8 +185,8 @@ impl DiffAnalyzer {
             )));
         }
 
-        Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git diff output: {}", e)))?)
+        String::from_utf8(output.stdout)
+            .map_err(|e| AosError::Other(format!("Invalid git diff output: {}", e)))
     }
 
     /// Get uncommitted diff
@@ -207,8 +206,8 @@ impl DiffAnalyzer {
             )));
         }
 
-        Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git diff output: {}", e)))?)
+        String::from_utf8(output.stdout)
+            .map_err(|e| AosError::Other(format!("Invalid git diff output: {}", e)))
     }
 
     /// Get parent commit SHA
@@ -235,7 +234,9 @@ impl DiffAnalyzer {
 
     /// Get file content at a specific commit
     pub fn get_file_content_at_commit(&self, file_path: &Path, commit_sha: &str) -> Result<String> {
-        let path_str = file_path.to_str().ok_or_else(|| AosError::Other("Invalid file path".to_string()))?;
+        let path_str = file_path
+            .to_str()
+            .ok_or_else(|| AosError::Other("Invalid file path".to_string()))?;
         let git_path = format!("{}:{}", commit_sha, path_str);
 
         let output = Command::new("git")
@@ -253,8 +254,8 @@ impl DiffAnalyzer {
             )));
         }
 
-        Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git show output: {}", e)))?)
+        String::from_utf8(output.stdout)
+            .map_err(|e| AosError::Other(format!("Invalid git show output: {}", e)))
     }
 
     /// Parse diff summary from raw diff
@@ -269,7 +270,7 @@ impl DiffAnalyzer {
                 if parts.len() >= 4 {
                     let file_path = parts[3].trim_start_matches("b/");
                     let path = PathBuf::from(file_path);
-                    
+
                     // Determine change type based on file existence
                     if self.is_file_added(&path) {
                         summary.added_files.push(path.clone());
@@ -305,7 +306,7 @@ impl DiffAnalyzer {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 4 {
                     let file_path = PathBuf::from(parts[3].trim_start_matches("b/"));
-                    
+
                     // Analyze symbols in this file
                     let file_symbols = self.analyze_file_symbols(&file_path, raw_diff)?;
                     changed_symbols.extend(file_symbols);
@@ -319,15 +320,15 @@ impl DiffAnalyzer {
     /// Analyze symbols in a specific file
     fn analyze_file_symbols(&self, file_path: &Path, raw_diff: &str) -> Result<Vec<ChangedSymbol>> {
         let mut symbols = Vec::new();
-        
+
         // Extract file-specific diff section
         let file_diff = self.extract_file_diff(file_path, raw_diff)?;
-        
+
         // Simple heuristic: look for function/struct definitions in added lines
         for line in file_diff.lines() {
             if line.starts_with("+") && !line.starts_with("+++") {
                 let content = &line[1..]; // Remove the '+'
-                
+
                 if let Some(symbol) = self.parse_symbol_from_line(content, file_path) {
                     symbols.push(symbol);
                 }
@@ -363,7 +364,7 @@ impl DiffAnalyzer {
     /// Parse symbol from a line of code
     fn parse_symbol_from_line(&self, line: &str, file_path: &Path) -> Option<ChangedSymbol> {
         let trimmed = line.trim();
-        
+
         // Rust function definition
         if trimmed.starts_with("fn ") {
             if let Some(name) = self.extract_function_name(trimmed) {
@@ -377,7 +378,7 @@ impl DiffAnalyzer {
                 });
             }
         }
-        
+
         // Rust struct definition
         if trimmed.starts_with("struct ") {
             if let Some(name) = self.extract_struct_name(trimmed) {
@@ -391,7 +392,7 @@ impl DiffAnalyzer {
                 });
             }
         }
-        
+
         // Rust trait definition
         if trimmed.starts_with("trait ") {
             if let Some(name) = self.extract_trait_name(trimmed) {

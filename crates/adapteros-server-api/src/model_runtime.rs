@@ -11,7 +11,12 @@ impl ModelRuntime {
         Self
     }
 
-    pub fn load_model(&mut self, _tenant_id: &str, _model_id: &str, _model_path: &str) -> Result<(), String> {
+    pub fn load_model(
+        &mut self,
+        _tenant_id: &str,
+        _model_id: &str,
+        _model_path: &str,
+    ) -> Result<(), String> {
         // no-op stub
         Ok(())
     }

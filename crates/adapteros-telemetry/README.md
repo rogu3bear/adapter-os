@@ -226,6 +226,24 @@ if !report.broken_links.is_empty() {
         └── ...
 ```
 
+---
+
+## System Metrics Telemetry
+
+AdapterOS emits placeholder `system.metrics` events into the unified telemetry NDJSON pipeline. These are scaffolding events to validate the ingestion and serialization path and can be replaced with real collectors later.
+
+- Event type: `system.metrics`
+- Payload schema: `event::SystemMetricsEvent`
+- Default cadence: 30 seconds (emitter runs in server process)
+
+You can construct and serialize a placeholder payload directly:
+
+```rust
+use adapteros_telemetry::metrics::system::placeholder_system_metrics_event;
+let payload = placeholder_system_metrics_event();
+let json = serde_json::to_string(&payload)?;
+```
+
 **Design Principles:**
 - Per-tenant directory isolation
 - Content-addressed file naming (BLAKE3 hash)
@@ -318,4 +336,3 @@ If migrating from in-memory telemetry:
 - ✅ Bundle chain verification
 - ✅ GC with safety checks
 - ✅ Storage statistics
-

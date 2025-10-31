@@ -479,7 +479,6 @@ mod tests {
         assert_eq!(event.event_type, "inference.start");
         assert_eq!(event.metadata.plan_id, "test_plan");
         assert_eq!(event.metadata.cpid, "test_cpid");
-        assert!(event.logical_timestamp.global_tick >= 0);
     }
 
     #[test]

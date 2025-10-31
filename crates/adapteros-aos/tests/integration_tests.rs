@@ -56,7 +56,7 @@ async fn test_manager_with_cache() {
         .unwrap();
 
     let result1 = manager.load(&adapter_path).await;
-    
+
     if let Ok(_adapter1) = result1 {
         let result2 = manager.load(&adapter_path).await;
         assert!(result2.is_ok());
@@ -75,13 +75,10 @@ async fn test_hot_swap() {
         return;
     };
 
-    let manager = AosManager::builder()
-        .with_hot_swap()
-        .build()
-        .unwrap();
+    let manager = AosManager::builder().with_hot_swap().build().unwrap();
 
     let result = manager.preload("slot1", &adapter_path).await;
-    
+
     if result.is_ok() {
         let swap_result = manager.commit_swap(&["slot1".to_string()]);
         assert!(swap_result.is_ok());

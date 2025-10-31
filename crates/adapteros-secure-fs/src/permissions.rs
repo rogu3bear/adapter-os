@@ -83,7 +83,10 @@ pub fn set_secure_dir_permissions(path: impl AsRef<Path>, config: &PermissionCon
 }
 
 /// Check if permissions are secure
-pub fn check_secure_permissions(path: impl AsRef<Path>, config: &PermissionConfig) -> Result<bool> {
+pub fn check_secure_permissions(
+    path: impl AsRef<Path>,
+    _config: &PermissionConfig,
+) -> Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

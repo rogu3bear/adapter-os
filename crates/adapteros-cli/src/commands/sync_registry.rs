@@ -20,7 +20,7 @@ pub async fn sync_registry(
     registry_path: &Path,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(&format!("Syncing adapters from {}", sync_dir.display()));
+    output.info(format!("Syncing adapters from {}", sync_dir.display()));
 
     let cas = CasStore::new(cas_root)?;
     let registry = Registry::open(registry_path)?;
@@ -44,13 +44,13 @@ pub async fn sync_registry(
             let sig_path = path.with_extension("sig");
 
             if !sbom_path.exists() {
-                output.warning(&format!("Skipping {}: missing SBOM", filename));
+                output.warning(format!("Skipping {}: missing SBOM", filename));
                 skipped_count += 1;
                 continue;
             }
 
             if !sig_path.exists() {
-                output.warning(&format!("Skipping {}: missing signature", filename));
+                output.warning(format!("Skipping {}: missing signature", filename));
                 skipped_count += 1;
                 continue;
             }
@@ -60,13 +60,13 @@ pub async fn sync_registry(
             match serde_json::from_slice::<SpdxDocument>(&sbom_bytes) {
                 Ok(sbom) => {
                     if sbom.packages.is_empty() {
-                        output.warning(&format!("Skipping {}: SBOM has no packages", filename));
+                        output.warning(format!("Skipping {}: SBOM has no packages", filename));
                         skipped_count += 1;
                         continue;
                     }
                 }
                 Err(e) => {
-                    output.warning(&format!("Skipping {}: Invalid SBOM: {}", filename, e));
+                    output.warning(format!("Skipping {}: Invalid SBOM: {}", filename, e));
                     skipped_count += 1;
                     continue;
                 }
@@ -83,7 +83,7 @@ pub async fn sync_registry(
                 .map_err(|e| anyhow::anyhow!("Invalid signature hex: {}", e))?;
 
             if sig_bytes_decoded.len() != 64 {
-                output.warning(&format!("Skipping {}: invalid signature length", filename));
+                output.warning(format!("Skipping {}: invalid signature length", filename));
                 skipped_count += 1;
                 continue;
             }
@@ -93,7 +93,7 @@ pub async fn sync_registry(
 
             // For now, we'll use a mock verification since we don't have the public key
             // In production, this would load the public key from a trusted source
-            output.progress(&format!(
+            output.progress(format!(
                 "Signature verification skipped for {} (mock)",
                 filename
             ));
@@ -116,11 +116,11 @@ pub async fn sync_registry(
                 &[], // empty ACL
             ) {
                 Ok(_) => {
-                    output.success(&format!("Imported adapter: {} ({})", filename, hash));
+                    output.success(format!("Imported adapter: {} ({})", filename, hash));
                     synced_count += 1;
                 }
                 Err(e) => {
-                    output.warning(&format!("Failed to register {}: {}", filename, e));
+                    output.warning(format!("Failed to register {}: {}", filename, e));
                     skipped_count += 1;
                 }
             }

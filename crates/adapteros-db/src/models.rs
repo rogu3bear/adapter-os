@@ -1,7 +1,139 @@
 use crate::Db;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Builder for creating model registration parameters
+#[derive(Debug, Default)]
+pub struct ModelRegistrationBuilder {
+    name: Option<String>,
+    hash_b3: Option<String>,
+    config_hash_b3: Option<String>,
+    tokenizer_hash_b3: Option<String>,
+    tokenizer_cfg_hash_b3: Option<String>,
+    license_hash_b3: Option<String>,
+    metadata_json: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_populates_required_fields() {
+        let params = ModelRegistrationBuilder::new()
+            .name("model")
+            .hash_b3("hash")
+            .config_hash_b3("config-hash")
+            .tokenizer_hash_b3("tokenizer-hash")
+            .tokenizer_cfg_hash_b3("tokenizer-cfg-hash")
+            .license_hash_b3(Some("license-hash"))
+            .metadata_json(Some(r#"{"size": "7b"}"#))
+            .build()
+            .expect("builder succeeds");
+
+        assert_eq!(params.name, "model");
+        assert_eq!(params.hash_b3, "hash");
+        assert_eq!(params.config_hash_b3, "config-hash");
+        assert_eq!(params.tokenizer_hash_b3, "tokenizer-hash");
+        assert_eq!(params.tokenizer_cfg_hash_b3, "tokenizer-cfg-hash");
+        assert_eq!(params.license_hash_b3.as_deref(), Some("license-hash"));
+        assert_eq!(params.metadata_json.as_deref(), Some(r#"{"size": "7b"}"#));
+    }
+
+    #[test]
+    fn builder_requires_name() {
+        let err = ModelRegistrationBuilder::new()
+            .hash_b3("hash")
+            .config_hash_b3("config")
+            .tokenizer_hash_b3("tokenizer")
+            .tokenizer_cfg_hash_b3("tokenizer-cfg")
+            .build()
+            .expect_err("missing name should error");
+
+        assert!(err.to_string().contains("name is required"));
+    }
+}
+
+/// Parameters for model registration
+#[derive(Debug, Clone)]
+pub struct ModelRegistrationParams {
+    pub name: String,
+    pub hash_b3: String,
+    pub config_hash_b3: String,
+    pub tokenizer_hash_b3: String,
+    pub tokenizer_cfg_hash_b3: String,
+    pub license_hash_b3: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
+impl ModelRegistrationBuilder {
+    /// Create a new model registration builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the model name (required)
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Set the model B3 hash (required)
+    pub fn hash_b3(mut self, hash_b3: impl Into<String>) -> Self {
+        self.hash_b3 = Some(hash_b3.into());
+        self
+    }
+
+    /// Set the config B3 hash (required)
+    pub fn config_hash_b3(mut self, config_hash_b3: impl Into<String>) -> Self {
+        self.config_hash_b3 = Some(config_hash_b3.into());
+        self
+    }
+
+    /// Set the tokenizer B3 hash (required)
+    pub fn tokenizer_hash_b3(mut self, tokenizer_hash_b3: impl Into<String>) -> Self {
+        self.tokenizer_hash_b3 = Some(tokenizer_hash_b3.into());
+        self
+    }
+
+    /// Set the tokenizer config B3 hash (required)
+    pub fn tokenizer_cfg_hash_b3(mut self, tokenizer_cfg_hash_b3: impl Into<String>) -> Self {
+        self.tokenizer_cfg_hash_b3 = Some(tokenizer_cfg_hash_b3.into());
+        self
+    }
+
+    /// Set the license B3 hash (optional)
+    pub fn license_hash_b3(mut self, license_hash_b3: Option<impl Into<String>>) -> Self {
+        self.license_hash_b3 = license_hash_b3.map(|s| s.into());
+        self
+    }
+
+    /// Set the metadata JSON (optional)
+    pub fn metadata_json(mut self, metadata_json: Option<impl Into<String>>) -> Self {
+        self.metadata_json = metadata_json.map(|s| s.into());
+        self
+    }
+
+    /// Build the model registration parameters
+    pub fn build(self) -> Result<ModelRegistrationParams> {
+        Ok(ModelRegistrationParams {
+            name: self.name.ok_or_else(|| anyhow!("name is required"))?,
+            hash_b3: self.hash_b3.ok_or_else(|| anyhow!("hash_b3 is required"))?,
+            config_hash_b3: self
+                .config_hash_b3
+                .ok_or_else(|| anyhow!("config_hash_b3 is required"))?,
+            tokenizer_hash_b3: self
+                .tokenizer_hash_b3
+                .ok_or_else(|| anyhow!("tokenizer_hash_b3 is required"))?,
+            tokenizer_cfg_hash_b3: self
+                .tokenizer_cfg_hash_b3
+                .ok_or_else(|| anyhow!("tokenizer_cfg_hash_b3 is required"))?,
+            license_hash_b3: self.license_hash_b3,
+            metadata_json: self.metadata_json,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Model {
@@ -86,28 +218,40 @@ pub struct Worker {
 }
 
 impl Db {
-    pub async fn register_model(
-        &self,
-        name: &str,
-        hash_b3: &str,
-        config_hash_b3: &str,
-        tokenizer_hash_b3: &str,
-        tokenizer_cfg_hash_b3: &str,
-        license_hash_b3: Option<&str>,
-        metadata_json: Option<&str>,
-    ) -> Result<String> {
+    /// Register a new model
+    ///
+    /// Use [`ModelRegistrationBuilder`] to construct model parameters:
+    /// ```no_run
+    /// use adapteros_db::models::ModelRegistrationBuilder;
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) {
+    /// let params = ModelRegistrationBuilder::new()
+    ///     .name("my-model")
+    ///     .hash_b3("model-hash-123")
+    ///     .config_hash_b3("config-hash-456")
+    ///     .tokenizer_hash_b3("tokenizer-hash-789")
+    ///     .tokenizer_cfg_hash_b3("tokenizer-cfg-hash-101")
+    ///     .license_hash_b3(Some("license-hash-202"))
+    ///     .metadata_json(Some(r#"{"architecture": "transformer"}"#))
+    ///     .build()
+    ///     .expect("required fields");
+    /// db.register_model(params).await.expect("registration succeeds");
+    /// # }
+    /// ```
+    pub async fn register_model(&self, params: ModelRegistrationParams) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         sqlx::query(
             "INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
-        .bind(name)
-        .bind(hash_b3)
-        .bind(license_hash_b3)
-        .bind(config_hash_b3)
-        .bind(tokenizer_hash_b3)
-        .bind(tokenizer_cfg_hash_b3)
-        .bind(metadata_json)
+        .bind(&params.name)
+        .bind(&params.hash_b3)
+        .bind(&params.license_hash_b3)
+        .bind(&params.config_hash_b3)
+        .bind(&params.tokenizer_hash_b3)
+        .bind(&params.tokenizer_cfg_hash_b3)
+        .bind(&params.metadata_json)
         .execute(self.pool())
         .await?;
         Ok(id)

@@ -163,7 +163,7 @@ impl FusedMlpKernel {
         // Threads model output grid: (batch_size, hidden_size)
         // Use 256 threads per group in X; compute required groups.
         let threads_per_group = MTLSize::new(256, 1, 1);
-        let groups_x = ((batch_size as u64) + threads_per_group.width - 1) / threads_per_group.width;
+        let groups_x = (batch_size as u64).div_ceil(threads_per_group.width);
         let grid_groups = MTLSize::new(groups_x, hidden_size as u64, 1);
 
         encoder.dispatch_thread_groups(grid_groups, threads_per_group);
