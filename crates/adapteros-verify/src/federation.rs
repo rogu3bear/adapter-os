@@ -23,7 +23,7 @@ use tracing::{info, warn};
 /// # Returns
 ///
 /// `Ok(())` if all chains are valid, error otherwise
-pub async fn verify_cross_host(bundle_dir: &Path, db: &Db) -> VerifyResult<()> {
+pub async fn verify_cross_host(bundle_dir: &Path, _db: &Db) -> VerifyResult<()> {
     info!(
         "Starting cross-host verification for: {}",
         bundle_dir.display()
@@ -40,7 +40,7 @@ pub async fn verify_cross_host(bundle_dir: &Path, db: &Db) -> VerifyResult<()> {
     info!("Found {} bundles to verify", bundles.len());
 
     // Load metadata chain
-    let metadata_chain = load_metadata_chain(&bundles)?;
+    let _metadata_chain = load_metadata_chain(&bundles)?;
 
     // Get federation manager (requires keypair for signing, but we only verify here)
     // Use a temporary keypair since we're only verifying, not signing

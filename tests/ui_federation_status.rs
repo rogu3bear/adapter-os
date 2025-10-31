@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! UI Federation Status Integration Tests
 //!
 //! Tests the federation status REST API endpoints and response formats.

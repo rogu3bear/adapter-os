@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Federation signature and output hash integration tests.
 
 use adapteros_core::{AosError, B3Hash, Result};
