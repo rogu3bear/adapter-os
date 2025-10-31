@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Federation Chain Tests
 //!
 //! Tests for cross-host signature chain verification

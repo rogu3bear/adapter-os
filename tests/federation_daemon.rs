@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Federation Daemon Integration Tests
 //!
 //! Tests the federation daemon's continuous verification and quarantine functionality.

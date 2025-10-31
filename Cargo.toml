@@ -51,6 +51,7 @@ members = [
     "crates/adapteros-concurrent-fs",
     "crates/adapteros-platform",
     "crates/adapteros-error-recovery",
+    "crates/adapteros-federation",
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-graph",
@@ -84,6 +85,7 @@ default = ["deterministic-only"]
 deterministic-only = []
 experimental-backends = ["dep:pyo3"]
 mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi"]
+extended-tests = []
 
 [dependencies]
 # Re-export key crates for integration tests
@@ -202,8 +204,8 @@ proptest = "1.4"
 
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
+lto = "thin"  # Changed from "fat" (true) for faster compilation
+codegen-units = 16  # Changed from 1 for parallel compilation
 strip = "symbols"  # Strip symbols but preserve UUID load commands
 
 [profile.dev]
@@ -238,6 +240,61 @@ path = "tests/replay_identical.rs"
 name = "cross_platform_determinism"
 path = "tests/cross_platform_determinism.rs"
 
+[[test]]
+name = "ipc_integration"
+path = "tests/integration/ipc_tests.rs"
+
+# Example binaries (require extended-tests)
+[[example]]
+name = "aos_usage"
+path = "examples/aos_usage.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "basic_inference"
+path = "examples/basic_inference.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "cursor_workflow"
+path = "examples/cursor_workflow.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "load_aos_adapter"
+path = "examples/load_aos_adapter.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "lora_routing"
+path = "examples/lora_routing.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "metrics_collector_example"
+path = "examples/metrics_collector_example.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "mlx_inference"
+path = "examples/mlx_inference.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "patch_proposal_advanced"
+path = "examples/patch_proposal_advanced.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "patch_proposal_api"
+path = "examples/patch_proposal_api.rs"
+required-features = ["extended-tests"]
+
+[[example]]
+name = "patch_proposal_basic"
+path = "examples/patch_proposal_basic.rs"
+required-features = ["extended-tests"]
+
 # Test dependencies
 [dev-dependencies]
 adapteros-core = { path = "crates/adapteros-core" }
@@ -257,6 +314,10 @@ adapteros-client = { path = "crates/adapteros-client" }
 adapteros-node = { path = "crates/adapteros-node" }
 adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
 adapteros-orchestrator = { path = "crates/adapteros-orchestrator" }
+adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
+reqwest = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
 adapteros-profiler = { path = "crates/adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
 adapteros-registry = { path = "crates/adapteros-registry" }
