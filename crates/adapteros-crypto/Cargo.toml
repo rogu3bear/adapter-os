@@ -5,9 +5,14 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+extended-tests = []
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 blake3 = { workspace = true }
 ed25519-dalek = { workspace = true }
 hkdf = { workspace = true }
@@ -15,13 +20,17 @@ sha2 = { workspace = true }
 aes-gcm = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
-thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+subtle = "2.5"
+thiserror = { workspace = true }
 tracing = { workspace = true }
+zeroize = { workspace = true }
 hex = "0.4"
 base64 = "0.22"
-subtle = "2.5"
+security-framework = "2.11"
+security-framework-sys = "2.11"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tokio = { workspace = true }

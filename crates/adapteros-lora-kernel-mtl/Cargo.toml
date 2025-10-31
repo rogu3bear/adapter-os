@@ -17,6 +17,7 @@ objc = { workspace = true }
 cocoa = { workspace = true }
 core-foundation = { workspace = true }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
 bincode = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
