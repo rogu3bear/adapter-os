@@ -67,7 +67,7 @@ struct StatusMenuView: View {
             // Primary rows
             StatusRow(label: "Adapters", value: String(status.adapters_loaded), systemImage: "puzzlepiece.extension", color: .secondary)
             StatusRow(label: "Workers", value: String(status.worker_count), systemImage: "person.3", color: .secondary)
-            StatusRow(label: "Base Model", value: status.base_model_name ?? (status.base_model_loaded ? "Loaded" : "Not Loaded"), systemImage: "cube", color: .secondary)
+            StatusRow(label: "Base Model", value: status.base_model_name ?? ((status.base_model_loaded ?? false) ? "Loaded" : "Not Loaded"), systemImage: "cube", color: .secondary)
             StatusRow(label: "Telemetry", value: status.telemetry_mode, systemImage: "antenna.radiowaves.left.and.right", color: .secondary)
 
             // Kernel hash short + copy full

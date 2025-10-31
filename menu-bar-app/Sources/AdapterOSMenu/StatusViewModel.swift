@@ -206,13 +206,17 @@ class StatusViewModel: ObservableObject {
     private func setupSleepWake() {
         let nc = NSWorkspace.shared.notificationCenter
         let will = nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.stopPolling()
+            Task { @MainActor in
+                self?.stopPolling()
+            }
         }
         let did = nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.setupWatcher()
-            self.startPolling()
-            Task { @MainActor in await self.refresh() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.setupWatcher()
+                self.startPolling()
+                await self.refresh()
+            }
         }
         sleepWakeObservers.append(contentsOf: [will, did])
     }
