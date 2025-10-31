@@ -8,12 +8,6 @@ bind = "127.0.0.1"
 enable_mmap_adapters = true
 mmap_cache_size_mb = 512
 enable_hot_swap = true
-# Enable memory-mapped adapter loading for faster cold-start
-enable_mmap_adapters = true
-# Maximum cache size for memory-mapped adapters (MB)
-mmap_cache_size_mb = 512
-# Enable hot-swap capabilities for dynamic adapter loading/unloading
-enable_hot_swap = true
 
 [db]
 path = "var/aos-cp.sqlite3"
@@ -24,10 +18,13 @@ path = "var/aos-cp.sqlite3"
 require_pf_deny = false
 mtls_required = false
 jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+# 32-byte hex string for deterministic executor seeding
+global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [paths]
 artifacts_root = "var/artifacts"
 bundles_root = "var/bundles"
+adapters_root = "adapters"
 plan_dir = "plan"
 
 [worker.safety]
@@ -71,6 +68,88 @@ enabled = true
 bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
 include_histogram = true
 histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+
+# System metrics collection (recommended: enabled for observability)
+[metrics.system]
+enabled = true
+collection_interval_secs = 30
+sampling_rate = 0.05
+enable_gpu_metrics = true
+enable_disk_metrics = true
+enable_network_metrics = true
+retention_days = 30
+
+# Health thresholds (recommended: adjust based on workload)
+[metrics.thresholds]
+cpu_warning = 70.0
+cpu_critical = 90.0
+memory_warning = 80.0
+memory_critical = 95.0
+disk_warning = 85.0
+disk_critical = 95.0
+gpu_warning = 80.0
+gpu_critical = 95.0
+min_memory_headroom = 15.0
+
+# Alerting configuration (recommended: enabled for production)
+[metrics.alerting]
+enabled = true
+evaluation_interval_secs = 30
+max_concurrent_evaluations = 10
+default_cooldown_secs = 300
+escalation_check_interval_secs = 60
+enable_escalation = true
+enable_notifications = true
+
+# Anomaly detection (recommended: enabled for baseline monitoring)
+[metrics.anomaly]
+enabled = true
+scan_interval_secs = 300
+z_score_threshold = 3.0
+iqr_multiplier = 1.5
+rate_of_change_threshold = 2.0
+min_samples_for_baseline = 100
+baseline_window_days = 7
+confidence_threshold = 0.7
+enable_zscore = true
+enable_iqr = true
+enable_rate_of_change = true
+
+# Baseline calculation (recommended: enabled for performance tracking)
+[metrics.baseline]
+enabled = true
+calculation_interval_hours = 24
+historical_window_days = 30
+statistical_window_days = 7
+min_samples_for_calculation = 100
+auto_expire_days = 90
+enable_historical = true
+enable_statistical = true
+enable_manual = true
+percentile_levels = [0.5, 0.75, 0.9, 0.95, 0.99]
+confidence_level = 0.95
+
+# Metrics persistence (recommended: enabled for historical data)
+[metrics.persistence]
+enabled = true
+collection_interval_secs = 30
+retention_days = 30
+cleanup_interval_hours = 24
+batch_size = 100
+enable_inference_metrics = true
+enable_gpu_metrics = true
+enable_performance_metrics = true
+
+# Notification channels (recommended: configure for alerts)
+[metrics.notifications]
+enabled = true
+enable_email = true
+enable_slack = true
+enable_webhook = true
+enable_pagerduty = true
+retry_attempts = 3
+retry_delay_secs = 30
+timeout_secs = 30
 
 [alerting]
 enabled = true

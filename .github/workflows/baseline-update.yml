@@ -1,0 +1,60 @@
+name: Baseline Manifest Update
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'baselines/**'
+  workflow_dispatch:
+
+jobs:
+  update-manifest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      
+      - name: Check baseline changes
+        id: check-baselines
+        run: |
+          if git diff --name-only HEAD~1 | grep -q "^baselines/"; then
+            echo "baselines_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "baselines_changed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Update baseline manifest
+        if: steps.check-baselines.outputs.baselines_changed == 'true'
+        run: |
+          # Run baseline CLI to update manifest
+          cargo run --bin aosctl -- baseline list --json > baselines/manifest-update.json || true
+          
+          # Update manifest.toml (simplified - full implementation would parse and merge)
+          echo "# Baseline manifest updated by CI" >> baselines/manifest.toml
+          echo "# Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> baselines/manifest.toml
+      
+      - name: Create PR for manifest update
+        if: steps.check-baselines.outputs.baselines_changed == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: Update baseline manifest"
+          title: "Update baseline manifest"
+          body: |
+            This PR updates the baseline manifest after baseline changes.
+            
+            Automated by baseline-update workflow.
+          branch: update-baseline-manifest
+          delete-branch: true
+

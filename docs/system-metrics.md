@@ -71,6 +71,12 @@ min_memory_headroom = 15.0
 - `AOS_METRICS_COLLECTION_INTERVAL` - Override collection interval in seconds
 - `AOS_METRICS_ENABLE_GPU` - Enable/disable GPU metrics collection
 
+### Control Plane Integration
+
+In the control plane configuration (`configs/cp.toml`), adjust `metrics.system_metrics_interval_secs`
+to control how frequently `system.metrics` events are emitted into the telemetry NDJSON pipeline.
+Set the value to `0` to disable the background emitter entirely.
+
 ## API Endpoints
 
 ### GET /v1/metrics/system
@@ -95,6 +101,38 @@ Returns current system metrics:
     "load_15min": 1.0
   },
   "timestamp": 1640995200
+}
+```
+
+### Telemetry NDJSON Sample (`metrics.system`)
+
+The control plane server emits a placeholder telemetry event on the NDJSON stream every
+30 seconds until real sensors are connected:
+
+```json
+{
+  "event_type": "metrics.system",
+  "kind": "metrics.system",
+  "level": "info",
+  "message": "Placeholder system metrics sample",
+  "metadata": {
+    "cpu_usage": 0.0,
+    "memory_usage": 0.0,
+    "disk_read_bytes": 0,
+    "disk_write_bytes": 0,
+    "network_rx_bytes": 0,
+    "network_tx_bytes": 0,
+    "gpu_utilization": null,
+    "gpu_memory_used": null,
+    "uptime_seconds": 0,
+    "process_count": 0,
+    "load_average": {
+      "load_1min": 0.0,
+      "load_5min": 0.0,
+      "load_15min": 0.0
+    },
+    "timestamp": 0
+  }
 }
 ```
 

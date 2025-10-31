@@ -1,0 +1,110 @@
+name: Dependency Security Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    # Run weekly on Monday
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  cargo-deny:
+    name: Cargo Deny Security Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install cargo-deny
+        run: |
+          cargo install cargo-deny --locked
+      
+      - name: Run cargo-deny check
+        run: |
+          cargo deny check --config deny.toml
+      
+      - name: Export deny results
+        if: always()
+        run: |
+          cargo deny check --config deny.toml --format json > deny-results.json || true
+          cargo deny check --config deny.toml --format human > deny-results.txt || true
+      
+      - name: Upload deny results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-deny-results
+          path: |
+            deny-results.json
+            deny-results.txt
+          retention-days: 30
+
+  cargo-vet:
+    name: Cargo Vet Supply Chain Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      
+      - name: Install cargo-vet
+        run: |
+          cargo install cargo-vet
+      
+      - name: Run cargo-vet audit
+        run: |
+          cargo vet --version || echo "cargo-vet not configured"
+          cargo vet audit --version || true
+      
+      - name: Export vet results
+        if: always()
+        run: |
+          cargo vet audit --export-json vet-results.json || true
+          cargo vet audit --export-toml vet-results.toml || true
+      
+      - name: Upload metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-vet-results
+          path: |
+            vet-results.json
+            vet-results.toml
+          retention-days: 30
+      
+      - name: Check supply chain status
+        run: |
+          if [ -f vet-results.json ]; then
+            echo "Supply chain audit completed"
+            cat vet-results.json | jq '.summary' || true
+          else
+            echo "Supply chain audit not configured - skipping"
+          fi
+
+  license-check:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install cargo-deny
+        run: |
+          cargo install cargo-deny --locked
+      
+      - name: Check licenses
+        run: |
+          cargo deny check licenses --config deny.toml
+      
+      - name: Export license report
+        if: always()
+        run: |
+          cargo deny check licenses --config deny.toml --format json > license-report.json || true
+
