@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 tokio = { version = "1.0", features = ["fs", "time", "sync"] }
 serde = { version = "1.0", features = ["derive"] }
