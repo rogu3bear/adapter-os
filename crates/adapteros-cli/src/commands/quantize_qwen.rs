@@ -7,13 +7,13 @@ use crate::output::OutputWriter;
 use adapteros_core::AosError;
 use anyhow::Result;
 use half;
-use safetensors::{SafeTensors, tensor::TensorView};
+use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use tracing::{info, warn};
+use std::path::Path;
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantizationManifest {
@@ -32,7 +32,14 @@ pub struct QuantizedTensorInfo {
     pub zero_points_path: String,
 }
 
-pub async fn run(input: &Path, output: &Path, model_name: &str, group_size: Option<usize>, output_json: bool, out: &OutputWriter) -> Result<()> {
+pub async fn run(
+    input: &Path,
+    output: &Path,
+    model_name: &str,
+    group_size: Option<usize>,
+    output_json: bool,
+    out: &OutputWriter,
+) -> Result<()> {
     if !input.exists() {
         return Err(AosError::Io(format!("Input path does not exist: {}", input.display())).into());
     }
@@ -47,24 +54,34 @@ pub async fn run(input: &Path, output: &Path, model_name: &str, group_size: Opti
     };
 
     let mut files_processed: usize = 0;
-    let mut tensors_quantized: usize = 0;
+    let tensors_quantized: usize;
 
     if input.is_dir() {
         for entry in fs::read_dir(input)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map(|e| e == "safetensors").unwrap_or(false) {
+            if path
+                .extension()
+                .map(|e| e == "safetensors")
+                .unwrap_or(false)
+            {
                 files_processed += 1;
                 quantize_safetensors_file(&path, output, &mut manifest, group_size, out)?;
             }
         }
+    } else if input
+        .extension()
+        .map(|e| e == "safetensors")
+        .unwrap_or(false)
+    {
+        files_processed += 1;
+        quantize_safetensors_file(input, output, &mut manifest, group_size, out)?;
     } else {
-        if input.extension().map(|e| e == "safetensors").unwrap_or(false) {
-            files_processed += 1;
-            quantize_safetensors_file(input, output, &mut manifest, group_size, out)?;
-        } else {
-            return Err(AosError::Io(format!("Input file is not .safetensors: {}", input.display())).into());
-        }
+        return Err(AosError::Io(format!(
+            "Input file is not .safetensors: {}",
+            input.display()
+        ))
+        .into());
     }
 
     tensors_quantized = manifest.tensors.len();
@@ -77,19 +94,25 @@ pub async fn run(input: &Path, output: &Path, model_name: &str, group_size: Opti
     if output_json {
         out.json(&manifest)?;
     } else {
-        out.info(&format!(
+        out.info(format!(
             "Quantized {} tensors from {} file(s) → {}",
             tensors_quantized,
             files_processed,
             output.display()
         ));
-        out.info(&format!("Wrote manifest: {}", manifest_path.display()));
+        out.info(format!("Wrote manifest: {}", manifest_path.display()));
     }
 
     Ok(())
 }
 
-fn quantize_safetensors_file(path: &Path, out_dir: &Path, manifest: &mut QuantizationManifest, group_size: Option<usize>, out: &OutputWriter) -> Result<()> {
+fn quantize_safetensors_file(
+    path: &Path,
+    out_dir: &Path,
+    manifest: &mut QuantizationManifest,
+    _group_size: Option<usize>,
+    _out: &OutputWriter,
+) -> Result<()> {
     let data = fs::read(path)?;
     let st = SafeTensors::deserialize(&data)?;
 
@@ -114,13 +137,16 @@ fn quantize_safetensors_file(path: &Path, out_dir: &Path, manifest: &mut Quantiz
             safetensors::Dtype::F16 => {
                 // Convert FP16 → f32
                 let halfs: &[u16] = bytemuck::cast_slice(tv.data());
-                halfs.iter().map(|h| half::f16::from_bits(*h).to_f32()).collect::<Vec<f32>>()
+                halfs
+                    .iter()
+                    .map(|h| half::f16::from_bits(*h).to_f32())
+                    .collect::<Vec<f32>>()
             }
             _ => unreachable!(),
         };
 
         // Pack per-row with a single scale & zero point per row
-        let mut packed: Vec<u8> = Vec::with_capacity(rows * ((cols + 1) / 2));
+        let mut packed: Vec<u8> = Vec::with_capacity(rows * cols.div_ceil(2));
         let mut scales: Vec<f32> = Vec::with_capacity(rows);
         let mut zero_points: Vec<i8> = Vec::with_capacity(rows);
 
@@ -146,9 +172,17 @@ fn quantize_safetensors_file(path: &Path, out_dir: &Path, manifest: &mut Quantiz
         manifest.tensors.insert(
             name.to_string(),
             QuantizedTensorInfo {
-                shape: shape.iter().map(|&d| d as usize).collect(),
-                packed_path: packed_path.file_name().unwrap().to_string_lossy().into_owned(),
-                scales_path: scales_path.file_name().unwrap().to_string_lossy().into_owned(),
+                shape: shape.iter().copied().collect(),
+                packed_path: packed_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                scales_path: scales_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
                 zero_points_path: zps_path.file_name().unwrap().to_string_lossy().into_owned(),
             },
         );
@@ -172,8 +206,12 @@ fn compute_affine_scale_zero_point(row: &[f32]) -> (f32, i8) {
     let mut min_v = f32::INFINITY;
     let mut max_v = f32::NEG_INFINITY;
     for &v in row.iter() {
-        if v < min_v { min_v = v; }
-        if v > max_v { max_v = v; }
+        if v < min_v {
+            min_v = v;
+        }
+        if v > max_v {
+            max_v = v;
+        }
     }
     let range = (max_v - min_v).max(1e-8);
     let scale = range / 15.0; // 4-bit
@@ -186,9 +224,13 @@ fn pack_row_int4(row: &[f32], scale: f32, zp: i8, dst: &mut Vec<u8>) {
     let n = row.len();
     while i < n {
         let q0 = quantize_to_4bit(row[i], scale, zp);
-        let q1 = if i + 1 < n { quantize_to_4bit(row[i + 1], scale, zp) } else { 0 };
+        let q1 = if i + 1 < n {
+            quantize_to_4bit(row[i + 1], scale, zp)
+        } else {
+            0
+        };
         let byte = (q0 & 0x0F) | ((q1 & 0x0F) << 4);
-        dst.push(byte as u8);
+        dst.push(byte);
         i += 2;
     }
 }
@@ -198,5 +240,3 @@ fn quantize_to_4bit(v: f32, scale: f32, zp: i8) -> u8 {
     let q = (v / scale + (zp as f32)).round();
     q.clamp(0.0, 15.0) as u8
 }
-
-

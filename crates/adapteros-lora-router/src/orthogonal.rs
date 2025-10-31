@@ -65,7 +65,12 @@ impl OrthogonalConstraints {
     /// Convert Q15 gates to normalized activation vector
     fn gates_to_activation_vector(&self, adapter_indices: &[u16], gates: &[i16]) -> Vec<f32> {
         // Convert Q15 gates to normalized activation vector
-        let max_index = adapter_indices.iter().copied().map(|v| v as usize).max().unwrap_or(0);
+        let max_index = adapter_indices
+            .iter()
+            .copied()
+            .map(|v| v as usize)
+            .max()
+            .unwrap_or(0);
         let mut activation = vec![0.0; max_index + 1];
 
         for (idx, gate) in adapter_indices.iter().zip(gates.iter()) {
@@ -83,7 +88,12 @@ impl OrthogonalConstraints {
         if n == 0 {
             return 0.0;
         }
-        let dot_product: f32 = a.iter().take(n).zip(b.iter().take(n)).map(|(x, y)| x * y).sum();
+        let dot_product: f32 = a
+            .iter()
+            .take(n)
+            .zip(b.iter().take(n))
+            .map(|(x, y)| x * y)
+            .sum();
         let norm_a: f32 = a.iter().take(n).map(|x| x * x).sum::<f32>().sqrt();
         let norm_b: f32 = b.iter().take(n).map(|x| x * x).sum::<f32>().sqrt();
 

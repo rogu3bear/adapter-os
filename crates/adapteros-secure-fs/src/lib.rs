@@ -13,8 +13,7 @@ use cap_std::fs::{Dir, File};
 use serde::{Deserialize, Serialize};
 use std::path::Path as StdPath;
 use std::path::PathBuf;
-use std::time::SystemTime;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 
 /// Secure filesystem configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +34,10 @@ pub struct SecureFsConfig {
     pub default_file_permissions: u32,
     /// Default directory permissions (octal)
     pub default_dir_permissions: u32,
+    /// Enable encryption by default
+    pub enable_encryption: bool,
+    /// Key provider configuration
+    pub key_provider: adapteros_crypto::KeyProviderConfig,
 }
 
 /// Secure filesystem manager
@@ -42,6 +45,7 @@ pub struct SecureFsManager {
     config: SecureFsConfig,
     root_dir: Option<Dir>,
     capabilities: Option<caps::Capabilities>,
+    key_provider: Option<Box<dyn adapteros_crypto::KeyProvider + Send + Sync>>,
 }
 
 impl SecureFsManager {
@@ -57,7 +61,36 @@ impl SecureFsManager {
             config,
             root_dir: None,
             capabilities,
+            key_provider: None,
         })
+    }
+
+    /// Initialize the key provider (async operation)
+    pub async fn init_key_provider(&mut self) -> Result<()> {
+        if self.config.enable_encryption {
+            // Create the appropriate key provider based on config
+            let provider: Box<dyn adapteros_crypto::KeyProvider + Send + Sync> =
+                match self.config.key_provider.mode {
+                    adapteros_crypto::KeyProviderMode::Keychain => Box::new(
+                        adapteros_crypto::KeychainProvider::new(self.config.key_provider.clone())?,
+                    ),
+                    adapteros_crypto::KeyProviderMode::Kms => {
+                        return Err(adapteros_core::AosError::Crypto(
+                            "KMS provider not yet implemented".to_string(),
+                        ));
+                    }
+                    adapteros_crypto::KeyProviderMode::File => {
+                        return Err(adapteros_core::AosError::Crypto(
+                            "File provider not allowed in production".to_string(),
+                        ));
+                    }
+                };
+
+            self.key_provider = Some(provider);
+            info!("Initialized key provider for encrypted filesystem operations");
+        }
+
+        Ok(())
     }
 
     /// Set the root directory for capability-based access
@@ -152,7 +185,7 @@ impl SecureFsManager {
             Ok(dir)
         } else {
             // Fallback to standard directory operations
-            let dir = std::fs::read_dir(path)
+            let _dir = std::fs::read_dir(path)
                 .map_err(|e| AosError::Security(format!("Failed to open directory: {}", e)))?;
             Ok(
                 Dir::open_ambient_dir(path, cap_std::ambient_authority()).map_err(|e| {
@@ -425,6 +458,8 @@ impl Default for SecureFsConfig {
             ],
             default_file_permissions: 0o600, // Owner read/write only
             default_dir_permissions: 0o700,  // Owner read/write/execute only
+            enable_encryption: true,         // Encryption enabled by default
+            key_provider: adapteros_crypto::KeyProviderConfig::default(),
         }
     }
 }

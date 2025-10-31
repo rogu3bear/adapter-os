@@ -38,6 +38,110 @@ pub enum DatabaseBackend {
     Postgres,
 }
 
+/// Builder for creating documents with complex parameter sets
+#[derive(Debug)]
+pub struct DocumentBuilder {
+    tenant_id: String,
+    doc_id: String,
+    text: String,
+    embedding: Vec<f32>,
+    rev: String,
+    effectivity: String,
+    source_type: String,
+    superseded_by: Option<String>,
+}
+
+/// Parameters for document creation
+#[derive(Debug)]
+pub struct DocumentParams {
+    pub tenant_id: String,
+    pub doc_id: String,
+    pub text: String,
+    pub embedding: Vec<f32>,
+    pub rev: String,
+    pub effectivity: String,
+    pub source_type: String,
+    pub superseded_by: Option<String>,
+}
+
+impl DocumentBuilder {
+    /// Create a new document builder
+    pub fn new() -> Self {
+        Self {
+            tenant_id: String::new(),
+            doc_id: String::new(),
+            text: String::new(),
+            embedding: Vec::new(),
+            rev: String::new(),
+            effectivity: String::new(),
+            source_type: String::new(),
+            superseded_by: None,
+        }
+    }
+
+    /// Set the tenant ID
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = tenant_id.into();
+        self
+    }
+
+    /// Set the document ID
+    pub fn doc_id(mut self, doc_id: impl Into<String>) -> Self {
+        self.doc_id = doc_id.into();
+        self
+    }
+
+    /// Set the document text
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+
+    /// Set the embedding vector
+    pub fn embedding(mut self, embedding: Vec<f32>) -> Self {
+        self.embedding = embedding;
+        self
+    }
+
+    /// Set the revision
+    pub fn rev(mut self, rev: impl Into<String>) -> Self {
+        self.rev = rev.into();
+        self
+    }
+
+    /// Set the effectivity period
+    pub fn effectivity(mut self, effectivity: impl Into<String>) -> Self {
+        self.effectivity = effectivity.into();
+        self
+    }
+
+    /// Set the source type
+    pub fn source_type(mut self, source_type: impl Into<String>) -> Self {
+        self.source_type = source_type.into();
+        self
+    }
+
+    /// Set the superseded revision (optional)
+    pub fn superseded_by(mut self, superseded_by: Option<impl Into<String>>) -> Self {
+        self.superseded_by = superseded_by.map(|s| s.into());
+        self
+    }
+
+    /// Build the document parameters
+    pub fn build(self) -> DocumentParams {
+        DocumentParams {
+            tenant_id: self.tenant_id,
+            doc_id: self.doc_id,
+            text: self.text,
+            embedding: self.embedding,
+            rev: self.rev,
+            effectivity: self.effectivity,
+            source_type: self.source_type,
+            superseded_by: self.superseded_by,
+        }
+    }
+}
+
 /// pgvector-backed RAG index with dual backend support
 pub struct PgVectorIndex {
     backend: DatabaseBackend,
@@ -80,67 +184,40 @@ impl PgVectorIndex {
     /// Stores document text, embedding, and metadata.
     /// - PostgreSQL: Uses pgvector's `vector` type for native similarity search
     /// - SQLite: Stores embedding as JSON array for development
-    pub async fn add_document(
-        &self,
-        tenant_id: &str,
-        doc_id: String,
-        text: String,
-        embedding: Vec<f32>,
-        rev: String,
-        effectivity: String,
-        source_type: String,
-        superseded_by: Option<String>,
-    ) -> Result<()> {
+    ///
+    /// Use [`DocumentBuilder`] to construct complex parameter sets:
+    /// ```rust
+    /// use adapteros_lora_rag::pgvector::DocumentBuilder;
+    ///
+    /// let params = DocumentBuilder::new()
+    ///     .tenant_id("tenant-123")
+    ///     .doc_id("doc-001")
+    ///     .text("Document content")
+    ///     .embedding(vec![0.1, 0.2, 0.3])
+    ///     .rev("v1.0")
+    ///     .effectivity("all")
+    ///     .source_type("manual")
+    ///     .build();
+    /// ```
+    ///
+    /// The resulting [`DocumentParams`] can be handed to [`PgVectorIndex::add_document`].
+    pub async fn add_document(&self, params: DocumentParams) -> Result<()> {
         // Validate embedding dimension
-        if embedding.len() != self.embedding_dimension {
+        if params.embedding.len() != self.embedding_dimension {
             return Err(AosError::Rag(format!(
                 "Embedding dimension mismatch: expected {}, got {}",
                 self.embedding_dimension,
-                embedding.len()
+                params.embedding.len()
             )));
         }
 
         match self.backend {
-            DatabaseBackend::Postgres => {
-                self.add_document_postgres(
-                    tenant_id,
-                    doc_id,
-                    text,
-                    embedding,
-                    rev,
-                    effectivity,
-                    source_type,
-                    superseded_by,
-                )
-                .await
-            }
-            DatabaseBackend::Sqlite => {
-                self.add_document_sqlite(
-                    tenant_id,
-                    doc_id,
-                    text,
-                    embedding,
-                    rev,
-                    effectivity,
-                    source_type,
-                    superseded_by,
-                )
-                .await
-            }
+            DatabaseBackend::Postgres => self.add_document_postgres(&params).await,
+            DatabaseBackend::Sqlite => self.add_document_sqlite(&params).await,
         }
     }
 
-    async fn add_document_postgres(
-        &self,
-        tenant_id: &str,
-        doc_id: String,
-        text: String,
-        embedding: Vec<f32>,
-        rev: String,
-        effectivity: String,
-        source_type: String,
-        superseded_by: Option<String>,
-    ) -> Result<()> {
+    async fn add_document_postgres(&self, params: &DocumentParams) -> Result<()> {
         let pool = self
             .pg_pool
             .as_ref()
@@ -149,7 +226,8 @@ impl PgVectorIndex {
         // Convert Vec<f32> to pgvector format
         let embedding_str = format!(
             "[{}]",
-            embedding
+            params
+                .embedding
                 .iter()
                 .map(|f| f.to_string())
                 .collect::<Vec<_>>()
@@ -159,8 +237,8 @@ impl PgVectorIndex {
         sqlx::query(
             "INSERT INTO rag_documents (doc_id, tenant_id, text, embedding, rev, effectivity, source_type, superseded_by, created_at)
              VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, NOW())
-             ON CONFLICT (doc_id, tenant_id) 
-             DO UPDATE SET 
+             ON CONFLICT (doc_id, tenant_id)
+             DO UPDATE SET
                 text = EXCLUDED.text,
                 embedding = EXCLUDED.embedding,
                 rev = EXCLUDED.rev,
@@ -169,51 +247,41 @@ impl PgVectorIndex {
                 superseded_by = EXCLUDED.superseded_by,
                 updated_at = NOW()"
         )
-        .bind(&doc_id)
-        .bind(tenant_id)
-        .bind(&text)
+        .bind(&params.doc_id)
+        .bind(&params.tenant_id)
+        .bind(&params.text)
         .bind(&embedding_str)
-        .bind(&rev)
-        .bind(&effectivity)
-        .bind(&source_type)
-        .bind(&superseded_by)
+        .bind(&params.rev)
+        .bind(&params.effectivity)
+        .bind(&params.source_type)
+        .bind(&params.superseded_by)
         .execute(pool)
         .await
         .map_err(|e| AosError::Rag(format!("Failed to add document (postgres): {}", e)))?;
 
         tracing::debug!(
             "Added document {} to tenant {} (postgres)",
-            doc_id,
-            tenant_id
+            params.doc_id,
+            params.tenant_id
         );
         Ok(())
     }
 
-    async fn add_document_sqlite(
-        &self,
-        tenant_id: &str,
-        doc_id: String,
-        text: String,
-        embedding: Vec<f32>,
-        rev: String,
-        effectivity: String,
-        source_type: String,
-        superseded_by: Option<String>,
-    ) -> Result<()> {
+    async fn add_document_sqlite(&self, params: &DocumentParams) -> Result<()> {
         let pool = self
             .sqlite_pool
             .as_ref()
             .ok_or_else(|| AosError::Rag("SQLite pool not initialized".to_string()))?;
 
         // Convert embedding to JSON array
-        let embedding_json = serde_json::to_string(&embedding)
+        let embedding_json = serde_json::to_string(&params.embedding)
             .map_err(|e| AosError::Rag(format!("Failed to serialize embedding: {}", e)))?;
 
         sqlx::query(
             "INSERT INTO rag_documents (doc_id, tenant_id, text, embedding_json, rev, effectivity, source_type, superseded_by, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT (doc_id, tenant_id) 
-             DO UPDATE SET 
+             ON CONFLICT (doc_id, tenant_id)
+             DO UPDATE SET
                 text = excluded.text,
                 embedding_json = excluded.embedding_json,
                 rev = excluded.rev,
@@ -222,19 +290,23 @@ impl PgVectorIndex {
                 superseded_by = excluded.superseded_by,
                 updated_at = CURRENT_TIMESTAMP"
         )
-        .bind(&doc_id)
-        .bind(tenant_id)
-        .bind(&text)
+        .bind(&params.doc_id)
+        .bind(&params.tenant_id)
+        .bind(&params.text)
         .bind(&embedding_json)
-        .bind(&rev)
-        .bind(&effectivity)
-        .bind(&source_type)
-        .bind(&superseded_by)
+        .bind(&params.rev)
+        .bind(&params.effectivity)
+        .bind(&params.source_type)
+        .bind(&params.superseded_by)
         .execute(pool)
         .await
         .map_err(|e| AosError::Rag(format!("Failed to add document (sqlite): {}", e)))?;
 
-        tracing::debug!("Added document {} to tenant {} (sqlite)", doc_id, tenant_id);
+        tracing::debug!(
+            "Added document {} to tenant {} (sqlite)",
+            params.doc_id,
+            params.tenant_id
+        );
         Ok(())
     }
 
@@ -757,6 +829,44 @@ async fn audit_insert_postgres(
 mod tests {
     use super::*;
 
+    #[test]
+    fn document_builder_hydrates_all_fields() {
+        let params = DocumentBuilder::new()
+            .tenant_id("tenant-123")
+            .doc_id("doc-001")
+            .text("Doc body")
+            .embedding(vec![1.0, 2.0, 3.0])
+            .rev("v2")
+            .effectivity("all")
+            .source_type("manual")
+            .superseded_by(Some("doc-000"))
+            .build();
+
+        assert_eq!(params.tenant_id, "tenant-123");
+        assert_eq!(params.doc_id, "doc-001");
+        assert_eq!(params.text, "Doc body");
+        assert_eq!(params.embedding, vec![1.0, 2.0, 3.0]);
+        assert_eq!(params.rev, "v2");
+        assert_eq!(params.effectivity, "all");
+        assert_eq!(params.source_type, "manual");
+        assert_eq!(params.superseded_by.as_deref(), Some("doc-000"));
+    }
+
+    #[test]
+    fn document_builder_defaults_optional_fields() {
+        let params = DocumentBuilder::new()
+            .tenant_id("tenant-123")
+            .doc_id("doc-001")
+            .text("Doc body")
+            .embedding(vec![1.0])
+            .rev("v1")
+            .effectivity("all")
+            .source_type("manual")
+            .build();
+
+        assert!(params.superseded_by.is_none());
+    }
+
     #[tokio::test]
     #[ignore] // Requires PostgreSQL with pgvector extension
     async fn test_pgvector_add_and_retrieve() {
@@ -775,17 +885,17 @@ mod tests {
 
         // Add test document
         let embedding = vec![0.1, 0.2, 0.3, 0.4];
+        let params = DocumentBuilder::new()
+            .tenant_id("test-tenant")
+            .doc_id("doc-001")
+            .text("Test document text")
+            .embedding(embedding.clone())
+            .rev("v1")
+            .effectivity("all")
+            .source_type("manual")
+            .build();
         index
-            .add_document(
-                "test-tenant",
-                "doc-001".to_string(),
-                "Test document text".to_string(),
-                embedding.clone(),
-                "v1".to_string(),
-                "all".to_string(),
-                "manual".to_string(),
-                None,
-            )
+            .add_document(params)
             .await
             .expect("Failed to add document");
 
@@ -817,17 +927,17 @@ mod tests {
         // Add multiple documents with similar scores
         let embedding = vec![0.5, 0.5, 0.5, 0.5];
         for i in 0..5 {
+            let params = DocumentBuilder::new()
+                .tenant_id("test-tenant")
+                .doc_id(format!("doc-{:03}", i))
+                .text(format!("Document {}", i))
+                .embedding(embedding.clone())
+                .rev("v1")
+                .effectivity("all")
+                .source_type("test")
+                .build();
             index
-                .add_document(
-                    "test-tenant",
-                    format!("doc-{:03}", i),
-                    format!("Document {}", i),
-                    embedding.clone(),
-                    "v1".to_string(),
-                    "all".to_string(),
-                    "test".to_string(),
-                    None,
-                )
+                .add_document(params)
                 .await
                 .expect("Failed to add document");
         }

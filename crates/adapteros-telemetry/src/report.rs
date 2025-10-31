@@ -1,11 +1,16 @@
 //! HTML report generation from telemetry bundles
+//!
+//! Includes signing and encryption for performance reports through telemetry chain
 
 use crate::replay::{load_replay_bundle, ReplayBundle};
-use adapteros_core::Result;
+use adapteros_core::{B3Hash, Result};
+use adapteros_crypto::KeyProvider;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Generate an HTML report from a telemetry bundle
 pub fn generate_html_report<P: AsRef<Path>, Q: AsRef<Path>>(
@@ -24,6 +29,117 @@ pub fn generate_html_report<P: AsRef<Path>, Q: AsRef<Path>>(
     })?;
 
     Ok(())
+}
+
+/// Performance report metadata with signature
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceReportMetadata {
+    /// Report timestamp
+    pub timestamp: u64,
+    /// Report hash (BLAKE3)
+    pub report_hash: String,
+    /// Ed25519 signature (hex-encoded)
+    pub signature: String,
+    /// Public key (hex-encoded)
+    pub public_key: String,
+    /// Encryption key ID (if encrypted)
+    pub encryption_key_id: Option<String>,
+    /// Policy hash at report generation time
+    pub policy_hash: Option<String>,
+    /// Provider attestation (if available)
+    pub provider_attestation: Option<adapteros_crypto::ProviderAttestation>,
+}
+
+/// Generate signed and encrypted performance report
+pub async fn generate_signed_performance_report<P: AsRef<Path>>(
+    performance_data: &serde_json::Value,
+    output_path: P,
+    key_provider: Option<&dyn KeyProvider>,
+) -> Result<PerformanceReportMetadata> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| adapteros_core::AosError::Io(format!("System time error: {}", e)))?
+        .as_secs();
+
+    // Serialize performance data
+    let report_json =
+        serde_json::to_string(performance_data).map_err(adapteros_core::AosError::Serialization)?;
+
+    // Compute report hash
+    let report_hash = B3Hash::hash(report_json.as_bytes());
+
+    // Sign the report
+    let (signature, public_key, encryption_key_id, policy_hash, provider_attestation) =
+        if let Some(provider) = key_provider {
+            // Sign with key provider
+            let signature_bytes = provider
+                .sign("performance-report", report_hash.as_bytes())
+                .await
+                .map_err(|e| {
+                    adapteros_core::AosError::Crypto(format!("Failed to sign report: {}", e))
+                })?;
+
+            // Encrypt the report
+            let encrypted_data = provider
+                .seal("performance-report", report_json.as_bytes())
+                .await
+                .map_err(|e| {
+                    adapteros_core::AosError::Crypto(format!("Failed to encrypt report: {}", e))
+                })?;
+
+            // Get attestation and policy hash
+            let attestation = provider.attest().await.ok();
+            let policy_hash = attestation.as_ref().map(|a| a.policy_hash.clone());
+
+            // Write encrypted data
+            std::fs::write(output_path.as_ref(), encrypted_data).map_err(|e| {
+                adapteros_core::AosError::Io(format!("Failed to write encrypted report: {}", e))
+            })?;
+
+            (
+                hex::encode(signature_bytes),
+                "provider-key".to_string(),
+                Some("performance-report".to_string()),
+                policy_hash,
+                attestation,
+            )
+        } else {
+            // Fallback: generate ephemeral keypair for signing
+            let keypair = adapteros_crypto::Keypair::generate();
+            let signature = keypair.sign(report_hash.as_bytes());
+
+            // Write unencrypted but signed report
+            std::fs::write(output_path.as_ref(), report_json.as_bytes()).map_err(|e| {
+                adapteros_core::AosError::Io(format!("Failed to write report: {}", e))
+            })?;
+
+            (
+                hex::encode(signature.to_bytes()),
+                hex::encode(keypair.public_key().to_bytes()),
+                None,
+                None,
+                None,
+            )
+        };
+
+    // Write metadata
+    let metadata = PerformanceReportMetadata {
+        timestamp,
+        report_hash: report_hash.to_hex(),
+        signature,
+        public_key,
+        encryption_key_id,
+        policy_hash,
+        provider_attestation,
+    };
+
+    let metadata_path = output_path.as_ref().with_extension("meta.json");
+    let metadata_json =
+        serde_json::to_string_pretty(&metadata).map_err(adapteros_core::AosError::Serialization)?;
+    std::fs::write(&metadata_path, metadata_json)
+        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to write metadata: {}", e)))?;
+
+    Ok(metadata)
 }
 
 fn create_report_html(bundle: &ReplayBundle) -> Result<String> {

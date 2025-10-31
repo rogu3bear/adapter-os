@@ -109,7 +109,7 @@ fn format_timestamp(timestamp: i64) -> String {
     let dt = Local
         .timestamp_opt(timestamp, 0)
         .single()
-        .unwrap_or_else(|| Local::now());
+        .unwrap_or_else(Local::now);
     dt.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 

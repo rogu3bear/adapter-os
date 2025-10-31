@@ -1,6 +1,10 @@
 use adapteros_core::AosError;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use sqlx::migrate::Migrator;
+use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
+use std::path::Path;
+use std::str::FromStr;
 
 // PostgreSQL backend for production
 pub mod postgres;
@@ -21,22 +25,22 @@ impl Db {
     /// "sqlite://var/aos.db"). Prevents double-prefix issues in tests.
     pub async fn connect(path: &str) -> Result<Self> {
         // Normalize input to a SQLite URL understood by sqlx
-        let url = if path.starts_with("sqlite://") {
-            // Convert triple-slash form to single-colon absolute path style
-            // e.g., sqlite:///abs/path.db -> sqlite:/abs/path.db
-            format!("sqlite:{}", &path["sqlite://".len()..])
-        } else if path.starts_with("sqlite:") {
+        let url = if path.starts_with("sqlite://") || path.starts_with("sqlite::") {
+            // Already in URL form (absolute, relative, or special memory URL)
             path.to_string()
         } else if path.starts_with('/') {
             // Absolute filesystem path
-            format!("sqlite:{}", path)
+            format!("sqlite://{}", path)
         } else {
             // Relative filesystem path
             format!("sqlite://{}", path)
         };
 
         // Establish connection via URL (creates DB file if missing)
-        let pool = SqlitePool::connect(&url).await?;
+        let connect_opts = SqliteConnectOptions::from_str(&url)?
+            .create_if_missing(true)
+            .immutable(false);
+        let pool = SqlitePool::connect_with(connect_opts).await?;
 
         // Apply recommended pragmas for concurrency and performance
         let _ = sqlx::query("PRAGMA journal_mode = WAL;")
@@ -58,11 +62,18 @@ impl Db {
 
     /// Run database migrations (SQLite)
     pub async fn migrate(&self) -> Result<()> {
-        // Embed migrations at compile time for reproducibility
-        sqlx::migrate!("../../migrations")
-            .run(&self.pool)
+        let migrations_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+
+        let migrator = Migrator::new(migrations_dir.as_path())
             .await
-            .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
+            .with_context(|| {
+                format!(
+                    "Failed to load migrations from {}",
+                    migrations_dir.display()
+                )
+            })?;
+
+        migrator.run(&self.pool).await.context("Migration failed")?;
 
         Ok(())
     }
@@ -155,13 +166,22 @@ pub use sqlx;
 pub use sqlx::Row;
 
 // Re-export types for trait usage
-pub use adapters::Adapter;
+pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
+pub use commits::{Commit, CommitBuilder, CommitParams};
+pub use contacts::{ContactUpsertBuilder, ContactUpsertParams};
 pub use jobs::Job;
-pub use models::Worker;
-pub use tenants::Tenant;
+pub use models::{ModelRegistrationBuilder, ModelRegistrationParams, Worker};
 pub use nodes::Node;
+pub use patch_proposals::{PatchProposalBuilder, PatchProposalParams};
 pub use replay_sessions::ReplaySession;
-pub use training_jobs::TrainingJobRecord;
+pub use repositories::{
+    CodeGraphMetadataBuilder, CodeGraphMetadataParams, RepositoryExtendedBuilder,
+    RepositoryExtendedParams,
+};
+pub use telemetry_bundles::{TelemetryBatchBuilder, TelemetryBatchParams, TelemetryRecord};
+pub use tenants::Tenant;
+pub use training_jobs::{TrainingJobBuilder, TrainingJobParams, TrainingJobRecord};
+pub use workers::{WorkerInsertBuilder, WorkerInsertParams};
 
 /// Unified database enum for both SQLite and PostgreSQL
 #[derive(Clone)]
@@ -177,7 +197,8 @@ impl Database {
     /// If `DATABASE_URL` begins with `postgres://` or `postgresql://`, connects to PostgreSQL.
     /// Otherwise, uses SQLite (path or sqlite URL).
     pub async fn connect_env() -> Result<Database> {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
+        let database_url =
+            std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
         let url_lc = database_url.to_lowercase();
         if url_lc.starts_with("postgres://") || url_lc.starts_with("postgresql://") {
             let pg = PostgresDb::connect_env()
@@ -206,13 +227,15 @@ impl Database {
     /// Get the SQLite database, panicking if this is PostgreSQL
     /// Used for legacy code that requires direct Db access
     pub fn sqlite(&self) -> &Db {
-        self.as_sqlite().expect("Expected SQLite database but got PostgreSQL")
+        self.as_sqlite()
+            .expect("Expected SQLite database but got PostgreSQL")
     }
 
     /// Get the PostgreSQL database, panicking if this is SQLite
     /// Used for legacy code that requires direct PostgresDb access
     pub fn postgres(&self) -> &PostgresDb {
-        self.as_postgres().expect("Expected PostgreSQL database but got SQLite")
+        self.as_postgres()
+            .expect("Expected PostgreSQL database but got SQLite")
     }
 
     pub fn pool(&self) -> &sqlx::SqlitePool {
@@ -265,10 +288,15 @@ impl Database {
         }
     }
 
-    pub async fn register_adapter(&self, adapter_id: &str, name: &str, hash_b3: &str, rank: i32, tier: i32, languages_json: Option<&str>, framework: Option<&str>) -> Result<String> {
+    pub async fn register_adapter(
+        &self,
+        params: crate::AdapterRegistrationParams,
+    ) -> Result<String> {
         match self {
-            Database::Sqlite(db) => db.register_adapter(adapter_id, name, hash_b3, rank, tier, languages_json, framework).await,
-            Database::Postgres(db) => db.register_adapter(adapter_id, name, hash_b3, rank, tier, languages_json, framework).await.map_err(Into::into),
+            Database::Sqlite(db) => Db::register_adapter(db, params.clone()).await,
+            Database::Postgres(db) => PostgresDb::register_adapter(db, params)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -279,10 +307,18 @@ impl Database {
         }
     }
 
-    pub async fn update_adapter_state(&self, adapter_id: &str, state: &str, reason: &str) -> Result<()> {
+    pub async fn update_adapter_state(
+        &self,
+        adapter_id: &str,
+        state: &str,
+        reason: &str,
+    ) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.update_adapter_state(adapter_id, state, reason).await,
-            Database::Postgres(db) => db.update_adapter_state(adapter_id, state, reason).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .update_adapter_state(adapter_id, state, reason)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -331,7 +367,10 @@ impl Database {
     pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.update_worker_status(worker_id, status).await,
-            Database::Postgres(db) => db.update_worker_status(worker_id, status).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .update_worker_status(worker_id, status)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -345,7 +384,10 @@ impl Database {
     pub async fn register_node(&self, hostname: &str, agent_endpoint: &str) -> Result<String> {
         match self {
             Database::Sqlite(db) => db.register_node(hostname, agent_endpoint).await,
-            Database::Postgres(db) => db.register_node(hostname, agent_endpoint).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .register_node(hostname, agent_endpoint)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -363,35 +405,56 @@ impl Database {
         }
     }
 
-    pub async fn create_job(&self, kind: &str, tenant_id: Option<&str>, user_id: Option<&str>, payload_json: &str) -> Result<String> {
+    pub async fn create_job(
+        &self,
+        kind: &str,
+        tenant_id: Option<&str>,
+        user_id: Option<&str>,
+        payload_json: &str,
+    ) -> Result<String> {
         match self {
             Database::Sqlite(db) => db.create_job(kind, tenant_id, user_id, payload_json).await,
-            Database::Postgres(db) => db.create_job(kind, tenant_id, user_id, payload_json).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .create_job(kind, tenant_id, user_id, payload_json)
+                .await
+                .map_err(Into::into),
         }
     }
 
-    pub async fn list_replay_sessions(&self, tenant_id: Option<&str>) -> Result<Vec<replay_sessions::ReplaySession>> {
+    pub async fn list_replay_sessions(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<replay_sessions::ReplaySession>> {
         match self {
             Database::Sqlite(db) => db.list_replay_sessions(tenant_id).await,
             Database::Postgres(db) => db.list_replay_sessions(tenant_id).await.map_err(Into::into),
         }
     }
 
-    pub async fn get_replay_session(&self, session_id: &str) -> Result<Option<replay_sessions::ReplaySession>> {
+    pub async fn get_replay_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<replay_sessions::ReplaySession>> {
         match self {
             Database::Sqlite(db) => db.get_replay_session(session_id).await,
             Database::Postgres(db) => db.get_replay_session(session_id).await.map_err(Into::into),
         }
     }
 
-    pub async fn create_replay_session(&self, session: &replay_sessions::ReplaySession) -> Result<()> {
+    pub async fn create_replay_session(
+        &self,
+        session: &replay_sessions::ReplaySession,
+    ) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.create_replay_session(session).await,
             Database::Postgres(db) => db.create_replay_session(session).await.map_err(Into::into),
         }
     }
 
-    pub async fn get_training_job(&self, job_id: &str) -> Result<Option<training_jobs::TrainingJobRecord>> {
+    pub async fn get_training_job(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<training_jobs::TrainingJobRecord>> {
         match self {
             Database::Sqlite(db) => db.get_training_job(job_id).await,
             Database::Postgres(db) => db.get_training_job(job_id).await.map_err(Into::into),
@@ -401,7 +464,10 @@ impl Database {
     pub async fn update_training_status(&self, job_id: &str, status: &str) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.update_training_status(job_id, status).await,
-            Database::Postgres(db) => db.update_training_status(job_id, status).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .update_training_status(job_id, status)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -409,38 +475,79 @@ impl Database {
     pub async fn rename_tenant(&self, tenant_id: &str, new_name: &str) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.rename_tenant(tenant_id, new_name).await,
-            Database::Postgres(db) => db.rename_tenant(tenant_id, new_name).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .rename_tenant(tenant_id, new_name)
+                .await
+                .map_err(Into::into),
         }
     }
 
     // Git repository methods
-    pub async fn create_git_repository(&self, _id: &str, repo_id: &str, path: &str, branch: &str, analysis_json: &str, created_by: &str) -> Result<String> {
+    pub async fn create_git_repository(
+        &self,
+        _id: &str,
+        repo_id: &str,
+        path: &str,
+        branch: &str,
+        analysis_json: &str,
+        created_by: &str,
+    ) -> Result<String> {
         match self {
-            Database::Sqlite(db) => db.create_git_repository(_id, repo_id, path, branch, analysis_json, created_by).await,
-            Database::Postgres(db) => db.create_git_repository(_id, repo_id, path, branch, analysis_json, created_by).await.map_err(Into::into),
+            Database::Sqlite(db) => {
+                db.create_git_repository(_id, repo_id, path, branch, analysis_json, created_by)
+                    .await
+            }
+            Database::Postgres(db) => db
+                .create_git_repository(_id, repo_id, path, branch, analysis_json, created_by)
+                .await
+                .map_err(Into::into),
         }
     }
 
-    pub async fn get_git_repository(&self, repo_id: &str) -> Result<Option<git_repositories::GitRepository>> {
+    pub async fn get_git_repository(
+        &self,
+        repo_id: &str,
+    ) -> Result<Option<git_repositories::GitRepository>> {
         match self {
             Database::Sqlite(db) => db.get_git_repository(repo_id).await,
             Database::Postgres(db) => db.get_git_repository(repo_id).await.map_err(Into::into),
         }
     }
 
-    // Training job methods
-    pub async fn create_training_job(&self, repo_id: &str, training_config_json: &str, created_by: &str) -> Result<String> {
+    pub async fn list_git_repositories(&self) -> Result<Vec<git_repositories::GitRepository>> {
         match self {
-            Database::Sqlite(db) => db.create_training_job(repo_id, training_config_json, created_by).await,
-            Database::Postgres(db) => db.create_training_job(repo_id, training_config_json, created_by).await.map_err(Into::into),
+            Database::Sqlite(db) => db.list_git_repositories().await,
+            Database::Postgres(db) => db.list_git_repositories().await.map_err(Into::into),
+        }
+    }
+
+    // Training job methods
+    pub async fn create_training_job(
+        &self,
+        repo_id: &str,
+        training_config_json: &str,
+        created_by: &str,
+    ) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => {
+                db.create_training_job(repo_id, training_config_json, created_by)
+                    .await
+            }
+            Database::Postgres(db) => db
+                .create_training_job(repo_id, training_config_json, created_by)
+                .await
+                .map_err(Into::into),
         }
     }
 
     // Model methods
-    pub async fn register_model(&self, name: &str, hash_b3: &str, config_hash_b3: &str, tokenizer_hash_b3: &str, tokenizer_cfg_hash_b3: &str, license_hash_b3: Option<&str>, metadata_json: Option<&str>) -> Result<String> {
+    pub async fn register_model(
+        &self,
+        params: crate::models::ModelRegistrationParams,
+    ) -> Result<String> {
         match self {
-            Database::Sqlite(db) => db.register_model(name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, metadata_json).await,
-            Database::Postgres(db) => db.register_model(name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, metadata_json).await.map_err(Into::into),
+            Database::Sqlite(db) => db.register_model(params.clone()).await,
+            Database::Postgres(db) => db.register_model(params).await.map_err(Into::into),
         }
     }
 
@@ -451,10 +558,16 @@ impl Database {
         }
     }
 
-    pub async fn get_base_model_status(&self, tenant_id: &str) -> Result<Option<models::BaseModelStatus>> {
+    pub async fn get_base_model_status(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<models::BaseModelStatus>> {
         match self {
             Database::Sqlite(db) => db.get_base_model_status(tenant_id).await,
-            Database::Postgres(db) => db.get_base_model_status(tenant_id).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .get_base_model_status(tenant_id)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -483,10 +596,16 @@ impl Database {
     }
 
     // CP Pointer methods
-    pub async fn get_active_cp_pointer(&self, tenant_id: &str) -> Result<Option<models::CpPointer>> {
+    pub async fn get_active_cp_pointer(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<models::CpPointer>> {
         match self {
             Database::Sqlite(db) => db.get_active_cp_pointer(tenant_id).await,
-            Database::Postgres(db) => db.get_active_cp_pointer(tenant_id).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .get_active_cp_pointer(tenant_id)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -501,22 +620,31 @@ impl Database {
     pub async fn list_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<models::Worker>> {
         match self {
             Database::Sqlite(db) => db.list_workers_by_tenant(tenant_id).await,
-            Database::Postgres(db) => db.list_workers_by_tenant(tenant_id).await.map_err(Into::into),
+            Database::Postgres(db) => db
+                .list_workers_by_tenant(tenant_id)
+                .await
+                .map_err(Into::into),
         }
     }
 
     // Additional worker methods
-    pub async fn insert_worker(&self, id: &str, tenant_id: &str, node_id: &str, plan_id: &str, uds_path: &str, pid: Option<i32>, status: &str) -> Result<()> {
+    pub async fn insert_worker(&self, params: crate::workers::WorkerInsertParams) -> Result<()> {
         match self {
-            Database::Sqlite(db) => db.insert_worker(id, tenant_id, node_id, plan_id, uds_path, pid, status).await,
-            Database::Postgres(_) => todo!("PostgreSQL insert_worker not implemented"),
+            Database::Sqlite(db) => db.insert_worker(params).await,
+            Database::Postgres(db) => db
+                .insert_worker(params)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
     pub async fn update_worker_heartbeat(&self, id: &str, status: Option<&str>) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.update_worker_heartbeat(id, status).await,
-            Database::Postgres(_) => todo!("PostgreSQL update_worker_heartbeat not implemented"),
+            Database::Postgres(db) => db
+                .update_worker_heartbeat(id, status)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
@@ -524,14 +652,20 @@ impl Database {
     pub async fn list_plans_by_tenant(&self, tenant_id: &str) -> Result<Vec<models::Plan>> {
         match self {
             Database::Sqlite(db) => db.list_plans_by_tenant(tenant_id).await,
-            Database::Postgres(_) => todo!("PostgreSQL list_plans_by_tenant not implemented"),
+            Database::Postgres(db) => db
+                .list_plans_by_tenant(tenant_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
     pub async fn list_all_plans(&self) -> Result<Vec<models::Plan>> {
         match self {
             Database::Sqlite(db) => db.list_all_plans().await,
-            Database::Postgres(_) => todo!("PostgreSQL list_all_plans not implemented"),
+            Database::Postgres(db) => db
+                .list_all_plans()
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
@@ -539,28 +673,53 @@ impl Database {
     pub async fn deactivate_all_cp_pointers(&self, tenant_id: &str) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.deactivate_all_cp_pointers(tenant_id).await,
-            Database::Postgres(_) => todo!("PostgreSQL deactivate_all_cp_pointers not implemented"),
+            Database::Postgres(db) => db
+                .deactivate_all_cp_pointers(tenant_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
-    pub async fn insert_cp_pointer(&self, id: &str, tenant_id: &str, name: &str, adapter_id: &str, active: bool) -> Result<()> {
+    pub async fn insert_cp_pointer(
+        &self,
+        id: &str,
+        tenant_id: &str,
+        name: &str,
+        adapter_id: &str,
+        active: bool,
+    ) -> Result<()> {
         match self {
-            Database::Sqlite(db) => db.insert_cp_pointer(id, tenant_id, name, adapter_id, active).await,
-            Database::Postgres(_) => todo!("PostgreSQL insert_cp_pointer not implemented"),
+            Database::Sqlite(db) => {
+                db.insert_cp_pointer(id, tenant_id, name, adapter_id, active)
+                    .await
+            }
+            Database::Postgres(db) => db
+                .insert_cp_pointer(id, tenant_id, name, adapter_id, active)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
-    pub async fn list_cp_pointers_by_tenant(&self, tenant_id: &str) -> Result<Vec<models::CpPointer>> {
+    pub async fn list_cp_pointers_by_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<models::CpPointer>> {
         match self {
             Database::Sqlite(db) => db.list_cp_pointers_by_tenant(tenant_id).await,
-            Database::Postgres(_) => todo!("PostgreSQL list_cp_pointers_by_tenant not implemented"),
+            Database::Postgres(db) => db
+                .list_cp_pointers_by_tenant(tenant_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
     pub async fn activate_cp_pointer(&self, id: &str) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.activate_cp_pointer(id).await,
-            Database::Postgres(_) => todo!("PostgreSQL activate_cp_pointer not implemented"),
+            Database::Postgres(db) => db
+                .activate_cp_pointer(id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
@@ -568,29 +727,320 @@ impl Database {
     pub async fn get_adapter_stats(&self, adapter_id: &str) -> Result<(i64, i64, f64)> {
         match self {
             Database::Sqlite(db) => db.get_adapter_stats(adapter_id).await,
-            Database::Postgres(_) => todo!("PostgreSQL get_adapter_stats not implemented"),
+            Database::Postgres(db) => db
+                .get_adapter_stats(adapter_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
     pub async fn update_adapter_memory(&self, adapter_id: &str, memory_bytes: i64) -> Result<()> {
         match self {
             Database::Sqlite(db) => db.update_adapter_memory(adapter_id, memory_bytes).await,
-            Database::Postgres(_) => todo!("PostgreSQL update_adapter_memory not implemented"),
+            Database::Postgres(db) => db
+                .update_adapter_memory(adapter_id, memory_bytes)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
-    pub async fn get_adapter_activations(&self, adapter_id: &str, limit: i64) -> Result<Vec<adapters::AdapterActivation>> {
+    pub async fn get_adapter_activations(
+        &self,
+        adapter_id: &str,
+        limit: i64,
+    ) -> Result<Vec<adapters::AdapterActivation>> {
         match self {
             Database::Sqlite(db) => db.get_adapter_activations(adapter_id, limit).await,
-            Database::Postgres(_) => todo!("PostgreSQL get_adapter_activations not implemented"),
+            Database::Postgres(db) => db
+                .get_adapter_activations(adapter_id, limit)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
         }
     }
 
     // Repository methods
-    pub async fn list_repositories(&self, tenant_id: &str, limit: i32, offset: i32) -> Result<Vec<repositories::Repository>> {
+    pub async fn list_repositories(
+        &self,
+        tenant_id: &str,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<repositories::Repository>> {
         match self {
             Database::Sqlite(db) => db.list_repositories(tenant_id, limit, offset).await,
-            Database::Postgres(_) => todo!("PostgreSQL list_repositories not implemented"),
+            Database::Postgres(db) => db
+                .list_repositories(tenant_id, limit, offset)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    // System monitoring methods
+    pub async fn list_monitoring_rules(
+        &self,
+        tenant_id: Option<&str>,
+        is_active: Option<bool>,
+    ) -> Result<Vec<process_monitoring::ProcessMonitoringRule>> {
+        match self {
+            Database::Sqlite(db) => {
+                process_monitoring::ProcessMonitoringRule::list(&db.pool, tenant_id, is_active)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            }
+            Database::Postgres(db) => db
+                .list_monitoring_rules(tenant_id, is_active)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn list_process_alerts(
+        &self,
+        filters: process_monitoring::AlertFilters,
+    ) -> Result<Vec<process_monitoring::ProcessAlert>> {
+        match self {
+            Database::Sqlite(db) => process_monitoring::ProcessAlert::list(&db.pool, filters)
+                .await
+                .map_err(|e| anyhow::anyhow!("SQLite error: {}", e)),
+            Database::Postgres(db) => db
+                .list_process_alerts(filters)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn get_process_alert(
+        &self,
+        id: &str,
+    ) -> Result<Option<process_monitoring::ProcessAlert>> {
+        match self {
+            Database::Sqlite(db) => process_monitoring::ProcessAlert::list(
+                &db.pool,
+                process_monitoring::AlertFilters {
+                    tenant_id: None,
+                    worker_id: None,
+                    status: None,
+                    severity: None,
+                    start_time: None,
+                    end_time: None,
+                    limit: Some(500),
+                },
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            .map(|alerts| alerts.into_iter().find(|a| a.id == id)),
+            Database::Postgres(db) => db
+                .get_process_alert(id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn update_process_alert_status(
+        &self,
+        id: &str,
+        status: process_monitoring::AlertStatus,
+        user: Option<&str>,
+    ) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => {
+                process_monitoring::ProcessAlert::update_status(&db.pool, id, status, user)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            }
+            Database::Postgres(db) => db
+                .update_process_alert_status(id, status, user)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn list_process_anomalies(
+        &self,
+        filters: process_monitoring::AnomalyFilters,
+    ) -> Result<Vec<process_monitoring::ProcessAnomaly>> {
+        match self {
+            Database::Sqlite(db) => process_monitoring::ProcessAnomaly::list(&db.pool, filters)
+                .await
+                .map_err(|e| anyhow::anyhow!("SQLite error: {}", e)),
+            Database::Postgres(db) => db
+                .list_process_anomalies(filters)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn get_process_anomaly(
+        &self,
+        id: &str,
+    ) -> Result<Option<process_monitoring::ProcessAnomaly>> {
+        match self {
+            Database::Sqlite(db) => process_monitoring::ProcessAnomaly::list(
+                &db.pool,
+                process_monitoring::AnomalyFilters {
+                    tenant_id: None,
+                    worker_id: None,
+                    status: None,
+                    anomaly_type: None,
+                    start_time: None,
+                    end_time: None,
+                    limit: Some(500),
+                },
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            .map(|anomalies| anomalies.into_iter().find(|a| a.id == id)),
+            Database::Postgres(db) => db
+                .get_process_anomaly(id)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn update_process_anomaly_status(
+        &self,
+        id: &str,
+        status: process_monitoring::AnomalyStatus,
+        investigated_by: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => process_monitoring::ProcessAnomaly::update_status(
+                &db.pool,
+                id,
+                status,
+                investigated_by,
+                notes,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("SQLite error: {}", e)),
+            Database::Postgres(db) => db
+                .update_process_anomaly_status(id, status, investigated_by, notes)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn create_monitoring_dashboard(
+        &self,
+        req: process_monitoring::CreateDashboardRequest,
+    ) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => {
+                process_monitoring::MonitoringDashboard::create(&db.pool, req.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            }
+            Database::Postgres(db) => db
+                .create_monitoring_dashboard(req)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn list_monitoring_dashboards(
+        &self,
+        tenant_id: Option<&str>,
+        is_shared: Option<bool>,
+    ) -> Result<Vec<process_monitoring::MonitoringDashboard>> {
+        match self {
+            Database::Sqlite(db) => {
+                process_monitoring::MonitoringDashboard::list(&db.pool, tenant_id, is_shared)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            }
+            Database::Postgres(db) => db
+                .list_monitoring_dashboards(tenant_id, is_shared)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn create_monitoring_report(
+        &self,
+        req: process_monitoring::CreateReportRequest,
+    ) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => {
+                process_monitoring::ProcessMonitoringReport::create(&db.pool, req.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            }
+            Database::Postgres(db) => db
+                .create_monitoring_report(req)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn list_monitoring_reports(
+        &self,
+        tenant_id: Option<&str>,
+        report_type: Option<&str>,
+    ) -> Result<Vec<process_monitoring::ProcessMonitoringReport>> {
+        match self {
+            Database::Sqlite(db) => {
+                process_monitoring::ProcessMonitoringReport::list(&db.pool, tenant_id, report_type)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SQLite error: {}", e))
+            }
+            Database::Postgres(db) => db
+                .list_monitoring_reports(tenant_id, report_type)
+                .await
+                .map_err(|e| anyhow::anyhow!("PostgreSQL error: {}", e)),
+        }
+    }
+
+    pub async fn pin_adapter(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        pinned_until: Option<&str>,
+        reason: &str,
+        pinned_by: Option<&str>,
+    ) -> Result<String> {
+        match self {
+            Database::Sqlite(db) => {
+                db.pin_adapter(tenant_id, adapter_id, pinned_until, reason, pinned_by)
+                    .await
+            }
+            Database::Postgres(db) => db
+                .pin_adapter(tenant_id, adapter_id, pinned_until, reason, pinned_by)
+                .await
+                .map_err(Into::into),
+        }
+    }
+
+    pub async fn unpin_adapter(&self, tenant_id: &str, adapter_id: &str) -> Result<()> {
+        match self {
+            Database::Sqlite(db) => db.unpin_adapter(tenant_id, adapter_id).await,
+            Database::Postgres(db) => db
+                .unpin_adapter(tenant_id, adapter_id)
+                .await
+                .map_err(Into::into),
+        }
+    }
+
+    pub async fn list_pinned_adapters(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<pinned_adapters::PinnedAdapter>> {
+        match self {
+            Database::Sqlite(db) => db.list_pinned_adapters(tenant_id).await,
+            Database::Postgres(db) => db.list_pinned_adapters(tenant_id).await.map_err(Into::into),
+        }
+    }
+
+    pub async fn count_enclave_operations(&self) -> Result<i64> {
+        match self {
+            Database::Sqlite(db) => db.count_enclave_operations().await,
+            Database::Postgres(db) => db.count_enclave_operations().await.map_err(Into::into),
+        }
+    }
+
+    pub async fn get_policies(&self, tenant_id: &str) -> Result<crate::policies::TenantPolicies> {
+        match self {
+            Database::Sqlite(db) => db.get_policies(tenant_id).await,
+            Database::Postgres(db) => db.get_policies(tenant_id).await.map_err(Into::into),
         }
     }
 }
@@ -606,6 +1056,7 @@ pub mod commits;
 pub mod contacts;
 pub use contacts::{Contact, ContactStream};
 pub mod cp_pointers;
+pub mod domain_adapters;
 pub mod enclave_operations;
 pub use enclave_operations::{EnclaveOperation, OperationStats};
 pub mod ephemeral_adapters;

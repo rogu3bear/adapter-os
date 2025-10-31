@@ -156,6 +156,21 @@ pub struct MonitoringNotification {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessMonitoringReport {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub report_type: String,
+    pub report_config: serde_json::Value,
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+    pub report_data: Option<serde_json::Value>,
+    pub file_path: Option<String>,
+    pub file_size_bytes: Option<i64>,
+    pub created_by: Option<String>,
+}
+
 // ===== Enums =====
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -910,6 +925,43 @@ impl ProcessAnomaly {
 
         Ok(anomalies)
     }
+
+    /// Update anomaly status and investigation details
+    pub async fn update_status(
+        pool: &SqlitePool,
+        id: &str,
+        status: AnomalyStatus,
+        investigated_by: Option<&str>,
+        investigation_notes: Option<&str>,
+    ) -> Result<()> {
+        let mut query = "UPDATE process_anomalies SET status = ?".to_string();
+        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> =
+            vec![Box::new(status.to_string())];
+
+        if let Some(user) = investigated_by {
+            query.push_str(", investigated_by = ?");
+            params.push(Box::new(user.to_string()));
+        }
+
+        if let Some(notes) = investigation_notes {
+            query.push_str(", investigation_notes = ?");
+            params.push(Box::new(notes.to_string()));
+        }
+
+        if matches!(status, AnomalyStatus::Resolved) {
+            query.push_str(", resolved_at = CURRENT_TIMESTAMP");
+        }
+
+        query.push_str(" WHERE id = ?");
+        params.push(Box::new(id.to_string()));
+
+        sqlx::query(&query)
+            .execute(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
+
+        Ok(())
+    }
 }
 
 impl PerformanceBaseline {
@@ -1077,6 +1129,218 @@ pub struct CreateBaselineRequest {
     pub percentile_99: Option<f64>,
     pub is_active: bool,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateDashboardRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub dashboard_config: serde_json::Value,
+    pub is_shared: bool,
+    pub created_by: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateReportRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub tenant_id: String,
+    pub report_type: String,
+    pub report_config: serde_json::Value,
+    pub report_data: Option<serde_json::Value>,
+    pub file_path: Option<String>,
+    pub file_size_bytes: Option<i64>,
+    pub created_by: Option<String>,
+}
+
+impl MonitoringDashboard {
+    pub async fn create(pool: &SqlitePool, req: CreateDashboardRequest) -> Result<String> {
+        let id = uuid::Uuid::now_v7().to_string();
+        let config_json = serde_json::to_string(&req.dashboard_config)
+            .map_err(|e| AosError::Config(e.to_string()))?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO process_monitoring_dashboards (
+                id, name, description, tenant_id, dashboard_config, is_shared, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+            id,
+            req.name,
+            req.description,
+            req.tenant_id,
+            config_json,
+            req.is_shared,
+            req.created_by
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create dashboard: {}", e)))?;
+
+        Ok(id)
+    }
+
+    pub async fn list(
+        pool: &SqlitePool,
+        tenant_id: Option<&str>,
+        is_shared: Option<bool>,
+    ) -> Result<Vec<MonitoringDashboard>> {
+        let mut query = "SELECT * FROM process_monitoring_dashboards WHERE 1=1".to_string();
+        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
+        let mut param_count = 0;
+
+        if let Some(tenant) = tenant_id {
+            param_count += 1;
+            query.push_str(&format!(" AND tenant_id = ${}", param_count));
+            params.push(Box::new(tenant.to_string()));
+        }
+
+        if let Some(shared) = is_shared {
+            param_count += 1;
+            query.push_str(&format!(" AND is_shared = ${}", param_count));
+            params.push(Box::new(shared));
+        }
+
+        query.push_str(" ORDER BY created_at DESC");
+
+        let rows = sqlx::query(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list dashboards: {}", e)))?;
+
+        let mut dashboards = Vec::new();
+        for row in rows {
+            let config_value = row
+                .get::<Option<String>, _>("dashboard_config")
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+
+            let created_at =
+                chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                    .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
+                    .with_timezone(&chrono::Utc);
+
+            let updated_at =
+                chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
+                    .map_err(|e| AosError::Database(format!("Invalid updated_at: {}", e)))?
+                    .with_timezone(&chrono::Utc);
+
+            dashboards.push(MonitoringDashboard {
+                id: row.get("id"),
+                name: row.get("name"),
+                description: row.get("description"),
+                tenant_id: row.get("tenant_id"),
+                dashboard_config: config_value,
+                is_shared: row.get("is_shared"),
+                created_by: row.get("created_by"),
+                created_at,
+                updated_at,
+            });
+        }
+
+        Ok(dashboards)
+    }
+}
+
+impl ProcessMonitoringReport {
+    pub async fn create(pool: &SqlitePool, req: CreateReportRequest) -> Result<String> {
+        let id = uuid::Uuid::now_v7().to_string();
+        let config_json = serde_json::to_string(&req.report_config)
+            .map_err(|e| AosError::Config(e.to_string()))?;
+        let data_json = req
+            .report_data
+            .as_ref()
+            .map(|v| serde_json::to_string(v))
+            .transpose()
+            .map_err(|e| AosError::Config(e.to_string()))?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO process_monitoring_reports (
+                id, name, description, tenant_id, report_type, report_config,
+                report_data, file_path, file_size_bytes, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            id,
+            req.name,
+            req.description,
+            req.tenant_id,
+            req.report_type,
+            config_json,
+            data_json,
+            req.file_path,
+            req.file_size_bytes,
+            req.created_by
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create report: {}", e)))?;
+
+        Ok(id)
+    }
+
+    pub async fn list(
+        pool: &SqlitePool,
+        tenant_id: Option<&str>,
+        report_type: Option<&str>,
+    ) -> Result<Vec<ProcessMonitoringReport>> {
+        let mut query = "SELECT * FROM process_monitoring_reports WHERE 1=1".to_string();
+        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
+        let mut param_count = 0;
+
+        if let Some(tenant) = tenant_id {
+            param_count += 1;
+            query.push_str(&format!(" AND tenant_id = ${}", param_count));
+            params.push(Box::new(tenant.to_string()));
+        }
+
+        if let Some(rtype) = report_type {
+            param_count += 1;
+            query.push_str(&format!(" AND report_type = ${}", param_count));
+            params.push(Box::new(rtype.to_string()));
+        }
+
+        query.push_str(" ORDER BY generated_at DESC");
+
+        let rows = sqlx::query(&query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list reports: {}", e)))?;
+
+        let mut reports = Vec::new();
+        for row in rows {
+            let config_value = row
+                .get::<Option<String>, _>("report_config")
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+
+            let data_value = row
+                .get::<Option<String>, _>("report_data")
+                .and_then(|s| serde_json::from_str(&s).ok());
+
+            let generated_at =
+                chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("generated_at"))
+                    .map_err(|e| AosError::Database(format!("Invalid generated_at: {}", e)))?
+                    .with_timezone(&chrono::Utc);
+
+            reports.push(ProcessMonitoringReport {
+                id: row.get("id"),
+                name: row.get("name"),
+                description: row.get("description"),
+                tenant_id: row.get("tenant_id"),
+                report_type: row.get("report_type"),
+                report_config: config_value,
+                generated_at,
+                report_data: data_value,
+                file_path: row.get("file_path"),
+                file_size_bytes: row.get("file_size_bytes"),
+                created_by: row.get("created_by"),
+            });
+        }
+
+        Ok(reports)
+    }
 }
 
 // ===== Enum Implementations =====

@@ -1,5 +1,95 @@
 use crate::{models::Worker, Db};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+
+/// Builder for creating worker insertion parameters
+#[derive(Debug, Default)]
+pub struct WorkerInsertBuilder {
+    id: Option<String>,
+    tenant_id: Option<String>,
+    node_id: Option<String>,
+    plan_id: Option<String>,
+    uds_path: Option<String>,
+    pid: Option<i32>,
+    status: Option<String>,
+}
+
+/// Parameters for worker insertion
+#[derive(Debug)]
+pub struct WorkerInsertParams {
+    pub id: String,
+    pub tenant_id: String,
+    pub node_id: String,
+    pub plan_id: String,
+    pub uds_path: String,
+    pub pid: Option<i32>,
+    pub status: String,
+}
+
+impl WorkerInsertBuilder {
+    /// Create a new worker insertion builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the worker ID (required)
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Set the tenant ID (required)
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    /// Set the node ID (required)
+    pub fn node_id(mut self, node_id: impl Into<String>) -> Self {
+        self.node_id = Some(node_id.into());
+        self
+    }
+
+    /// Set the plan ID (required)
+    pub fn plan_id(mut self, plan_id: impl Into<String>) -> Self {
+        self.plan_id = Some(plan_id.into());
+        self
+    }
+
+    /// Set the UDS path (required)
+    pub fn uds_path(mut self, uds_path: impl Into<String>) -> Self {
+        self.uds_path = Some(uds_path.into());
+        self
+    }
+
+    /// Set the process ID (optional)
+    pub fn pid(mut self, pid: i32) -> Self {
+        self.pid = Some(pid);
+        self
+    }
+
+    /// Set the status (required)
+    pub fn status(mut self, status: impl Into<String>) -> Self {
+        self.status = Some(status.into());
+        self
+    }
+
+    /// Build the worker insertion parameters
+    pub fn build(self) -> Result<WorkerInsertParams> {
+        Ok(WorkerInsertParams {
+            id: self.id.ok_or_else(|| anyhow!("id is required"))?,
+            tenant_id: self
+                .tenant_id
+                .ok_or_else(|| anyhow!("tenant_id is required"))?,
+            node_id: self.node_id.ok_or_else(|| anyhow!("node_id is required"))?,
+            plan_id: self.plan_id.ok_or_else(|| anyhow!("plan_id is required"))?,
+            uds_path: self
+                .uds_path
+                .ok_or_else(|| anyhow!("uds_path is required"))?,
+            pid: self.pid,
+            status: self.status.ok_or_else(|| anyhow!("status is required"))?,
+        })
+    }
+}
 
 impl Db {
     pub async fn list_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<Worker>> {
@@ -41,27 +131,38 @@ impl Db {
     }
 
     /// Insert a worker record
-    pub async fn insert_worker(
-        &self,
-        id: &str,
-        tenant_id: &str,
-        node_id: &str,
-        plan_id: &str,
-        uds_path: &str,
-        pid: Option<i32>,
-        status: &str,
-    ) -> Result<()> {
+    ///
+    /// Use [`WorkerInsertBuilder`] to construct worker parameters:
+    /// ```no_run
+    /// use adapteros_db::workers::WorkerInsertBuilder;
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) {
+    /// let params = WorkerInsertBuilder::new()
+    ///     .id("worker-123")
+    ///     .tenant_id("tenant-456")
+    ///     .node_id("node-789")
+    ///     .plan_id("plan-101")
+    ///     .uds_path("/tmp/worker.sock")
+    ///     .pid(12345)
+    ///     .status("running")
+    ///     .build()
+    ///     .expect("required fields");
+    /// db.insert_worker(params).await.expect("insert succeeds");
+    /// # }
+    /// ```
+    pub async fn insert_worker(&self, params: WorkerInsertParams) -> Result<()> {
         sqlx::query(
             "INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
-        .bind(id)
-        .bind(tenant_id)
-        .bind(node_id)
-        .bind(plan_id)
-        .bind(uds_path)
-        .bind(pid)
-        .bind(status)
+        .bind(&params.id)
+        .bind(&params.tenant_id)
+        .bind(&params.node_id)
+        .bind(&params.plan_id)
+        .bind(&params.uds_path)
+        .bind(params.pid)
+        .bind(&params.status)
         .execute(self.pool())
         .await?;
         Ok(())

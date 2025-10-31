@@ -21,7 +21,7 @@ pub async fn run(
     tenant_id: Option<&str>,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(&format!(
+    output.info(format!(
         "Building plan from manifest: {}",
         manifest.display()
     ));
@@ -48,7 +48,7 @@ pub async fn run(
     let manifest_json = manifest_v3.to_json()?;
 
     // Show determinism verification
-    output.success(&format!("Manifest hash (deterministic): {}", manifest_hash));
+    output.success(format!("Manifest hash (deterministic): {}", manifest_hash));
 
     // Connect to database
     let db = Db::connect_env()
@@ -73,7 +73,7 @@ pub async fn run(
         .await
         .context("Failed to create build_plan job")?;
 
-    output.success(&format!("Build job created: {}", job_id));
+    output.success(format!("Build job created: {}", job_id));
     output.info("Waiting for job to complete...");
 
     // Poll for job completion
@@ -98,8 +98,8 @@ pub async fn run(
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Plan ID not in result"))?;
 
-                output.success(&format!("Plan built successfully: {}", plan_id));
-                output.progress(&format!("Output: {}", output_path.display()));
+                output.success(format!("Plan built successfully: {}", plan_id));
+                output.progress(format!("Output: {}", output_path.display()));
 
                 // Write plan ID to output file
                 fs::write(output_path, plan_id)

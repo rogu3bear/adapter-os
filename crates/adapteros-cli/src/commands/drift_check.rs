@@ -138,7 +138,7 @@ async fn load_drift_policy(db_path: Option<&std::path::Path>) -> Result<DriftPol
     let db_path = db_path.unwrap_or(std::path::Path::new("var/aos.db"));
 
     if db_path.exists() {
-        match adapteros_db::Db::connect(db_path.to_str().unwrap()).await {
+        match adapteros_db::Database::connect_env().await {
             Ok(db) => {
                 // Try to load tenant-specific policies
                 match db.get_policies("default").await {

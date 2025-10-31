@@ -1,6 +1,6 @@
 //! Training types
 
-use adapteros_orchestrator::{TrainingConfig, TrainingJob, TrainingTemplate};
+use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

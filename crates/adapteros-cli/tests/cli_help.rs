@@ -103,4 +103,34 @@ mod tests {
 
         assert!(output.status.success(), "Manual command should exist");
     }
+
+    #[test]
+    fn help_contains_examples_infer() {
+        let output = Command::new("cargo")
+            .args(["run", "--bin", "aosctl", "--", "infer", "--help"])
+            .output()
+            .expect("Failed to execute command");
+
+        let stdout =
+            String::from_utf8(output.stdout).expect("Test UTF-8 conversion should succeed");
+        assert!(
+            stdout.contains("Examples:"),
+            "Infer help should contain examples section"
+        );
+    }
+
+    #[test]
+    fn help_contains_examples_quantize_qwen() {
+        let output = Command::new("cargo")
+            .args(["run", "--bin", "aosctl", "--", "quantize-qwen", "--help"])
+            .output()
+            .expect("Failed to execute command");
+
+        let stdout =
+            String::from_utf8(output.stdout).expect("Test UTF-8 conversion should succeed");
+        assert!(
+            stdout.contains("Examples:"),
+            "Quantize-qwen help should contain examples section"
+        );
+    }
 }

@@ -14,7 +14,7 @@ use axum::{
     Json,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::warn;
@@ -61,8 +61,7 @@ impl TokenBucket {
             let elapsed_minutes = elapsed_ms as f64 / 60_000.0;
 
             // Calculate tokens to add (fixed-point: tokens * 1000)
-            let tokens_to_add =
-                (self.rate_per_minute as f64 * elapsed_minutes * 1000.0) as u64;
+            let tokens_to_add = (self.rate_per_minute as f64 * elapsed_minutes * 1000.0) as u64;
 
             // Update last_refill atomically
             loop {
@@ -79,8 +78,7 @@ impl TokenBucket {
 
             // Refill tokens (cap at capacity)
             let current_tokens = self.tokens.load(Ordering::Acquire);
-            let new_tokens = (current_tokens + tokens_to_add)
-                .min((self.capacity as u64) * 1000);
+            let new_tokens = (current_tokens + tokens_to_add).min((self.capacity as u64) * 1000);
             self.tokens.store(new_tokens, Ordering::Release);
         }
 
@@ -104,6 +102,7 @@ impl TokenBucket {
     }
 
     /// Get current token count (for metrics)
+    #[allow(dead_code)]
     fn available_tokens(&self) -> u32 {
         let tokens_fixed = self.tokens.load(Ordering::Acquire);
         (tokens_fixed / 1000) as u32
@@ -116,7 +115,7 @@ type TenantRateLimiters = Arc<Mutex<HashMap<String, TokenBucket>>>;
 /// Per-tenant rate limiting middleware
 pub async fn per_tenant_rate_limit_middleware(
     State(state): State<AppState>,
-    mut req: Request<axum::body::Body>,
+    req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     // Get rate limit config
@@ -152,14 +151,9 @@ pub async fn per_tenant_rate_limit_middleware(
 
     let consumed = {
         let mut limiters_guard = limiters.lock().await;
-        let bucket = limiters_guard
-            .entry(tenant_id.clone())
-            .or_insert_with(|| {
-                TokenBucket::new(
-                    rate_limits.requests_per_minute,
-                    rate_limits.burst_size,
-                )
-            });
+        let bucket = limiters_guard.entry(tenant_id.clone()).or_insert_with(|| {
+            TokenBucket::new(rate_limits.requests_per_minute, rate_limits.burst_size)
+        });
         bucket.try_consume()
     };
 

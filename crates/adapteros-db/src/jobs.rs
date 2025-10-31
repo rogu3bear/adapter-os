@@ -37,7 +37,23 @@ impl Db {
         .bind(payload_json)
         .execute(self.pool())
         .await?;
+
+        // Count queued jobs for metrics (simple implementation - could be optimized)
+        if let Ok(queue_depth) = self.count_queued_jobs().await {
+            // Note: This would need access to metrics collector, which isn't available here
+            // In a real implementation, we'd emit an event or use a callback
+            tracing::debug!("Job queue depth: {}", queue_depth);
+        }
+
         Ok(id)
+    }
+
+    /// Count queued jobs for metrics
+    pub async fn count_queued_jobs(&self) -> Result<i64> {
+        let result = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'queued'")
+            .fetch_one(self.pool())
+            .await?;
+        Ok(result)
     }
 
     pub async fn update_job_status(

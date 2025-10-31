@@ -293,7 +293,7 @@ impl LoRAAdapter {
             .shapes
             .get(module)
             .copied()
-            .unwrap_or((a.len(), a.get(0).map(|r| r.len()).unwrap_or(0)));
+            .unwrap_or((a.len(), a.first().map(|r| r.len()).unwrap_or(0)));
 
         let mut a_flat = Vec::with_capacity(rank * hidden);
         for row in a.iter() {

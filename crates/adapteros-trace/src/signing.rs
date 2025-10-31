@@ -15,7 +15,7 @@ pub fn compute_events_merkle_root(events: &[Event]) -> B3Hash {
     }
     let mut layer: Vec<B3Hash> = events.iter().map(|e| e.blake3_hash).collect();
     while layer.len() > 1 {
-        let mut next = Vec::with_capacity((layer.len() + 1) / 2);
+        let mut next = Vec::with_capacity(layer.len().div_ceil(2));
         let mut i = 0;
         while i < layer.len() {
             let a = layer[i];
@@ -38,7 +38,7 @@ pub fn sign_bundle(
     keypair: &Keypair,
 ) -> adapteros_core::Result<BundleSignature> {
     let merkle = compute_events_merkle_root(&bundle.events);
-    crypto_sign_bundle(&bundle.bundle_hash, &merkle, keypair).map_err(|e| e)
+    crypto_sign_bundle(&bundle.bundle_hash, &merkle, keypair)
 }
 
 /// Verify a saved signature for the given bundle by looking up var/signatures/<hash>.sig
@@ -46,5 +46,5 @@ pub fn verify_bundle_signature_from_dir(
     bundle: &TraceBundle,
     signatures_dir: &std::path::Path,
 ) -> adapteros_core::Result<BundleSignature> {
-    verify_bundle_from_file(&bundle.bundle_hash, signatures_dir).map_err(|e| e)
+    verify_bundle_from_file(&bundle.bundle_hash, signatures_dir)
 }

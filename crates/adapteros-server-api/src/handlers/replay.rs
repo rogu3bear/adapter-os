@@ -15,22 +15,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::state::AppState;
-// use crate::types::ErrorResponse; // unused
-
-/// Replay verification response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ReplayVerificationResponse {
-    pub session_id: String,
-    pub signature_valid: bool,
-    pub hash_chain_valid: bool,
-    pub manifest_verified: bool,
-    pub policy_verified: bool,
-    pub kernel_verified: bool,
-    pub telemetry_verified: bool,
-    pub overall_valid: bool,
-    pub divergences: Vec<ReplayDivergence>,
-    pub verified_at: String,
-}
+use crate::types::{ErrorResponse, ReplayDivergence, ReplayVerificationResponse};
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReplaySessionsParams {
@@ -70,14 +55,6 @@ pub struct CreateReplaySessionRequest {
     pub plan_id: String,
     pub telemetry_bundle_ids: Vec<String>,
     pub snapshot_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ReplayDivergence {
-    pub divergence_type: String, // 'router' | 'adapter' | 'inference' | 'policy'
-    pub expected_hash: String,
-    pub actual_hash: String,
-    pub context: String,
 }
 
 /// List replay sessions
@@ -254,31 +231,25 @@ pub async fn verify_replay_session(
             "Replay session not found".to_string(),
         ))?;
 
-    // TODO: Implement replay session verification in crypto module
-    // Citation: crates/adapteros-crypto/src/signature.rs
-    // Perform actual cryptographic verification
-    // let verification = state.crypto.verify_replay_session(&session).await
-    //     .map_err(|e| {
-    //         tracing::error!("Failed to verify replay session: {}", e);
-    //         (
-    //             StatusCode::INTERNAL_SERVER_ERROR,
-    //             Json(ErrorResponse::new("Failed to verify replay session").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
-    //         )
-    //     })?;
+    // Perform cryptographic verification
+    let mut verification = state
+        .crypto
+        .verify_replay_session(&session)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to verify replay session: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to verify replay session")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e),
+                ),
+            )
+        })?;
 
-    // Mock verification for now
-    let verification = ReplayVerificationResponse {
-        session_id: session_id.clone(),
-        signature_valid: true,
-        hash_chain_valid: true,
-        manifest_verified: true,
-        policy_verified: true,
-        kernel_verified: true,
-        telemetry_verified: true,
-        overall_valid: true,
-        divergences: vec![],
-        verified_at: chrono::Utc::now().to_rfc3339(),
-    };
+    // Add verification timestamp
+    verification.verified_at = chrono::Utc::now().to_rfc3339();
 
     Ok(Json(verification))
 }

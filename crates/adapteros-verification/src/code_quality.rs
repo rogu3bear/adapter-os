@@ -214,6 +214,36 @@ pub struct CodeQualityIssue {
     pub suggestion: Option<String>,
 }
 
+/// Bundles code quality analysis results for score and recommendation generation
+struct QualityAssessmentInputs<'a> {
+    clippy: &'a ClippyResults,
+    format: &'a FormatResults,
+    coverage: &'a CoverageResults,
+    complexity: &'a ComplexityResults,
+    documentation: &'a DocumentationResults,
+    dead_code: &'a DeadCodeResults,
+}
+
+impl<'a> QualityAssessmentInputs<'a> {
+    fn new(
+        clippy: &'a ClippyResults,
+        format: &'a FormatResults,
+        coverage: &'a CoverageResults,
+        complexity: &'a ComplexityResults,
+        documentation: &'a DocumentationResults,
+        dead_code: &'a DeadCodeResults,
+    ) -> Self {
+        Self {
+            clippy,
+            format,
+            coverage,
+            complexity,
+            documentation,
+            dead_code,
+        }
+    }
+}
+
 /// Code quality verifier
 pub struct CodeQualityVerifier {
     /// Workspace root path
@@ -311,27 +341,20 @@ impl CodeQualityVerifier {
             }
         };
 
-        // Calculate overall score
-        let score = self.calculate_score(
+        let assessment_inputs = QualityAssessmentInputs::new(
             &clippy_results,
             &format_results,
             &coverage_results,
             &complexity_results,
             &documentation_results,
             &dead_code_results,
-            config,
         );
 
+        // Calculate overall score
+        let score = self.calculate_score(&assessment_inputs, config);
+
         // Generate recommendations
-        self.generate_recommendations(
-            &clippy_results,
-            &format_results,
-            &coverage_results,
-            &complexity_results,
-            &documentation_results,
-            &dead_code_results,
-            &mut recommendations,
-        );
+        self.generate_recommendations(&assessment_inputs, &mut recommendations);
 
         let result = CodeQualityResult {
             score,
@@ -506,30 +529,25 @@ impl CodeQualityVerifier {
     /// Calculate overall quality score
     fn calculate_score(
         &self,
-        clippy: &ClippyResults,
-        format: &FormatResults,
-        coverage: &CoverageResults,
-        complexity: &ComplexityResults,
-        documentation: &DocumentationResults,
-        dead_code: &DeadCodeResults,
+        inputs: &QualityAssessmentInputs<'_>,
         config: &crate::unified_validation::CodeQualityConfig,
     ) -> f64 {
         let mut score = 100.0;
 
         // Deduct points for clippy issues
         if config.enable_clippy {
-            score -= (clippy.warnings as f64) * 0.5;
-            score -= (clippy.errors as f64) * 2.0;
+            score -= (inputs.clippy.warnings as f64) * 0.5;
+            score -= (inputs.clippy.errors as f64) * 2.0;
         }
 
         // Deduct points for format issues
-        if config.enable_format && !format.passed {
-            score -= (format.files_to_format.len() as f64) * 1.0;
+        if config.enable_format && !inputs.format.passed {
+            score -= (inputs.format.files_to_format.len() as f64) * 1.0;
         }
 
         // Deduct points for low coverage
         if config.enable_coverage {
-            let coverage_diff = config.min_coverage_percentage - coverage.overall_coverage;
+            let coverage_diff = config.min_coverage_percentage - inputs.coverage.overall_coverage;
             if coverage_diff > 0.0 {
                 score -= coverage_diff * 0.5;
             }
@@ -537,7 +555,7 @@ impl CodeQualityVerifier {
 
         // Deduct points for high complexity
         if config.enable_complexity {
-            let complexity_diff = complexity.max_cyclomatic_complexity as f64
+            let complexity_diff = inputs.complexity.max_cyclomatic_complexity as f64
                 - config.max_cyclomatic_complexity as f64;
             if complexity_diff > 0.0 {
                 score -= complexity_diff * 2.0;
@@ -546,13 +564,13 @@ impl CodeQualityVerifier {
 
         // Deduct points for missing documentation
         if config.enable_documentation {
-            let doc_coverage_diff = 100.0 - documentation.coverage;
+            let doc_coverage_diff = 100.0 - inputs.documentation.coverage;
             score -= doc_coverage_diff * 0.1;
         }
 
         // Deduct points for dead code
         if config.enable_dead_code {
-            score -= dead_code.percentage * 0.5;
+            score -= inputs.dead_code.percentage * 0.5;
         }
 
         score.max(0.0).min(100.0)
@@ -561,39 +579,34 @@ impl CodeQualityVerifier {
     /// Generate recommendations based on results
     fn generate_recommendations(
         &self,
-        clippy: &ClippyResults,
-        format: &FormatResults,
-        coverage: &CoverageResults,
-        complexity: &ComplexityResults,
-        documentation: &DocumentationResults,
-        dead_code: &DeadCodeResults,
+        inputs: &QualityAssessmentInputs<'_>,
         recommendations: &mut Vec<String>,
     ) {
-        if clippy.warnings > 0 {
-            recommendations.push(format!("Fix {} clippy warnings", clippy.warnings));
+        if inputs.clippy.warnings > 0 {
+            recommendations.push(format!("Fix {} clippy warnings", inputs.clippy.warnings));
         }
 
-        if clippy.errors > 0 {
-            recommendations.push(format!("Fix {} clippy errors", clippy.errors));
+        if inputs.clippy.errors > 0 {
+            recommendations.push(format!("Fix {} clippy errors", inputs.clippy.errors));
         }
 
-        if !format.passed {
+        if !inputs.format.passed {
             recommendations.push("Run `cargo fmt` to fix formatting issues".to_string());
         }
 
-        if coverage.overall_coverage < 80.0 {
+        if inputs.coverage.overall_coverage < 80.0 {
             recommendations.push("Increase test coverage to at least 80%".to_string());
         }
 
-        if complexity.max_cyclomatic_complexity > 10 {
+        if inputs.complexity.max_cyclomatic_complexity > 10 {
             recommendations.push("Refactor functions with high cyclomatic complexity".to_string());
         }
 
-        if documentation.coverage < 90.0 {
+        if inputs.documentation.coverage < 90.0 {
             recommendations.push("Add documentation for public APIs".to_string());
         }
 
-        if dead_code.percentage > 5.0 {
+        if inputs.dead_code.percentage > 5.0 {
             recommendations.push("Remove unused code to improve maintainability".to_string());
         }
     }

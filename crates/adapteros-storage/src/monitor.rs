@@ -294,9 +294,9 @@ impl Drop for StorageMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AlertThresholds, StorageMonitoring};
     use std::fs;
     use std::time::Duration;
-    use crate::{StorageMonitoring, AlertThresholds};
     use tempfile::TempDir;
 
     #[tokio::test]

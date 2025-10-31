@@ -82,32 +82,31 @@ impl PlatformHandler for WindowsHandler {
         }
     }
 
-    fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+    fn set_file_permissions(&self, _path: &Path, _permissions: u32) -> Result<()> {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms).map_err(|e| {
+            let perms = std::fs::Permissions::from_mode(_permissions);
+            std::fs::set_permissions(_path, perms).map_err(|e| {
                 AosError::Platform(format!("Failed to set Windows file permissions: {}", e))
             })?;
+            debug!("Set Windows file permissions: {:o}", _permissions);
+            Ok(())
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            return Err(AosError::Platform(
+            Err(AosError::Platform(
                 "Windows permissions not available on this platform".to_string(),
-            ));
+            ))
         }
-
-        debug!("Set Windows file permissions: {:o}", permissions);
-        Ok(())
     }
 
-    fn get_file_permissions(&self, path: &Path) -> Result<u32> {
+    fn get_file_permissions(&self, _path: &Path) -> Result<u32> {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path).map_err(|e| {
+            let metadata = std::fs::metadata(_path).map_err(|e| {
                 AosError::Platform(format!("Failed to get Windows file metadata: {}", e))
             })?;
             Ok(metadata.permissions().mode())
@@ -121,18 +120,18 @@ impl PlatformHandler for WindowsHandler {
         }
     }
 
-    fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    fn create_symlink(&self, _target: &Path, _link: &Path) -> Result<()> {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::fs::symlink_dir;
             use std::os::windows::fs::symlink_file;
 
-            if target.is_file() {
-                symlink_file(target, link).map_err(|e| {
+            if _target.is_file() {
+                symlink_file(_target, _link).map_err(|e| {
                     AosError::Platform(format!("Failed to create Windows file symlink: {}", e))
                 })?;
-            } else if target.is_dir() {
-                symlink_dir(target, link).map_err(|e| {
+            } else if _target.is_dir() {
+                symlink_dir(_target, _link).map_err(|e| {
                     AosError::Platform(format!("Failed to create Windows directory symlink: {}", e))
                 })?;
             } else {
@@ -140,27 +139,27 @@ impl PlatformHandler for WindowsHandler {
                     "Target must be a file or directory".to_string(),
                 ));
             }
+
+            debug!(
+                "Created Windows symlink: {} -> {}",
+                _link.display(),
+                _target.display()
+            );
+            Ok(())
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            return Err(AosError::Platform(
+            Err(AosError::Platform(
                 "Windows symlinks not available on this platform".to_string(),
-            ));
+            ))
         }
-
-        debug!(
-            "Created Windows symlink: {} -> {}",
-            link.display(),
-            target.display()
-        );
-        Ok(())
     }
 
-    fn read_symlink(&self, link: &Path) -> Result<PathBuf> {
+    fn read_symlink(&self, _link: &Path) -> Result<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            std::fs::read_link(link)
+            std::fs::read_link(_link)
                 .map_err(|e| AosError::Platform(format!("Failed to read Windows symlink: {}", e)))
         }
 
@@ -172,10 +171,10 @@ impl PlatformHandler for WindowsHandler {
         }
     }
 
-    fn is_symlink(&self, path: &Path) -> bool {
+    fn is_symlink(&self, _path: &Path) -> bool {
         #[cfg(target_os = "windows")]
         {
-            path.is_symlink()
+            _path.is_symlink()
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -219,15 +218,9 @@ impl PlatformHandler for WindowsHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata
-                .created()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata
-                .modified()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata
-                .accessed()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata.created().unwrap_or(SystemTime::UNIX_EPOCH),
+            modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            accessed: metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })

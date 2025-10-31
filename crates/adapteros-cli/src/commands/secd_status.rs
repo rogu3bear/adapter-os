@@ -84,13 +84,7 @@ pub async fn run(
             .expect("System time before UNIX epoch");
         let now_secs = now.as_secs() as i64;
 
-        match adapteros_db::Db::connect(
-            db_path
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-        )
-        .await
-        {
+        match adapteros_db::Database::connect_env().await {
             Ok(db) => {
                 // Get operation count
                 match db.count_enclave_operations().await {

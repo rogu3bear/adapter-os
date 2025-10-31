@@ -108,7 +108,6 @@ pub fn write_trace_bundle<P: AsRef<Path>>(path: P, bundle: TraceBundle) -> Resul
 /// Atomically write a trace bundle by writing to a temporary file and renaming
 pub fn write_trace_bundle_atomic<P: AsRef<Path>>(path: P, bundle: TraceBundle) -> Result<()> {
     let path_ref = path.as_ref();
-    let mut tmp_path = path_ref.as_os_str().to_owned();
     // Simple tmp suffix
     use std::ffi::OsString;
     let tmp = {

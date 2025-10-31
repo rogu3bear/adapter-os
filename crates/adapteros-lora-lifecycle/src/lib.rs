@@ -6,11 +6,13 @@
 //! - Hot-swap loading/unloading
 //! - Memory pressure eviction
 
+use adapteros_aos::HotSwapManager;
 use adapteros_core::{AosError, Result};
 use adapteros_db::{sqlx, Db};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_manifest::Policies;
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
+use adapteros_single_file_adapter::MmapAdapterLoader;
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -18,8 +20,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
-use adapteros_single_file_adapter::MmapAdapterLoader;
-use adapteros_aos::HotSwapManager;
 
 /// Telemetry event for adapter state transitions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,10 +154,15 @@ impl LifecycleManager {
     }
 
     /// Enable memory-mapped loading for .aos files
-    pub fn with_mmap_loader(mut self, _base_path: std::path::PathBuf, _max_cache_mb: usize) -> Self {
+    pub fn with_mmap_loader(
+        mut self,
+        _base_path: std::path::PathBuf,
+        _max_cache_mb: usize,
+    ) -> Self {
         // Current MmapAdapterLoader does not require base path or cache config.
         // Keep the signature for forward compatibility and policy-level configuration.
-        let loader = MmapAdapterLoader::with_capacity_bytes(_max_cache_mb.saturating_mul(1024 * 1024));
+        let loader =
+            MmapAdapterLoader::with_capacity_bytes(_max_cache_mb.saturating_mul(1024 * 1024));
         let arc_loader = Arc::new(tokio::sync::Mutex::new(loader));
         self.mmap_loader = Some(arc_loader.clone());
         // Also surface to AdapterLoader
@@ -170,7 +175,7 @@ impl LifecycleManager {
 
     /// Enable hot-swap capabilities (requires mmap loader)
     pub fn with_hot_swap(mut self) -> Self {
-        if let Some(ref mmap_loader) = self.mmap_loader {
+        if let Some(ref _mmap_loader) = self.mmap_loader {
             let hs = HotSwapManager::new();
             self.hot_swap = Some(Arc::new(hs));
         }
@@ -182,15 +187,11 @@ impl LifecycleManager {
         self.hot_swap.clone()
     }
 
-    
-
     /// Update rolling activation tracker window size (primarily for tests).
     pub fn set_activation_window(&self, window: usize) {
         let mut tracker = self.activation_tracker.write();
         *tracker = ActivationTracker::new(window);
     }
-
-    
 
     /// Record router selection results to update activation percentages.
     pub async fn record_router_decision(&self, selected: &[u16]) -> Result<()> {
@@ -222,7 +223,7 @@ impl LifecycleManager {
         if let Some(ref db) = self.db {
             for (_, adapter_id, _, _, pct) in updates.iter().cloned() {
                 let db_clone = db.clone();
-                spawn_deterministic("Activation pct update".to_string(), async move {
+                let _ = spawn_deterministic("Activation pct update".to_string(), async move {
                     let _ = sqlx::query(
                         "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
                          WHERE adapter_id = ?",
@@ -673,18 +674,20 @@ impl LifecycleManager {
 
     /// Auto-promote adapter based on category policy
     pub async fn auto_promote_adapter(&self, adapter_id: u16) -> Result<()> {
-        let states = self.states.read();
+        // Get data and release lock before any async operations
+        let (category, current_state) = {
+            let states = self.states.read();
+            if let Some(record) = states.get(&adapter_id) {
+                (record.category.clone(), record.state)
+            } else {
+                return Ok(()); // No record found, nothing to do
+            }
+        }; // Lock released here
 
-        if let Some(record) = states.get(&adapter_id) {
-            let category = &record.category;
-            let current_state = record.state;
-
-            if current_state.can_promote(category) {
-                if let Some(next_state) = current_state.promote() {
-                    drop(states); // Release read lock before write
-                    self.update_adapter_state(adapter_id, next_state, "auto_promotion")
-                        .await?;
-                }
+        if current_state.can_promote(&category) {
+            if let Some(next_state) = current_state.promote() {
+                self.update_adapter_state(adapter_id, next_state, "auto_promotion")
+                    .await?;
             }
         }
 
@@ -693,23 +696,25 @@ impl LifecycleManager {
 
     /// Auto-demote adapter based on category policy and inactivity
     pub async fn auto_demote_adapter(&self, adapter_id: u16) -> Result<()> {
-        let states = self.states.read();
+        // Get data and release lock before any async operations
+        let (category, current_state, last_activated) = {
+            let states = self.states.read();
+            if let Some(record) = states.get(&adapter_id) {
+                (record.category.clone(), record.state, record.last_activated)
+            } else {
+                return Ok(()); // No record found, nothing to do
+            }
+        }; // Lock released here
 
-        if let Some(record) = states.get(&adapter_id) {
-            let category = &record.category;
-            let current_state = record.state;
-
-            // Check if we should demote based on last activation time
-            if let Some(last_activated) = record.last_activated {
-                let time_since_activation = last_activated
-                    .elapsed()
-                    .unwrap_or(std::time::Duration::from_secs(0));
-                if current_state.should_demote(category, time_since_activation) {
-                    if let Some(next_state) = current_state.demote() {
-                        drop(states); // Release read lock before write
-                        self.update_adapter_state(adapter_id, next_state, "auto_demotion")
-                            .await?;
-                    }
+        // Check if we should demote based on last activation time
+        if let Some(last_activated) = last_activated {
+            let time_since_activation = last_activated
+                .elapsed()
+                .unwrap_or(std::time::Duration::from_secs(0));
+            if current_state.should_demote(&category, time_since_activation) {
+                if let Some(next_state) = current_state.demote() {
+                    self.update_adapter_state(adapter_id, next_state, "auto_demotion")
+                        .await?;
                 }
             }
         }
@@ -822,17 +827,21 @@ impl LifecycleManager {
             );
 
             // Get adapters sorted by eviction priority
-            let states = self.states.read();
-            let mut eviction_candidates: Vec<_> = states
-                .values()
-                .filter(|record| record.should_evict(memory_pressure))
-                .collect();
+            let eviction_candidates = {
+                let states = self.states.read();
+                let mut candidates: Vec<_> = states
+                    .values()
+                    .filter(|record| record.should_evict(memory_pressure))
+                    .cloned() // Clone to avoid holding reference
+                    .collect();
 
-            eviction_candidates.sort_by(|a, b| {
-                b.eviction_priority()
-                    .numeric_value()
-                    .cmp(&a.eviction_priority().numeric_value())
-            });
+                candidates.sort_by(|a, b| {
+                    b.eviction_priority()
+                        .numeric_value()
+                        .cmp(&a.eviction_priority().numeric_value())
+                });
+                candidates
+            }; // Lock released here
 
             // Evict adapters starting with highest priority
             for record in eviction_candidates {

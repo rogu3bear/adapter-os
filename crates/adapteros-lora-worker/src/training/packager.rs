@@ -114,7 +114,7 @@ impl AdapterPackager {
 
         // Flatten helpers
         fn flatten_2d(m: &Vec<Vec<f32>>) -> Vec<u8> {
-            let mut out = Vec::with_capacity(m.len() * m.get(0).map(|r| r.len()).unwrap_or(0) * 4);
+            let mut out = Vec::with_capacity(m.len() * m.first().map(|r| r.len()).unwrap_or(0) * 4);
             for row in m {
                 for &v in row {
                     out.extend_from_slice(&v.to_le_bytes());

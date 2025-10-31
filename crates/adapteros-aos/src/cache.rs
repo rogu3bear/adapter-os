@@ -53,7 +53,7 @@ impl AdapterCache {
     pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<Arc<MmapAdapter>> {
         let path = path.as_ref();
         let mut cache = self.cache.write();
-        
+
         if let Some(adapter) = cache.get(&path.to_path_buf()) {
             trace!(path = %path.display(), "Cache hit");
             self.metrics.record_hit();
@@ -68,27 +68,27 @@ impl AdapterCache {
     pub fn insert<P: AsRef<Path>>(&self, path: P, adapter: Arc<MmapAdapter>) -> Result<()> {
         let path = path.as_ref().to_path_buf();
         let size = adapter.size_bytes();
-        
+
         if self.config.max_size_bytes > 0 {
             self.evict_for_size(size)?;
         }
-        
+
         let mut cache = self.cache.write();
-        
+
         if let Some((evicted_path, evicted_adapter)) = cache.push(path.clone(), adapter) {
             debug!(path = %evicted_path.display(), "Evicted adapter");
             self.metrics.record_eviction(evicted_adapter.size_bytes());
         }
-        
+
         self.metrics.update_size(size as i64);
         debug!(path = %path.display(), size_bytes = size, "Inserted adapter");
-        
+
         Ok(())
     }
 
     pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<Arc<MmapAdapter>> {
         let mut cache = self.cache.write();
-        
+
         if let Some(adapter) = cache.pop(&path.as_ref().to_path_buf()) {
             self.metrics.update_size(-(adapter.size_bytes() as i64));
             Some(adapter)
@@ -121,14 +121,14 @@ impl AdapterCache {
     fn evict_for_size(&self, needed_size: u64) -> Result<()> {
         let current_size = self.size_bytes();
         let max_size = self.config.max_size_bytes;
-        
+
         if current_size + needed_size <= max_size {
             return Ok(());
         }
-        
+
         let mut cache = self.cache.write();
         let mut freed_size = 0u64;
-        
+
         while current_size + needed_size - freed_size > max_size {
             if let Some((_path, adapter)) = cache.pop_lru() {
                 let size = adapter.size_bytes();
@@ -141,7 +141,7 @@ impl AdapterCache {
                 )));
             }
         }
-        
+
         self.metrics.update_size(-(freed_size as i64));
         Ok(())
     }

@@ -97,7 +97,7 @@ impl Qwen25Int4Mlx {
         let manifest_path = manifest_dir.join("manifest.json");
         let manifest_str = fs::read_to_string(&manifest_path)
             .map_err(|e| AosError::Io(format!("Failed to read manifest: {}", e)))?;
-        
+
         let manifest: QuantizationManifest = serde_json::from_str(&manifest_str)
             .map_err(|e| AosError::Parse(format!("Failed to parse manifest: {}", e)))?;
 
@@ -143,13 +143,15 @@ impl Qwen25Int4Mlx {
             .map_err(|_| AosError::Parse("Expected 2D tensor".to_string()))?;
 
         let mut dequantized = Vec::with_capacity(rows * cols);
-        
+
         for row_idx in 0..rows {
             let scale = scales.get(row_idx).copied().unwrap_or(1.0);
             let zp = zero_points.get(row_idx).copied().unwrap_or(0);
-            
+
             let row_start = row_idx * ((cols + 1) / 2);
-            let row_packed = packed.get(row_start..row_start + ((cols + 1) / 2)).unwrap_or(&[]);
+            let row_packed = packed
+                .get(row_start..row_start + ((cols + 1) / 2))
+                .unwrap_or(&[]);
 
             for col_idx in 0..cols {
                 let packed_idx = col_idx / 2;
@@ -159,7 +161,7 @@ impl Qwen25Int4Mlx {
                 } else {
                     0
                 };
-                
+
                 let q_val = nibble as i8;
                 let dequant_val = (q_val - zp) as f32 * scale;
                 dequantized.push(dequant_val);
@@ -206,7 +208,7 @@ impl BaseLLM for Qwen25Int4Mlx {
         let model = MLXFFIModel::load(&model_path)?;
         let backend = MLXFFIBackend::new(model);
         let backend_arc = Arc::new(RwLock::new(backend));
-        
+
         // Keep model reference for direct access when needed
         self.model = None; // We'll use backend.model internally
         self.backend = Some(backend_arc.clone());
@@ -241,7 +243,9 @@ impl BaseLLM for Qwen25Int4Mlx {
         } else {
             // Try to get logits via backend (requires IoBuffers setup)
             // Simplified: just get base logits
-            let (logits, _) = backend_guard.model.forward_with_hidden_states(&self.sequence)?;
+            let (logits, _) = backend_guard
+                .model
+                .forward_with_hidden_states(&self.sequence)?;
             logits
         };
         Ok(logits)
@@ -270,7 +274,9 @@ impl BaseLLM for Qwen25Int4Mlx {
 
     fn restore_state(&mut self, state: &ModelState) -> Result<()> {
         if state.model_id != self.metadata.model_id {
-            return Err(AosError::BaseLLM("Model ID mismatch in checkpoint".to_string()));
+            return Err(AosError::BaseLLM(
+                "Model ID mismatch in checkpoint".to_string(),
+            ));
         }
         let v: serde_json::Value = serde_json::from_slice(&state.state_data)?;
         self.sequence = v["sequence"]
@@ -292,7 +298,10 @@ impl BaseLLM for Qwen25Int4Mlx {
     fn create_trace_event(&self, operation: &str, input_hash: &str) -> Event {
         use std::collections::HashMap;
         let mut inputs: HashMap<String, serde_json::Value> = HashMap::new();
-        inputs.insert("input_hash".into(), serde_json::Value::String(input_hash.to_string()));
+        inputs.insert(
+            "input_hash".into(),
+            serde_json::Value::String(input_hash.to_string()),
+        );
         inputs.insert(
             "sequence_length".into(),
             serde_json::Value::Number(serde_json::Number::from(self.sequence.len())),
@@ -303,12 +312,18 @@ impl BaseLLM for Qwen25Int4Mlx {
         );
 
         let mut outputs: HashMap<String, serde_json::Value> = HashMap::new();
-        outputs.insert("model_id".into(), serde_json::Value::String(self.metadata.model_id.clone()));
+        outputs.insert(
+            "model_id".into(),
+            serde_json::Value::String(self.metadata.model_id.clone()),
+        );
         outputs.insert(
             "model_hash".into(),
             serde_json::Value::String(self.metadata.model_hash.clone()),
         );
-        outputs.insert("operation".into(), serde_json::Value::String(operation.to_string()));
+        outputs.insert(
+            "operation".into(),
+            serde_json::Value::String(operation.to_string()),
+        );
         outputs.insert(
             "checkpoint_counter".into(),
             serde_json::Value::Number(serde_json::Number::from(self.checkpoints)),
@@ -335,4 +350,3 @@ impl BaseLLM for Qwen25Int4Mlx {
         Event::new(0, "qwen_int4_mlx", operation, inputs, outputs, metadata, ts)
     }
 }
-

@@ -1,9 +1,111 @@
 //! Training dataset database operations
 
 use crate::Db;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Builder for creating dataset statistics parameters
+#[derive(Debug, Default)]
+pub struct DatasetStatisticsBuilder {
+    dataset_id: Option<String>,
+    num_examples: Option<i32>,
+    avg_input_length: Option<f64>,
+    avg_target_length: Option<f64>,
+    language_distribution: Option<String>,
+    file_type_distribution: Option<String>,
+    total_tokens: Option<i64>,
+}
+
+/// Parameters for dataset statistics storage
+#[derive(Debug)]
+pub struct DatasetStatisticsParams {
+    pub dataset_id: String,
+    pub num_examples: i32,
+    pub avg_input_length: f64,
+    pub avg_target_length: f64,
+    pub language_distribution: Option<String>,
+    pub file_type_distribution: Option<String>,
+    pub total_tokens: i64,
+}
+
+impl DatasetStatisticsBuilder {
+    /// Create a new dataset statistics builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the dataset ID (required)
+    pub fn dataset_id(mut self, dataset_id: impl Into<String>) -> Self {
+        self.dataset_id = Some(dataset_id.into());
+        self
+    }
+
+    /// Set the number of examples (required)
+    pub fn num_examples(mut self, num_examples: i32) -> Self {
+        self.num_examples = Some(num_examples);
+        self
+    }
+
+    /// Set the average input length (required)
+    pub fn avg_input_length(mut self, avg_input_length: f64) -> Self {
+        self.avg_input_length = Some(avg_input_length);
+        self
+    }
+
+    /// Set the average target length (required)
+    pub fn avg_target_length(mut self, avg_target_length: f64) -> Self {
+        self.avg_target_length = Some(avg_target_length);
+        self
+    }
+
+    /// Set the language distribution JSON (optional)
+    pub fn language_distribution(
+        mut self,
+        language_distribution: Option<impl Into<String>>,
+    ) -> Self {
+        self.language_distribution = language_distribution.map(|s| s.into());
+        self
+    }
+
+    /// Set the file type distribution JSON (optional)
+    pub fn file_type_distribution(
+        mut self,
+        file_type_distribution: Option<impl Into<String>>,
+    ) -> Self {
+        self.file_type_distribution = file_type_distribution.map(|s| s.into());
+        self
+    }
+
+    /// Set the total tokens count (required)
+    pub fn total_tokens(mut self, total_tokens: i64) -> Self {
+        self.total_tokens = Some(total_tokens);
+        self
+    }
+
+    /// Build the dataset statistics parameters
+    pub fn build(self) -> Result<DatasetStatisticsParams> {
+        Ok(DatasetStatisticsParams {
+            dataset_id: self
+                .dataset_id
+                .ok_or_else(|| anyhow!("dataset_id is required"))?,
+            num_examples: self
+                .num_examples
+                .ok_or_else(|| anyhow!("num_examples is required"))?,
+            avg_input_length: self
+                .avg_input_length
+                .ok_or_else(|| anyhow!("avg_input_length is required"))?,
+            avg_target_length: self
+                .avg_target_length
+                .ok_or_else(|| anyhow!("avg_target_length is required"))?,
+            language_distribution: self.language_distribution,
+            file_type_distribution: self.file_type_distribution,
+            total_tokens: self
+                .total_tokens
+                .ok_or_else(|| anyhow!("total_tokens is required"))?,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TrainingDataset {
@@ -193,29 +295,42 @@ impl Db {
     }
 
     /// Store dataset statistics
-    pub async fn store_dataset_statistics(
-        &self,
-        dataset_id: &str,
-        num_examples: i32,
-        avg_input_length: f64,
-        avg_target_length: f64,
-        language_distribution: Option<&str>,
-        file_type_distribution: Option<&str>,
-        total_tokens: i64,
-    ) -> Result<()> {
+    ///
+    /// Use [`DatasetStatisticsBuilder`] to construct dataset statistics:
+    /// ```no_run
+    /// use adapteros_db::training_datasets::DatasetStatisticsBuilder;
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) {
+    /// let params = DatasetStatisticsBuilder::new()
+    ///     .dataset_id("dataset-123")
+    ///     .num_examples(1000)
+    ///     .avg_input_length(512.5)
+    ///     .avg_target_length(128.3)
+    ///     .language_distribution(Some(r#"{"python": 0.6, "rust": 0.4}"#))
+    ///     .file_type_distribution(Some(r#"{"py": 0.6, "rs": 0.4}"#))
+    ///     .total_tokens(256000)
+    ///     .build()
+    ///     .expect("required fields");
+    /// db.store_dataset_statistics(params)
+    ///     .await
+    ///     .expect("stats stored");
+    /// # }
+    /// ```
+    pub async fn store_dataset_statistics(&self, params: DatasetStatisticsParams) -> Result<()> {
         sqlx::query(
             "INSERT OR REPLACE INTO dataset_statistics (
                 dataset_id, num_examples, avg_input_length, avg_target_length,
                 language_distribution, file_type_distribution, total_tokens, computed_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
-        .bind(dataset_id)
-        .bind(num_examples)
-        .bind(avg_input_length)
-        .bind(avg_target_length)
-        .bind(language_distribution)
-        .bind(file_type_distribution)
-        .bind(total_tokens)
+        .bind(&params.dataset_id)
+        .bind(params.num_examples)
+        .bind(params.avg_input_length)
+        .bind(params.avg_target_length)
+        .bind(&params.language_distribution)
+        .bind(&params.file_type_distribution)
+        .bind(params.total_tokens)
         .execute(self.pool())
         .await?;
         Ok(())

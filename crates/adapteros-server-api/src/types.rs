@@ -6,6 +6,30 @@ use utoipa::ToSchema;
 // Re-export shared API types
 pub use adapteros_api_types::*;
 
+/// Replay verification response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReplayVerificationResponse {
+    pub session_id: String,
+    pub signature_valid: bool,
+    pub hash_chain_valid: bool,
+    pub manifest_verified: bool,
+    pub policy_verified: bool,
+    pub kernel_verified: bool,
+    pub telemetry_verified: bool,
+    pub overall_valid: bool,
+    pub divergences: Vec<ReplayDivergence>,
+    pub verified_at: String,
+}
+
+/// Replay divergence information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReplayDivergence {
+    pub divergence_type: String, // 'router' | 'adapter' | 'inference' | 'policy'
+    pub expected_hash: String,
+    pub actual_hash: String,
+    pub context: String,
+}
+
 /// API error response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
@@ -854,6 +878,18 @@ pub struct ListCommitsQuery {
     pub limit: Option<i64>,
 }
 
+/// Get commit query parameters
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetCommitQuery {
+    pub repo_id: Option<String>,
+}
+
+/// Get commit diff query parameters
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetCommitDiffQuery {
+    pub repo_id: Option<String>,
+}
+
 /// List adapters query parameters
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListAdaptersQuery {
@@ -1422,6 +1458,54 @@ pub struct StreamQuery {
     pub tenant: String,
 }
 
+/// Request payload for starting a high-level training session from UI components
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StartTrainingSessionRequest {
+    pub repository_path: String,
+    pub adapter_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub training_config: serde_json::Value,
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+}
+
+/// Response shape for UI training session APIs
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TrainingSessionResponse {
+    pub session_id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<f64>,
+    pub adapter_name: String,
+    pub repository_path: String,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
+/// Activity feed event payload
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ActivityEventResponse {
+    pub id: String,
+    pub timestamp: String,
+    pub event_type: String,
+    pub level: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+}
+
 /// Discovery stream query parameters
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DiscoveryStreamQuery {
@@ -1780,4 +1864,41 @@ pub struct GitStatusResponse {
     pub modified_files: Vec<String>,
     pub staged_files: Vec<String>,
     pub untracked_files: Vec<String>,
+}
+
+/// Log file information response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct LogFileInfo {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub modified_at: String,
+    pub created_at: String,
+}
+
+/// List log files response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListLogFilesResponse {
+    pub files: Vec<LogFileInfo>,
+    pub total_size_bytes: u64,
+    pub count: usize,
+}
+
+/// Log file content response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct LogFileContentResponse {
+    pub name: String,
+    pub path: String,
+    pub content: String,
+    pub size_bytes: u64,
+    pub truncated: bool,
+    pub max_size_bytes: u64,
+}
+
+/// Query parameters for log file content
+#[derive(Debug, Deserialize)]
+pub struct LogFileQueryParams {
+    pub max_size: Option<usize>,
+    pub tail: Option<bool>,
+    pub lines: Option<usize>,
 }

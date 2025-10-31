@@ -49,7 +49,7 @@ pub async fn run(all: bool, node_ids: Option<Vec<String>>) -> Result<()> {
                 for (component, hash) in hashes {
                     hash_map
                         .entry(component)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((node.hostname.clone(), hash));
                 }
             }

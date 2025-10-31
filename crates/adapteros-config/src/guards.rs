@@ -43,6 +43,14 @@ pub struct ConfigGuards;
 impl ConfigGuards {
     /// Initialize the guard system
     pub fn initialize() -> Result<()> {
+        if let Some(lock) = GUARD_STATE.get() {
+            let mut state = lock
+                .write()
+                .map_err(|_| AosError::Config("Failed to acquire guard state lock".to_string()))?;
+            *state = GuardState::new();
+            return Ok(());
+        }
+
         GUARD_STATE
             .set(RwLock::new(GuardState::new()))
             .map_err(|_| AosError::Config("Guard system already initialized".to_string()))?;
@@ -228,15 +236,23 @@ pub fn strict_env_var(key: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn test_guard_initialization() {
+        let _lock = test_lock();
         ConfigGuards::initialize().unwrap();
         assert!(!ConfigGuards::is_frozen());
     }
 
     #[test]
     fn test_guard_freeze() {
+        let _lock = test_lock();
         ConfigGuards::initialize().unwrap();
         ConfigGuards::freeze().unwrap();
         assert!(ConfigGuards::is_frozen());
@@ -244,6 +260,7 @@ mod tests {
 
     #[test]
     fn test_violation_recording() {
+        let _lock = test_lock();
         ConfigGuards::initialize().unwrap();
         ConfigGuards::freeze().unwrap();
 
@@ -257,6 +274,7 @@ mod tests {
 
     #[test]
     fn test_safe_env_access() {
+        let _lock = test_lock();
         ConfigGuards::initialize().unwrap();
 
         // Should work before freeze
@@ -273,6 +291,7 @@ mod tests {
 
     #[test]
     fn test_clear_violations() {
+        let _lock = test_lock();
         ConfigGuards::initialize().unwrap();
         ConfigGuards::freeze().unwrap();
 

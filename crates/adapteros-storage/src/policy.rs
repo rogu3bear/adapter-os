@@ -241,17 +241,15 @@ impl StoragePolicyEngine {
             }
 
             if !matches_allowed {
-                return Err(AosError::PolicyViolation(format!(
-                    "File path does not match any allowed pattern"
-                )));
+                return Err(AosError::PolicyViolation(
+                    "File path does not match any allowed pattern".to_string(),
+                ));
             }
         }
 
         // Evaluate rules
         for rule in &self.policy.rules {
-            if let Err(e) = self.evaluate_rule(rule, file_path, operation) {
-                return Err(e);
-            }
+            self.evaluate_rule(rule, file_path, operation)?
         }
 
         Ok(())
@@ -345,9 +343,9 @@ impl StoragePolicyEngine {
         _operation: &FileOperation,
     ) -> Result<()> {
         match action.action_type {
-            StorageActionType::Deny => Err(AosError::PolicyViolation(format!(
-                "File operation denied by policy rule"
-            ))),
+            StorageActionType::Deny => Err(AosError::PolicyViolation(
+                "File operation denied by policy rule".to_string(),
+            )),
             StorageActionType::Alert => {
                 // Log alert (in real implementation, this would send an alert)
                 tracing::warn!(

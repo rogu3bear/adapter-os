@@ -72,7 +72,7 @@ pub async fn chat_completions(
     };
 
     // Resolve UDS path: prefer registered worker; otherwise fall back to per-tenant default
-    let uds_path_buf = if let Some(worker) = workers.get(0) {
+    let uds_path_buf = if let Some(worker) = workers.first() {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
         // Fallback: honor env override or use /var/run/aos/<tenant>/aos.sock
@@ -90,6 +90,8 @@ pub async fn chat_completions(
         require_evidence: true,
     };
 
+    // Record inference latency
+    let start_time = std::time::Instant::now();
     let worker_response = uds_client
         .infer(uds_path, worker_request)
         .await
@@ -103,6 +105,28 @@ pub async fn chat_completions(
                 ),
             )
         })?;
+    let latency_secs = start_time.elapsed().as_secs_f64();
+
+    // Record real inference latency metrics
+    state.metrics_collector.record_inference_latency(
+        &claims.tenant_id,
+        "qwen2.5-7b", // adapter_id - could be dynamic based on actual adapter used
+        latency_secs,
+    );
+
+    // Record tokens generated
+    let tokens_generated = worker_response
+        .text
+        .as_ref()
+        .map(|text| text.split_whitespace().count() as u64)
+        .unwrap_or(0);
+    if tokens_generated > 0 {
+        state.metrics_collector.record_tokens_generated(
+            &claims.tenant_id,
+            "qwen2.5-7b",
+            tokens_generated,
+        );
+    }
 
     let finish_reason = worker_response.status.clone();
     let completion_text = worker_response.text.unwrap_or_default();

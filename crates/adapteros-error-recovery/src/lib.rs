@@ -220,10 +220,11 @@ impl ErrorRecoveryManager {
         path: &Path,
     ) -> Result<RecoveryStrategy> {
         // Check if file exists and is corrupted
-        if path.exists() && self.config.enable_corruption_detection {
-            if self.corruption_detector.is_corrupted(path).await? {
-                return Ok(RecoveryStrategy::RestoreFromBackup);
-            }
+        if path.exists()
+            && self.config.enable_corruption_detection
+            && self.corruption_detector.is_corrupted(path).await?
+        {
+            return Ok(RecoveryStrategy::RestoreFromBackup);
         }
 
         // Determine strategy based on error type

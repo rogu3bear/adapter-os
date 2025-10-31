@@ -12,8 +12,7 @@ pub mod windows;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
-use tracing::{debug, error, info, warn};
+use std::time::SystemTime;
 
 /// Platform-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,7 +191,7 @@ impl PlatformFsManager {
         #[cfg(target_os = "linux")]
         return Ok(Platform::Linux);
 
-        #[cfg(unix)]
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
         return Ok(Platform::Unix);
 
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux", unix)))]
@@ -320,7 +319,7 @@ impl PlatformFsManager {
 
 impl Default for PlatformConfig {
     fn default() -> Self {
-        PlatformFsManager::detect_platform_config().unwrap_or_else(|_| PlatformConfig {
+        PlatformFsManager::detect_platform_config().unwrap_or(PlatformConfig {
             target_platform: Platform::Unknown,
             enable_optimizations: false,
             enable_features: false,

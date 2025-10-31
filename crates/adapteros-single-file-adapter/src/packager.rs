@@ -117,7 +117,7 @@ impl SingleFileAdapter {
         zip.start_file("config.toml", data_options)
             .map_err(|e| AosError::Io(format!("Failed to start config file: {}", e)))?;
         zip.write_all(
-            &toml::to_string(&adapter.config)
+            toml::to_string(&adapter.config)
                 .map_err(|e| AosError::Training(format!("Failed to serialize config: {}", e)))?
                 .as_bytes(),
         )

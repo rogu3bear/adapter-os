@@ -489,10 +489,7 @@ pub async fn run(
             ));
         }
         Err(e) => {
-            output.warning(format!(
-                "Warmup failed (continuing in dev mode): {}",
-                e
-            ));
+            output.warning(format!("Warmup failed (continuing in dev mode): {}", e));
         }
     }
 

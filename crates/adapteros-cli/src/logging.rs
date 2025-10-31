@@ -12,12 +12,14 @@
 //!
 //! ```rust
 //! use adapteros_cli::logging::init_logging;
+//! use adapteros_core::Result;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
 //!     init_logging()?;
 //!     tracing::info!("CLI started");
 //!     // ... rest of CLI logic
+//!     Ok(())
 //! }
 //! ```
 
@@ -73,7 +75,7 @@ pub fn init_logging() -> Result<()> {
 pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>) {
     match result {
         Ok(_) => {
-            let event = TelemetryEventBuilder::new(
+            let _event = TelemetryEventBuilder::new(
                 EventType::UserAction,
                 LogLevel::Info,
                 format!("CLI command executed successfully: {}", command),
@@ -93,7 +95,7 @@ pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>
             );
         }
         Err(e) => {
-            let event = TelemetryEventBuilder::new(
+            let _event = TelemetryEventBuilder::new(
                 EventType::UserError,
                 LogLevel::Error,
                 format!("CLI command failed: {}", command),

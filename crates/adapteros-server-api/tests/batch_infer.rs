@@ -53,22 +53,38 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
         metrics: MetricsConfig {
             enabled: false,
             bearer_token: String::new(),
+            system_metrics_interval_secs: 0,
         },
         golden_gate: None,
         bundles_root: "var/bundles".to_string(),
+        rate_limits: None,
     };
 
     let metrics = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
         0.1, 0.5, 1.0,
     ])?);
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new()?);
+    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
+        metrics_collector.clone(),
+    ));
+    for name in [
+        "inference_latency_p95_ms",
+        "queue_depth",
+        "tokens_per_second",
+        "memory_usage_mb",
+    ] {
+        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
+    }
 
     let training_service = Arc::new(TrainingService::new());
 
-    Ok(AppState::new(
+    Ok(AppState::with_sqlite(
         db,
         b"test-secret".to_vec(),
         Arc::new(RwLock::new(config)),
         metrics,
+        metrics_collector,
+        metrics_registry,
         training_service,
     ))
 }

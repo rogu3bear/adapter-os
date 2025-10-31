@@ -127,9 +127,9 @@ impl AtomicFileReader {
         fs::read(&self.path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to read file: {}", e)))?;
-        Ok(fs::read(&self.path)
+        fs::read(&self.path)
             .await
-            .map_err(|e| AosError::Io(format!("Failed to read file: {}", e)))?)
+            .map_err(|e| AosError::Io(format!("Failed to read file: {}", e)))
     }
 
     /// Read the file as a string
@@ -137,9 +137,9 @@ impl AtomicFileReader {
         fs::read_to_string(&self.path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to read file as string: {}", e)))?;
-        Ok(fs::read_to_string(&self.path)
+        fs::read_to_string(&self.path)
             .await
-            .map_err(|e| AosError::Io(format!("Failed to read file as string: {}", e)))?)
+            .map_err(|e| AosError::Io(format!("Failed to read file as string: {}", e)))
     }
 
     /// Get file metadata
@@ -147,9 +147,9 @@ impl AtomicFileReader {
         fs::metadata(&self.path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?;
-        Ok(fs::metadata(&self.path)
+        fs::metadata(&self.path)
             .await
-            .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?)
+            .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))
     }
 }
 

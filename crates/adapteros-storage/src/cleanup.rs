@@ -2,7 +2,7 @@
 //!
 //! Implements automatic cleanup policies for tenant storage.
 
-use crate::{StorageConfig, StorageUsage, CleanupPolicy};
+use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use glob::glob;
 use std::path::PathBuf;
@@ -316,6 +316,7 @@ impl Drop for CleanupManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CleanupPolicy;
     use std::fs;
     use tempfile::TempDir;
 

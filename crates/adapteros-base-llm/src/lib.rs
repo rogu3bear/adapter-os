@@ -14,17 +14,17 @@ use tracing::{info, warn};
 
 pub mod error;
 pub mod metadata;
-pub mod qwen;
 #[cfg(feature = "mlx-ffi")]
 pub mod mlx_ffi;
+pub mod qwen;
 #[cfg(feature = "mlx-ffi")]
 pub mod qwen_int4_mlx;
 
 pub use error::{BaseLLMError, Result as BaseLLMResult};
 pub use metadata::{BaseLLMMetadata, ModelArchitecture};
-pub use qwen::QwenBaseLLM;
 #[cfg(feature = "mlx-ffi")]
 pub use mlx_ffi::QwenMlxFfi;
+pub use qwen::QwenBaseLLM;
 #[cfg(feature = "mlx-ffi")]
 pub use qwen_int4_mlx::Qwen25Int4Mlx;
 
@@ -256,14 +256,21 @@ mod mlx_backend {
 
     // Add Python version check
     #[cfg(not(pyo3_python_version = "3.13"))]
-    compile_error!("MLX backend requires Python 3.13 or earlier; current version is incompatible with PyO3");
+    compile_error!(
+        "MLX backend requires Python 3.13 or earlier; current version is incompatible with PyO3"
+    );
 
     /// Load a Qwen model via Python's mlx_lm.load API. Returns (model, tokenizer, generate_fn).
-    pub fn load_qwen_via_mlx(model_ref: &str, seed64: u64) -> PyResult<(PyObject, PyObject, PyObject)> {
+    pub fn load_qwen_via_mlx(
+        model_ref: &str,
+        seed64: u64,
+    ) -> PyResult<(PyObject, PyObject, PyObject)> {
         Python::with_gil(|py| {
             // Set deterministic seed on MLX
             if let Ok(mx) = PyModule::import_bound(py, "mlx.core") {
-                let _ = mx.getattr("random").and_then(|r| r.call_method1("seed", (seed64,)));
+                let _ = mx
+                    .getattr("random")
+                    .and_then(|r| r.call_method1("seed", (seed64,)));
             }
 
             // Import mlx_lm and load model + tokenizer
@@ -272,14 +279,15 @@ mod mlx_backend {
             // load(model_ref) -> (model, tokenizer)
             let load_obj = mlx_lm.getattr("load")?;
             let loaded = load_obj.call1((model_ref,))?;
-            let (model, tokenizer): (PyObject, PyObject) = if let Ok(tup) = loaded.downcast::<PyTuple>() {
-                // Extract as PyObject tuple
-                let m = tup.get_item(0)?.unbind().into_py(py);
-                let tok = tup.get_item(1)?.unbind().into_py(py);
-                (m, tok)
-            } else {
-                loaded.extract()?
-            };
+            let (model, tokenizer): (PyObject, PyObject) =
+                if let Ok(tup) = loaded.downcast::<PyTuple>() {
+                    // Extract as PyObject tuple
+                    let m = tup.get_item(0)?.unbind().into_py(py);
+                    let tok = tup.get_item(1)?.unbind().into_py(py);
+                    (m, tok)
+                } else {
+                    loaded.extract()?
+                };
 
             // Keep a handle to the generate function
             let generate = mlx_lm.getattr("generate")?.unbind().into_py(py);

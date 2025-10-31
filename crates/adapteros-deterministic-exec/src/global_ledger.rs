@@ -6,9 +6,7 @@
 use crate::{ExecutorEvent, TaskId};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
-use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use sqlx::Row;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,9 +88,6 @@ pub struct GlobalTickLedger {
     /// Maximum cache size
     max_cache_size: usize,
 
-    /// Telemetry writer
-    telemetry: Option<Arc<TelemetryWriter>>,
-
     /// Last entry hash (for Merkle chain)
     last_entry_hash: Arc<RwLock<Option<B3Hash>>>,
 }
@@ -118,26 +113,6 @@ impl GlobalTickLedger {
             host_id,
             entries: Arc::new(RwLock::new(VecDeque::new())),
             max_cache_size: 1000,
-            telemetry: None,
-            last_entry_hash: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    /// Create with telemetry writer
-    pub fn with_telemetry(
-        db: Arc<Db>,
-        tenant_id: String,
-        host_id: String,
-        telemetry: Arc<TelemetryWriter>,
-    ) -> Self {
-        Self {
-            local_tick: Arc::new(AtomicU64::new(0)),
-            db,
-            tenant_id,
-            host_id,
-            entries: Arc::new(RwLock::new(VecDeque::new())),
-            max_cache_size: 1000,
-            telemetry: Some(telemetry),
             last_entry_hash: Arc::new(RwLock::new(None)),
         }
     }
@@ -214,26 +189,16 @@ impl GlobalTickLedger {
             *lock = Some(entry_hash);
         }
 
-        // Log to telemetry
-        if let Some(ref telemetry) = self.telemetry {
-            let event = TelemetryEventBuilder::new(
-                adapteros_telemetry::EventType::Custom("tick_ledger.entry".to_string()),
-                LogLevel::Debug,
-                format!("Tick ledger entry recorded: tick {}", tick),
-            )
-            .component("adapteros-deterministic-exec".to_string())
-            .metadata(json!({
-                "tick": tick,
-                "tenant_id": &self.tenant_id,
-                "host_id": &self.host_id,
-                "task_id": task_id.to_string(),
-                "event_type": event_type,
-                "event_hash": event_hash.to_hex(),
-            }))
-            .build();
-
-            let _ = telemetry.log_event(event);
-        }
+        // Log to tracing
+        tracing::debug!(
+            tick,
+            tenant_id = %self.tenant_id,
+            host_id = %self.host_id,
+            task_id = %task_id,
+            event_type = %event_type,
+            event_hash = %event_hash.to_hex(),
+            "Tick ledger entry recorded"
+        );
 
         debug!(
             tick = tick,
@@ -344,40 +309,29 @@ impl GlobalTickLedger {
         // Store report
         self.store_consistency_report(&report).await?;
 
-        // Log to telemetry
-        if let Some(ref telemetry) = self.telemetry {
-            let event_type = if consistent {
-                "tick_ledger.consistent"
-            } else {
-                "tick_ledger.inconsistent"
-            };
-
-            let event = TelemetryEventBuilder::new(
-                adapteros_telemetry::EventType::Custom(event_type.to_string()),
-                if consistent {
-                    LogLevel::Info
-                } else {
-                    LogLevel::Warn
-                },
-                format!(
-                    "Cross-host consistency check: {} (divergences: {})",
-                    if consistent { "PASS" } else { "FAIL" },
-                    divergence_count
-                ),
-            )
-            .component("adapteros-deterministic-exec".to_string())
-            .metadata(json!({
-                "tenant_id": &self.tenant_id,
-                "host_a": &self.host_id,
-                "host_b": peer_host_id,
-                "tick_range_start": tick_range.0,
-                "tick_range_end": tick_range.1,
-                "consistent": consistent,
-                "divergence_count": divergence_count,
-            }))
-            .build();
-
-            let _ = telemetry.log_event(event);
+        // Log to tracing
+        if consistent {
+            tracing::info!(
+                tenant_id = %self.tenant_id,
+                host_a = %self.host_id,
+                host_b = %peer_host_id,
+                tick_range_start = tick_range.0,
+                tick_range_end = tick_range.1,
+                divergence_count,
+                "Cross-host consistency check: PASS (divergences: {})",
+                divergence_count
+            );
+        } else {
+            tracing::warn!(
+                tenant_id = %self.tenant_id,
+                host_a = %self.host_id,
+                host_b = %peer_host_id,
+                tick_range_start = tick_range.0,
+                tick_range_end = tick_range.1,
+                divergence_count,
+                "Cross-host consistency check: FAIL (divergences: {})",
+                divergence_count
+            );
         }
 
         if consistent {

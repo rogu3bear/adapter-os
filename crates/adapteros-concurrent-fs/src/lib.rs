@@ -10,10 +10,11 @@ pub mod manager;
 
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, warn};
+use tokio::sync::Mutex;
+use tracing::debug;
 
 /// Concurrent filesystem configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +118,12 @@ impl ConcurrentFsManager {
         *counter
     }
 
+    /// Begin a tracked concurrent operation
+    pub async fn begin_operation(self: &Arc<Self>) -> Result<ConcurrentOperationGuard> {
+        self.check_concurrent_limit().await?;
+        Ok(ConcurrentOperationGuard::new(self.clone()))
+    }
+
     /// Get configuration
     pub fn config(&self) -> &ConcurrentFsConfig {
         &self.config
@@ -151,15 +158,15 @@ pub struct FileOperationResult {
 }
 
 /// Concurrent operation guard
-pub struct ConcurrentOperationGuard<'a> {
-    manager: &'a ConcurrentFsManager,
+pub struct ConcurrentOperationGuard {
+    manager: Arc<ConcurrentFsManager>,
     start_time: SystemTime,
     retry_count: u32,
 }
 
-impl<'a> ConcurrentOperationGuard<'a> {
+impl ConcurrentOperationGuard {
     /// Create a new concurrent operation guard
-    pub fn new(manager: &'a ConcurrentFsManager) -> Self {
+    pub fn new(manager: Arc<ConcurrentFsManager>) -> Self {
         Self {
             manager,
             start_time: SystemTime::now(),
@@ -183,12 +190,15 @@ impl<'a> ConcurrentOperationGuard<'a> {
     }
 }
 
-impl<'a> Drop for ConcurrentOperationGuard<'a> {
+impl Drop for ConcurrentOperationGuard {
     fn drop(&mut self) {
         let duration = self.start_time.elapsed().unwrap_or(Duration::ZERO);
 
-        // Note: Cannot use tokio::spawn in Drop due to lifetime constraints
-        // The operation counter will be released when the manager is dropped
+        let manager = Arc::clone(&self.manager);
+        tokio::spawn(async move {
+            manager.release_operation().await;
+        });
+
         debug!(
             "Concurrent operation completed in {:?} (retries: {})",
             duration, self.retry_count
@@ -199,22 +209,23 @@ impl<'a> Drop for ConcurrentOperationGuard<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_concurrent_fs_manager() -> Result<()> {
         let config = ConcurrentFsConfig::default();
-        let manager = ConcurrentFsManager::new(config)?;
+        let manager = Arc::new(ConcurrentFsManager::new(config)?);
 
         // Test operation counting
         assert_eq!(manager.get_operation_count().await, 0);
 
         // Test concurrent limit
-        let guard = ConcurrentOperationGuard::new(&manager);
+        let guard = manager.clone().begin_operation().await?;
         assert_eq!(manager.get_operation_count().await, 1);
 
         drop(guard);
-        // Note: Counter is released asynchronously, so we can't test it immediately
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(manager.get_operation_count().await, 0);
 
         Ok(())
     }
@@ -222,9 +233,9 @@ mod tests {
     #[tokio::test]
     async fn test_retry_limit() -> Result<()> {
         let config = ConcurrentFsConfig::default();
-        let manager = ConcurrentFsManager::new(config)?;
+        let manager = Arc::new(ConcurrentFsManager::new(config)?);
 
-        let mut guard = ConcurrentOperationGuard::new(&manager);
+        let mut guard = manager.clone().begin_operation().await?;
 
         // Test retry counting
         assert_eq!(guard.retry_count(), 0);

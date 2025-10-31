@@ -12,6 +12,7 @@ use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
+use tracing::info;
 
 /// Storage configuration for a tenant
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +25,10 @@ pub struct StorageConfig {
     pub cleanup_policy: CleanupPolicy,
     /// Monitoring configuration
     pub monitoring: StorageMonitoring,
+    /// Enable encryption by default
+    pub enable_encryption: bool,
+    /// Key provider configuration
+    pub key_provider: adapteros_crypto::KeyProviderConfig,
 }
 
 /// Cleanup policy configuration
@@ -70,6 +75,8 @@ impl Default for StorageConfig {
             max_files: 10000,
             cleanup_policy: CleanupPolicy::default(),
             monitoring: StorageMonitoring::default(),
+            enable_encryption: true, // Encryption enabled by default
+            key_provider: adapteros_crypto::KeyProviderConfig::default(),
         }
     }
 }
@@ -118,6 +125,7 @@ pub struct StorageManager {
     quota_manager: quota::QuotaManager,
     cleanup_manager: cleanup::CleanupManager,
     monitor: monitor::StorageMonitor,
+    key_provider: Option<Box<dyn adapteros_crypto::KeyProvider + Send + Sync>>,
 }
 
 impl StorageManager {
@@ -134,7 +142,36 @@ impl StorageManager {
             quota_manager,
             cleanup_manager,
             monitor,
+            key_provider: None,
         })
+    }
+
+    /// Initialize the key provider (async operation)
+    pub async fn init_key_provider(&mut self) -> Result<()> {
+        if self.config.enable_encryption {
+            // Create the appropriate key provider based on config
+            let provider: Box<dyn adapteros_crypto::KeyProvider + Send + Sync> =
+                match self.config.key_provider.mode {
+                    adapteros_crypto::KeyProviderMode::Keychain => Box::new(
+                        adapteros_crypto::KeychainProvider::new(self.config.key_provider.clone())?,
+                    ),
+                    adapteros_crypto::KeyProviderMode::Kms => {
+                        return Err(adapteros_core::AosError::Crypto(
+                            "KMS provider not yet implemented".to_string(),
+                        ));
+                    }
+                    adapteros_crypto::KeyProviderMode::File => {
+                        return Err(adapteros_core::AosError::Crypto(
+                            "File provider not allowed in production".to_string(),
+                        ));
+                    }
+                };
+
+            self.key_provider = Some(provider);
+            info!("Initialized key provider for encrypted storage operations");
+        }
+
+        Ok(())
     }
 
     /// Check if there's enough space for a file

@@ -348,12 +348,13 @@ pub fn read_trace_bundle<P: AsRef<Path>>(path: P) -> Result<TraceBundle> {
 /// Read only the first event's metadata from a file
 pub fn read_trace_header<P: AsRef<Path>>(path: P) -> Result<crate::schema::EventMetadata> {
     let mut reader = TraceReader::new(&path)?;
-    while let Some(ev) = reader.read_next_event()? {
-        return Ok(ev.metadata);
+    if let Some(ev) = reader.read_next_event()? {
+        Ok(ev.metadata)
+    } else {
+        Err(AosError::Telemetry(
+            "No events found in trace file".to_string(),
+        ))
     }
-    Err(AosError::Telemetry(
-        "No events found in trace file".to_string(),
-    ))
 }
 
 /// Reader statistics for observability and guard enforcement
@@ -538,7 +539,8 @@ mod tests {
         // Create a valid but very long JSON line exceeding the guard
         let long_val = "a".repeat(1024);
         let json_line = format!("{{\"k\":\"{}\"}}\n", long_val);
-        let mut reader = TraceReader::from_reader(std::io::Cursor::new(json_line.into_bytes())).with_max_line_len(100);
+        let mut reader = TraceReader::from_reader(std::io::Cursor::new(json_line.into_bytes()))
+            .with_max_line_len(100);
         let err = reader.read_next_event().unwrap_err();
         let msg = format!("{}", err);
         assert!(msg.contains("too long"));

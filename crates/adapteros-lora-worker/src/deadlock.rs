@@ -242,7 +242,7 @@ impl<T> DeadlockAwareLock<T> {
         }
     }
 
-    pub async fn lock(&self) -> Result<tokio::sync::MutexGuard<T>> {
+    pub async fn lock(&self) -> Result<tokio::sync::MutexGuard<'_, T>> {
         let thread_id = get_thread_id();
         self.detector
             .record_lock_acquisition(self.lock_id.clone(), thread_id)
@@ -284,8 +284,10 @@ mod tests {
         let config = DeadlockConfig::default();
         let detector = DeadlockDetector::new(config);
 
-        detector.record_lock_acquisition("test_lock".to_string(), 1);
-        detector.record_lock_release("test_lock", 1);
+        detector
+            .record_lock_acquisition("test_lock".to_string(), 1)
+            .await;
+        detector.record_lock_release("test_lock", 1).await;
 
         // Should not panic
         assert_eq!(detector.get_deadlock_count().await, 0);

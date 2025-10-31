@@ -3,16 +3,18 @@
 //! Writes a JSON snapshot of AdapterOS state to `/var/run/adapteros_status.json`
 //! for consumption by the macOS menu bar app.
 
+use adapteros_db::Database;
 use adapteros_server_api::AppState;
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 use tracing::{debug, warn};
 
 /// Status reported to menu bar app
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AdapterOSStatus {
     /// Schema version for forward/backward compatibility
     pub schema_version: String,
@@ -52,24 +54,21 @@ struct BaseModelInfo {
     memory_mb: Option<usize>,
 }
 
-/// Tracks when the control plane started
-static mut START_TIME: Option<SystemTime> = None;
+/// Tracks when the control plane started (thread-safe)
+static START_TIME: OnceLock<SystemTime> = OnceLock::new();
 
 /// Initialize the start time (call once at startup)
 pub fn init_start_time() {
-    unsafe {
-        START_TIME = Some(SystemTime::now());
-    }
+    let _ = START_TIME.set(SystemTime::now());
 }
 
 /// Get uptime in seconds since init_start_time was called
 fn get_uptime_secs() -> u64 {
-    unsafe {
-        START_TIME
-            .and_then(|start| SystemTime::now().duration_since(start).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
+    START_TIME
+        .get()
+        .and_then(|start| SystemTime::now().duration_since(*start).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Write current status to JSON file
@@ -82,7 +81,7 @@ pub async fn write_status(state: &AppState) -> Result<()> {
 /// Collect current status from the system
 async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
     // Query database for adapter and worker counts with proper error handling
-    let adapters_loaded = match query_adapter_count(state.db.sqlite()).await {
+    let adapters_loaded = match query_adapter_count(&state.db).await {
         Ok(count) => count,
         Err(e) => {
             warn!("Failed to query adapter count: {}", e);
@@ -90,7 +89,7 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
         }
     };
 
-    let worker_count = match query_worker_count(state.db.sqlite()).await {
+    let worker_count = match query_worker_count(&state.db).await {
         Ok(count) => count,
         Err(e) => {
             warn!("Failed to query worker count: {}", e);
@@ -105,7 +104,8 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
         "degraded"
     } else {
         "error"
-    }.to_string();
+    }
+    .to_string();
 
     // Get kernel hash from plan with proper error handling
     let kernel_hash = match get_kernel_hash().await {
@@ -146,23 +146,39 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
 }
 
 /// Query adapter count from database
-async fn query_adapter_count(db: &adapteros_db::Db) -> Result<usize> {
-    // Count active adapters (SQLite)
-    let count = adapteros_db::sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters WHERE status = 'active'")
-        .fetch_one(db.pool())
-        .await
-        .context("Failed to query adapter count")?;
+async fn query_adapter_count(db: &Database) -> Result<usize> {
+    let query = "SELECT COUNT(*) FROM adapters WHERE status = 'active'";
+
+    let count = match db {
+        Database::Sqlite(sqlite) => adapteros_db::sqlx::query_scalar::<_, i64>(query)
+            .fetch_one(sqlite.pool())
+            .await
+            .context("Failed to query adapter count")?,
+        Database::Postgres(pg) => adapteros_db::sqlx::query_scalar::<_, i64>(query)
+            .fetch_one(pg.pool())
+            .await
+            .context("Failed to query adapter count")?,
+    };
+
     Ok(count as usize)
 }
 
 /// Query worker count (from node agent or workers table)
-async fn query_worker_count(db: &adapteros_db::Db) -> Result<usize> {
-    // Try to count serving workers if table exists; fall back to 0 on error
-    let res = adapteros_db::sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM workers WHERE status IN ('active','starting')",
-    )
-    .fetch_one(db.pool())
-    .await;
+async fn query_worker_count(db: &Database) -> Result<usize> {
+    let query = "SELECT COUNT(*) FROM workers WHERE status IN ('active','starting')";
+
+    let res = match db {
+        Database::Sqlite(sqlite) => {
+            adapteros_db::sqlx::query_scalar::<_, i64>(query)
+                .fetch_one(sqlite.pool())
+                .await
+        }
+        Database::Postgres(pg) => {
+            adapteros_db::sqlx::query_scalar::<_, i64>(query)
+                .fetch_one(pg.pool())
+                .await
+        }
+    };
 
     match res {
         Ok(n) => Ok(n as usize),
@@ -199,14 +215,57 @@ async fn check_deterministic_mode() -> Option<bool> {
 
 /// Get base model information from training service
 async fn get_base_model_info(state: &AppState) -> BaseModelInfo {
-    // For now, report base model as loaded and ready
-    // TODO: Implement actual base model lifecycle tracking
-    BaseModelInfo {
-        loaded: true,
-        id: Some("qwen2.5-7b".to_string()),
-        name: Some("Qwen 2.5 7B".to_string()),
-        status: "ready".to_string(),
-        memory_mb: Some(14336), // ~14GB for 7B model
+    const DEFAULT_TENANT: &str = "default";
+
+    match state.db.get_base_model_status(DEFAULT_TENANT).await {
+        Ok(Some(status_record)) => {
+            let model_id = status_record.model_id.clone();
+            let status = status_record.status.clone();
+            let is_loaded = status.as_str() == "loaded";
+
+            let model_name = match state.db.get_model(&model_id).await {
+                Ok(Some(model)) => Some(model.name),
+                Ok(None) => {
+                    warn!("Base model status references unknown model id {}", model_id);
+                    None
+                }
+                Err(e) => {
+                    warn!("Failed to load base model metadata for {}: {}", model_id, e);
+                    None
+                }
+            };
+
+            BaseModelInfo {
+                loaded: is_loaded,
+                id: Some(model_id),
+                name: model_name,
+                status,
+                memory_mb: status_record.memory_usage_mb.and_then(|mb| {
+                    if mb >= 0 {
+                        Some(mb as usize)
+                    } else {
+                        None
+                    }
+                }),
+            }
+        }
+        Ok(None) => BaseModelInfo {
+            loaded: false,
+            id: None,
+            name: None,
+            status: "unloaded".to_string(),
+            memory_mb: None,
+        },
+        Err(e) => {
+            warn!("Failed to query base model status: {}", e);
+            BaseModelInfo {
+                loaded: false,
+                id: None,
+                name: None,
+                status: "unknown".to_string(),
+                memory_mb: None,
+            }
+        }
     }
 }
 
@@ -228,19 +287,36 @@ fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     let status_path = "/var/run/adapteros_status.json";
     let temp_path = "/var/run/adapteros_status.json.tmp";
 
-    // Write to temp file first
-    fs::write(temp_path, json).context("Failed to write temp status file")?;
+    // Clean up any leftover temp file from previous failed writes
+    if Path::new(temp_path).exists() {
+        if let Err(e) = fs::remove_file(temp_path) {
+            warn!("Could not clean up leftover temp file {}: {}", temp_path, e);
+        }
+    }
 
-    // Atomic rename
-    fs::rename(temp_path, status_path).context("Failed to rename status file")?;
+    // Write to temp file first (atomic operation preparation)
+    fs::write(temp_path, json)
+        .with_context(|| format!("Failed to write temp status file: {}", temp_path))?;
+
+    // Atomic rename - this is the critical atomic operation
+    fs::rename(temp_path, status_path).with_context(|| {
+        format!(
+            "Failed to rename temp file {} to {}",
+            temp_path, status_path
+        )
+    })?;
 
     // Set permissions to 0644 (readable by all, writable by owner)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(status_path)?.permissions();
+        let mut perms = fs::metadata(status_path)
+            .with_context(|| format!("Failed to get metadata for status file: {}", status_path))?
+            .permissions();
         perms.set_mode(0o644);
-        fs::set_permissions(status_path, perms)?;
+        fs::set_permissions(status_path, perms).with_context(|| {
+            format!("Failed to set permissions on status file: {}", status_path)
+        })?;
     }
 
     debug!("Status written to {}", status_path);
@@ -249,7 +325,8 @@ fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
 
 /// Fallback: write to local var/ directory
 fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
-    let json = serde_json::to_string_pretty(status)?;
+    let json =
+        serde_json::to_string_pretty(status).context("Failed to serialize status to JSON")?;
 
     // Use local var directory
     let status_dir = Path::new("var");
@@ -258,15 +335,33 @@ fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
     let status_path = "var/adapteros_status.json";
     let temp_path = "var/adapteros_status.json.tmp";
 
-    fs::write(temp_path, json)?;
-    fs::rename(temp_path, status_path)?;
+    // Clean up any leftover temp file from previous failed writes
+    if Path::new(temp_path).exists() {
+        if let Err(e) = fs::remove_file(temp_path) {
+            warn!("Could not clean up leftover temp file {}: {}", temp_path, e);
+        }
+    }
+
+    fs::write(temp_path, json)
+        .with_context(|| format!("Failed to write temp status file: {}", temp_path))?;
+
+    fs::rename(temp_path, status_path).with_context(|| {
+        format!(
+            "Failed to rename temp file {} to {}",
+            temp_path, status_path
+        )
+    })?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(status_path)?.permissions();
+        let mut perms = fs::metadata(status_path)
+            .with_context(|| format!("Failed to get metadata for status file: {}", status_path))?
+            .permissions();
         perms.set_mode(0o644);
-        fs::set_permissions(status_path, perms)?;
+        fs::set_permissions(status_path, perms).with_context(|| {
+            format!("Failed to set permissions on status file: {}", status_path)
+        })?;
     }
 
     debug!("Status written to {} (local fallback)", status_path);
@@ -276,6 +371,7 @@ fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_db::models::ModelRegistrationBuilder;
     use adapteros_db::Db;
     use adapteros_server_api::AppState;
     use std::fs;
@@ -316,14 +412,16 @@ mod tests {
         assert!(json.contains("\"base_model_status\":\"ready\""));
     }
 
-    #[test]
-    fn test_base_model_info() {
+    #[tokio::test]
+    async fn test_base_model_info() {
         // Test the base model info function
-        let base_model = get_base_model_info(&create_mock_app_state().await);
+        let state = create_mock_app_state().await;
+        let base_model = get_base_model_info(&state).await;
         assert!(base_model.loaded);
-        assert_eq!(base_model.status, "ready");
+        assert_eq!(base_model.status, "loaded");
         assert!(base_model.id.is_some());
-        assert!(base_model.name.is_some());
+        assert_eq!(base_model.name.as_deref(), Some("Test Model"));
+        assert_eq!(base_model.memory_mb, Some(14336));
     }
 
     #[test]
@@ -401,32 +499,64 @@ mod tests {
     /// Helper function to create a mock AppState for testing
     async fn create_mock_app_state() -> AppState {
         // Create an in-memory database for testing
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:?cache=shared").await.unwrap();
+        db.migrate().await.unwrap();
+
+        // Seed base model state so status queries succeed
+        let model_params = ModelRegistrationBuilder::new()
+            .name("Test Model")
+            .hash_b3("b3-test")
+            .config_hash_b3("config-test")
+            .tokenizer_hash_b3("tokenizer-test")
+            .tokenizer_cfg_hash_b3("tokenizer-cfg-test")
+            .build()
+            .expect("model params build");
+        let model_id = db.register_model(model_params).await.unwrap();
+        db.update_base_model_status("default", &model_id, "loaded", None, Some(14336))
+            .await
+            .unwrap();
 
         // Create minimal AppState - this would normally have more components
         // but for status writer testing, we only need the database
-        use adapteros_server_api::{state::ApiConfig, AppState};
         use adapteros_metrics_exporter::MetricsExporter;
         use adapteros_orchestrator::TrainingService;
+        use adapteros_server_api::{state::ApiConfig, AppState};
 
         let api_config = std::sync::Arc::new(std::sync::RwLock::new(ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: false,
-                bearer_token: None,
+                bearer_token: String::new(),
+                system_metrics_interval_secs: 0,
             },
             golden_gate: None,
             bundles_root: "var/bundles".to_string(),
             rate_limits: None,
         }));
 
-        let metrics_exporter = std::sync::Arc::new(MetricsExporter::new(Default::default()).unwrap());
+        let metrics_exporter =
+            std::sync::Arc::new(MetricsExporter::new(Default::default()).unwrap());
+        let metrics_collector =
+            std::sync::Arc::new(adapteros_telemetry::MetricsCollector::new().unwrap());
+        let metrics_registry = std::sync::Arc::new(adapteros_telemetry::MetricsRegistry::new(
+            metrics_collector.clone(),
+        ));
+        for name in [
+            "inference_latency_p95_ms",
+            "queue_depth",
+            "tokens_per_second",
+            "memory_usage_mb",
+        ] {
+            metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
+        }
         let training_service = std::sync::Arc::new(TrainingService::new());
 
-        AppState::new(
+        AppState::with_sqlite(
             db,
             vec![], // empty JWT secret for testing
             api_config,
             metrics_exporter,
+            metrics_collector,
+            metrics_registry,
             training_service,
         )
     }

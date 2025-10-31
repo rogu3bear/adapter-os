@@ -283,17 +283,17 @@ impl HotSwapManager {
 
         // 1. Pre-validate new adapter (load via mmap)
         let new_adapter = adapteros_single_file_adapter::MmapAdapter::from_path(&new_path)?;
-        
+
         // 2. Verify signature if present (no-op if absent)
         let _ = new_adapter.verify_signature()?;
 
         // 3. Extract metadata
         let rank = new_adapter.manifest.rank;
         let adapter_hash = adapteros_core::B3Hash::from_hex(&new_adapter.manifest.weights_hash)?;
-        
+
         // Mock VRAM size calculation (in production, calculate from manifest)
         let vram_mb = Self::estimate_vram_size(rank);
-        
+
         // 4. Atomic pointer swap (< 1ms)
         let swap_start = Instant::now();
         let mut active = self.table.active.write();
@@ -375,7 +375,7 @@ impl HotSwapManager {
         adapter_id: &str,
         new_adapter: adapteros_single_file_adapter::MmapAdapter,
     ) -> Result<SwapReport> {
-        let start = Instant::now();
+        let _start = Instant::now();
 
         let rank = new_adapter.manifest.rank;
         let adapter_hash = adapteros_core::B3Hash::from_hex(&new_adapter.manifest.weights_hash)?;

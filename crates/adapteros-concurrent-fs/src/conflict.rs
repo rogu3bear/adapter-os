@@ -2,11 +2,11 @@
 //!
 //! Implements conflict resolution strategies for concurrent filesystem operations.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, warn};
 
 /// Conflict resolver
 pub struct ConflictResolver {
@@ -359,7 +359,7 @@ impl ConflictResolver {
     }
 
     /// Apply merge strategy
-    async fn apply_merge_strategy(&self, conflict: &FileConflict) -> Result<ResolutionResult> {
+    async fn apply_merge_strategy(&self, _conflict: &FileConflict) -> Result<ResolutionResult> {
         // Merge strategy is complex and depends on the specific operations
         // For now, we'll defer to manual resolution
         warn!("Merge strategy not fully implemented, deferring to manual resolution");

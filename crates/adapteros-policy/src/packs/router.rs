@@ -91,7 +91,7 @@ impl Default for RouterConfig {
         Self {
             k_sparse: 3,
             gate_quant: GateQuantization::Q15,
-            entropy_floor: 0.02,
+            entropy_floor: 0.7,
             sample_tokens_full: 128,
             overhead_budget_pct: 8.0,
             feature_config: FeatureConfig {
@@ -304,7 +304,7 @@ mod tests {
     fn test_router_config_default() {
         let config = RouterConfig::default();
         assert_eq!(config.k_sparse, 3);
-        assert_eq!(config.entropy_floor, 0.02);
+        assert_eq!(config.entropy_floor, 0.7);
         assert_eq!(config.sample_tokens_full, 128);
         assert_eq!(config.overhead_budget_pct, 8.0);
     }

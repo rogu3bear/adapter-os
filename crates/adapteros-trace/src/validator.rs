@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 
 use crate::reader::TraceReader;
 

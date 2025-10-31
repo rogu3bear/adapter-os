@@ -4,6 +4,174 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
 
+/// Builder for creating adapter registration parameters
+#[derive(Debug, Default)]
+pub struct AdapterRegistrationBuilder {
+    adapter_id: Option<String>,
+    name: Option<String>,
+    hash_b3: Option<String>,
+    rank: Option<i32>,
+    tier: Option<i32>,
+    languages_json: Option<String>,
+    framework: Option<String>,
+    category: Option<String>,
+    scope: Option<String>,
+    framework_id: Option<String>,
+    framework_version: Option<String>,
+    repo_id: Option<String>,
+    commit_sha: Option<String>,
+    intent: Option<String>,
+    expires_at: Option<String>,
+}
+
+/// Parameters for adapter registration
+#[derive(Debug, Clone)]
+pub struct AdapterRegistrationParams {
+    pub adapter_id: String,
+    pub name: String,
+    pub hash_b3: String,
+    pub rank: i32,
+    pub tier: i32,
+    pub languages_json: Option<String>,
+    pub framework: Option<String>,
+    pub category: String,
+    pub scope: String,
+    pub framework_id: Option<String>,
+    pub framework_version: Option<String>,
+    pub repo_id: Option<String>,
+    pub commit_sha: Option<String>,
+    pub intent: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+impl AdapterRegistrationBuilder {
+    /// Create a new adapter registration builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the adapter ID (required)
+    pub fn adapter_id(mut self, adapter_id: impl Into<String>) -> Self {
+        self.adapter_id = Some(adapter_id.into());
+        self
+    }
+
+    /// Set the adapter name (required)
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Set the B3 hash (required)
+    pub fn hash_b3(mut self, hash_b3: impl Into<String>) -> Self {
+        self.hash_b3 = Some(hash_b3.into());
+        self
+    }
+
+    /// Set the rank (required)
+    pub fn rank(mut self, rank: i32) -> Self {
+        self.rank = Some(rank);
+        self
+    }
+
+    /// Set the tier (required)
+    pub fn tier(mut self, tier: i32) -> Self {
+        self.tier = Some(tier);
+        self
+    }
+
+    /// Set the languages JSON (optional)
+    pub fn languages_json(mut self, languages_json: Option<impl Into<String>>) -> Self {
+        self.languages_json = languages_json.map(|s| s.into());
+        self
+    }
+
+    /// Set the framework (optional)
+    pub fn framework(mut self, framework: Option<impl Into<String>>) -> Self {
+        self.framework = framework.map(|s| s.into());
+        self
+    }
+
+    /// Set the category (defaults to `"code"` when omitted)
+    pub fn category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    /// Set the scope (defaults to `"global"` when omitted)
+    pub fn scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
+    }
+
+    /// Set the framework ID (optional)
+    pub fn framework_id(mut self, framework_id: Option<impl Into<String>>) -> Self {
+        self.framework_id = framework_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the framework version (optional)
+    pub fn framework_version(mut self, framework_version: Option<impl Into<String>>) -> Self {
+        self.framework_version = framework_version.map(|s| s.into());
+        self
+    }
+
+    /// Set the repository ID (optional)
+    pub fn repo_id(mut self, repo_id: Option<impl Into<String>>) -> Self {
+        self.repo_id = repo_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the commit SHA (optional)
+    pub fn commit_sha(mut self, commit_sha: Option<impl Into<String>>) -> Self {
+        self.commit_sha = commit_sha.map(|s| s.into());
+        self
+    }
+
+    /// Set the intent (optional)
+    pub fn intent(mut self, intent: Option<impl Into<String>>) -> Self {
+        self.intent = intent.map(|s| s.into());
+        self
+    }
+
+    /// Set the expiration date (optional)
+    pub fn expires_at(mut self, expires_at: Option<impl Into<String>>) -> Self {
+        self.expires_at = expires_at.map(|s| s.into());
+        self
+    }
+
+    /// Build the adapter registration parameters
+    pub fn build(self) -> Result<AdapterRegistrationParams> {
+        Ok(AdapterRegistrationParams {
+            adapter_id: self
+                .adapter_id
+                .ok_or_else(|| anyhow::anyhow!("adapter_id is required"))?,
+            name: self
+                .name
+                .ok_or_else(|| anyhow::anyhow!("name is required"))?,
+            hash_b3: self
+                .hash_b3
+                .ok_or_else(|| anyhow::anyhow!("hash_b3 is required"))?,
+            rank: self
+                .rank
+                .ok_or_else(|| anyhow::anyhow!("rank is required"))?,
+            tier: self
+                .tier
+                .ok_or_else(|| anyhow::anyhow!("tier is required"))?,
+            category: self.category.unwrap_or_else(|| "code".to_string()),
+            scope: self.scope.unwrap_or_else(|| "global".to_string()),
+            languages_json: self.languages_json,
+            framework: self.framework,
+            framework_id: self.framework_id,
+            framework_version: self.framework_version,
+            repo_id: self.repo_id,
+            commit_sha: self.commit_sha,
+            intent: self.intent,
+            expires_at: self.expires_at,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Adapter {
     pub id: String,
@@ -49,54 +217,53 @@ pub struct AdapterActivation {
 
 impl Db {
     /// Register a new adapter
-    pub async fn register_adapter(
-        &self,
-        adapter_id: &str,
-        name: &str,
-        hash_b3: &str,
-        rank: i32,
-        tier: i32,
-        languages_json: Option<&str>,
-        framework: Option<&str>,
-    ) -> Result<String> {
-        self.register_adapter_extended(
-            adapter_id,
-            name,
-            hash_b3,
-            rank,
-            tier,
-            languages_json,
-            framework,
-            "code",
-            "global",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None, // expires_at
-        )
-        .await
+    ///
+    /// Construct parameters using [`AdapterRegistrationBuilder`] to ensure required
+    /// fields are provided and validated:
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let params = adapteros_db::AdapterRegistrationBuilder::new()
+    ///     .adapter_id("adapter-123")
+    ///     .name("My Adapter")
+    ///     .hash_b3("b3:0123")
+    ///     .rank(8)
+    ///     .tier(2)
+    ///     .build()?;
+    /// db.register_adapter(params).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn register_adapter(&self, params: AdapterRegistrationParams) -> Result<String> {
+        self.register_adapter_extended(params).await
     }
 
     /// Register a new adapter with extended fields
+    ///
+    /// Use [`AdapterRegistrationBuilder`] to construct complex parameter sets:
+    /// ```no_run
+    /// use adapteros_db::adapters::AdapterRegistrationBuilder;
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) {
+    /// let params = AdapterRegistrationBuilder::new()
+    ///     .adapter_id("adapter-123")
+    ///     .name("My Adapter")
+    ///     .hash_b3("abc123...")
+    ///     .rank(1)
+    ///     .tier(2)
+    ///     .category("classification")
+    ///     .scope("general")
+    ///     .build()
+    ///     .expect("required fields");
+    /// db.register_adapter_extended(params)
+    ///     .await
+    ///     .expect("registration succeeds");
+    /// # }
+    /// ```
     pub async fn register_adapter_extended(
         &self,
-        adapter_id: &str,
-        name: &str,
-        hash_b3: &str,
-        rank: i32,
-        tier: i32,
-        languages_json: Option<&str>,
-        framework: Option<&str>,
-        category: &str,
-        scope: &str,
-        framework_id: Option<&str>,
-        framework_version: Option<&str>,
-        repo_id: Option<&str>,
-        commit_sha: Option<&str>,
-        intent: Option<&str>,
-        expires_at: Option<&str>,
+        params: AdapterRegistrationParams,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         sqlx::query(
@@ -104,21 +271,21 @@ impl Db {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'unloaded', 0, 0, 0, 1)"
         )
         .bind(&id)
-        .bind(adapter_id)
-        .bind(name)
-        .bind(hash_b3)
-        .bind(rank)
-        .bind(tier)
-        .bind(languages_json)
-        .bind(framework)
-        .bind(category)
-        .bind(scope)
-        .bind(framework_id)
-        .bind(framework_version)
-        .bind(repo_id)
-        .bind(commit_sha)
-        .bind(intent)
-        .bind(expires_at)
+        .bind(&params.adapter_id)
+        .bind(&params.name)
+        .bind(&params.hash_b3)
+        .bind(params.rank)
+        .bind(params.tier)
+        .bind(&params.languages_json)
+        .bind(&params.framework)
+        .bind(&params.category)
+        .bind(&params.scope)
+        .bind(&params.framework_id)
+        .bind(&params.framework_version)
+        .bind(&params.repo_id)
+        .bind(&params.commit_sha)
+        .bind(&params.intent)
+        .bind(&params.expires_at)
         .execute(self.pool())
         .await?;
 

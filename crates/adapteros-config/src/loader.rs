@@ -242,10 +242,47 @@ impl Default for ConfigLoader {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::NamedTempFile;
+
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(ref value) = self.previous {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn test_load_manifest() {
+        let _lock = test_lock();
+        let _port_guard = EnvGuard::remove("ADAPTEROS_SERVER_PORT");
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
             temp_file,
@@ -281,19 +318,24 @@ strict_mode = true
 
     #[test]
     fn test_precedence_order() {
+        let _lock = test_lock();
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
             temp_file,
             r#"
 [server]
 port = 8080
+
+[database]
+url = "sqlite://manifest.db"
 "#
         )
         .unwrap();
         temp_file.flush().unwrap();
 
-        // Set environment variable
-        std::env::set_var("ADAPTEROS_SERVER_PORT", "9090");
+        let _port_guard = EnvGuard::set("ADAPTEROS_SERVER_PORT", "9090");
+        // Provide database URL via environment to satisfy validation
+        let _db_guard = EnvGuard::set("ADAPTEROS_DATABASE_URL", "sqlite://env.db");
 
         let loader = ConfigLoader::new();
         let config = loader
@@ -305,13 +347,12 @@ port = 8080
 
         // CLI should win
         assert_eq!(config.get("server.port"), Some(&"7070".to_string()));
-
-        // Clean up
-        std::env::remove_var("ADAPTEROS_SERVER_PORT");
     }
 
     #[test]
     fn test_config_freeze() {
+        let _lock = test_lock();
+        let _db_guard = EnvGuard::set("ADAPTEROS_DATABASE_URL", "sqlite://freeze.db");
         let loader = ConfigLoader::new();
         let config = loader.load(vec![], None).unwrap();
 

@@ -29,7 +29,7 @@ pub use nodes::*;
 pub use openai::*;
 pub use plans::*;
 pub use repositories::*;
-pub use telemetry::*;
+// Note: telemetry types are not re-exported to avoid conflicts with metrics types
 pub use tenants::*;
 pub use training::*;
 pub use workers::*;

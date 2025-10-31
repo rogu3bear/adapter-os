@@ -17,6 +17,7 @@ pub struct MmapAdapter {
     /// Path to the .aos file
     path: PathBuf,
     /// Memory-mapped file data
+    #[allow(dead_code)]
     mmap: Arc<Mmap>,
     /// Parsed adapter (lazily loaded)
     adapter: Arc<SingleFileAdapter>,
@@ -95,42 +96,43 @@ impl MmapAdapterLoader {
     #[instrument(skip(self), fields(path = %path.as_ref().display()))]
     pub async fn load<P: AsRef<Path>>(&self, path: P) -> Result<MmapAdapter> {
         let path = path.as_ref();
-        
+
         debug!("Opening .aos file");
-        
+
         // Open file
         let file = File::open(path)
             .map_err(|e| AosError::Io(format!("Failed to open .aos file: {}", e)))?;
-        
-        let metadata = file.metadata()
+
+        let metadata = file
+            .metadata()
             .map_err(|e| AosError::Io(format!("Failed to read file metadata: {}", e)))?;
-        
+
         let size_bytes = metadata.len();
-        
+
         // Create memory map
         let mmap = unsafe {
             Mmap::map(&file)
                 .map_err(|e| AosError::Io(format!("Failed to memory-map file: {}", e)))?
         };
-        
+
         debug!(size_bytes, "Memory-mapped .aos file");
-        
+
         // Load adapter by writing mmap to temporary file
         // (ZIP crate requires seekable Read, which Mmap doesn't provide directly)
         let adapter = self.load_adapter_from_mmap(&mmap).await?;
-        
+
         // Verify signature if enabled
         if self.verify_signatures {
             self.verify_adapter_signature(&adapter)?;
         }
-        
+
         info!(
             adapter_id = %adapter.manifest.adapter_id,
             version = %adapter.manifest.version,
             size_bytes,
             "Loaded .aos adapter"
         );
-        
+
         Ok(MmapAdapter {
             path: path.to_path_buf(),
             mmap: Arc::new(mmap),
@@ -148,24 +150,26 @@ impl MmapAdapterLoader {
     async fn load_via_tempfile(&self, mmap: &Mmap) -> Result<SingleFileAdapter> {
         use adapteros_single_file_adapter::SingleFileAdapterLoader;
         use std::io::Write;
-        
+
         let temp_path = {
             let mut temp_file = tempfile::NamedTempFile::new()
                 .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
-            
-            temp_file.write_all(mmap)
+
+            temp_file
+                .write_all(mmap)
                 .map_err(|e| AosError::Io(format!("Failed to write to temp file: {}", e)))?;
-            
-            temp_file.flush()
+
+            temp_file
+                .flush()
                 .map_err(|e| AosError::Io(format!("Failed to flush temp file: {}", e)))?;
-            
+
             // Keep temp file alive by persisting it
             temp_file.into_temp_path()
         };
-        
+
         // Load using standard loader
         let adapter = SingleFileAdapterLoader::load(&temp_path).await?;
-        
+
         Ok(adapter)
     }
 
@@ -173,7 +177,8 @@ impl MmapAdapterLoader {
     fn verify_adapter_signature(&self, adapter: &SingleFileAdapter) -> Result<()> {
         if let Some(_signature) = &adapter.signature {
             debug!("Verifying adapter signature");
-            adapter.verify_signature()
+            adapter
+                .verify_signature()
                 .map_err(|e| AosError::Crypto(format!("Signature verification failed: {}", e)))?;
             debug!("Signature verified successfully");
         } else {

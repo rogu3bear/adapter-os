@@ -288,6 +288,7 @@ impl Router {
     /// - [12]: path tokens (1 dim)
     /// - [13..21]: prompt verb one-hot (8 dims)
     /// - [21]: attention entropy (1 dim)
+    #[allow(dead_code)]
     fn compute_weighted_score(&self, features: &[f32]) -> f32 {
         // Support both legacy (21) and new (22) feature vectors
         if features.len() != 21 && features.len() != 22 {
