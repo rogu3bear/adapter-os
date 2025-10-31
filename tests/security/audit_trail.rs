@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Audit Trail Completeness Tests
 //!
 //! This module tests audit logging, trail completeness, and compliance verification

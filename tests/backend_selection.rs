@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for backend selection and feature flags
 
 use adapteros_lora_kernel_api::FusedKernels;

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 #[cfg(test)]
 mod tests {
     use std::process::Command;

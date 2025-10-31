@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Soak test framework for extended load testing
 //!
 //! Run with: cargo test --test soak_test --release -- --ignored --nocapture

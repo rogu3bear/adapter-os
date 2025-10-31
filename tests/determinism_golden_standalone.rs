@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Standalone Multi-Host Golden Baseline Determinism Test
 //!
 //! Validates that AdapterOS produces identical outputs across multiple hosts

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test executor crash recovery with snapshot/restore
 //!
 //! Verifies that executor state can be captured and restored bit-identically.

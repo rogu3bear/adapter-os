@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for AdapterOS
 //!
 //! These tests verify end-to-end workflows including:

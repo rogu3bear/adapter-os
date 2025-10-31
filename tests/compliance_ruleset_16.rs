@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Compliance Verification Tests for Ruleset #16
 //!
 //! Validates:

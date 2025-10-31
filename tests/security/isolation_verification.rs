@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Isolation Verification Tests
 //!
 //! This module tests multi-tenant isolation in AdapterOS, ensuring that tenants

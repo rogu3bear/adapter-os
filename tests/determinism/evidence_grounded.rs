@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Evidence-grounded response verification tests for AdapterOS determinism
 //!
 //! Verifies that all responses are properly backed by evidence from code,

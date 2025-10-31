@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Policy Hash Quarantine Integration Tests
 //!
 //! End-to-end tests for the policy hash watcher and quarantine system.

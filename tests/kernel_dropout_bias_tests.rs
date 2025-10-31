@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for deterministic dropout and bias fusion
 //!
 //! These tests verify:

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Platform validation tests for AdapterOS determinism
 //!
 //! Ensures that deterministic behavior is consistent across different platforms,

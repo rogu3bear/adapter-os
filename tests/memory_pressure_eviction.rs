@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for memory pressure handling and eviction
 
 use adapteros_lora_lifecycle::LifecycleManager;

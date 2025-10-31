@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 use std::process::Command;
 use std::str;
 

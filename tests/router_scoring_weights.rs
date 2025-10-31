@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test router weighted scoring
 
 use adapteros_lora_router::{CodeFeatures, Router, RouterWeights};

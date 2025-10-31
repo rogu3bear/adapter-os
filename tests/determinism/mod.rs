@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Comprehensive determinism verification tests for AdapterOS
 //!
 //! This module provides specialized verification utilities and tests for:

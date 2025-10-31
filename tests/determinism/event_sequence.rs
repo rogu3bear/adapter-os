@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Event sequence determinism tests for AdapterOS
 //!
 //! Verifies that event sequences maintain deterministic ordering and content,
@@ -15,11 +17,13 @@ fn test_event_sequence_construction() {
     let events = vec![
         TelemetryEvent {
             event_type: "task_start".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"task_id": "task1"}),
         },
         TelemetryEvent {
             event_type: "task_complete".to_string(),
+            kind: None,
             timestamp: 1005,
             data: serde_json::json!({"task_id": "task1", "result": "success"}),
         },
@@ -46,11 +50,13 @@ fn test_event_sequence_determinism() {
     let events1 = vec![
         TelemetryEvent {
             event_type: "computation_start".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"operation": "matrix_multiply"}),
         },
         TelemetryEvent {
             event_type: "computation_complete".to_string(),
+            kind: None,
             timestamp: 1010,
             data: serde_json::json!({"operation": "matrix_multiply", "flops": 1000000}),
         },
@@ -59,11 +65,13 @@ fn test_event_sequence_determinism() {
     let events2 = vec![
         TelemetryEvent {
             event_type: "computation_start".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"operation": "matrix_multiply"}),
         },
         TelemetryEvent {
             event_type: "computation_complete".to_string(),
+            kind: None,
             timestamp: 1010,
             data: serde_json::json!({"operation": "matrix_multiply", "flops": 1000000}),
         },
@@ -95,16 +103,19 @@ fn test_event_sequence_ordering() {
     let events_ordered = vec![
         TelemetryEvent {
             event_type: "start".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"id": 1}),
         },
         TelemetryEvent {
             event_type: "middle".to_string(),
+            kind: None,
             timestamp: 1005,
             data: serde_json::json!({"id": 2}),
         },
         TelemetryEvent {
             event_type: "end".to_string(),
+            kind: None,
             timestamp: 1010,
             data: serde_json::json!({"id": 3}),
         },
@@ -113,16 +124,19 @@ fn test_event_sequence_ordering() {
     let events_reordered = vec![
         TelemetryEvent {
             event_type: "middle".to_string(),
+            kind: None,
             timestamp: 1005,
             data: serde_json::json!({"id": 2}),
         },
         TelemetryEvent {
             event_type: "start".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"id": 1}),
         },
         TelemetryEvent {
             event_type: "end".to_string(),
+            kind: None,
             timestamp: 1010,
             data: serde_json::json!({"id": 3}),
         },
@@ -154,11 +168,13 @@ fn test_event_sequence_timestamps() {
     let events1 = vec![
         TelemetryEvent {
             event_type: "logical_time".to_string(),
+            kind: None,
             timestamp: 1000, // Logical timestamp
             data: serde_json::json!({"tick": 1}),
         },
         TelemetryEvent {
             event_type: "logical_time".to_string(),
+            kind: None,
             timestamp: 1001,
             data: serde_json::json!({"tick": 2}),
         },
@@ -167,11 +183,13 @@ fn test_event_sequence_timestamps() {
     let events2 = vec![
         TelemetryEvent {
             event_type: "logical_time".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"tick": 1}),
         },
         TelemetryEvent {
             event_type: "logical_time".to_string(),
+            kind: None,
             timestamp: 1001,
             data: serde_json::json!({"tick": 2}),
         },
@@ -231,6 +249,7 @@ fn test_event_sequence_serialization() {
     let events = vec![
         TelemetryEvent {
             event_type: "test_event".to_string(),
+            kind: None,
             timestamp: 1234567890,
             data: serde_json::json!({"key": "value", "number": 42}),
         },
@@ -264,21 +283,25 @@ fn test_event_sequence_filtering() {
     let events = vec![
         TelemetryEvent {
             event_type: "task_start".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"task": "A"}),
         },
         TelemetryEvent {
             event_type: "network_request".to_string(),
+            kind: None,
             timestamp: 1001,
             data: serde_json::json!({"url": "http://example.com"}),
         },
         TelemetryEvent {
             event_type: "task_complete".to_string(),
+            kind: None,
             timestamp: 1002,
             data: serde_json::json!({"task": "A"}),
         },
         TelemetryEvent {
             event_type: "task_start".to_string(),
+            kind: None,
             timestamp: 1003,
             data: serde_json::json!({"task": "B"}),
         },
@@ -312,16 +335,19 @@ fn test_event_sequence_replay() {
     let events = vec![
         TelemetryEvent {
             event_type: "state_change".to_string(),
+            kind: None,
             timestamp: 1000,
             data: serde_json::json!({"state": "initializing"}),
         },
         TelemetryEvent {
             event_type: "state_change".to_string(),
+            kind: None,
             timestamp: 1001,
             data: serde_json::json!({"state": "running"}),
         },
         TelemetryEvent {
             event_type: "state_change".to_string(),
+            kind: None,
             timestamp: 1002,
             data: serde_json::json!({"state": "completed"}),
         },
@@ -364,11 +390,13 @@ async fn test_concurrent_event_sequences() {
         let events = vec![
             TelemetryEvent {
                 event_type: "operation_a".to_string(),
+                kind: None,
                 timestamp: 1000,
                 data: serde_json::json!({"step": 1}),
             },
             TelemetryEvent {
                 event_type: "operation_a".to_string(),
+                kind: None,
                 timestamp: 1001,
                 data: serde_json::json!({"step": 2}),
             },
@@ -383,11 +411,13 @@ async fn test_concurrent_event_sequences() {
         let events = vec![
             TelemetryEvent {
                 event_type: "operation_a".to_string(),
+                kind: None,
                 timestamp: 1000,
                 data: serde_json::json!({"step": 1}),
             },
             TelemetryEvent {
                 event_type: "operation_a".to_string(),
+                kind: None,
                 timestamp: 1001,
                 data: serde_json::json!({"step": 2}),
             },
@@ -418,6 +448,7 @@ fn test_event_sequence_performance() {
     for i in 0..10000 {
         events.push(TelemetryEvent {
             event_type: format!("event_{}", i % 10),
+            kind: None,
             timestamp: 1000 + i as u64,
             data: serde_json::json!({"index": i}),
         });

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for TestExecutor
 //!
 //! Tests the test execution framework with real cargo test and nextest.

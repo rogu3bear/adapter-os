@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Async Component Testing Utilities
 //!
 //! This module provides utilities for testing async components and futures

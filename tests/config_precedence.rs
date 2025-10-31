@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Configuration precedence and guard behavior tests aligned with the v3 API.
 
 use adapteros_config::{

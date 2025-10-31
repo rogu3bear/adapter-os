@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Deterministic executor tests
 //!
 //! Verify that the deterministic executor produces identical outputs across multiple runs

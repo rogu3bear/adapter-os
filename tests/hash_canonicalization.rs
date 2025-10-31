@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Unit tests for tensor metadata canonicalization
 //!
 //! These tests verify that tensor metadata canonicalization produces

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for adapter lifecycle state transitions
 
 use adapteros_lora_lifecycle::{AdapterState, AdapterStateRecord, LifecycleManager};

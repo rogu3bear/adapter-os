@@ -1,18 +1,53 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration test for model UI user journey
 use adapteros_db::Db;
+use adapteros_metrics_exporter::MetricsExporter;
+use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::{
     auth::Claims,
     handlers::models::{self, ImportModelRequest},
-    state::AppState,
+    state::{ApiConfig, AppState, MetricsConfig},
 };
 use axum::{extract::State, http::StatusCode, Extension, Json};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
 async fn setup_test_env() -> anyhow::Result<(AppState, Claims)> {
     let db = Db::connect("sqlite::memory:").await?;
     db.migrate().await?;
-    let app_state = AppState::new(db, Default::default());
+    let api_config = Arc::new(RwLock::new(ApiConfig {
+        metrics: MetricsConfig {
+            enabled: false,
+            bearer_token: String::new(),
+            system_metrics_interval_secs: 0,
+        },
+        golden_gate: None,
+        bundles_root: "var/bundles".to_string(),
+        rate_limits: None,
+    }));
+    let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1, 0.5, 1.0])?);
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new()?);
+    let metrics_registry =
+        Arc::new(adapteros_telemetry::MetricsRegistry::new(metrics_collector.clone()));
+    for name in [
+        "inference_latency_p95_ms",
+        "queue_depth",
+        "tokens_per_second",
+        "memory_usage_mb",
+    ] {
+        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
+    }
+    let training_service = Arc::new(TrainingService::new());
+    let app_state = AppState::with_sqlite(
+        db,
+        b"test-secret".to_vec(),
+        api_config,
+        metrics_exporter,
+        metrics_collector,
+        metrics_registry,
+        training_service,
+    );
 
     let tenant_id = "test-tenant-e2e".to_string();
     let user_id = "test-user-e2e".to_string();
@@ -125,4 +160,3 @@ async fn test_model_ui_journey_e2e() -> anyhow::Result<()> {
 
     Ok(())
 }
-

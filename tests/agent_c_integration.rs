@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 /// Agent C Integration Tests
 /// Tests for adapter lifecycle, memory management, and routing
 

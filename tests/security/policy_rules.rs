@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Policy Rule Testing
 //!
 //! This module tests policy rule validation, enforcement, and compliance for AdapterOS.

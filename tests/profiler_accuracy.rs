@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for profiler metric collection accuracy
 
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};

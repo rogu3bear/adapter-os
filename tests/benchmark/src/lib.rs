@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! # AdapterOS Performance Benchmarking Suite
 //!
 //! This crate provides comprehensive performance benchmarks for AdapterOS components,

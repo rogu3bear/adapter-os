@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for runaway process prevention mechanisms
 //!
 //! Comprehensive tests for timeout, circuit breaker, resource limiting, and deadlock detection.

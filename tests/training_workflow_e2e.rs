@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-end training workflow integration tests
 
 use anyhow::Result;

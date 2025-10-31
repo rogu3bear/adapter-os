@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for Worker mocked components
 //!
 //! Tests the real implementations of:

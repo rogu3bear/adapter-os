@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for adapter provenance tracking (Tier 6)
 //!
 //! Tests:

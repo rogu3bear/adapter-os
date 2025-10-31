@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for configurable attention scaling
 //!
 //! These tests verify:

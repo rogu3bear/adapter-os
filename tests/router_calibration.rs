@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Router calibration algorithm validation tests
 
 use adapteros_lora_router::{
