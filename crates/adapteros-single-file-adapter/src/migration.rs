@@ -100,9 +100,9 @@ pub async fn migrate_file<P: AsRef<Path>>(path: P) -> Result<MigrationResult> {
 
 #[cfg(test)]
 mod tests {
-    use crate::training::{TrainingConfig, TrainingExample};
-    use crate::format::{AdapterWeights, WeightGroup, WeightMetadata, WeightGroupType};
     use super::*;
+    use crate::format::{AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata};
+    use crate::training::{TrainingConfig, TrainingExample};
     use std::collections::HashMap;
 
     fn create_legacy_adapter() -> SingleFileAdapter {
@@ -121,8 +121,16 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
         let weights = AdapterWeights {
-            positive: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: pos_meta },
-            negative: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: neg_meta },
+            positive: WeightGroup {
+                lora_a: vec![],
+                lora_b: vec![],
+                metadata: pos_meta,
+            },
+            negative: WeightGroup {
+                lora_a: vec![],
+                lora_b: vec![],
+                metadata: neg_meta,
+            },
             combined: None,
         };
         let training_data = vec![TrainingExample {
@@ -138,6 +146,7 @@ mod tests {
             batch_size: 8,
             epochs: 4,
             hidden_dim: 3584,
+            weight_group_config: WeightGroupConfig::default(),
         };
         let lineage = LineageInfo {
             adapter_id: "legacy_adapter".to_string(),
@@ -196,8 +205,16 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
         let weights = AdapterWeights {
-            positive: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: pos_meta },
-            negative: WeightGroup { lora_a: vec![], lora_b: vec![], metadata: neg_meta },
+            positive: WeightGroup {
+                lora_a: vec![],
+                lora_b: vec![],
+                metadata: pos_meta,
+            },
+            negative: WeightGroup {
+                lora_a: vec![],
+                lora_b: vec![],
+                metadata: neg_meta,
+            },
             combined: None,
         };
         let adapter = SingleFileAdapter::create(
@@ -211,6 +228,7 @@ mod tests {
                 batch_size: 8,
                 epochs: 4,
                 hidden_dim: 3584,
+                weight_group_config: WeightGroupConfig::default(),
             },
             LineageInfo {
                 adapter_id: "test".to_string(),

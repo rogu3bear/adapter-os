@@ -803,6 +803,7 @@ async fn test_policy_pack_configuration() {
     // Test updating policy pack configuration
     let new_config = PolicyPackConfig {
         id: PolicyPackId::Egress,
+        version: "1.0.0".to_string(),
         config: serde_json::json!({"mode": "deny_all"}),
         enabled: false,
         enforcement_level: EnforcementLevel::Warning,

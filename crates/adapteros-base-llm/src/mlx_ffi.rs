@@ -73,10 +73,17 @@ impl BaseLLM for QwenMlxFfi {
 
     fn restore_state(&mut self, state: &ModelState) -> Result<()> {
         if state.model_id != self.metadata.model_id {
-            return Err(AosError::BaseLLM("Model ID mismatch in checkpoint".to_string()));
+            return Err(AosError::BaseLLM(
+                "Model ID mismatch in checkpoint".to_string(),
+            ));
         }
         let v: serde_json::Value = serde_json::from_slice(&state.state_data)?;
-        self.sequence = v["sequence"].as_array().unwrap_or(&vec![]).iter().map(|x| x.as_u64().unwrap_or(0) as u32).collect();
+        self.sequence = v["sequence"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|x| x.as_u64().unwrap_or(0) as u32)
+            .collect();
         self.checkpoints = v["checkpoints"].as_u64().unwrap_or(0);
         Ok(())
     }
@@ -91,16 +98,28 @@ impl BaseLLM for QwenMlxFfi {
         use std::collections::HashMap;
         // Build inputs/outputs maps
         let mut inputs: HashMap<String, serde_json::Value> = HashMap::new();
-        inputs.insert("input_hash".into(), serde_json::Value::String(input_hash.to_string()));
+        inputs.insert(
+            "input_hash".into(),
+            serde_json::Value::String(input_hash.to_string()),
+        );
         inputs.insert(
             "sequence_length".into(),
             serde_json::Value::Number(serde_json::Number::from(self.sequence.len())),
         );
 
         let mut outputs: HashMap<String, serde_json::Value> = HashMap::new();
-        outputs.insert("model_id".into(), serde_json::Value::String(self.metadata.model_id.clone()));
-        outputs.insert("model_hash".into(), serde_json::Value::String(self.metadata.model_hash.clone()));
-        outputs.insert("operation".into(), serde_json::Value::String(operation.to_string()));
+        outputs.insert(
+            "model_id".into(),
+            serde_json::Value::String(self.metadata.model_id.clone()),
+        );
+        outputs.insert(
+            "model_hash".into(),
+            serde_json::Value::String(self.metadata.model_hash.clone()),
+        );
+        outputs.insert(
+            "operation".into(),
+            serde_json::Value::String(operation.to_string()),
+        );
         outputs.insert(
             "checkpoint_counter".into(),
             serde_json::Value::Number(serde_json::Number::from(self.checkpoints)),

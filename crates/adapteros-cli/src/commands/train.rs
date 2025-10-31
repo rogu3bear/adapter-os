@@ -394,8 +394,8 @@ impl TrainArgs {
 
         // Save LoRA weights
         let weights_path = self.output.join("lora_weights.json");
-        let weights_json = serde_json::to_string_pretty(&result.weights)
-            .map_err(|e| AosError::Serialization(e))?;
+        let weights_json =
+            serde_json::to_string_pretty(&result.weights).map_err(AosError::Serialization)?;
 
         std::fs::write(&weights_path, weights_json)
             .map_err(|e| AosError::Io(format!("Failed to write weights: {}", e)))?;
@@ -411,9 +411,9 @@ impl TrainArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::executor::block_on;
     use std::collections::HashMap;
     use tempfile::TempDir;
+    use tokio::runtime::Runtime;
 
     #[test]
     fn test_training_config_loading() {
@@ -507,10 +507,7 @@ mod tests {
         let data_path = temp_dir.path().join("data.json");
 
         let mut metadata = HashMap::new();
-        metadata.insert(
-            "notes".to_string(),
-            serde_json::json!({"nested": "value"}),
-        );
+        metadata.insert("notes".to_string(), serde_json::json!({"nested": "value"}));
 
         let training_data = TrainingData {
             examples: vec![TrainingExampleData {
@@ -557,7 +554,8 @@ mod tests {
             ..Default::default()
         };
 
-        let err = block_on(args.execute()).unwrap_err();
+        let rt = Runtime::new().unwrap();
+        let err = rt.block_on(args.execute()).unwrap_err();
         assert!(
             format!("{err}").contains("--register requires --pack"),
             "unexpected error: {err}"

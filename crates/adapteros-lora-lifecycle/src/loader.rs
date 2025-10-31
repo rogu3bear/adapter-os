@@ -2,10 +2,10 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
-use std::sync::Arc;
-use std::ffi::OsStr;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Adapter loader for hot-swap operations
 pub struct AdapterLoader {
@@ -223,14 +223,12 @@ impl AdapterLoader {
                             skip_signature_check: false,
                             use_mmap: false,
                         };
-                        let adapter = SingleFileAdapterLoader::load_with_options(
-                            adapter_path,
-                            options,
-                        )
-                        .await
-                        .map_err(|e| {
-                            AosError::Lifecycle(format!("Failed to load .aos file: {}", e))
-                        })?;
+                        let adapter =
+                            SingleFileAdapterLoader::load_with_options(adapter_path, options)
+                                .await
+                                .map_err(|e| {
+                                    AosError::Lifecycle(format!("Failed to load .aos file: {}", e))
+                                })?;
 
                         // Verify signature if present
                         if adapter.is_signed() {
@@ -288,10 +286,7 @@ impl AdapterLoader {
                 if self.use_mmap {
                     use std::fs::File;
                     let file = File::open(adapter_path).map_err(|e| {
-                        AosError::Lifecycle(format!(
-                            "Failed to open adapter file for mmap: {}",
-                            e
-                        ))
+                        AosError::Lifecycle(format!("Failed to open adapter file for mmap: {}", e))
                     })?;
                     let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }
                         .map_err(|e| AosError::Lifecycle(format!("mmap failed: {}", e)))?;

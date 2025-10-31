@@ -1,11 +1,11 @@
 //! Policy enforcement for AdapterOS
 
+pub mod evidence_tracker;
 pub mod policy_pack;
 pub mod policy_packs;
 pub mod registry;
 pub mod unified_enforcement;
 pub mod validation;
-pub mod evidence_tracker;
 
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
@@ -28,6 +28,7 @@ pub mod packs;
 // Policy hash watcher and quarantine (Determinism Ruleset #2)
 pub mod hash_watcher;
 pub mod quarantine;
+pub mod supervisor;
 
 // Re-export registry types
 pub use registry::{
@@ -39,6 +40,10 @@ pub use abstention::should_abstain;
 pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, RoleDefinition};
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
+};
+pub use evidence_tracker::{
+    create_evidence_record_from_params, EvidenceRecord, EvidenceRecordBuilder,
+    EvidenceRecordParams, EvidenceTracker, KernelToleranceCheck, ModelProvenance,
 };
 pub use hash_watcher::{HashViolation, PolicyHashWatcher, ValidationResult};
 pub use mplora::{MploraConfig, MploraPolicy};
@@ -53,32 +58,64 @@ pub use policy_packs::{
     DeterminismValidator, EgressValidator, EnforcementLevel, EvidenceValidator, FullPackValidator,
     IncidentValidator, IsolationValidator, LlmOutputValidator, MemoryValidator,
     NumericUnitsValidator, PerformanceValidator, PolicyPackConfig, PolicyPackId, PolicyPackManager,
-    PolicyPackValidator, RagIndexValidator, RefusalValidator, RetentionValidator, RouterValidator,
-    SecretsValidator, TelemetryValidator,
+    PolicyPackValidator, PolicyViolation, PolicyWarning, RagIndexValidator, RefusalValidator,
+    RetentionValidator, RouterValidator, SecretsValidator, TelemetryValidator, ViolationSeverity,
 };
 pub use quarantine::{QuarantineManager, QuarantineOperation};
 pub use refusal::{RefusalReason, RefusalResponse};
 pub use security_monitoring::{SecurityMonitoringService, SecurityReport};
 pub use security_response::{ResponseAction, ResponsePlan, ResponsePolicy, SecurityResponseEngine};
+pub use supervisor::{PolicySupervisor, PolicySupervisorConfig};
 pub use threat_detection::{ThreatAssessment, ThreatDetectionEngine, ThreatSeverity, ThreatSignal};
 pub use unified_enforcement::{
     EnforcementAction, Operation, OperationType, PolicyComplianceReport, PolicyEnforcementResult,
-    PolicyEnforcer, PolicyRequest, PolicyValidationResult, PolicyViolation, RequestType,
-    UnifiedPolicyEnforcer, ViolationSeverity,
-};
-pub use evidence_tracker::{
-    create_evidence_record, EvidenceRecord, EvidenceTracker, KernelToleranceCheck, ModelProvenance,
+    PolicyEnforcer, PolicyRequest, PolicyValidationResult, RequestType, UnifiedPolicyEnforcer,
 };
 
 /// Policy engine for enforcing all 20 policy packs
+/// Centralized with semver'd policy packs
 pub struct PolicyEngine {
     policies: Policies,
+    pack_manager: PolicyPackManager,
 }
 
 impl PolicyEngine {
     /// Create a new policy engine from manifest
     pub fn new(policies: Policies) -> Self {
-        Self { policies }
+        Self {
+            policies,
+            pack_manager: PolicyPackManager::new(),
+        }
+    }
+
+    /// Create a new policy engine with custom pack manager
+    pub fn with_pack_manager(policies: Policies, pack_manager: PolicyPackManager) -> Self {
+        Self {
+            policies,
+            pack_manager,
+        }
+    }
+
+    /// Get policy pack manager
+    pub fn pack_manager(&self) -> &PolicyPackManager {
+        &self.pack_manager
+    }
+
+    /// Get policy pack version for a given pack ID
+    pub fn get_pack_version(&self, pack_id: &PolicyPackId) -> Option<String> {
+        self.pack_manager
+            .get_config(pack_id)
+            .map(|config| config.version.clone())
+    }
+
+    /// Update policy pack version
+    pub fn update_pack_version(&mut self, pack_id: PolicyPackId, _version: String) -> Result<()> {
+        // Note: This requires mutable access to pack_manager, which would need a mutex
+        // For now, return an error indicating this needs to be done via pack_manager directly
+        Err(AosError::PolicyViolation(format!(
+            "Policy pack version update must be done via PolicyPackManager::update_pack_config: {:?}",
+            pack_id
+        )))
     }
 
     /// Check if evidence is sufficient

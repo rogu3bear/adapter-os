@@ -2,10 +2,8 @@
 
 use crate::output::OutputWriter;
 use adapteros_core::B3Hash;
-use adapteros_replay::{ReplayBundle, ReplayState};
 use adapteros_telemetry::BundleWriter;
 use anyhow::{Context, Result};
-use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tokio::fs;
@@ -44,20 +42,11 @@ pub enum ReplaySubcommand {
     },
 }
 
-pub async fn handle_replay_command(
-    cmd: ReplaySubcommand,
-    output: &OutputWriter,
-) -> Result<()> {
+pub async fn handle_replay_command(cmd: ReplaySubcommand, output: &OutputWriter) -> Result<()> {
     match cmd {
-        ReplaySubcommand::Record { out, cmd } => {
-            record_command(&out, &cmd, output).await
-        }
-        ReplaySubcommand::Run { in_bundle } => {
-            run_bundle(&in_bundle, output).await
-        }
-        ReplaySubcommand::Inspect { in_bundle } => {
-            inspect_bundle(&in_bundle, output).await
-        }
+        ReplaySubcommand::Record { out, cmd } => record_command(&out, &cmd, output).await,
+        ReplaySubcommand::Run { in_bundle } => run_bundle(&in_bundle, output).await,
+        ReplaySubcommand::Inspect { in_bundle } => inspect_bundle(&in_bundle, output).await,
         ReplaySubcommand::Verify { in_bundle, runs } => {
             verify_determinism(&in_bundle, runs, output).await
         }
@@ -80,7 +69,7 @@ async fn record_command(out: &Path, cmd: &[String], output: &OutputWriter) -> Re
     // Initialize bundle writer
     let mut bundle_writer = BundleWriter::new(
         out.parent().unwrap_or(Path::new(".")),
-        10000, // max_events
+        10000,       // max_events
         100_000_000, // max_bytes (100MB)
     )?;
 
@@ -143,7 +132,7 @@ async fn run_bundle(in_bundle: &Path, output: &OutputWriter) -> Result<()> {
 
     output.kv("Verified operations", &stats.verified_ops.to_string());
     output.kv("Progress", &format!("{:.1}%", stats.progress_percent));
-    
+
     if stats.is_complete {
         output.success("Replay completed successfully");
     } else {
@@ -176,18 +165,17 @@ async fn inspect_bundle(in_bundle: &Path, output: &OutputWriter) -> Result<()> {
         if !bundle.events.is_empty() {
             output.section("Event Summary");
             output.kv("First event", &bundle.events[0].event_type);
-            output.kv("Last event", &bundle.events[bundle.events.len() - 1].event_type);
+            output.kv(
+                "Last event",
+                &bundle.events[bundle.events.len() - 1].event_type,
+            );
         }
     }
 
     Ok(())
 }
 
-async fn verify_determinism(
-    in_bundle: &Path,
-    runs: u32,
-    output: &OutputWriter,
-) -> Result<()> {
+async fn verify_determinism(in_bundle: &Path, runs: u32, output: &OutputWriter) -> Result<()> {
     if !in_bundle.exists() {
         anyhow::bail!("Bundle not found: {}", in_bundle.display());
     }

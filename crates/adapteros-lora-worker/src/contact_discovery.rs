@@ -7,7 +7,7 @@
 //! Pattern from: crates/adapteros-lora-worker/src/signal_handlers.rs
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::Db;
+use adapteros_db::{contacts::ContactUpsertBuilder, Db};
 use adapteros_telemetry::TelemetryWriter;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -179,17 +179,20 @@ impl ContactDiscoveryHandler {
                 .transpose()
                 .map_err(|e| AosError::Worker(format!("Failed to serialize metadata: {}", e)))?;
 
-            db.upsert_contact(
-                &contact.tenant_id,
-                &contact.name,
-                contact.category.as_str(),
-                contact.email.as_deref(),
-                contact.role.as_deref(),
-                metadata_json.as_deref(),
-                contact.discovered_by.as_deref(),
-            )
-            .await
-            .map_err(|e| AosError::Worker(format!("Failed to upsert contact: {}", e)))?;
+            let params = ContactUpsertBuilder::new()
+                .tenant_id(&contact.tenant_id)
+                .name(&contact.name)
+                .category(contact.category.as_str())
+                .email(contact.email.clone())
+                .role(contact.role.clone())
+                .metadata_json(metadata_json)
+                .discovered_by(contact.discovered_by.clone())
+                .build()
+                .map_err(|e| AosError::Worker(format!("Failed to build contact params: {}", e)))?;
+
+            db.upsert_contact(params)
+                .await
+                .map_err(|e| AosError::Worker(format!("Failed to upsert contact: {}", e)))?;
 
             debug!("Contact upserted to database: {}", contact.name);
         } else {

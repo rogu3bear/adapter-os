@@ -1,8 +1,98 @@
 use crate::Db;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
+
+/// Builder for creating contact upsert parameters
+#[derive(Debug, Default)]
+pub struct ContactUpsertBuilder {
+    tenant_id: Option<String>,
+    name: Option<String>,
+    category: Option<String>,
+    email: Option<String>,
+    role: Option<String>,
+    metadata_json: Option<String>,
+    discovered_by: Option<String>,
+}
+
+/// Parameters for contact upsert operation
+#[derive(Debug)]
+pub struct ContactUpsertParams {
+    pub tenant_id: String,
+    pub name: String,
+    pub category: String,
+    pub email: Option<String>,
+    pub role: Option<String>,
+    pub metadata_json: Option<String>,
+    pub discovered_by: Option<String>,
+}
+
+impl ContactUpsertBuilder {
+    /// Create a new contact upsert builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the tenant ID (required)
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    /// Set the contact name (required)
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Set the category (required)
+    pub fn category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    /// Set the email (optional)
+    pub fn email(mut self, email: Option<impl Into<String>>) -> Self {
+        self.email = email.map(|s| s.into());
+        self
+    }
+
+    /// Set the role (optional)
+    pub fn role(mut self, role: Option<impl Into<String>>) -> Self {
+        self.role = role.map(|s| s.into());
+        self
+    }
+
+    /// Set the metadata JSON (optional)
+    pub fn metadata_json(mut self, metadata_json: Option<impl Into<String>>) -> Self {
+        self.metadata_json = metadata_json.map(|s| s.into());
+        self
+    }
+
+    /// Set the discovered by field (optional)
+    pub fn discovered_by(mut self, discovered_by: Option<impl Into<String>>) -> Self {
+        self.discovered_by = discovered_by.map(|s| s.into());
+        self
+    }
+
+    /// Build the contact upsert parameters
+    pub fn build(self) -> Result<ContactUpsertParams> {
+        Ok(ContactUpsertParams {
+            tenant_id: self
+                .tenant_id
+                .ok_or_else(|| anyhow!("tenant_id is required"))?,
+            name: self.name.ok_or_else(|| anyhow!("name is required"))?,
+            category: self
+                .category
+                .ok_or_else(|| anyhow!("category is required"))?,
+            email: self.email,
+            role: self.role,
+            metadata_json: self.metadata_json,
+            discovered_by: self.discovered_by,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Contact {
@@ -39,23 +129,34 @@ pub type ContactStream = ContactInteraction;
 
 impl Db {
     /// Upsert a contact (insert or update if exists)
-    pub async fn upsert_contact(
-        &self,
-        tenant_id: &str,
-        name: &str,
-        category: &str,
-        email: Option<&str>,
-        role: Option<&str>,
-        metadata_json: Option<&str>,
-        discovered_by: Option<&str>,
-    ) -> Result<String> {
+    ///
+    /// Use [`ContactUpsertBuilder`] to construct contact parameters:
+    /// ```no_run
+    /// use adapteros_db::contacts::ContactUpsertBuilder;
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) {
+    /// let params = ContactUpsertBuilder::new()
+    ///     .tenant_id("tenant-123")
+    ///     .name("John Doe")
+    ///     .category("user")
+    ///     .email(Some("john@example.com"))
+    ///     .role(Some("developer"))
+    ///     .metadata_json(Some(r#"{"department": "engineering"}"#))
+    ///     .discovered_by(Some("trace-456"))
+    ///     .build()
+    ///     .expect("required fields");
+    /// db.upsert_contact(params).await.expect("upsert succeeds");
+    /// # }
+    /// ```
+    pub async fn upsert_contact(&self, params: ContactUpsertParams) -> Result<String> {
         // Try to get existing contact by tenant_id, name, and category
         let existing = sqlx::query(
             "SELECT id FROM contacts WHERE tenant_id = ? AND name = ? AND category = ?",
         )
-        .bind(tenant_id)
-        .bind(name)
-        .bind(category)
+        .bind(&params.tenant_id)
+        .bind(&params.name)
+        .bind(&params.category)
         .fetch_optional(self.pool())
         .await?;
 
@@ -64,16 +165,16 @@ impl Db {
 
             // Update existing contact
             sqlx::query(
-                "UPDATE contacts SET 
+                "UPDATE contacts SET
                  email = ?,
                  role = ?,
                  metadata_json = ?,
                  updated_at = datetime('now')
                  WHERE id = ?",
             )
-            .bind(email)
-            .bind(role)
-            .bind(metadata_json)
+            .bind(&params.email)
+            .bind(&params.role)
+            .bind(&params.metadata_json)
             .bind(&id)
             .execute(self.pool())
             .await?;
@@ -87,13 +188,13 @@ impl Db {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
-            .bind(tenant_id)
-            .bind(name)
-            .bind(email)
-            .bind(category)
-            .bind(role)
-            .bind(metadata_json)
-            .bind(discovered_by)
+            .bind(&params.tenant_id)
+            .bind(&params.name)
+            .bind(&params.email)
+            .bind(&params.category)
+            .bind(&params.role)
+            .bind(&params.metadata_json)
+            .bind(&params.discovered_by)
             .execute(self.pool())
             .await?;
 
@@ -179,16 +280,14 @@ impl Db {
             c.id
         } else {
             // Create new contact if doesn't exist (default category: "user")
-            self.upsert_contact(
-                tenant_id,
-                contact_name,
-                "user",
-                None,
-                None,
-                None,
-                Some(trace_id),
-            )
-            .await?
+            let contact_params = ContactUpsertBuilder::new()
+                .tenant_id(tenant_id)
+                .name(contact_name)
+                .category("user")
+                .discovered_by(Some(trace_id))
+                .build()
+                .unwrap(); // Should not fail with valid inputs
+            self.upsert_contact(contact_params).await?
         };
 
         // Insert interaction entry

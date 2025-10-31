@@ -34,9 +34,9 @@ impl<'a> TempFileGuard<'a> {
         fs::read(&self.path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to read temp file: {}", e)))?;
-        Ok(fs::read(&self.path)
+        fs::read(&self.path)
             .await
-            .map_err(|e| AosError::Io(format!("Failed to read temp file: {}", e)))?)
+            .map_err(|e| AosError::Io(format!("Failed to read temp file: {}", e)))
     }
 
     /// Get file metadata
@@ -44,9 +44,9 @@ impl<'a> TempFileGuard<'a> {
         fs::metadata(&self.path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to get temp file metadata: {}", e)))?;
-        Ok(fs::metadata(&self.path)
+        fs::metadata(&self.path)
             .await
-            .map_err(|e| AosError::Io(format!("Failed to get temp file metadata: {}", e)))?)
+            .map_err(|e| AosError::Io(format!("Failed to get temp file metadata: {}", e)))
     }
 
     /// Move the file to a permanent location

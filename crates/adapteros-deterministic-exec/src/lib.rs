@@ -18,6 +18,7 @@ pub mod channel;
 pub mod cpu_affinity;
 pub mod global_ledger;
 pub mod multi_agent;
+pub mod seed;
 pub mod select;
 
 use std::{
@@ -553,7 +554,10 @@ impl DeterministicExecutor {
             }
         }
 
-        while let Some(mut task) = self.task_queue.lock().pop_front() {
+        while let Some(mut task) = {
+            let mut queue = self.task_queue.lock();
+            queue.pop_front()
+        } {
             let current_tick = self.tick_counter.load(Ordering::Relaxed);
 
             // Check for timeout

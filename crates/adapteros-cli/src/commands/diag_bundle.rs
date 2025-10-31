@@ -203,7 +203,7 @@ async fn collect_database_state(
     full_db: bool,
 ) -> Result<()> {
     // Connect to database
-    let db = adapteros_db::Db::connect_env().await?;
+    let db = adapteros_db::Database::connect_env().await?;
 
     let mut info = String::new();
 

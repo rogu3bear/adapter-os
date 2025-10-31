@@ -198,8 +198,8 @@ pub fn verify_embedded_manifest(
         tracing::warn!(
             "Skipping kernel signature verification due to AOS_SKIP_KERNEL_SIGNATURE_VERIFY"
         );
-        let m: KernelManifest = serde_json::from_str(manifest_json)
-            .map_err(AosError::Serialization)?;
+        let m: KernelManifest =
+            serde_json::from_str(manifest_json).map_err(AosError::Serialization)?;
         // Still compare kernel hash if present
         if let Ok(expected_hash) = B3Hash::from_hex(&m.kernel_hash) {
             if actual_hash != expected_hash {

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path as StdPath;
 use std::path::PathBuf;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 /// Capability-based access control
 pub struct Capabilities {
@@ -272,7 +272,6 @@ impl Default for AccessControlList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_capabilities() -> Result<()> {

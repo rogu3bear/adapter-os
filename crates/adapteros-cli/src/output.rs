@@ -143,7 +143,7 @@ impl OutputWriter {
     /// Print a fatal error with code and exit
     pub fn fatal_with_code(&mut self, code: &str, msg: &str) -> ! {
         let event_id = self.emit_cli_error(code, msg);
-        self.error(&format!(
+        self.error(format!(
             "{} – see: aosctl explain {} (event: {})",
             msg, code, event_id
         ));

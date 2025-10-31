@@ -281,7 +281,7 @@ impl<K: FusedKernels> Worker<K> {
         let policy = PolicyEngine::new(manifest.policies.clone());
 
         // Enforce determinism policy using backend attestation
-        let attestation = kernels.attest_determinism()?;
+        let _attestation = kernels.attest_determinism()?;
         // Stub - validate_backend_attestation not yet implemented
         // TODO: policy.determinism_policy().validate_backend_attestation(&attestation)?;
         if !policy.determinism_policy().require_metallib_embed {
@@ -415,7 +415,10 @@ impl<K: FusedKernels> Worker<K> {
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(512);
                 lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), cache_size);
-                tracing::info!("Memory-mapped adapter loading enabled (cache: {} MB)", cache_size);
+                tracing::info!(
+                    "Memory-mapped adapter loading enabled (cache: {} MB)",
+                    cache_size
+                );
             }
         }
 
@@ -638,7 +641,13 @@ impl<K: FusedKernels> Worker<K> {
                     self.router.get_k(),
                     self.manifest.router.entropy_floor,
                 );
-                scorer.score(&feature_vec, &priors, self.router.get_k(), self.manifest.router.tau, self.manifest.router.entropy_floor)
+                scorer.score(
+                    &feature_vec,
+                    &priors,
+                    self.router.get_k(),
+                    self.manifest.router.tau,
+                    self.manifest.router.entropy_floor,
+                )
             } else if self.routing_algorithm.starts_with("plugin:adapter_aware") {
                 use adapteros_lora_router::scoring::ScoringFunction;
                 // Build adapter framework vector from manifest
@@ -1333,7 +1342,7 @@ impl<K: FusedKernels> Worker<K> {
         let prompt = "hello";
         let tokens = self.tokenizer.encode(prompt)?;
         let first = tokens
-            .get(0)
+            .first()
             .copied()
             .unwrap_or(self.tokenizer.eos_token_id());
 

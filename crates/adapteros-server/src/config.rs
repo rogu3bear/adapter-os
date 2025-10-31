@@ -111,6 +111,12 @@ pub struct MetricsConfig {
     pub bearer_token: String,
     pub include_histogram: bool,
     pub histogram_buckets: Vec<f64>,
+    #[serde(default = "default_system_metrics_interval_secs")]
+    pub system_metrics_interval_secs: u64,
+}
+
+fn default_system_metrics_interval_secs() -> u64 {
+    30
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

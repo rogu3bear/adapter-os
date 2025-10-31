@@ -32,7 +32,7 @@ async fn verify_sync(from: &str, to: &str) -> Result<()> {
     println!();
 
     // Get nodes from database
-    let db = adapteros_db::Db::connect_env().await?;
+    let db = adapteros_db::Database::connect_env().await?;
     let from_node = db
         .get_node(from)
         .await?
@@ -90,7 +90,7 @@ async fn push_adapters(to: &str, adapters: &[String]) -> Result<()> {
     println!();
 
     // Get target node
-    let db = adapteros_db::Db::connect_env().await?;
+    let db = adapteros_db::Database::connect_env().await?;
     let to_node = db
         .get_node(to)
         .await?
@@ -119,7 +119,7 @@ async fn pull_adapters(from: &str, adapters: &[String]) -> Result<()> {
     println!();
 
     // Get source node
-    let db = adapteros_db::Db::connect_env().await?;
+    let db = adapteros_db::Database::connect_env().await?;
     let from_node = db
         .get_node(from)
         .await?

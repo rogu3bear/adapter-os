@@ -1,5 +1,8 @@
 use crate::{
-    alerting::{AlertComparator, AlertRule, AlertSeverity, AlertingEngine, NotificationChannel, EscalationPolicy},
+    alerting::{
+        AlertComparator, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
+        NotificationChannel,
+    },
     health_monitoring::HealthStatus,
     unified_events::{
         EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
@@ -9,7 +12,10 @@ use crate::{
 use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::{Duration, SystemTime}};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 const HEALTH_CHECK_EVENT: &str = "monitoring.health_check";
 const POLICY_VIOLATION_EVENT: &str = "monitoring.policy_violation_alert";
@@ -282,7 +288,10 @@ impl ThreatDetectionEngine {
             severity: AlertSeverity::Warning,
             escalation: EscalationPolicy {
                 repeat_interval: Duration::from_secs(300),
-                channels: vec![NotificationChannel { channel_type: "telemetry".into(), target: "alerts".into() }],
+                channels: vec![NotificationChannel {
+                    channel_type: "telemetry".into(),
+                    target: "alerts".into(),
+                }],
             },
         });
         engine.register_rule(AlertRule {
@@ -293,7 +302,10 @@ impl ThreatDetectionEngine {
             severity: AlertSeverity::Critical,
             escalation: EscalationPolicy {
                 repeat_interval: Duration::from_secs(300),
-                channels: vec![NotificationChannel { channel_type: "telemetry".into(), target: "alerts".into() }],
+                channels: vec![NotificationChannel {
+                    channel_type: "telemetry".into(),
+                    target: "alerts".into(),
+                }],
             },
         });
         engine.register_rule(AlertRule {
@@ -304,7 +316,10 @@ impl ThreatDetectionEngine {
             severity: AlertSeverity::Warning,
             escalation: EscalationPolicy {
                 repeat_interval: Duration::from_secs(120),
-                channels: vec![NotificationChannel { channel_type: "telemetry".into(), target: "alerts".into() }],
+                channels: vec![NotificationChannel {
+                    channel_type: "telemetry".into(),
+                    target: "alerts".into(),
+                }],
             },
         });
 
@@ -315,7 +330,15 @@ impl ThreatDetectionEngine {
             queue_depth_samples: Vec::with_capacity(64),
         }
     }
+}
 
+impl Default for ThreatDetectionEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ThreatDetectionEngine {
     /// Record a policy violation for rate tracking (per-tenant, per-policy)
     pub fn ingest_policy_violation(&mut self, tenant_id: &str, policy: &str) {
         let key = format!("{}|{}", tenant_id, policy);
@@ -326,7 +349,9 @@ impl ThreatDetectionEngine {
         let cutoff = now - Duration::from_secs(60);
         entries.retain(|&t| t >= cutoff);
         let rate_per_min = entries.len() as f64; // count in last minute
-        let _ = self.engine.evaluate_metric("policy_violation_rate_per_min", rate_per_min);
+        let _ = self
+            .engine
+            .evaluate_metric("policy_violation_rate_per_min", rate_per_min);
     }
 
     /// Record a memory usage sample as a percentage (0..100)
@@ -335,7 +360,12 @@ impl ThreatDetectionEngine {
         self.memory_samples.push((now, percent));
         let cutoff = now - Duration::from_secs(30);
         self.memory_samples.retain(|(t, _)| *t >= cutoff);
-        if let Some((_, min_recent)) = self.memory_samples.iter().cloned().min_by(|a, b| a.1.total_cmp(&b.1)) {
+        if let Some((_, min_recent)) = self
+            .memory_samples
+            .iter()
+            .cloned()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+        {
             let spike = (percent - min_recent).max(0.0);
             let _ = self.engine.evaluate_metric("memory_spike_pct_30s", spike);
         }

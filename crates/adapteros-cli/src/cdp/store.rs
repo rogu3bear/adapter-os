@@ -242,16 +242,17 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_cdp() -> CommitDeltaPack {
-        use crate::cdp::metadata::CdpMetadata;
         use chrono::Utc;
 
-        let metadata = CdpMetadata::new(
-            "test@example.com".to_string(),
-            "Test commit".to_string(),
+        let metadata = adapteros_cdp::CdpMetadata::new(
+            "test-repo",
+            "abc123",
             Utc::now(),
-            "main".to_string(),
-            PathBuf::from("/tmp/test"),
-        );
+            "test@example.com",
+            "Test commit",
+        )
+        .with_branch("main")
+        .with_changed_files(["README.md"]);
 
         CommitDeltaPack::new(
             "test-repo".to_string(),
@@ -263,6 +264,7 @@ mod tests {
             vec![],
             metadata,
         )
+        .expect("cdp creation should succeed")
     }
 
     #[test]

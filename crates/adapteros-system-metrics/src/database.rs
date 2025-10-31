@@ -7,10 +7,11 @@
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Database operations for system metrics
+#[derive(Clone)]
 pub struct SystemMetricsDb {
     pool: SqlitePool,
 }
@@ -27,34 +28,37 @@ impl SystemMetricsDb {
 
     /// Store system metrics record
     pub async fn store_metrics(&self, metrics: &SystemMetricsRecord) -> Result<i64> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
-            .as_secs() as i64;
-
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             INSERT INTO system_metrics (
                 timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
-                uptime_seconds, process_count, load_1min, load_5min, load_15min
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
             "#,
-            metrics.timestamp,
-            metrics.cpu_usage,
-            metrics.memory_usage,
-            metrics.disk_read_bytes,
-            metrics.disk_write_bytes,
-            metrics.network_rx_bytes,
-            metrics.network_tx_bytes,
-            metrics.gpu_utilization,
-            metrics.gpu_memory_used,
-            metrics.uptime_seconds,
-            metrics.process_count,
-            metrics.load_1min,
-            metrics.load_5min,
-            metrics.load_15min
         )
+        .bind(metrics.timestamp)
+        .bind(metrics.cpu_usage)
+        .bind(metrics.memory_usage)
+        .bind(metrics.disk_read_bytes)
+        .bind(metrics.disk_write_bytes)
+        .bind(metrics.disk_usage_percent)
+        .bind(metrics.network_rx_bytes)
+        .bind(metrics.network_tx_bytes)
+        .bind(metrics.network_rx_packets)
+        .bind(metrics.network_tx_packets)
+        .bind(metrics.network_bandwidth_mbps)
+        .bind(metrics.gpu_utilization)
+        .bind(metrics.gpu_memory_used)
+        .bind(metrics.gpu_memory_total)
+        .bind(metrics.uptime_seconds)
+        .bind(metrics.process_count)
+        .bind(metrics.load_1min)
+        .bind(metrics.load_5min)
+        .bind(metrics.load_15min)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
@@ -77,43 +81,23 @@ impl SystemMetricsDb {
         let limit = limit.unwrap_or(1000);
         let limit_i64 = limit as i64;
 
-        let rows = sqlx::query!(
+        let records = sqlx::query_as::<_, SystemMetricsRecord>(
             r#"
             SELECT id, timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                   network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
-                   uptime_seconds, process_count, load_1min, load_5min, load_15min
+                   disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                   network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                   gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
             FROM system_metrics
             WHERE timestamp >= ?
             ORDER BY timestamp DESC
             LIMIT ?
             "#,
-            start_time,
-            limit_i64
         )
+        .bind(start_time)
+        .bind(limit_i64)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get metrics history: {}", e)))?;
-
-        let mut records = Vec::new();
-        for row in rows {
-            records.push(SystemMetricsRecord {
-                id: row.id,
-                timestamp: row.timestamp,
-                cpu_usage: row.cpu_usage,
-                memory_usage: row.memory_usage,
-                disk_read_bytes: row.disk_read_bytes,
-                disk_write_bytes: row.disk_write_bytes,
-                network_rx_bytes: row.network_rx_bytes,
-                network_tx_bytes: row.network_tx_bytes,
-                gpu_utilization: row.gpu_utilization,
-                gpu_memory_used: row.gpu_memory_used,
-                uptime_seconds: row.uptime_seconds,
-                process_count: row.process_count as i32,
-                load_1min: row.load_1min,
-                load_5min: row.load_5min,
-                load_15min: row.load_15min,
-            });
-        }
 
         Ok(records)
     }
@@ -127,20 +111,20 @@ impl SystemMetricsDb {
 
         let check_status_str = check.status.as_str();
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             INSERT INTO system_health_checks (
                 timestamp, status, check_name, check_status, message, value, threshold
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             "#,
-            timestamp,
-            "healthy", // Overall status would be calculated
-            check.name,
-            check_status_str,
-            check.message,
-            check.value,
-            check.threshold
         )
+        .bind(timestamp)
+        .bind("healthy") // Overall status would be calculated
+        .bind(&check.name)
+        .bind(check_status_str)
+        .bind(&check.message)
+        .bind(check.value)
+        .bind(check.threshold)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store health check: {}", e)))?;
@@ -161,18 +145,18 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             INSERT INTO threshold_violations (
                 timestamp, metric_name, current_value, threshold_value, severity
             ) VALUES (?, ?, ?, ?, ?)
             "#,
-            timestamp,
-            metric_name,
-            current_value,
-            threshold_value,
-            severity
         )
+        .bind(timestamp)
+        .bind(metric_name)
+        .bind(current_value)
+        .bind(threshold_value)
+        .bind(severity)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
@@ -182,29 +166,46 @@ impl SystemMetricsDb {
 
     /// Get unresolved threshold violations
     pub async fn get_unresolved_violations(&self) -> Result<Vec<ThresholdViolationRecord>> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             r#"
             SELECT id, timestamp, metric_name, current_value, threshold_value, severity, created_at
             FROM threshold_violations
             WHERE resolved_at IS NULL
             ORDER BY timestamp DESC
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get violations: {}", e)))?;
 
-        let mut violations = Vec::new();
+        let mut violations = Vec::with_capacity(rows.len());
         for row in rows {
+            let timestamp: i64 = row.try_get("timestamp").map_err(|err| {
+                AosError::Database(format!("Failed to parse violation row: {}", err))
+            })?;
+            let created_at: Option<i64> = row.try_get("created_at").map_err(|err| {
+                AosError::Database(format!("Failed to parse violation row: {}", err))
+            })?;
+
             violations.push(ThresholdViolationRecord {
-                id: row.id,
-                timestamp: row.timestamp,
-                metric_name: row.metric_name,
-                current_value: row.current_value,
-                threshold_value: row.threshold_value,
-                severity: row.severity,
+                id: row.try_get("id").map_err(|err| {
+                    AosError::Database(format!("Failed to parse violation row: {}", err))
+                })?,
+                timestamp,
+                metric_name: row.try_get("metric_name").map_err(|err| {
+                    AosError::Database(format!("Failed to parse violation row: {}", err))
+                })?,
+                current_value: row.try_get("current_value").map_err(|err| {
+                    AosError::Database(format!("Failed to parse violation row: {}", err))
+                })?,
+                threshold_value: row.try_get("threshold_value").map_err(|err| {
+                    AosError::Database(format!("Failed to parse violation row: {}", err))
+                })?,
+                severity: row.try_get("severity").map_err(|err| {
+                    AosError::Database(format!("Failed to parse violation row: {}", err))
+                })?,
                 resolved_at: None,
-                created_at: row.created_at.unwrap_or(row.timestamp),
+                created_at: created_at.unwrap_or(timestamp),
             });
         }
 
@@ -218,14 +219,12 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        sqlx::query!(
-            "UPDATE threshold_violations SET resolved_at = ? WHERE id = ?",
-            timestamp,
-            violation_id
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
+        sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
+            .bind(timestamp)
+            .bind(violation_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
 
         Ok(())
     }
@@ -237,7 +236,7 @@ impl SystemMetricsDb {
         window_end: i64,
         window_type: &str,
     ) -> Result<Option<MetricsAggregation>> {
-        let row = sqlx::query!(
+        let row = sqlx::query(
             r#"
             SELECT window_start, window_end, avg_cpu_usage, max_cpu_usage, avg_memory_usage,
                    max_memory_usage, total_disk_read, total_disk_write, total_network_rx,
@@ -245,28 +244,51 @@ impl SystemMetricsDb {
             FROM metrics_aggregations
             WHERE window_start = ? AND window_end = ? AND window_type = ?
             "#,
-            window_start,
-            window_end,
-            window_type
         )
+        .bind(window_start)
+        .bind(window_end)
+        .bind(window_type)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get aggregation: {}", e)))?;
 
         if let Some(row) = row {
-            Ok(Some(MetricsAggregation {
-                window_start: row.window_start as u64,
-                window_end: row.window_end as u64,
-                avg_cpu_usage: row.avg_cpu_usage,
-                max_cpu_usage: row.max_cpu_usage,
-                avg_memory_usage: row.avg_memory_usage,
-                max_memory_usage: row.max_memory_usage,
-                total_disk_read: row.total_disk_read as u64,
-                total_disk_write: row.total_disk_write as u64,
-                total_network_rx: row.total_network_rx as u64,
-                total_network_tx: row.total_network_tx as u64,
-                sample_count: row.sample_count as usize,
-            }))
+            let aggregation = MetricsAggregation {
+                window_start: row.try_get::<i64, _>("window_start").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as u64,
+                window_end: row.try_get::<i64, _>("window_end").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as u64,
+                avg_cpu_usage: row.try_get("avg_cpu_usage").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })?,
+                max_cpu_usage: row.try_get("max_cpu_usage").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })?,
+                avg_memory_usage: row.try_get("avg_memory_usage").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })?,
+                max_memory_usage: row.try_get("max_memory_usage").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })?,
+                total_disk_read: row.try_get::<i64, _>("total_disk_read").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as u64,
+                total_disk_write: row.try_get::<i64, _>("total_disk_write").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as u64,
+                total_network_rx: row.try_get::<i64, _>("total_network_rx").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as u64,
+                total_network_tx: row.try_get::<i64, _>("total_network_tx").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as u64,
+                sample_count: row.try_get::<i64, _>("sample_count").map_err(|err| {
+                    AosError::Database(format!("Failed to parse aggregation row: {}", err))
+                })? as usize,
+            };
+            Ok(Some(aggregation))
         } else {
             Ok(None)
         }
@@ -286,7 +308,7 @@ impl SystemMetricsDb {
         let total_network_tx = aggregation.total_network_tx as i64;
         let sample_count = aggregation.sample_count as i64;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT OR REPLACE INTO metrics_aggregations (
                 window_start, window_end, window_type, avg_cpu_usage, max_cpu_usage,
@@ -294,19 +316,19 @@ impl SystemMetricsDb {
                 total_network_rx, total_network_tx, sample_count
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-            window_start,
-            window_end,
-            window_type,
-            aggregation.avg_cpu_usage,
-            aggregation.max_cpu_usage,
-            aggregation.avg_memory_usage,
-            aggregation.max_memory_usage,
-            total_disk_read,
-            total_disk_write,
-            total_network_rx,
-            total_network_tx,
-            sample_count
         )
+        .bind(window_start)
+        .bind(window_end)
+        .bind(window_type)
+        .bind(aggregation.avg_cpu_usage)
+        .bind(aggregation.max_cpu_usage)
+        .bind(aggregation.avg_memory_usage)
+        .bind(aggregation.max_memory_usage)
+        .bind(total_disk_read)
+        .bind(total_disk_write)
+        .bind(total_network_rx)
+        .bind(total_network_tx)
+        .bind(sample_count)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to store aggregation: {}", e)))?;
@@ -316,15 +338,21 @@ impl SystemMetricsDb {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
-        let row = sqlx::query!(
-            "SELECT config_value FROM system_metrics_config WHERE config_key = ?",
-            key
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
+        let row =
+            sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
 
-        Ok(row.map(|r| r.config_value))
+        if let Some(row) = row {
+            let value: String = row.try_get("config_value").map_err(|err| {
+                AosError::Database(format!("Failed to parse config value: {}", err))
+            })?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Set configuration value
@@ -334,15 +362,15 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT OR REPLACE INTO system_metrics_config (config_key, config_value, updated_at)
             VALUES (?, ?, ?)
             "#,
-            key,
-            value,
-            timestamp
         )
+        .bind(key)
+        .bind(value)
+        .bind(timestamp)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to set config: {}", e)))?;
@@ -358,13 +386,11 @@ impl SystemMetricsDb {
             .as_secs() as i64
             - (retention_days as i64 * 24 * 3600);
 
-        let result = sqlx::query!(
-            "DELETE FROM system_metrics WHERE timestamp < ?",
-            cutoff_time
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
+        let result = sqlx::query("DELETE FROM system_metrics WHERE timestamp < ?")
+            .bind(cutoff_time)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
 
         Ok(result.rows_affected())
     }
@@ -394,9 +420,58 @@ mod tests {
             .expect("Failed to create test pool")
     }
 
+    async fn setup_test_schema(pool: &SqlitePool) {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS system_metrics (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp           INTEGER NOT NULL,
+                cpu_usage           REAL NOT NULL,
+                memory_usage        REAL NOT NULL,
+                disk_read_bytes     INTEGER NOT NULL,
+                disk_write_bytes    INTEGER NOT NULL,
+                disk_usage_percent  REAL NOT NULL,
+                network_rx_bytes    INTEGER NOT NULL,
+                network_tx_bytes    INTEGER NOT NULL,
+                network_rx_packets  INTEGER NOT NULL,
+                network_tx_packets  INTEGER NOT NULL,
+                network_bandwidth_mbps REAL NOT NULL,
+                gpu_utilization     REAL,
+                gpu_memory_used     INTEGER,
+                gpu_memory_total    INTEGER,
+                uptime_seconds      INTEGER,
+                process_count       INTEGER,
+                load_1min           REAL,
+                load_5min           REAL,
+                load_15min          REAL,
+                created_at          INTEGER DEFAULT (strftime('%s', 'now'))
+            );
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create system_metrics table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS system_metrics_config (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_key      TEXT UNIQUE NOT NULL,
+                config_value    TEXT NOT NULL,
+                updated_at      INTEGER NOT NULL,
+                created_at      INTEGER DEFAULT (strftime('%s', 'now'))
+            );
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to create system_metrics_config table");
+    }
+
     #[tokio::test]
     async fn test_metrics_storage() {
         let pool = create_test_pool().await;
+        setup_test_schema(&pool).await;
         let db = SystemMetricsDb::new(pool);
 
         let metrics = SystemMetricsRecord {
@@ -406,10 +481,15 @@ mod tests {
             memory_usage: 60.0,
             disk_read_bytes: 1000,
             disk_write_bytes: 2000,
+            disk_usage_percent: 65.5,
             network_rx_bytes: 3000,
             network_tx_bytes: 4000,
+            network_rx_packets: 1500,
+            network_tx_packets: 1600,
+            network_bandwidth_mbps: 12.5,
             gpu_utilization: Some(70.0),
             gpu_memory_used: Some(5000),
+            gpu_memory_total: Some(8000),
             uptime_seconds: 3600,
             process_count: 100,
             load_1min: 1.5,
@@ -427,6 +507,7 @@ mod tests {
     #[tokio::test]
     async fn test_config_operations() {
         let pool = create_test_pool().await;
+        setup_test_schema(&pool).await;
         let db = SystemMetricsDb::new(pool);
 
         db.set_config("test_key", "test_value")

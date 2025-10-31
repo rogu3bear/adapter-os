@@ -299,7 +299,7 @@ impl InferencePipeline {
 
         // Cache code features for this prompt and reuse per step
         let cached_code_features = self.create_code_features(&formatted_prompt);
-        let mut features_vec = cached_code_features.to_vector();
+        let features_vec = cached_code_features.to_vector();
 
         // Reuse IO buffers and router ring across steps to reduce allocations
         let mut io_buffers = IoBuffers::new(self.config.vocab_size);
@@ -332,7 +332,8 @@ impl InferencePipeline {
                     // Framework prior boosts from features
                     for (i, fw) in pc.adapter_framework_ids.iter().enumerate() {
                         if let Some(framework) = fw {
-                            if let Some(boost) = cached_code_features.framework_prior.get(framework) {
+                            if let Some(boost) = cached_code_features.framework_prior.get(framework)
+                            {
                                 priors[i] += boost * 0.5; // scale framework boost
                             }
                         }

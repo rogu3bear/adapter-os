@@ -27,6 +27,8 @@ pub struct MetricValue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TelemetryEvent {
     event_type: String,
+    #[serde(default)]
+    kind: Option<String>,
     payload: serde_json::Value,
     timestamp: u128,
 }
@@ -250,8 +252,11 @@ impl CodeMetrics {
     pub fn cache_metric(&mut self, key: String, value: f32) {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or_else(|_| {
+                warn!("System time appears to be before UNIX epoch, using 0 for timestamp");
+                0
+            });
         
         self.cache.insert(key, MetricValue { value, timestamp });
     }

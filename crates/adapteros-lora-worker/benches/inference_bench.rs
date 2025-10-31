@@ -48,4 +48,3 @@ fn bench_router_decision(c: &mut Criterion) {
 
 criterion_group!(benches, bench_kernel_steps, bench_router_decision);
 criterion_main!(benches);
-

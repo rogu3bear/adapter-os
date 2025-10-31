@@ -233,8 +233,6 @@ mod tests {
                 && metrics.memory_usage >= 0.0
                 && metrics.memory_usage <= 100.0
         );
-        assert!(metrics.disk_io.read_bytes >= 0); // u64 is always >= 0
-        assert!(metrics.network_io.rx_bytes >= 0); // u64 is always >= 0
     }
 
     #[test]

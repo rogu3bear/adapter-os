@@ -382,7 +382,9 @@ impl MploraPolicy {
         if original_size == 0 {
             return 0.0;
         }
-        1.0 - (compressed_size as f32 / original_size as f32)
+
+        let saved = original_size.saturating_sub(compressed_size);
+        (saved as f32) / (original_size as f32)
     }
 
     /// Check if performance monitoring is enabled

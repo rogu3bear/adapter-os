@@ -171,6 +171,97 @@ pub struct MetalKernels {
     populated_lora_adapters: HashSet<u32>,
 }
 
+/// Builder for creating LoRA copy parameters
+#[derive(Default)]
+struct LoraCopyParamsBuilder<'a> {
+    adapter_index: Option<usize>,
+    weights: Option<&'a AdapterWeights>,
+    buffers: Option<&'a LoraBuffers>,
+    hidden_size: Option<usize>,
+    intermediate_size: Option<usize>,
+    kv_width: Option<usize>,
+    rank: Option<usize>,
+}
+
+/// Parameters for LoRA copy operation
+struct LoraCopyParams<'a> {
+    adapter_index: usize,
+    weights: &'a AdapterWeights,
+    buffers: &'a LoraBuffers,
+    hidden_size: usize,
+    intermediate_size: usize,
+    kv_width: usize,
+    rank: usize,
+}
+
+impl<'a> LoraCopyParamsBuilder<'a> {
+    /// Create a new LoRA copy parameters builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the adapter index (required)
+    pub fn adapter_index(mut self, adapter_index: usize) -> Self {
+        self.adapter_index = Some(adapter_index);
+        self
+    }
+
+    /// Set the adapter weights (required)
+    pub fn weights(mut self, weights: &'a AdapterWeights) -> Self {
+        self.weights = Some(weights);
+        self
+    }
+
+    /// Set the LoRA buffers (required)
+    pub fn buffers(mut self, buffers: &'a LoraBuffers) -> Self {
+        self.buffers = Some(buffers);
+        self
+    }
+
+    /// Set the hidden size (required)
+    pub fn hidden_size(mut self, hidden_size: usize) -> Self {
+        self.hidden_size = Some(hidden_size);
+        self
+    }
+
+    /// Set the intermediate size (required)
+    pub fn intermediate_size(mut self, intermediate_size: usize) -> Self {
+        self.intermediate_size = Some(intermediate_size);
+        self
+    }
+
+    /// Set the KV width (required)
+    pub fn kv_width(mut self, kv_width: usize) -> Self {
+        self.kv_width = Some(kv_width);
+        self
+    }
+
+    /// Set the rank (required)
+    pub fn rank(mut self, rank: usize) -> Self {
+        self.rank = Some(rank);
+        self
+    }
+
+    /// Build the LoRA copy parameters
+    pub fn build(self) -> Result<LoraCopyParams<'a>> {
+        fn missing(field: &str) -> AosError {
+            AosError::Kernel(format!("{} is required", field))
+        }
+
+        Ok(LoraCopyParams {
+            adapter_index: self.adapter_index.ok_or_else(|| missing("adapter_index"))?,
+            weights: self.weights.ok_or_else(|| missing("weights"))?,
+            buffers: self.buffers.ok_or_else(|| missing("buffers"))?,
+            hidden_size: self.hidden_size.ok_or_else(|| missing("hidden_size"))?,
+            intermediate_size: self
+                .intermediate_size
+                .ok_or_else(|| missing("intermediate_size"))?,
+            kv_width: self.kv_width.ok_or_else(|| missing("kv_width"))?,
+            rank: self.rank.ok_or_else(|| missing("rank"))?,
+        })
+    }
+}
+
 // Safety: Metal objects are thread-safe
 unsafe impl Send for MetalKernels {}
 unsafe impl Sync for MetalKernels {}
@@ -302,7 +393,7 @@ impl MetalKernels {
 
         let data = tensor.data();
         let elem_size = std::mem::size_of::<f32>();
-        if data.len() % elem_size != 0 {
+        if !data.len().is_multiple_of(elem_size) {
             return Err(AosError::Kernel(format!(
                 "Tensor {} data length {} not divisible by {}",
                 label,
@@ -339,7 +430,7 @@ impl MetalKernels {
         }
 
         let rank = adapter.rank as usize;
-        let rank_padded = (rank + 15) / 16 * 16;
+        let rank_padded = rank.div_ceil(16) * 16;
 
         let hash_hex = adapter.hash.to_hex();
         let hash_path = Self::resolve_adapter_weights_path(root, &hash_hex);
@@ -551,187 +642,6 @@ impl MetalKernels {
         );
 
         Ok(())
-    }
-
-    fn compute_adapter_delta_logits(
-        &self,
-        weights: &AdapterWeights,
-        module: &str,
-        hidden_state: &[f32],
-    ) -> Result<Vec<f32>> {
-        let module_shape = weights.module_shapes.get(module).ok_or_else(|| {
-            AosError::Kernel(format!(
-                "Adapter {} missing module metadata for {}",
-                weights.adapter_id, module
-            ))
-        })?;
-
-        if module_shape.in_dim != hidden_state.len() {
-            return Err(AosError::Kernel(format!(
-                "Hidden state length {} does not match {} input dim {}",
-                hidden_state.len(),
-                module,
-                module_shape.in_dim
-            )));
-        }
-
-        let a_buffer = weights.lora_a_buffers.get(module).ok_or_else(|| {
-            AosError::Kernel(format!(
-                "Adapter {} missing lora_a buffer for {}",
-                weights.adapter_id, module
-            ))
-        })?;
-        let b_buffer = weights.lora_b_buffers.get(module).ok_or_else(|| {
-            AosError::Kernel(format!(
-                "Adapter {} missing lora_b buffer for {}",
-                weights.adapter_id, module
-            ))
-        })?;
-
-        let a_len = (a_buffer.length() as usize) / std::mem::size_of::<f32>();
-        let b_len = (b_buffer.length() as usize) / std::mem::size_of::<f32>();
-        let a_ptr = a_buffer.contents() as *const f32;
-        let b_ptr = b_buffer.contents() as *const f32;
-
-        if a_ptr.is_null() || b_ptr.is_null() {
-            return Err(AosError::Kernel(format!(
-                "Adapter {} has unmapped Metal buffers",
-                weights.adapter_id
-            )));
-        }
-
-        let a_slice = unsafe { std::slice::from_raw_parts(a_ptr, a_len) };
-        let b_slice = unsafe { std::slice::from_raw_parts(b_ptr, b_len) };
-
-        let rank = weights.rank as usize;
-        let rank_padded = weights.rank_padded as usize;
-        if rank == 0 {
-            return Err(AosError::Kernel(format!(
-                "Adapter {} has zero rank",
-                weights.adapter_id
-            )));
-        }
-
-        // Project hidden state into LoRA rank space: A @ hidden
-        let mut intermediate = vec![0f32; rank];
-        for r in 0..rank {
-            let row_start = r * module_shape.in_dim;
-            let row = &a_slice[row_start..row_start + module_shape.in_dim];
-            let mut acc = 0f32;
-            for (h, w) in hidden_state.iter().zip(row.iter()) {
-                acc += h * *w;
-            }
-            intermediate[r] = acc;
-        }
-
-        // Project back to output space: B @ intermediate
-        let mut logits = vec![0f32; module_shape.out_dim];
-        for row_idx in 0..module_shape.out_dim {
-            let row_start = row_idx * rank_padded;
-            let row = &b_slice[row_start..row_start + rank];
-            let mut acc = 0f32;
-            for (val, coeff) in intermediate.iter().zip(row.iter()) {
-                acc += val * *coeff;
-            }
-            logits[row_idx] = acc;
-        }
-
-        let scale = weights.alpha / weights.rank as f32;
-        for value in logits.iter_mut() {
-            *value *= scale;
-        }
-
-        Ok(logits)
-    }
-
-    fn prepare_adapter_delta_buffer(
-        &mut self,
-        adapters: &[ActiveAdapter],
-        hidden_state: &[f32],
-        vocab_size: usize,
-        slot_capacity: usize,
-    ) -> Result<(Vec<f32>, f32, usize)> {
-        if vocab_size == 0 || slot_capacity == 0 {
-            return Ok((Vec::new(), 0.0, 0));
-        }
-
-        let mut buffer = vec![0.0f32; slot_capacity * vocab_size];
-        let mut total_gate = 0.0f32;
-        let mut active_slots = 0usize;
-
-        for (slot, adapter) in adapters.iter().enumerate() {
-            if slot >= slot_capacity {
-                break;
-            }
-            if adapter.id == 0 || adapter.gate == 0 {
-                continue;
-            }
-
-            let adapter_index = adapter.id as usize;
-            if adapter_index >= self.adapter_index_map.len() {
-                tracing::warn!(
-                    adapter_index,
-                    "Adapter index {} out of range for prepared weights",
-                    adapter.id
-                );
-                continue;
-            }
-
-            let adapter_name = &self.adapter_index_map[adapter_index];
-            let weights = match self.adapter_weights.get(adapter_name) {
-                Some(weights) => weights,
-                None => {
-                    tracing::warn!(
-                        adapter = %adapter_name,
-                        "Adapter weights not loaded for {}",
-                        adapter_name
-                    );
-                    continue;
-                }
-            };
-
-            let logits = match self.compute_adapter_delta_logits(weights, "lm_head", hidden_state) {
-                Ok(delta) => delta,
-                Err(err) => {
-                    tracing::warn!(
-                        adapter = %adapter_name,
-                        error = %err,
-                        "Failed to compute adapter delta logits"
-                    );
-                    continue;
-                }
-            };
-
-            if logits.len() != vocab_size {
-                tracing::warn!(
-                    adapter = %adapter_name,
-                    expected = vocab_size,
-                    actual = logits.len(),
-                    "Adapter delta length mismatch"
-                );
-                continue;
-            }
-
-            self.adapter_logits_cache.insert(adapter.id, logits.clone());
-
-            let gate_scale = (adapter.gate as f32) / 32767.0;
-            if gate_scale <= f32::EPSILON {
-                continue;
-            }
-
-            total_gate += gate_scale;
-            let offset = slot * vocab_size;
-            for (idx, value) in logits.iter().enumerate() {
-                buffer[offset + idx] = value * gate_scale;
-            }
-            active_slots += 1;
-        }
-
-        if active_slots == 0 {
-            return Ok((Vec::new(), 0.0, 0));
-        }
-
-        Ok((buffer, total_gate, active_slots))
     }
 
     fn allocate_f32_buffer(&self, elements: usize) -> Buffer {
@@ -960,173 +870,204 @@ impl MetalKernels {
         Ok(())
     }
 
-    fn copy_lora_from_weights(
-        &self,
-        adapter_index: usize,
-        weights: &AdapterWeights,
-        buffers: &LoraBuffers,
-        hidden_size: usize,
-        intermediate_size: usize,
-        kv_width: usize,
-        rank: usize,
-    ) -> Result<()> {
-        let rank_actual = weights.rank as usize;
-        let copy_rank = rank.min(rank_actual).min(weights.rank_padded as usize);
+    /// Copy LoRA weights to Metal buffers
+    ///
+    /// Use `LoraCopyParamsBuilder` to construct copy parameters:
+    /// ```rust
+    /// let params = LoraCopyParamsBuilder::new()
+    ///     .adapter_index(0)
+    ///     .weights(&adapter_weights)
+    ///     .buffers(&lora_buffers)
+    ///     .hidden_size(4096)
+    ///     .intermediate_size(11008)
+    ///     .kv_width(128)
+    ///     .rank(8)
+    ///     .build()?;
+    /// kernels.copy_lora_from_weights(params).await?;
+    /// ```
+    fn copy_lora_from_weights(&self, params: LoraCopyParams<'_>) -> Result<()> {
+        let rank_actual = params.weights.rank as usize;
+        let copy_rank = params
+            .rank
+            .min(rank_actual)
+            .min(params.weights.rank_padded as usize);
         if copy_rank == 0 {
             return Ok(());
         }
 
-        let adapter_offset_hidden = adapter_index * hidden_size * rank;
-        let adapter_offset_intermediate = adapter_index * intermediate_size * rank;
-        let adapter_offset_hidden_rank = adapter_index * rank * hidden_size;
-        let adapter_offset_intermediate_rank = adapter_index * rank * intermediate_size;
-        let adapter_offset_kv_rank = adapter_index * rank * kv_width;
+        let adapter_offset_hidden = params.adapter_index * params.hidden_size * params.rank;
+        let adapter_offset_intermediate =
+            params.adapter_index * params.intermediate_size * params.rank;
+        let adapter_offset_hidden_rank = params.adapter_index * params.rank * params.hidden_size;
+        let adapter_offset_intermediate_rank =
+            params.adapter_index * params.rank * params.intermediate_size;
+        let adapter_offset_kv_rank = params.adapter_index * params.rank * params.kv_width;
 
         // Gate projection
         self.zero_lora_region(
-            &buffers.gate_lora_a,
+            &params.buffers.gate_lora_a,
             adapter_offset_hidden,
-            hidden_size * rank,
+            params.hidden_size * params.rank,
         );
         self.zero_lora_region(
-            &buffers.gate_lora_b,
+            &params.buffers.gate_lora_b,
             adapter_offset_intermediate_rank,
-            rank * intermediate_size,
+            params.rank * params.intermediate_size,
         );
         self.copy_lora_matrix_a(
-            weights,
+            &params.weights,
             "gate_proj",
-            &buffers.gate_lora_a,
+            &params.buffers.gate_lora_a,
             adapter_offset_hidden,
-            hidden_size,
+            params.hidden_size,
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            weights,
+            &params.weights,
             "gate_proj",
-            &buffers.gate_lora_b,
+            &params.buffers.gate_lora_b,
             adapter_offset_intermediate_rank,
-            intermediate_size,
+            params.intermediate_size,
             copy_rank,
         )?;
 
         // Up projection
         self.zero_lora_region(
-            &buffers.up_lora_a,
+            &params.buffers.up_lora_a,
             adapter_offset_hidden,
-            hidden_size * rank,
+            params.hidden_size * params.rank,
         );
         self.zero_lora_region(
-            &buffers.up_lora_b,
+            &params.buffers.up_lora_b,
             adapter_offset_intermediate_rank,
-            rank * intermediate_size,
+            params.rank * params.intermediate_size,
         );
         self.copy_lora_matrix_a(
-            weights,
+            &params.weights,
             "up_proj",
-            &buffers.up_lora_a,
+            &params.buffers.up_lora_a,
             adapter_offset_hidden,
-            hidden_size,
+            params.hidden_size,
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            weights,
+            &params.weights,
             "up_proj",
-            &buffers.up_lora_b,
+            &params.buffers.up_lora_b,
             adapter_offset_intermediate_rank,
-            intermediate_size,
+            params.intermediate_size,
             copy_rank,
         )?;
 
         // Down projection
         self.zero_lora_region(
-            &buffers.down_lora_a,
+            &params.buffers.down_lora_a,
             adapter_offset_intermediate,
-            intermediate_size * rank,
+            params.intermediate_size * params.rank,
         );
         self.zero_lora_region(
-            &buffers.down_lora_b,
+            &params.buffers.down_lora_b,
             adapter_offset_hidden_rank,
-            rank * hidden_size,
+            params.rank * params.hidden_size,
         );
         self.copy_lora_matrix_a(
-            weights,
+            &params.weights,
             "down_proj",
-            &buffers.down_lora_a,
+            &params.buffers.down_lora_a,
             adapter_offset_intermediate,
-            intermediate_size,
+            params.intermediate_size,
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            weights,
+            &params.weights,
             "down_proj",
-            &buffers.down_lora_b,
+            &params.buffers.down_lora_b,
             adapter_offset_hidden_rank,
-            hidden_size,
+            params.hidden_size,
             copy_rank,
         )?;
 
         // Q projection
-        self.zero_lora_region(&buffers.q_lora_a, adapter_offset_hidden, hidden_size * rank);
         self.zero_lora_region(
-            &buffers.q_lora_b,
+            &params.buffers.q_lora_a,
+            adapter_offset_hidden,
+            params.hidden_size * params.rank,
+        );
+        self.zero_lora_region(
+            &params.buffers.q_lora_b,
             adapter_offset_hidden_rank,
-            rank * hidden_size,
+            params.rank * params.hidden_size,
         );
         self.copy_lora_matrix_a(
-            weights,
+            &params.weights,
             "q_proj",
-            &buffers.q_lora_a,
+            &params.buffers.q_lora_a,
             adapter_offset_hidden,
-            hidden_size,
+            params.hidden_size,
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            weights,
+            &params.weights,
             "q_proj",
-            &buffers.q_lora_b,
+            &params.buffers.q_lora_b,
             adapter_offset_hidden_rank,
-            hidden_size,
+            params.hidden_size,
             copy_rank,
         )?;
 
         // K projection
-        self.zero_lora_region(&buffers.k_lora_a, adapter_offset_hidden, hidden_size * rank);
-        self.zero_lora_region(&buffers.k_lora_b, adapter_offset_kv_rank, rank * kv_width);
-        self.copy_lora_matrix_a(
-            weights,
-            "k_proj",
-            &buffers.k_lora_a,
+        self.zero_lora_region(
+            &params.buffers.k_lora_a,
             adapter_offset_hidden,
-            hidden_size,
+            params.hidden_size * params.rank,
+        );
+        self.zero_lora_region(
+            &params.buffers.k_lora_b,
+            adapter_offset_kv_rank,
+            params.rank * params.kv_width,
+        );
+        self.copy_lora_matrix_a(
+            &params.weights,
+            "k_proj",
+            &params.buffers.k_lora_a,
+            adapter_offset_hidden,
+            params.hidden_size,
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            weights,
+            &params.weights,
             "k_proj",
-            &buffers.k_lora_b,
+            &params.buffers.k_lora_b,
             adapter_offset_kv_rank,
-            kv_width,
+            params.kv_width,
             copy_rank,
         )?;
 
         // V projection
-        self.zero_lora_region(&buffers.v_lora_a, adapter_offset_hidden, hidden_size * rank);
-        self.zero_lora_region(&buffers.v_lora_b, adapter_offset_kv_rank, rank * kv_width);
-        self.copy_lora_matrix_a(
-            weights,
-            "v_proj",
-            &buffers.v_lora_a,
+        self.zero_lora_region(
+            &params.buffers.v_lora_a,
             adapter_offset_hidden,
-            hidden_size,
+            params.hidden_size * params.rank,
+        );
+        self.zero_lora_region(
+            &params.buffers.v_lora_b,
+            adapter_offset_kv_rank,
+            params.rank * params.kv_width,
+        );
+        self.copy_lora_matrix_a(
+            &params.weights,
+            "v_proj",
+            &params.buffers.v_lora_a,
+            adapter_offset_hidden,
+            params.hidden_size,
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            weights,
+            &params.weights,
             "v_proj",
-            &buffers.v_lora_b,
+            &params.buffers.v_lora_b,
             adapter_offset_kv_rank,
-            kv_width,
+            params.kv_width,
             copy_rank,
         )?;
 
@@ -1158,15 +1099,16 @@ impl MetalKernels {
         let adapter_index = adapter_id as usize;
         if let Some(adapter_name) = self.adapter_index_map.get(adapter_index) {
             if let Some(weights) = self.adapter_weights.get(adapter_name) {
-                self.copy_lora_from_weights(
-                    adapter_index,
-                    weights,
-                    buffers,
-                    hidden_size,
-                    intermediate_size,
-                    kv_width,
-                    rank,
-                )?;
+                let copy_params = LoraCopyParamsBuilder::new()
+                    .adapter_index(adapter_index)
+                    .weights(weights)
+                    .buffers(buffers)
+                    .hidden_size(hidden_size)
+                    .intermediate_size(intermediate_size)
+                    .kv_width(kv_width)
+                    .rank(rank)
+                    .build()?;
+                self.copy_lora_from_weights(copy_params)?;
                 return Ok(());
             }
         }
@@ -1622,7 +1564,8 @@ impl MetalKernels {
         let hidden_size = 3584; // Qwen2.5-7B hidden size (default until weights parsed)
         let seq_len = self.batch_capacity.max(1);
 
-        let buffer_size = (hidden_size as u64) * (seq_len as u64) * (std::mem::size_of::<f32>() as u64);
+        let buffer_size =
+            (hidden_size as u64) * (seq_len as u64) * (std::mem::size_of::<f32>() as u64);
 
         let hidden_states = self
             .device
@@ -1773,7 +1716,7 @@ impl MetalKernels {
 
             let gate_elements =
                 (transformer_weights.gate_weight.length() as usize) / std::mem::size_of::<f32>();
-            if gate_elements % hidden_size != 0 {
+            if !gate_elements.is_multiple_of(hidden_size) {
                 return Err(AosError::Kernel(format!(
                     "Gate weight length {} is not divisible by hidden size {}",
                     gate_elements, hidden_size
@@ -1925,26 +1868,18 @@ impl MetalKernels {
             .as_ref()
             .ok_or_else(|| AosError::Kernel("Embedding dimensions not set".to_string()))?;
 
-        let hidden_size = dimensions.hidden_size;
         let vocab_size = dimensions.vocab_size;
 
         if io.output_logits.len() != vocab_size {
             io.output_logits.resize(vocab_size, 0.0);
         }
 
-        let (hidden_state, mlp_output_buffer) = {
+        let mlp_output_buffer = {
             let intermediate_buffers = self
                 .intermediate_buffers
                 .as_ref()
                 .ok_or_else(|| AosError::Kernel("Intermediate buffers not created".to_string()))?;
-            let hidden_state_ptr = intermediate_buffers.mlp_output.contents() as *const f32;
-            if hidden_state_ptr.is_null() {
-                return Err(AosError::Kernel(
-                    "MLP output buffer is not accessible from CPU".to_string(),
-                ));
-            }
-            let hidden_state = unsafe { std::slice::from_raw_parts(hidden_state_ptr, hidden_size) };
-            (hidden_state, intermediate_buffers.mlp_output.clone())
+            intermediate_buffers.mlp_output.clone()
         };
 
         let slot_capacity = {
@@ -2025,8 +1960,8 @@ impl MetalKernels {
         } else {
             encoder.set_buffer(4, None, 0);
         }
-        encoder.set_buffer(5, Some(&hidden_size_buffer), 0);
-        encoder.set_buffer(6, Some(&vocab_size_buffer), 0);
+        encoder.set_buffer(5, Some(hidden_size_buffer), 0);
+        encoder.set_buffer(6, Some(vocab_size_buffer), 0);
 
         let threadgroup_size = MTLSize::new(256, 1, 1);
         let threadgroup_count = MTLSize::new((vocab_size as u64).div_ceil(256), 1, 1);
@@ -2052,33 +1987,7 @@ impl MetalKernels {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn prepare_adapter_delta_buffer_without_weights_returns_empty() {
-        let mut kernels = match MetalKernels::new() {
-            Ok(k) => k,
-            Err(_) => return, // Skip test when Metal is unavailable
-        };
-
-        kernels.embedding_dimensions = Some(EmbeddingDimensions {
-            vocab_size: 8,
-            hidden_size: 4,
-        });
-        kernels.adapter_index_map = vec!["adapter_base".to_string(), "adapter_a".to_string()];
-
-        let adapters = vec![ActiveAdapter { id: 1, gate: 32767 }];
-        let hidden = vec![0.0f32; 4];
-
-        let (buffer, total_gate, active_slots) = kernels
-            .prepare_adapter_delta_buffer(&adapters, &hidden, 8, 2)
-            .expect("prepare_adapter_delta_buffer should succeed without weights");
-
-        assert!(buffer.is_empty());
-        assert_eq!(total_gate, 0.0);
-        assert_eq!(active_slots, 0);
-    }
-}
+mod tests {}
 
 impl FusedKernels for MetalKernels {
     /// Load plan and initialize Metal kernels
@@ -2138,10 +2047,7 @@ impl FusedKernels for MetalKernels {
         // Create default GQA config for Qwen2.5-7B-Instruct
         let gqa_config = GqaConfig::default();
 
-        self.qkv_kernel = Some(FusedQkvKernel::new(
-            self.device.clone(),
-            gqa_config.clone(),
-        )?);
+        self.qkv_kernel = Some(FusedQkvKernel::new(self.device.clone(), gqa_config)?);
         self.flash_attention_kernel =
             Some(FlashAttentionKernel::new(self.device.clone(), gqa_config)?);
         self.ring_buffer = Some(RingBuffer::new(self.device.clone(), 3)?);

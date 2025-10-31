@@ -66,13 +66,14 @@ mod tests {
 
     #[test]
     fn test_cdp_creation() {
-        let metadata = CdpMetadata {
-            author: "test@example.com".to_string(),
-            message: "Test commit".to_string(),
-            timestamp: chrono::Utc::now(),
-            branch: "main".to_string(),
-            remote_url: None,
-        };
+        let metadata = CdpMetadata::new(
+            "test-repo",
+            "abc123",
+            chrono::Utc::now(),
+            "test@example.com",
+            "Test commit",
+        )
+        .with_branch("main");
         
         let cdp = CommitDeltaPack::new(
             "test-repo".to_string(),
@@ -83,7 +84,8 @@ mod tests {
             Vec::new(),
             Vec::new(),
             metadata,
-        );
+        )
+        .expect("cdp creation should succeed");
         
         assert_eq!(cdp.repo_id, "test-repo");
         assert_eq!(cdp.commit_sha, "abc123");

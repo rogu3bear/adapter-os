@@ -105,12 +105,12 @@ impl PlatformHandler for MacOSHandler {
         }
     }
 
-    fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+    fn set_file_permissions(&self, _path: &Path, _permissions: u32) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms).map_err(|e| {
+            let perms = std::fs::Permissions::from_mode(_permissions);
+            std::fs::set_permissions(_path, perms).map_err(|e| {
                 AosError::Platform(format!("Failed to set macOS file permissions: {}", e))
             })?;
         }
@@ -122,15 +122,15 @@ impl PlatformHandler for MacOSHandler {
             ));
         }
 
-        debug!("Set macOS file permissions: {:o}", permissions);
+        debug!("Set macOS file permissions: {:o}", _permissions);
         Ok(())
     }
 
-    fn get_file_permissions(&self, path: &Path) -> Result<u32> {
+    fn get_file_permissions(&self, _path: &Path) -> Result<u32> {
         #[cfg(target_os = "macos")]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path).map_err(|e| {
+            let metadata = std::fs::metadata(_path).map_err(|e| {
                 AosError::Platform(format!("Failed to get macOS file metadata: {}", e))
             })?;
             Ok(metadata.permissions().mode())
@@ -144,10 +144,10 @@ impl PlatformHandler for MacOSHandler {
         }
     }
 
-    fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    fn create_symlink(&self, _target: &Path, _link: &Path) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
-            std::os::unix::fs::symlink(target, link).map_err(|e| {
+            std::os::unix::fs::symlink(_target, _link).map_err(|e| {
                 AosError::Platform(format!("Failed to create macOS symlink: {}", e))
             })?;
         }
@@ -161,16 +161,16 @@ impl PlatformHandler for MacOSHandler {
 
         debug!(
             "Created macOS symlink: {} -> {}",
-            link.display(),
-            target.display()
+            _link.display(),
+            _target.display()
         );
         Ok(())
     }
 
-    fn read_symlink(&self, link: &Path) -> Result<PathBuf> {
+    fn read_symlink(&self, _link: &Path) -> Result<PathBuf> {
         #[cfg(target_os = "macos")]
         {
-            std::fs::read_link(link)
+            std::fs::read_link(_link)
                 .map_err(|e| AosError::Platform(format!("Failed to read macOS symlink: {}", e)))
         }
 
@@ -182,10 +182,10 @@ impl PlatformHandler for MacOSHandler {
         }
     }
 
-    fn is_symlink(&self, path: &Path) -> bool {
+    fn is_symlink(&self, _path: &Path) -> bool {
         #[cfg(target_os = "macos")]
         {
-            path.is_symlink()
+            _path.is_symlink()
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -242,15 +242,9 @@ impl PlatformHandler for MacOSHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata
-                .created()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata
-                .modified()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata
-                .accessed()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata.created().unwrap_or(SystemTime::UNIX_EPOCH),
+            modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            accessed: metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })
@@ -264,10 +258,8 @@ impl PlatformHandler for MacOSHandler {
         #[cfg(target_os = "macos")]
         {
             use std::fs::OpenOptions;
-            use std::os::unix::fs::MetadataExt;
-            use std::os::unix::fs::OpenOptionsExt;
 
-            let file = OpenOptions::new().write(true).open(path).map_err(|e| {
+            let _file = OpenOptions::new().write(true).open(path).map_err(|e| {
                 AosError::Platform(format!("Failed to open file for metadata update: {}", e))
             })?;
 

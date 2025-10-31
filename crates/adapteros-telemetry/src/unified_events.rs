@@ -23,6 +23,10 @@ pub struct TelemetryEvent {
     /// Event type identifier
     pub event_type: String,
 
+    /// Structured event kind namespace (e.g., "metrics.system")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<TelemetryEventKind>,
+
     /// Log level
     pub level: LogLevel,
 
@@ -51,6 +55,31 @@ pub struct TelemetryEvent {
     pub event_hash: Option<B3Hash>,
 }
 
+/// Canonical namespaces for telemetry events.
+///
+/// Wrapper around a string to guarantee that namespaces remain structured
+/// without requiring a separate enum for every event family.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct TelemetryEventKind(String);
+
+impl TelemetryEventKind {
+    /// Create a new custom namespace.
+    pub fn new<N: Into<String>>(namespace: N) -> Self {
+        Self(namespace.into())
+    }
+
+    /// Return the namespace as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Canonical namespace for system-level metrics events.
+    pub fn metrics_system() -> Self {
+        Self("metrics.system".to_string())
+    }
+}
+
 /// Log levels for telemetry events
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum LogLevel {
@@ -69,6 +98,8 @@ pub enum EventType {
     SystemStop,
     SystemError,
     SystemWarning,
+    /// Periodic system metrics snapshot
+    SystemMetrics,
 
     // Adapter events
     AdapterLoaded,
@@ -151,6 +182,7 @@ impl EventType {
             EventType::SystemStop => "system.stop",
             EventType::SystemError => "system.error",
             EventType::SystemWarning => "system.warning",
+            EventType::SystemMetrics => "system.metrics",
             EventType::AdapterLoaded => "adapter.loaded",
             EventType::AdapterUnloaded => "adapter.unloaded",
             EventType::AdapterEvicted => "adapter.evicted",
@@ -245,6 +277,7 @@ impl TelemetryEventBuilder {
                 id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
                 timestamp: Utc::now(),
                 event_type: event_type.as_str().to_string(),
+                kind: None,
                 level,
                 message,
                 component: None,
@@ -256,6 +289,12 @@ impl TelemetryEventBuilder {
                 event_hash: None,
             },
         }
+    }
+
+    /// Set the structured telemetry namespace.
+    pub fn kind(mut self, kind: TelemetryEventKind) -> Self {
+        self.event.kind = Some(kind);
+        self
     }
 
     /// Set the component that generated the event
@@ -329,6 +368,7 @@ mod tests {
     fn test_event_type_string_conversion() {
         assert_eq!(EventType::SystemStart.as_str(), "system.start");
         assert_eq!(EventType::AdapterLoaded.as_str(), "adapter.loaded");
+        assert_eq!(EventType::SystemMetrics.as_str(), "system.metrics");
         assert_eq!(
             EventType::Custom("custom.event".to_string()).as_str(),
             "custom.event"
@@ -351,7 +391,25 @@ mod tests {
         assert_eq!(event.message, "System started successfully");
         assert_eq!(event.component, Some("adapteros-core".to_string()));
         assert_eq!(event.tenant_id, Some("default".to_string()));
+        assert!(event.kind.is_none());
         assert!(event.event_hash.is_some());
+    }
+
+    #[test]
+    fn test_telemetry_event_builder_with_kind() {
+        let event = TelemetryEventBuilder::new(
+            EventType::Custom("metrics.system".to_string()),
+            LogLevel::Info,
+            "Placeholder system metrics".to_string(),
+        )
+        .kind(TelemetryEventKind::metrics_system())
+        .build();
+
+        assert_eq!(event.event_type, "metrics.system");
+        assert_eq!(
+            event.kind.as_ref().map(TelemetryEventKind::as_str),
+            Some("metrics.system")
+        );
     }
 
     #[test]

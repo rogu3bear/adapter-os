@@ -110,32 +110,31 @@ impl PlatformHandler for LinuxHandler {
         }
     }
 
-    fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+    fn set_file_permissions(&self, _path: &Path, _permissions: u32) -> Result<()> {
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(permissions);
-            std::fs::set_permissions(path, perms).map_err(|e| {
+            let perms = std::fs::Permissions::from_mode(_permissions);
+            std::fs::set_permissions(_path, perms).map_err(|e| {
                 AosError::Platform(format!("Failed to set Linux file permissions: {}", e))
             })?;
+            debug!("Set Linux file permissions: {:o}", _permissions);
+            Ok(())
         }
 
         #[cfg(not(target_os = "linux"))]
         {
-            return Err(AosError::Platform(
+            Err(AosError::Platform(
                 "Linux permissions not available on this platform".to_string(),
-            ));
+            ))
         }
-
-        debug!("Set Linux file permissions: {:o}", permissions);
-        Ok(())
     }
 
-    fn get_file_permissions(&self, path: &Path) -> Result<u32> {
+    fn get_file_permissions(&self, _path: &Path) -> Result<u32> {
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(path).map_err(|e| {
+            let metadata = std::fs::metadata(_path).map_err(|e| {
                 AosError::Platform(format!("Failed to get Linux file metadata: {}", e))
             })?;
             Ok(metadata.permissions().mode())
@@ -149,33 +148,32 @@ impl PlatformHandler for LinuxHandler {
         }
     }
 
-    fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    fn create_symlink(&self, _target: &Path, _link: &Path) -> Result<()> {
         #[cfg(target_os = "linux")]
         {
-            std::os::unix::fs::symlink(target, link).map_err(|e| {
+            std::os::unix::fs::symlink(_target, _link).map_err(|e| {
                 AosError::Platform(format!("Failed to create Linux symlink: {}", e))
             })?;
+            debug!(
+                "Created Linux symlink: {} -> {}",
+                _link.display(),
+                _target.display()
+            );
+            Ok(())
         }
 
         #[cfg(not(target_os = "linux"))]
         {
-            return Err(AosError::Platform(
+            Err(AosError::Platform(
                 "Linux symlinks not available on this platform".to_string(),
-            ));
+            ))
         }
-
-        debug!(
-            "Created Linux symlink: {} -> {}",
-            link.display(),
-            target.display()
-        );
-        Ok(())
     }
 
-    fn read_symlink(&self, link: &Path) -> Result<PathBuf> {
+    fn read_symlink(&self, _link: &Path) -> Result<PathBuf> {
         #[cfg(target_os = "linux")]
         {
-            std::fs::read_link(link)
+            std::fs::read_link(_link)
                 .map_err(|e| AosError::Platform(format!("Failed to read Linux symlink: {}", e)))
         }
 
@@ -187,10 +185,10 @@ impl PlatformHandler for LinuxHandler {
         }
     }
 
-    fn is_symlink(&self, path: &Path) -> bool {
+    fn is_symlink(&self, _path: &Path) -> bool {
         #[cfg(target_os = "linux")]
         {
-            path.is_symlink()
+            _path.is_symlink()
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -249,15 +247,9 @@ impl PlatformHandler for LinuxHandler {
         Ok(FileMetadata {
             size: metadata.len(),
             permissions: self.get_file_permissions(path)?,
-            created: metadata
-                .created()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            modified: metadata
-                .modified()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
-            accessed: metadata
-                .accessed()
-                .unwrap_or_else(|_| SystemTime::UNIX_EPOCH),
+            created: metadata.created().unwrap_or(SystemTime::UNIX_EPOCH),
+            modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            accessed: metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH),
             file_type,
             platform_attributes,
         })

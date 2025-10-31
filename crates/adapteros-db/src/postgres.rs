@@ -3,11 +3,22 @@
 //! Production backend for AdapterOS registry and state management.
 //! Replaces SQLite for multi-node deployments with pgvector support.
 
+use crate::{
+    models::ModelRegistrationParams,
+    process_monitoring::{
+        AlertFilters, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyStatus,
+        CreateDashboardRequest, CreateReportRequest, MonitoringDashboard, ProcessAlert,
+        ProcessAnomaly, ProcessMonitoringReport, ProcessMonitoringRule, RuleType,
+        ThresholdOperator,
+    },
+    AdapterRegistrationParams,
+};
 use adapteros_core::{AosError, Result};
+use chrono;
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::Row;
 use std::time::Duration;
 use uuid;
-use chrono;
 
 /// Database connection pool for PostgreSQL
 #[derive(Clone)]
@@ -66,7 +77,21 @@ impl PostgresDb {
     /// Applies all SQL migrations from the `migrations_postgres/` directory.
     /// Migrations are idempotent and can be run multiple times safely.
     pub async fn migrate(&self) -> Result<()> {
-        sqlx::migrate!("../../migrations_postgres")
+        use std::path::Path;
+        let migrations_dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations_postgres");
+
+        let migrator = sqlx::migrate::Migrator::new(migrations_dir.as_path())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!(
+                    "Failed to load migrations from {}: {}",
+                    migrations_dir.display(),
+                    e
+                ))
+            })?;
+
+        migrator
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
@@ -288,7 +313,7 @@ impl PostgresDb {
                 SUM(selected) as selected_count,
                 AVG(gate_value) as avg_gate
              FROM adapter_activations
-             WHERE adapter_id = $1"
+             WHERE adapter_id = $1",
         )
         .bind(adapter_id)
         .fetch_one(&self.pool)
@@ -314,7 +339,10 @@ impl PostgresDb {
         Ok(workers)
     }
 
-    pub async fn list_replay_sessions(&self, tenant_id: Option<&str>) -> Result<Vec<crate::replay_sessions::ReplaySession>> {
+    pub async fn list_replay_sessions(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<crate::replay_sessions::ReplaySession>> {
         use crate::replay_sessions::ReplaySession;
         let query = if tenant_id.is_some() {
             "SELECT * FROM replay_sessions WHERE tenant_id = $1 ORDER BY snapshot_at DESC"
@@ -335,24 +363,31 @@ impl PostgresDb {
         Ok(sessions)
     }
 
-    pub async fn get_replay_session(&self, session_id: &str) -> Result<Option<crate::replay_sessions::ReplaySession>> {
+    pub async fn get_replay_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::replay_sessions::ReplaySession>> {
         use crate::replay_sessions::ReplaySession;
-        let session = sqlx::query_as::<_, ReplaySession>("SELECT * FROM replay_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to get replay session: {}", e)))?;
+        let session =
+            sqlx::query_as::<_, ReplaySession>("SELECT * FROM replay_sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get replay session: {}", e)))?;
         Ok(session)
     }
 
-    pub async fn create_replay_session(&self, session: &crate::replay_sessions::ReplaySession) -> Result<()> {
+    pub async fn create_replay_session(
+        &self,
+        session: &crate::replay_sessions::ReplaySession,
+    ) -> Result<()> {
         sqlx::query(
             "INSERT INTO replay_sessions (
                 id, tenant_id, cpid, plan_id, snapshot_at, seed_global_b3,
                 manifest_hash_b3, policy_hash_b3, kernel_hash_b3,
                 telemetry_bundle_ids_json, adapter_state_json,
                 routing_decisions_json, inference_traces_json, rng_state_json, signature
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .bind(&session.id)
         .bind(&session.tenant_id)
@@ -390,7 +425,7 @@ impl PostgresDb {
     pub async fn list_tenants(&self) -> Result<Vec<crate::tenants::Tenant>> {
         use crate::tenants::Tenant;
         let tenants = sqlx::query_as::<_, Tenant>(
-            "SELECT id, name, itar_flag, created_at FROM tenants ORDER BY created_at DESC"
+            "SELECT id, name, itar_flag, created_at FROM tenants ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -414,7 +449,7 @@ impl PostgresDb {
     pub async fn get_tenant(&self, id: &str) -> Result<Option<crate::tenants::Tenant>> {
         use crate::tenants::Tenant;
         let tenant = sqlx::query_as::<_, Tenant>(
-            "SELECT id, name, itar_flag, created_at FROM tenants WHERE id = $1"
+            "SELECT id, name, itar_flag, created_at FROM tenants WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -443,7 +478,13 @@ impl PostgresDb {
         Ok(())
     }
 
-    pub async fn create_job(&self, kind: &str, tenant_id: Option<&str>, user_id: Option<&str>, payload_json: &str) -> Result<String> {
+    pub async fn create_job(
+        &self,
+        kind: &str,
+        tenant_id: Option<&str>,
+        user_id: Option<&str>,
+        payload_json: &str,
+    ) -> Result<String> {
         use uuid::Uuid;
         let id = Uuid::now_v7().to_string();
         sqlx::query(
@@ -482,37 +523,109 @@ impl PostgresDb {
         Ok(())
     }
 
-    pub async fn register_adapter(
-        &self,
-        adapter_id: &str,
-        name: &str,
-        hash_b3: &str,
-        rank: i32,
-        tier: i32,
-        languages_json: Option<&str>,
-        framework: Option<&str>,
-    ) -> Result<String> {
+    pub async fn register_adapter(&self, params: AdapterRegistrationParams) -> Result<String> {
         use uuid::Uuid;
         let id = Uuid::now_v7().to_string();
         sqlx::query(
-            "INSERT INTO adapters (id, adapter_id, name, hash_b3, rank, tier, languages_json, framework, category, scope, current_state, pinned, memory_bytes, activation_count, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'code', 'global', 'unloaded', 0, 0, 0, 1)"
+            "INSERT INTO adapters (
+                id,
+                adapter_id,
+                name,
+                hash_b3,
+                rank,
+                tier,
+                languages_json,
+                framework,
+                category,
+                scope,
+                framework_id,
+                framework_version,
+                repo_id,
+                commit_sha,
+                intent,
+                expires_at,
+                current_state,
+                pinned,
+                memory_bytes,
+                activation_count,
+                active
+            )
+             VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, 'unloaded', 0, 0, 0, 1
+             )",
         )
         .bind(&id)
-        .bind(adapter_id)
-        .bind(name)
-        .bind(hash_b3)
-        .bind(rank)
-        .bind(tier)
-        .bind(languages_json)
-        .bind(framework)
+        .bind(&params.adapter_id)
+        .bind(&params.name)
+        .bind(&params.hash_b3)
+        .bind(params.rank)
+        .bind(params.tier)
+        .bind(&params.languages_json)
+        .bind(&params.framework)
+        .bind(&params.category)
+        .bind(&params.scope)
+        .bind(&params.framework_id)
+        .bind(&params.framework_version)
+        .bind(&params.repo_id)
+        .bind(&params.commit_sha)
+        .bind(&params.intent)
+        .bind(&params.expires_at)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to register adapter: {}", e)))?;
         Ok(id)
     }
 
-    pub async fn update_adapter_state(&self, adapter_id: &str, state: &str, _reason: &str) -> Result<()> {
+    pub async fn insert_worker(&self, params: crate::workers::WorkerInsertParams) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&params.id)
+        .bind(&params.tenant_id)
+        .bind(&params.node_id)
+        .bind(&params.plan_id)
+        .bind(&params.uds_path)
+        .bind(params.pid)
+        .bind(&params.status)
+        .bind(chrono::Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert worker: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn update_worker_heartbeat(&self, id: &str, status: Option<&str>) -> Result<()> {
+        if let Some(st) = status {
+            sqlx::query("UPDATE workers SET status = $1, last_seen_at = $2 WHERE id = $3")
+                .bind(st)
+                .bind(chrono::Utc::now())
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to update worker heartbeat: {}", e))
+                })?;
+        } else {
+            sqlx::query("UPDATE workers SET last_seen_at = $1 WHERE id = $2")
+                .bind(chrono::Utc::now())
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to update worker heartbeat: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    pub async fn update_adapter_state(
+        &self,
+        adapter_id: &str,
+        state: &str,
+        _reason: &str,
+    ) -> Result<()> {
         sqlx::query("UPDATE adapters SET current_state = $1 WHERE adapter_id = $2")
             .bind(state)
             .bind(adapter_id)
@@ -560,12 +673,15 @@ impl PostgresDb {
         Ok(nodes)
     }
 
-    pub async fn get_training_job(&self, job_id: &str) -> Result<Option<crate::training_jobs::TrainingJobRecord>> {
+    pub async fn get_training_job(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<crate::training_jobs::TrainingJobRecord>> {
         use crate::training_jobs::TrainingJobRecord;
         let job = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by
-             FROM repository_training_jobs WHERE id = $1"
+             FROM repository_training_jobs WHERE id = $1",
         )
         .bind(job_id)
         .fetch_optional(&self.pool)
@@ -584,7 +700,7 @@ impl PostgresDb {
         sqlx::query(
             "UPDATE repository_training_jobs
              SET status = $1, completed_at = $2
-             WHERE id = $3"
+             WHERE id = $3",
         )
         .bind(status)
         .bind(completed_at)
@@ -626,18 +742,36 @@ impl PostgresDb {
         Ok(id)
     }
 
-    pub async fn get_git_repository(&self, repo_id: &str) -> Result<Option<crate::git_repositories::GitRepository>> {
+    pub async fn get_git_repository(
+        &self,
+        repo_id: &str,
+    ) -> Result<Option<crate::git_repositories::GitRepository>> {
         use crate::git_repositories::GitRepository;
         let repo = sqlx::query_as::<_, GitRepository>(
             "SELECT id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json,
                     status, created_by, created_at, updated_at
-             FROM git_repositories WHERE repo_id = $1"
+             FROM git_repositories WHERE repo_id = $1",
         )
         .bind(repo_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get git repository: {}", e)))?;
         Ok(repo)
+    }
+
+    pub async fn list_git_repositories(
+        &self,
+    ) -> Result<Vec<crate::git_repositories::GitRepository>> {
+        use crate::git_repositories::GitRepository;
+        let repos = sqlx::query_as::<_, GitRepository>(
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json,
+                    status, created_by, created_at, updated_at
+             FROM git_repositories ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list git repositories: {}", e)))?;
+        Ok(repos)
     }
 
     // Training job methods
@@ -651,7 +785,7 @@ impl PostgresDb {
         sqlx::query(
             "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, started_at, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(&id)
         .bind(repo_id)
@@ -667,31 +801,31 @@ impl PostgresDb {
     }
 
     // Model methods
-    pub async fn register_model(
-        &self,
-        name: &str,
-        hash_b3: &str,
-        config_hash_b3: &str,
-        tokenizer_hash_b3: &str,
-        tokenizer_cfg_hash_b3: &str,
-        license_hash_b3: Option<&str>,
-        metadata_json: Option<&str>,
-    ) -> Result<String> {
+    pub async fn register_model(&self, params: ModelRegistrationParams) -> Result<String> {
+        let ModelRegistrationParams {
+            name,
+            hash_b3,
+            config_hash_b3,
+            tokenizer_hash_b3,
+            tokenizer_cfg_hash_b3,
+            license_hash_b3,
+            metadata_json,
+        } = params;
         let id = uuid::Uuid::now_v7().to_string();
         sqlx::query(
             "INSERT INTO models
              (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3,
               license_hash_b3, metadata_json, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(&id)
-        .bind(name)
-        .bind(hash_b3)
-        .bind(config_hash_b3)
-        .bind(tokenizer_hash_b3)
-        .bind(tokenizer_cfg_hash_b3)
-        .bind(license_hash_b3)
-        .bind(metadata_json)
+        .bind(&name)
+        .bind(&hash_b3)
+        .bind(&config_hash_b3)
+        .bind(&tokenizer_hash_b3)
+        .bind(&tokenizer_cfg_hash_b3)
+        .bind(license_hash_b3.as_deref())
+        .bind(metadata_json.as_deref())
         .bind(chrono::Utc::now())
         .bind(chrono::Utc::now())
         .execute(&self.pool)
@@ -705,7 +839,7 @@ impl PostgresDb {
         let model = sqlx::query_as::<_, Model>(
             "SELECT id, tenant_id, model_id, model_name, base_model, model_type, model_path,
                     status, metadata_json, created_at, updated_at
-             FROM models WHERE id = $1"
+             FROM models WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -714,7 +848,10 @@ impl PostgresDb {
         Ok(model)
     }
 
-    pub async fn get_base_model_status(&self, tenant_id: &str) -> Result<Option<crate::models::BaseModelStatus>> {
+    pub async fn get_base_model_status(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<crate::models::BaseModelStatus>> {
         use crate::models::BaseModelStatus;
         let status = sqlx::query_as::<_, BaseModelStatus>(
             "SELECT base_model, COUNT(*) as model_count, MAX(updated_at) as last_updated
@@ -722,7 +859,7 @@ impl PostgresDb {
              WHERE tenant_id = $1 AND status = 'active'
              GROUP BY base_model
              ORDER BY last_updated DESC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(tenant_id)
         .fetch_optional(&self.pool)
@@ -738,14 +875,14 @@ impl PostgresDb {
             sqlx::query_as::<_, Job>(
                 "SELECT id, kind, tenant_id, user_id, payload_json, status,
                         created_at, updated_at, completed_at
-                 FROM jobs WHERE tenant_id = $1 ORDER BY created_at DESC"
+                 FROM jobs WHERE tenant_id = $1 ORDER BY created_at DESC",
             )
             .bind(tenant_id)
         } else {
             sqlx::query_as::<_, Job>(
                 "SELECT id, kind, tenant_id, user_id, payload_json, status,
                         created_at, updated_at, completed_at
-                 FROM jobs ORDER BY created_at DESC"
+                 FROM jobs ORDER BY created_at DESC",
             )
         };
         let jobs = query
@@ -759,7 +896,7 @@ impl PostgresDb {
     pub async fn get_plan(&self, id: &str) -> Result<Option<crate::models::Plan>> {
         let plan = sqlx::query_as::<_, crate::models::Plan>(
             "SELECT id, name, description, config_json, active, created_at, updated_at
-             FROM plans WHERE id = $1"
+             FROM plans WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -774,7 +911,7 @@ impl PostgresDb {
         let audits = sqlx::query_as::<_, Audit>(
             "SELECT id, tenant_id, user_id, action, resource_type, resource_id,
                     details_json, ip_address, user_agent, created_at
-             FROM audits ORDER BY created_at DESC"
+             FROM audits ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -783,11 +920,14 @@ impl PostgresDb {
     }
 
     // CP Pointer methods
-    pub async fn get_active_cp_pointer(&self, tenant_id: &str) -> Result<Option<crate::models::CpPointer>> {
+    pub async fn get_active_cp_pointer(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<crate::models::CpPointer>> {
         let pointer = sqlx::query_as::<_, crate::models::CpPointer>(
             "SELECT id, tenant_id, name, adapter_id, active, created_at, updated_at
              FROM cp_pointers WHERE tenant_id = $1 AND active = true
-             ORDER BY created_at DESC LIMIT 1"
+             ORDER BY created_at DESC LIMIT 1",
         )
         .bind(tenant_id)
         .fetch_optional(&self.pool)
@@ -796,10 +936,94 @@ impl PostgresDb {
         Ok(pointer)
     }
 
-    pub async fn get_cp_pointer_by_name(&self, name: &str) -> Result<Option<crate::models::CpPointer>> {
+    pub async fn list_plans_by_tenant(&self, tenant_id: &str) -> Result<Vec<crate::models::Plan>> {
+        let plans = sqlx::query_as::<_, crate::models::Plan>(
+            "SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at
+             FROM plans WHERE tenant_id = $1 ORDER BY created_at DESC"
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list plans by tenant: {}", e)))?;
+        Ok(plans)
+    }
+
+    pub async fn list_all_plans(&self) -> Result<Vec<crate::models::Plan>> {
+        let plans = sqlx::query_as::<_, crate::models::Plan>(
+            "SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at
+             FROM plans ORDER BY created_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list all plans: {}", e)))?;
+        Ok(plans)
+    }
+
+    pub async fn deactivate_all_cp_pointers(&self, tenant_id: &str) -> Result<()> {
+        sqlx::query("UPDATE cp_pointers SET active = false WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to deactivate CP pointers: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn insert_cp_pointer(
+        &self,
+        id: &str,
+        tenant_id: &str,
+        name: &str,
+        adapter_id: &str,
+        active: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO cp_pointers (id, tenant_id, name, adapter_id, active, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $6)"
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(name)
+        .bind(adapter_id)
+        .bind(active)
+        .bind(chrono::Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert CP pointer: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn list_cp_pointers_by_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<crate::models::CpPointer>> {
+        let pointers = sqlx::query_as::<_, crate::models::CpPointer>(
+            "SELECT id, tenant_id, name, adapter_id, active, created_at, updated_at
+             FROM cp_pointers WHERE tenant_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list CP pointers: {}", e)))?;
+        Ok(pointers)
+    }
+
+    pub async fn activate_cp_pointer(&self, id: &str) -> Result<()> {
+        sqlx::query("UPDATE cp_pointers SET active = true, updated_at = $1 WHERE id = $2")
+            .bind(chrono::Utc::now())
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to activate CP pointer: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn get_cp_pointer_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Option<crate::models::CpPointer>> {
         let pointer = sqlx::query_as::<_, crate::models::CpPointer>(
             "SELECT id, tenant_id, name, adapter_id, active, created_at, updated_at
-             FROM cp_pointers WHERE name = $1"
+             FROM cp_pointers WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -809,12 +1033,15 @@ impl PostgresDb {
     }
 
     // Worker methods
-    pub async fn list_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<crate::models::Worker>> {
+    pub async fn list_workers_by_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<crate::models::Worker>> {
         use crate::models::Worker;
         let workers = sqlx::query_as::<_, Worker>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
                     started_at, last_seen_at
-             FROM workers WHERE tenant_id = $1 ORDER BY started_at DESC"
+             FROM workers WHERE tenant_id = $1 ORDER BY started_at DESC",
         )
         .bind(tenant_id)
         .fetch_all(&self.pool)
@@ -822,11 +1049,641 @@ impl PostgresDb {
         .map_err(|e| AosError::Database(format!("Failed to list workers by tenant: {}", e)))?;
         Ok(workers)
     }
-}
 
-// Re-export sqlx types for PostgreSQL
-pub use sqlx::postgres::{PgQueryResult, PgRow};
-pub use sqlx::Row as PgRowTrait;
+    pub async fn get_adapter_activations(
+        &self,
+        adapter_id: &str,
+        limit: i64,
+    ) -> Result<Vec<crate::adapters::AdapterActivation>> {
+        let activations = sqlx::query_as::<_, crate::adapters::AdapterActivation>(
+            "SELECT id, adapter_id, request_id, gate_value, selected, created_at
+             FROM adapter_activations
+             WHERE adapter_id = $1
+             ORDER BY created_at DESC
+             LIMIT $2",
+        )
+        .bind(adapter_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get adapter activations: {}", e)))?;
+        Ok(activations)
+    }
+
+    pub async fn update_adapter_memory(&self, adapter_id: &str, memory_bytes: i64) -> Result<()> {
+        sqlx::query("UPDATE adapters SET memory_bytes = $1, updated_at = $2 WHERE adapter_id = $3")
+            .bind(memory_bytes)
+            .bind(chrono::Utc::now())
+            .bind(adapter_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update adapter memory: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn list_repositories(
+        &self,
+        tenant_id: &str,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<crate::repositories::Repository>> {
+        let repos = sqlx::query_as::<_, crate::repositories::Repository>(
+            r#"
+            SELECT id, tenant_id, repo_id, path, languages_json, default_branch,
+                   latest_scan_commit, latest_scan_at, latest_graph_hash, status,
+                   created_at, updated_at
+            FROM repositories
+            WHERE tenant_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list repositories: {}", e)))?;
+        Ok(repos)
+    }
+
+    /// List monitoring rules with optional filters
+    pub async fn list_monitoring_rules(
+        &self,
+        tenant_id: Option<&str>,
+        is_active: Option<bool>,
+    ) -> Result<Vec<crate::process_monitoring::ProcessMonitoringRule>> {
+        let mut query = "SELECT * FROM process_monitoring_rules WHERE 1=1".to_string();
+        let mut bind_count = 0;
+
+        if tenant_id.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND tenant_id = ${}", bind_count));
+        }
+
+        if is_active.is_some() {
+            bind_count += 1;
+            query.push_str(&format!(" AND is_active = ${}", bind_count));
+        }
+
+        query.push_str(" ORDER BY created_at DESC");
+
+        let mut sql_query = sqlx::query(&query);
+
+        if let Some(tenant) = tenant_id {
+            sql_query = sql_query.bind(tenant);
+        }
+
+        if let Some(active) = is_active {
+            sql_query = sql_query.bind(active);
+        }
+
+        let rows = sql_query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list monitoring rules: {}", e)))?;
+
+        let mut rules = Vec::new();
+        for row in rows {
+            let rule_type: RuleType =
+                serde_json::from_value(row.get("rule_type")).unwrap_or(RuleType::Cpu);
+            let threshold_operator: ThresholdOperator =
+                serde_json::from_value(row.get("threshold_operator"))
+                    .unwrap_or(ThresholdOperator::Gt);
+            let severity: AlertSeverity =
+                serde_json::from_value(row.get("severity")).unwrap_or(AlertSeverity::Warning);
+
+            rules.push(ProcessMonitoringRule {
+                id: row.get("id"),
+                name: row.get("name"),
+                description: row.get("description"),
+                tenant_id: row.get("tenant_id"),
+                rule_type,
+                metric_name: row.get("metric_name"),
+                threshold_value: row.get("threshold_value"),
+                threshold_operator,
+                severity,
+                evaluation_window_seconds: row.get("evaluation_window_seconds"),
+                cooldown_seconds: row.get("cooldown_seconds"),
+                is_active: row.get("is_active"),
+                notification_channels: row.get("notification_channels"),
+                escalation_rules: row.get("escalation_rules"),
+                created_by: row.get("created_by"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            });
+        }
+
+        Ok(rules)
+    }
+
+    pub async fn list_process_alerts(&self, filters: AlertFilters) -> Result<Vec<ProcessAlert>> {
+        let mut builder = sqlx::QueryBuilder::new("SELECT * FROM process_alerts WHERE 1=1");
+
+        if let Some(tenant) = filters.tenant_id {
+            builder.push(" AND tenant_id = ").push_bind(tenant);
+        }
+
+        if let Some(worker) = filters.worker_id {
+            builder.push(" AND worker_id = ").push_bind(worker);
+        }
+
+        if let Some(status) = filters.status {
+            builder.push(" AND status = ").push_bind(status.to_string());
+        }
+
+        if let Some(severity) = filters.severity {
+            builder
+                .push(" AND severity = ")
+                .push_bind(severity.to_string());
+        }
+
+        builder.push(" ORDER BY created_at DESC");
+
+        if let Some(limit) = filters.limit {
+            builder.push(" LIMIT ").push_bind(limit);
+        }
+
+        let query = builder.build();
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list alerts: {}", e)))?;
+
+        let mut alerts = Vec::new();
+        for row in rows {
+            let severity = AlertSeverity::from_string(row.get::<String, _>("severity"));
+            let status = AlertStatus::from_string(row.get::<String, _>("status"));
+
+            alerts.push(ProcessAlert {
+                id: row.get("id"),
+                rule_id: row.get("rule_id"),
+                worker_id: row.get("worker_id"),
+                tenant_id: row.get("tenant_id"),
+                alert_type: row.get("alert_type"),
+                severity,
+                title: row.get("title"),
+                message: row.get("message"),
+                metric_value: row.get("metric_value"),
+                threshold_value: row.get("threshold_value"),
+                status,
+                acknowledged_by: row.get("acknowledged_by"),
+                acknowledged_at: row
+                    .get::<Option<chrono::DateTime<chrono::Utc>>, _>("acknowledged_at"),
+                resolved_at: row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("resolved_at"),
+                suppression_reason: row.get("suppression_reason"),
+                suppression_until: row
+                    .get::<Option<chrono::DateTime<chrono::Utc>>, _>("suppression_until"),
+                escalation_level: row.get::<i64, _>("escalation_level"),
+                notification_sent: row.get("notification_sent"),
+                created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+                updated_at: row.get::<chrono::DateTime<chrono::Utc>, _>("updated_at"),
+            });
+        }
+
+        Ok(alerts)
+    }
+
+    pub async fn get_process_alert(&self, id: &str) -> Result<Option<ProcessAlert>> {
+        let row = sqlx::query("SELECT * FROM process_alerts WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get alert: {}", e)))?;
+
+        if let Some(row) = row {
+            let severity = AlertSeverity::from_string(row.get::<String, _>("severity"));
+            let status = AlertStatus::from_string(row.get::<String, _>("status"));
+
+            Ok(Some(ProcessAlert {
+                id: row.get("id"),
+                rule_id: row.get("rule_id"),
+                worker_id: row.get("worker_id"),
+                tenant_id: row.get("tenant_id"),
+                alert_type: row.get("alert_type"),
+                severity,
+                title: row.get("title"),
+                message: row.get("message"),
+                metric_value: row.get("metric_value"),
+                threshold_value: row.get("threshold_value"),
+                status,
+                acknowledged_by: row.get("acknowledged_by"),
+                acknowledged_at: row
+                    .get::<Option<chrono::DateTime<chrono::Utc>>, _>("acknowledged_at"),
+                resolved_at: row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("resolved_at"),
+                suppression_reason: row.get("suppression_reason"),
+                suppression_until: row
+                    .get::<Option<chrono::DateTime<chrono::Utc>>, _>("suppression_until"),
+                escalation_level: row.get::<i64, _>("escalation_level"),
+                notification_sent: row.get("notification_sent"),
+                created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+                updated_at: row.get::<chrono::DateTime<chrono::Utc>, _>("updated_at"),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn update_process_alert_status(
+        &self,
+        id: &str,
+        status: AlertStatus,
+        user: Option<&str>,
+    ) -> Result<()> {
+        let mut builder = sqlx::QueryBuilder::new("UPDATE process_alerts SET status = ");
+        builder.push_bind(status.to_string());
+        builder.push(", updated_at = NOW()");
+
+        if matches!(status, AlertStatus::Acknowledged) {
+            builder.push(", acknowledged_at = NOW()");
+            if let Some(user) = user {
+                builder.push(", acknowledged_by = ").push_bind(user);
+            }
+        }
+
+        if matches!(status, AlertStatus::Resolved) {
+            builder.push(", resolved_at = NOW()");
+        }
+
+        builder.push(" WHERE id = ").push_bind(id);
+
+        builder
+            .build()
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update alert status: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn list_process_anomalies(
+        &self,
+        filters: AnomalyFilters,
+    ) -> Result<Vec<ProcessAnomaly>> {
+        let mut builder = sqlx::QueryBuilder::new("SELECT * FROM process_anomalies WHERE 1=1");
+
+        if let Some(tenant) = filters.tenant_id {
+            builder.push(" AND tenant_id = ").push_bind(tenant);
+        }
+
+        if let Some(worker) = filters.worker_id {
+            builder.push(" AND worker_id = ").push_bind(worker);
+        }
+
+        if let Some(status) = filters.status {
+            builder.push(" AND status = ").push_bind(status.to_string());
+        }
+
+        if let Some(anomaly_type) = filters.anomaly_type {
+            builder.push(" AND anomaly_type = ").push_bind(anomaly_type);
+        }
+
+        builder.push(" ORDER BY created_at DESC");
+
+        if let Some(limit) = filters.limit {
+            builder.push(" LIMIT ").push_bind(limit);
+        }
+
+        let rows = builder
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list anomalies: {}", e)))?;
+
+        let mut anomalies = Vec::new();
+        for row in rows {
+            anomalies.push(ProcessAnomaly {
+                id: row.get("id"),
+                worker_id: row.get("worker_id"),
+                tenant_id: row.get("tenant_id"),
+                anomaly_type: row.get("anomaly_type"),
+                metric_name: row.get("metric_name"),
+                detected_value: row.get("detected_value"),
+                expected_range_min: row.get("expected_range_min"),
+                expected_range_max: row.get("expected_range_max"),
+                confidence_score: row.get("confidence_score"),
+                severity: AlertSeverity::from_string(row.get::<String, _>("severity")),
+                description: row.get("description"),
+                detection_method: row.get("detection_method"),
+                model_version: row.get("model_version"),
+                status: AnomalyStatus::from_string(row.get::<String, _>("status")),
+                investigated_by: row.get("investigated_by"),
+                investigation_notes: row.get("investigation_notes"),
+                resolved_at: row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("resolved_at"),
+                created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            });
+        }
+
+        Ok(anomalies)
+    }
+
+    pub async fn get_process_anomaly(&self, id: &str) -> Result<Option<ProcessAnomaly>> {
+        let row = sqlx::query("SELECT * FROM process_anomalies WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get anomaly: {}", e)))?;
+
+        if let Some(row) = row {
+            Ok(Some(ProcessAnomaly {
+                id: row.get("id"),
+                worker_id: row.get("worker_id"),
+                tenant_id: row.get("tenant_id"),
+                anomaly_type: row.get("anomaly_type"),
+                metric_name: row.get("metric_name"),
+                detected_value: row.get("detected_value"),
+                expected_range_min: row.get("expected_range_min"),
+                expected_range_max: row.get("expected_range_max"),
+                confidence_score: row.get("confidence_score"),
+                severity: AlertSeverity::from_string(row.get::<String, _>("severity")),
+                description: row.get("description"),
+                detection_method: row.get("detection_method"),
+                model_version: row.get("model_version"),
+                status: AnomalyStatus::from_string(row.get::<String, _>("status")),
+                investigated_by: row.get("investigated_by"),
+                investigation_notes: row.get("investigation_notes"),
+                resolved_at: row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("resolved_at"),
+                created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn update_process_anomaly_status(
+        &self,
+        id: &str,
+        status: AnomalyStatus,
+        investigated_by: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<()> {
+        let mut builder = sqlx::QueryBuilder::new("UPDATE process_anomalies SET status = ");
+        builder.push_bind(status.to_string());
+
+        if let Some(user) = investigated_by {
+            builder.push(", investigated_by = ").push_bind(user);
+        }
+
+        if let Some(notes) = notes {
+            builder.push(", investigation_notes = ").push_bind(notes);
+        }
+
+        if matches!(status, AnomalyStatus::Resolved) {
+            builder.push(", resolved_at = NOW()");
+        }
+
+        builder.push(" WHERE id = ").push_bind(id);
+
+        builder
+            .build()
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn create_monitoring_dashboard(&self, req: CreateDashboardRequest) -> Result<String> {
+        let id = uuid::Uuid::now_v7().to_string();
+
+        let CreateDashboardRequest {
+            name,
+            description,
+            tenant_id,
+            dashboard_config,
+            is_shared,
+            created_by,
+        } = req;
+
+        let description_ref = description.as_deref();
+        let created_by_ref = created_by.as_deref();
+
+        sqlx::query!(
+            r#"
+            INSERT INTO process_monitoring_dashboards (
+                id, name, description, tenant_id, dashboard_config, is_shared, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+            id,
+            name,
+            description_ref,
+            tenant_id,
+            dashboard_config,
+            is_shared,
+            created_by_ref
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create dashboard: {}", e)))?;
+
+        Ok(id)
+    }
+
+    pub async fn list_monitoring_dashboards(
+        &self,
+        tenant_id: Option<&str>,
+        is_shared: Option<bool>,
+    ) -> Result<Vec<MonitoringDashboard>> {
+        let mut builder =
+            sqlx::QueryBuilder::new("SELECT * FROM process_monitoring_dashboards WHERE 1=1");
+
+        if let Some(tenant) = tenant_id {
+            builder.push(" AND tenant_id = ").push_bind(tenant);
+        }
+
+        if let Some(shared) = is_shared {
+            builder.push(" AND is_shared = ").push_bind(shared);
+        }
+
+        builder.push(" ORDER BY created_at DESC");
+
+        let rows = builder
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list dashboards: {}", e)))?;
+
+        let mut dashboards = Vec::new();
+        for row in rows {
+            dashboards.push(MonitoringDashboard {
+                id: row.get("id"),
+                name: row.get("name"),
+                description: row.get("description"),
+                tenant_id: row.get("tenant_id"),
+                dashboard_config: row.get::<serde_json::Value, _>("dashboard_config"),
+                is_shared: row.get("is_shared"),
+                created_by: row.get("created_by"),
+                created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+                updated_at: row.get::<chrono::DateTime<chrono::Utc>, _>("updated_at"),
+            });
+        }
+
+        Ok(dashboards)
+    }
+
+    pub async fn create_monitoring_report(&self, req: CreateReportRequest) -> Result<String> {
+        let id = uuid::Uuid::now_v7().to_string();
+
+        let CreateReportRequest {
+            name,
+            description,
+            tenant_id,
+            report_type,
+            report_config,
+            report_data,
+            file_path,
+            file_size_bytes,
+            created_by,
+        } = req;
+
+        let description_ref = description.as_deref();
+        let file_path_ref = file_path.as_deref();
+        let created_by_ref = created_by.as_deref();
+
+        sqlx::query!(
+            r#"
+            INSERT INTO process_monitoring_reports (
+                id, name, description, tenant_id, report_type, report_config,
+                report_data, file_path, file_size_bytes, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "#,
+            id,
+            name,
+            description_ref,
+            tenant_id,
+            report_type,
+            report_config,
+            report_data,
+            file_path_ref,
+            file_size_bytes,
+            created_by_ref
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create report: {}", e)))?;
+
+        Ok(id)
+    }
+
+    pub async fn list_monitoring_reports(
+        &self,
+        tenant_id: Option<&str>,
+        report_type: Option<&str>,
+    ) -> Result<Vec<ProcessMonitoringReport>> {
+        let mut builder =
+            sqlx::QueryBuilder::new("SELECT * FROM process_monitoring_reports WHERE 1=1");
+
+        if let Some(tenant) = tenant_id {
+            builder.push(" AND tenant_id = ").push_bind(tenant);
+        }
+
+        if let Some(rtype) = report_type {
+            builder.push(" AND report_type = ").push_bind(rtype);
+        }
+
+        builder.push(" ORDER BY generated_at DESC");
+
+        let rows = builder
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list reports: {}", e)))?;
+
+        let mut reports = Vec::new();
+        for row in rows {
+            reports.push(ProcessMonitoringReport {
+                id: row.get("id"),
+                name: row.get("name"),
+                description: row.get("description"),
+                tenant_id: row.get("tenant_id"),
+                report_type: row.get("report_type"),
+                report_config: row.get("report_config"),
+                generated_at: row.get::<chrono::DateTime<chrono::Utc>, _>("generated_at"),
+                report_data: row.get("report_data"),
+                file_path: row.get("file_path"),
+                file_size_bytes: row.get("file_size_bytes"),
+                created_by: row.get("created_by"),
+            });
+        }
+
+        Ok(reports)
+    }
+
+    // Pinned adapter methods
+    pub async fn pin_adapter(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        pinned_until: Option<&str>,
+        reason: &str,
+        pinned_by: Option<&str>,
+    ) -> Result<String> {
+        let id = uuid::Uuid::now_v7().to_string();
+        sqlx::query(
+            "INSERT INTO pinned_adapters (id, tenant_id, adapter_id, pinned_until, reason, pinned_by, pinned_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             ON CONFLICT(tenant_id, adapter_id) DO UPDATE SET
+                pinned_until = excluded.pinned_until,
+                reason = excluded.reason,
+                pinned_by = excluded.pinned_by,
+                pinned_at = NOW()"
+        )
+        .bind(&id)
+        .bind(tenant_id)
+        .bind(adapter_id)
+        .bind(pinned_until)
+        .bind(reason)
+        .bind(pinned_by)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to pin adapter: {}", e)))?;
+        Ok(id)
+    }
+
+    pub async fn unpin_adapter(&self, tenant_id: &str, adapter_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pinned_adapters WHERE tenant_id = $1 AND adapter_id = $2")
+            .bind(tenant_id)
+            .bind(adapter_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to unpin adapter: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn list_pinned_adapters(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<crate::pinned_adapters::PinnedAdapter>> {
+        let adapters = sqlx::query_as::<_, crate::pinned_adapters::PinnedAdapter>(
+            "SELECT id, tenant_id, adapter_id, pinned_until, reason, pinned_at, pinned_by
+             FROM pinned_adapters
+             WHERE tenant_id = $1
+             AND (pinned_until IS NULL OR pinned_until > NOW())
+             ORDER BY pinned_at DESC",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list pinned adapters: {}", e)))?;
+        Ok(adapters)
+    }
+
+    pub async fn count_enclave_operations(&self) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM enclave_operations")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to count enclave operations: {}", e))
+            })?;
+        Ok(count)
+    }
+
+    pub async fn get_policies(&self, _tenant_id: &str) -> Result<crate::policies::TenantPolicies> {
+        // For now, return default policies
+        // TODO: Implement database storage and retrieval of tenant-specific policies
+        Ok(crate::policies::TenantPolicies::default())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -848,7 +1705,6 @@ mod tests {
         db.close().await;
     }
 
-    #[tokio::test]
     #[ignore] // Requires PostgreSQL server
     async fn test_postgres_migration() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")

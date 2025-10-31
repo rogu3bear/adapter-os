@@ -59,9 +59,8 @@ pub async fn run_tutorial(mut out: OutputWriter, args: TutorialArgs) -> Result<(
 
 fn step<F: FnOnce() -> Result<()>>(out: &mut OutputWriter, title: &str, f: F) -> Result<()> {
     out.section(title);
-    f().map(|_| out.success("ok")).map_err(|e| {
-        out.error(&e.to_string());
-        e
+    f().map(|_| out.success("ok")).inspect_err(|e| {
+        out.error(e.to_string());
     })
 }
 

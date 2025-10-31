@@ -49,7 +49,9 @@ impl AosManager {
         if let Some(ref hot_swap) = self.hot_swap {
             hot_swap.swap_single(slot, path).await
         } else {
-            Err(adapteros_core::AosError::Config("Hot-swap not enabled".to_string()))
+            Err(adapteros_core::AosError::Config(
+                "Hot-swap not enabled".to_string(),
+            ))
         }
     }
 
@@ -57,7 +59,9 @@ impl AosManager {
         if let Some(ref hot_swap) = self.hot_swap {
             hot_swap.preload(slot, path).await
         } else {
-            Err(adapteros_core::AosError::Config("Hot-swap not enabled".to_string()))
+            Err(adapteros_core::AosError::Config(
+                "Hot-swap not enabled".to_string(),
+            ))
         }
     }
 
@@ -65,7 +69,9 @@ impl AosManager {
         if let Some(ref hot_swap) = self.hot_swap {
             hot_swap.swap(slots)
         } else {
-            Err(adapteros_core::AosError::Config("Hot-swap not enabled".to_string()))
+            Err(adapteros_core::AosError::Config(
+                "Hot-swap not enabled".to_string(),
+            ))
         }
     }
 
@@ -73,7 +79,9 @@ impl AosManager {
         if let Some(ref hot_swap) = self.hot_swap {
             hot_swap.rollback()
         } else {
-            Err(adapteros_core::AosError::Config("Hot-swap not enabled".to_string()))
+            Err(adapteros_core::AosError::Config(
+                "Hot-swap not enabled".to_string(),
+            ))
         }
     }
 
@@ -138,7 +146,9 @@ impl AosManagerBuilder {
             MmapAdapterLoader::without_verification()
         };
 
-        let cache = self.cache_config.map(|config| Arc::new(AdapterCache::new(config)));
+        let cache = self
+            .cache_config
+            .map(|config| Arc::new(AdapterCache::new(config)));
 
         let hot_swap = if self.enable_hot_swap {
             let manager = if self.verify_signatures {

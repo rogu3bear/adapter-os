@@ -153,6 +153,9 @@ pub struct PolicyPackConfig {
     /// Policy pack ID
     pub id: PolicyPackId,
 
+    /// Policy pack version (semver)
+    pub version: String,
+
     /// Configuration data
     pub config: serde_json::Value,
 
@@ -337,7 +340,7 @@ pub struct PolicyViolation {
     pub details: Option<serde_json::Value>,
 
     /// Remediation steps
-    pub remediation: Option<String>,
+    pub remediation: Option<Vec<String>>,
 
     /// Violation timestamp
     pub timestamp: DateTime<Utc>,
@@ -474,6 +477,7 @@ impl PolicyPackManager {
         for id in PolicyPackId::all() {
             let config = PolicyPackConfig {
                 id: id.clone(),
+                version: "1.0.0".to_string(), // Default semver version
                 config: self.get_default_config(&id),
                 enabled: true,
                 enforcement_level: EnforcementLevel::Error,
@@ -481,6 +485,11 @@ impl PolicyPackManager {
             };
             self.configs.insert(id, config);
         }
+    }
+
+    /// Get configuration for a policy pack
+    pub fn get_config(&self, id: &PolicyPackId) -> Option<&PolicyPackConfig> {
+        self.configs.get(id)
     }
 
     /// Get default configuration for a policy pack
@@ -659,7 +668,7 @@ impl PolicyPackManager {
                             severity: ViolationSeverity::Error,
                             message: format!("Policy pack validation failed: {}", e),
                             details: Some(serde_json::json!({"error": e.to_string()})),
-                            remediation: Some("Check policy pack configuration".to_string()),
+                            remediation: Some(vec!["Check policy pack configuration".to_string()]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -830,7 +839,7 @@ impl PolicyPackValidator for EgressValidator {
                     severity: ViolationSeverity::Error,
                     message: "DNS resolution requests are not allowed".to_string(),
                     details: Some(serde_json::json!({"operation": "dns_resolution"})),
-                    remediation: Some("DNS resolution is blocked for security".to_string()),
+                    remediation: Some(vec!["DNS resolution is blocked for security".to_string()]),
                     timestamp: Utc::now(),
                 });
             }
@@ -844,7 +853,7 @@ impl PolicyPackValidator for EgressValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "TCP/UDP connections are not allowed".to_string(),
                             details: Some(serde_json::json!({"protocol": protocol})),
-                            remediation: Some("Use Unix domain sockets only".to_string()),
+                            remediation: Some(vec!["Use Unix domain sockets only".to_string()]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -909,7 +918,7 @@ impl PolicyPackValidator for DeterminismValidator {
                 severity: ViolationSeverity::Error,
                 message: "Runtime kernel compilation is not allowed".to_string(),
                 details: Some(serde_json::json!({"operation": "kernel_compile"})),
-                remediation: Some("Use precompiled .metallib blobs".to_string()),
+                remediation: Some(vec!["Use precompiled .metallib blobs".to_string()]),
                 timestamp: Utc::now(),
             });
         }
@@ -924,7 +933,7 @@ impl PolicyPackValidator for DeterminismValidator {
                         severity: ViolationSeverity::Error,
                         message: "Non-HKDF RNG usage detected".to_string(),
                         details: Some(serde_json::json!({"rng_type": rng_type})),
-                        remediation: Some("Use HKDF-seeded RNG only".to_string()),
+                        remediation: Some(vec!["Use HKDF-seeded RNG only".to_string()]),
                         timestamp: Utc::now(),
                     });
                 }
@@ -991,7 +1000,9 @@ impl PolicyPackValidator for RouterValidator {
                             severity: ViolationSeverity::Error,
                             message: "K-sparse value exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"k_sparse": k})),
-                            remediation: Some("Reduce K-sparse value to maximum of 3".to_string()),
+                            remediation: Some(vec![
+                                "Reduce K-sparse value to maximum of 3".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1009,7 +1020,7 @@ impl PolicyPackValidator for RouterValidator {
                         severity: ViolationSeverity::Error,
                         message: "Gate quantization must be Q15".to_string(),
                         details: Some(serde_json::json!({"gate_quant": quant_type})),
-                        remediation: Some("Use Q15 quantization for gates".to_string()),
+                        remediation: Some(vec!["Use Q15 quantization for gates".to_string()]),
                         timestamp: Utc::now(),
                     });
                 }
@@ -1077,7 +1088,9 @@ impl PolicyPackValidator for EvidenceValidator {
                                 severity: ViolationSeverity::Error,
                                 message: "Evidence spans are required for inference".to_string(),
                                 details: Some(serde_json::json!({"evidence_spans": spans})),
-                                remediation: Some("Include at least one evidence span".to_string()),
+                                remediation: Some(vec![
+                                    "Include at least one evidence span".to_string()
+                                ]),
                                 timestamp: Utc::now(),
                             });
                         }
@@ -1146,7 +1159,9 @@ impl PolicyPackValidator for RefusalValidator {
                             severity: ViolationSeverity::Warning,
                             message: "Low confidence response should be refused".to_string(),
                             details: Some(serde_json::json!({"confidence": conf})),
-                            remediation: Some("Refuse response due to low confidence".to_string()),
+                            remediation: Some(vec![
+                                "Refuse response due to low confidence".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1215,9 +1230,9 @@ impl PolicyPackValidator for NumericUnitsValidator {
                                     severity: ViolationSeverity::Error,
                                     message: "Units are required for numeric values".to_string(),
                                     details: Some(serde_json::json!({"value": value})),
-                                    remediation: Some(
-                                        "Include units for all numeric values".to_string(),
-                                    ),
+                                    remediation: Some(vec![
+                                        "Include units for all numeric values".to_string()
+                                    ]),
                                     timestamp: Utc::now(),
                                 });
                             }
@@ -1288,7 +1303,7 @@ impl PolicyPackValidator for RagIndexValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "Cross-tenant access detected".to_string(),
                             details: Some(serde_json::json!({"tenant_id": tenant_id})),
-                            remediation: Some("Enforce per-tenant isolation".to_string()),
+                            remediation: Some(vec!["Enforce per-tenant isolation".to_string()]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1355,7 +1370,7 @@ impl PolicyPackValidator for IsolationValidator {
                         severity: ViolationSeverity::Error,
                         message: "Shared memory usage is forbidden".to_string(),
                         details: Some(serde_json::json!({"use_shared_memory": use_shm})),
-                        remediation: Some("Disable shared memory usage".to_string()),
+                        remediation: Some(vec!["Disable shared memory usage".to_string()]),
                         timestamp: Utc::now(),
                     });
                 }
@@ -1422,7 +1437,9 @@ impl PolicyPackValidator for TelemetryValidator {
                             severity: ViolationSeverity::Warning,
                             message: "Sampling rate exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"sampling_rate": rate})),
-                            remediation: Some("Reduce sampling rate to maximum of 1.0".to_string()),
+                            remediation: Some(vec![
+                                "Reduce sampling rate to maximum of 1.0".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1555,9 +1572,9 @@ impl PolicyPackValidator for PerformanceValidator {
                             severity: ViolationSeverity::Error,
                             message: "Latency exceeds p95 budget".to_string(),
                             details: Some(serde_json::json!({"latency_p95_ms": latency})),
-                            remediation: Some(
-                                "Optimize performance to meet latency budget".to_string(),
-                            ),
+                            remediation: Some(vec![
+                                "Optimize performance to meet latency budget".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1624,9 +1641,9 @@ impl PolicyPackValidator for MemoryValidator {
                             severity: ViolationSeverity::Error,
                             message: "Memory headroom below minimum threshold".to_string(),
                             details: Some(serde_json::json!({"headroom_pct": headroom})),
-                            remediation: Some(
-                                "Increase memory headroom to at least 15%".to_string(),
-                            ),
+                            remediation: Some(vec![
+                                "Increase memory headroom to at least 15%".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1693,7 +1710,7 @@ impl PolicyPackValidator for ArtifactsValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "Artifact signature is required".to_string(),
                             details: Some(serde_json::json!({"artifact": artifact})),
-                            remediation: Some("Sign artifact with Ed25519".to_string()),
+                            remediation: Some(vec!["Sign artifact with Ed25519".to_string()]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1762,9 +1779,9 @@ impl PolicyPackValidator for SecretsValidator {
                                     severity: ViolationSeverity::Blocker,
                                     message: "Plaintext secrets are not allowed".to_string(),
                                     details: Some(serde_json::json!({"secret": secret})),
-                                    remediation: Some(
+                                    remediation: Some(vec![
                                         "Use Secure Enclave for secret storage".to_string(),
-                                    ),
+                                    ]),
                                     timestamp: Utc::now(),
                                 });
                             }
@@ -1834,7 +1851,9 @@ impl PolicyPackValidator for BuildReleaseValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "Replay shows non-zero diff".to_string(),
                             details: Some(serde_json::json!({"replay_diff": diff})),
-                            remediation: Some("Fix determinism issues before release".to_string()),
+                            remediation: Some(vec![
+                                "Fix determinism issues before release".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1901,7 +1920,9 @@ impl PolicyPackValidator for ComplianceValidator {
                             severity: ViolationSeverity::Error,
                             message: "Compliance evidence links are required".to_string(),
                             details: Some(serde_json::json!({"compliance": compliance})),
-                            remediation: Some("Provide evidence links for compliance".to_string()),
+                            remediation: Some(vec![
+                                "Provide evidence links for compliance".to_string()
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1969,9 +1990,9 @@ impl PolicyPackValidator for IncidentValidator {
                             severity: ViolationSeverity::Error,
                             message: "Incident response procedures are required".to_string(),
                             details: Some(serde_json::json!({"incident_type": incident_type})),
-                            remediation: Some(
+                            remediation: Some(vec![
                                 "Follow documented incident response procedures".to_string(),
-                            ),
+                            ]),
                             timestamp: Utc::now(),
                         });
                     }
@@ -2037,7 +2058,7 @@ impl PolicyPackValidator for LlmOutputValidator {
                         severity: ViolationSeverity::Error,
                         message: "Output format must be JSON".to_string(),
                         details: Some(serde_json::json!({"output_format": output_format})),
-                        remediation: Some("Use JSON format for all outputs".to_string()),
+                        remediation: Some(vec!["Use JSON format for all outputs".to_string()]),
                         timestamp: Utc::now(),
                     });
                 }
@@ -2216,7 +2237,9 @@ impl PolicyPackValidator for FullPackValidator {
                         severity: ViolationSeverity::Error,
                         message: "Invalid policy schema version".to_string(),
                         details: Some(serde_json::json!({"schema": schema})),
-                        remediation: Some("Use schema version 'adapteros.policy.v1'".to_string()),
+                        remediation: Some(vec![
+                            "Use schema version 'adapteros.policy.v1'".to_string()
+                        ]),
                         timestamp: Utc::now(),
                     });
                 }
@@ -2249,7 +2272,7 @@ mod tests {
     fn test_policy_pack_manager_creation() {
         let manager = PolicyPackManager::new();
         assert_eq!(manager.packs.len(), 20);
-        assert_eq!(manager.configs.len(), 20);
+        assert_eq!(manager.get_all_configs().len(), 20);
     }
 
     #[test]
@@ -2284,6 +2307,7 @@ mod tests {
 
         let config = PolicyPackConfig {
             id: PolicyPackId::Egress,
+            version: "1.0.0".to_string(),
             config: serde_json::json!({"mode": "deny_all"}),
             enabled: false,
             enforcement_level: EnforcementLevel::Warning,

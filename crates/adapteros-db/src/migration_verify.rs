@@ -15,9 +15,11 @@
 //!
 //! ```no_run
 //! use adapteros_db::migration_verify::MigrationVerifier;
-//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let verifier = MigrationVerifier::new("migrations")?;
 //! verifier.verify_all()?;
+//! # Ok(())
+//! # }
 //! ```
 
 use adapteros_core::{AosError, Result};

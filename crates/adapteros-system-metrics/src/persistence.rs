@@ -5,7 +5,9 @@
 //! Background service that collects metrics continuously and stores them in the database.
 //! Integrates with existing SystemMonitor and telemetry writer.
 
+use crate::database::SystemMetricsDb;
 use crate::monitoring_types::*;
+use crate::types::SystemMetricsRecord;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
@@ -18,6 +20,7 @@ use tracing::{debug, error, info, warn};
 /// Metrics persistence service
 pub struct MetricsPersistenceService {
     db: Arc<Db>,
+    system_metrics_db: SystemMetricsDb,
     telemetry_writer: TelemetryWriter,
     config: PersistenceConfig,
     is_running: Arc<RwLock<bool>>,
@@ -52,8 +55,11 @@ impl Default for PersistenceConfig {
 impl MetricsPersistenceService {
     /// Create a new metrics persistence service
     pub fn new(db: Arc<Db>, telemetry_writer: TelemetryWriter, config: PersistenceConfig) -> Self {
+        let system_metrics_db = SystemMetricsDb::new(db.pool().clone());
+
         Self {
             db,
+            system_metrics_db,
             telemetry_writer,
             config,
             is_running: Arc::new(RwLock::new(false)),
@@ -191,6 +197,39 @@ impl MetricsPersistenceService {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| adapteros_core::AosError::System(format!("Time error: {}", e)))?
             .as_secs();
+
+        let system_metrics_record = SystemMetricsRecord {
+            id: None,
+            timestamp: saturating_u64_to_i64(timestamp_secs),
+            cpu_usage: metrics.cpu_usage,
+            memory_usage: metrics.memory_usage,
+            disk_read_bytes: saturating_u64_to_i64(metrics.disk_io.read_bytes),
+            disk_write_bytes: saturating_u64_to_i64(metrics.disk_io.write_bytes),
+            disk_usage_percent: metrics.disk_io.usage_percent as f64,
+            network_rx_bytes: saturating_u64_to_i64(metrics.network_io.rx_bytes),
+            network_tx_bytes: saturating_u64_to_i64(metrics.network_io.tx_bytes),
+            network_rx_packets: saturating_u64_to_i64(metrics.network_io.rx_packets),
+            network_tx_packets: saturating_u64_to_i64(metrics.network_io.tx_packets),
+            network_bandwidth_mbps: metrics.network_io.bandwidth_mbps as f64,
+            gpu_utilization: metrics.gpu_metrics.utilization,
+            gpu_memory_used: metrics.gpu_metrics.memory_used.map(saturating_u64_to_i64),
+            gpu_memory_total: metrics.gpu_metrics.memory_total.map(saturating_u64_to_i64),
+            uptime_seconds: saturating_u64_to_i64(uptime),
+            process_count: saturating_usize_to_i32(process_count),
+            load_1min: load_avg.0,
+            load_5min: load_avg.1,
+            load_15min: load_avg.2,
+        };
+
+        let metrics_record_id = self
+            .system_metrics_db
+            .store_metrics(&system_metrics_record)
+            .await?;
+
+        debug!(
+            "Stored system metrics record {} for timestamp {}",
+            metrics_record_id, system_metrics_record.timestamp
+        );
 
         // Get active workers from database
         let workers = self.get_active_workers().await?;
@@ -395,7 +434,7 @@ impl MetricsPersistenceService {
             .to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count = sqlx::query!(
+        let deleted_health_metrics = sqlx::query!(
             "DELETE FROM process_health_metrics WHERE collected_at < ?",
             cutoff_rfc3339
         )
@@ -406,7 +445,15 @@ impl MetricsPersistenceService {
         })?
         .rows_affected();
 
-        info!("Cleaned up {} old health metrics", deleted_count);
+        let deleted_system_metrics = self
+            .system_metrics_db
+            .cleanup_old_metrics(self.config.retention_days)
+            .await?;
+
+        info!(
+            "Cleaned up {} system metrics records and {} health metrics",
+            deleted_system_metrics, deleted_health_metrics
+        );
 
         // Update last cleanup time
         {
@@ -418,7 +465,8 @@ impl MetricsPersistenceService {
         if let Err(e) = self.telemetry_writer.log(
             "metrics.cleanup.success",
             serde_json::json!({
-                "deleted_count": deleted_count,
+                "deleted_system_metrics": deleted_system_metrics,
+                "deleted_health_metrics": deleted_health_metrics,
                 "retention_days": self.config.retention_days,
                 "cutoff_time": cutoff_rfc3339
             }),
@@ -505,6 +553,7 @@ impl Clone for MetricsPersistenceService {
             db: self.db.clone(),
             telemetry_writer: self.telemetry_writer.clone(),
             config: self.config.clone(),
+            system_metrics_db: self.system_metrics_db.clone(),
             is_running: self.is_running.clone(),
             last_cleanup: self.last_cleanup.clone(),
         }
@@ -545,5 +594,21 @@ mod tests {
         assert!(config.enable_inference_metrics);
         assert!(config.enable_gpu_metrics);
         assert!(config.enable_performance_metrics);
+    }
+}
+
+fn saturating_u64_to_i64(value: u64) -> i64 {
+    if value > i64::MAX as u64 {
+        i64::MAX
+    } else {
+        value as i64
+    }
+}
+
+fn saturating_usize_to_i32(value: usize) -> i32 {
+    if value > i32::MAX as usize {
+        i32::MAX
+    } else {
+        value as i32
     }
 }

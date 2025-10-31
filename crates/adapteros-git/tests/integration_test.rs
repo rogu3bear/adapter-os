@@ -2,10 +2,6 @@
 
 use adapteros_db::Db;
 use adapteros_git::{GitConfig, GitSubsystem};
-use std::path::PathBuf;
-use tempfile::TempDir;
-use tokio::fs;
-use tokio::time::{sleep, Duration};
 
 /// Test Git subsystem stub compiles and starts
 #[tokio::test]

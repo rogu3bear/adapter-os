@@ -242,7 +242,7 @@ impl FusedQkvKernel {
 
         // Threads cover (batch, heads, head_dim). Use 64 threads in X to tile batch.
         let threads_per_group = MTLSize::new(64, 1, 1);
-        let groups_x = ((batch_size as u64) + threads_per_group.width - 1) / threads_per_group.width;
+        let groups_x = (batch_size as u64).div_ceil(threads_per_group.width);
         let grid_groups = MTLSize::new(
             groups_x,
             self.gqa_config.num_attention_heads as u64,

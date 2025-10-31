@@ -1,13 +1,50 @@
 //! Branch manager for adapter lifecycle
 
-use crate::config::BranchManagerConfig;
-use crate::types::{GitSession, SessionStatus};
 use adapteros_core::{AosError, Result};
+use chrono;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
+
+/// Configuration for the branch manager
+#[derive(Debug, Clone)]
+pub struct BranchManagerConfig {
+    pub branch_prefix: String,
+    pub preserve_abandoned_branches: bool,
+}
+
+impl Default for BranchManagerConfig {
+    fn default() -> Self {
+        Self {
+            branch_prefix: "adapteros".to_string(),
+            preserve_abandoned_branches: false,
+        }
+    }
+}
+
+/// Git session status
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionStatus {
+    Active,
+    Merged,
+    Abandoned,
+}
+
+/// Git session information
+#[derive(Debug, Clone)]
+pub struct GitSession {
+    pub id: String,
+    pub adapter_id: String,
+    pub repo_id: String,
+    pub branch_name: String,
+    pub base_commit_sha: String,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub status: SessionStatus,
+    pub merge_commit_sha: Option<String>,
+}
 
 /// Branch operation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 /// Atomic operation manager
 pub struct AtomicManager {
