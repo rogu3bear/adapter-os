@@ -980,6 +980,98 @@ class ApiClient {
     return this.request<types.TelemetryEvent[]>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
   }
 
+  // Logs API methods
+  async queryLogs(filters?: {
+    limit?: number;
+    tenant_id?: string;
+    event_type?: string;
+    level?: string;
+    component?: string;
+    trace_id?: string;
+  }): Promise<types.UnifiedTelemetryEvent[]> {
+    const params = new URLSearchParams();
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
+    if (filters?.event_type) params.append('event_type', filters.event_type);
+    if (filters?.level) params.append('level', filters.level);
+    if (filters?.component) params.append('component', filters.component);
+    if (filters?.trace_id) params.append('trace_id', filters.trace_id);
+
+    const queryString = params.toString();
+    return this.request<types.UnifiedTelemetryEvent[]>(`/api/logs/query${queryString ? `?${queryString}` : ''}`);
+  }
+
+  // Metrics API methods
+  async getMetricsSnapshot(): Promise<types.MetricsSnapshotResponse> {
+    return this.request<types.MetricsSnapshotResponse>('/api/metrics/snapshot');
+  }
+
+  async getMetricsSeries(params?: {
+    series_name?: string;
+    start_ms?: number;
+    end_ms?: number;
+  }): Promise<types.MetricsSeriesResponse[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.series_name) queryParams.append('series_name', params.series_name);
+    if (params?.start_ms) queryParams.append('start_ms', params.start_ms.toString());
+    if (params?.end_ms) queryParams.append('end_ms', params.end_ms.toString());
+
+    const queryString = queryParams.toString();
+    return this.request<types.MetricsSeriesResponse[]>(`/api/metrics/series${queryString ? `?${queryString}` : ''}`);
+  }
+
+  // Traces API methods
+  async searchTraces(params?: {
+    span_name?: string;
+    status?: string;
+    start_time_ns?: number;
+    end_time_ns?: number;
+  }): Promise<string[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.span_name) queryParams.append('span_name', params.span_name);
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.start_time_ns) queryParams.append('start_time_ns', params.start_time_ns.toString());
+    if (params?.end_time_ns) queryParams.append('end_time_ns', params.end_time_ns.toString());
+
+    const queryString = queryParams.toString();
+    return this.request<string[]>(`/api/traces/search${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getTrace(traceId: string): Promise<types.Trace | null> {
+    return this.request<types.Trace | null>(`/api/traces/${traceId}`);
+  }
+
+  // Audit export API method
+  async exportAuditLogs(params?: {
+    format?: 'csv' | 'json';
+    startTime?: string;
+    endTime?: string;
+    tenantId?: string;
+    eventType?: string;
+    level?: string;
+  }): Promise<Blob> {
+    const queryParams = new URLSearchParams();
+    if (params?.format) queryParams.append('format', params.format);
+    if (params?.startTime) queryParams.append('start_time', params.startTime);
+    if (params?.endTime) queryParams.append('end_time', params.endTime);
+    if (params?.tenantId) queryParams.append('tenant_id', params.tenantId);
+    if (params?.eventType) queryParams.append('event_type', params.eventType);
+    if (params?.level) queryParams.append('level', params.level);
+
+    const queryString = queryParams.toString();
+    const url = `${this.baseUrl}/v1/audits/export${queryString ? `?${queryString}` : ''}`;
+
+    const response = await fetch(url, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to export audit logs: ${response.statusText}`);
+    }
+
+    return response.blob();
+  }
+
   // Process debugging methods
   async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
     const params = new URLSearchParams();

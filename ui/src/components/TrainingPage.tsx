@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// 【ui/src/components/TrainingPage.tsx§25-40】 - Replace manual polling with standardized hook
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -9,35 +10,31 @@ import { TrainingMonitor } from './TrainingMonitor';
 import { TrainingTemplates } from './TrainingTemplates';
 import apiClient from '../api/client';
 import { TrainingJob } from '../api/types';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
 import { Link } from 'react-router-dom';
 import { Brain, Activity, Clock, CheckCircle, XCircle, AlertTriangle, Play, Pause, Square } from 'lucide-react';
 import { Progress } from './ui/progress';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 export function TrainingPage() {
-  const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
+  const { data: trainingJobs = [], isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
+    () => apiClient.listTrainingJobs(),
+    'fast', // Training progress needs frequent updates
+    {
+      showLoadingIndicator: true,
+      onError: (err) => {
+        logger.error('Failed to fetch training jobs', { component: 'TrainingPage' }, err);
+      }
+    }
+  );
+
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [trainingConfig, setTrainingConfig] = useState<any>(null); // State to hold training config for wizard
-
-  useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        const jobs = await apiClient.listTrainingJobs();
-        setTrainingJobs(jobs);
-      } catch (err) {
-        logger.error('Failed to fetch training jobs', { component: 'TrainingPage' }, toError(err));
-        toast.error('Failed to load training jobs');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 5000); // Poll every 5s
-    return () => clearInterval(interval);
-  }, []);
+  const [actionError, setActionError] = useState<Error | null>(null);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -54,15 +51,19 @@ export function TrainingPage() {
   };
 
   const handleJobAction = async (jobId: string, action: 'pause' | 'stop' | 'resume') => {
+    setActionError(null);
     try {
       if (action === 'stop') {
         await apiClient.cancelTraining(jobId);
-        toast.success('Job stopped successfully');
+        // Success - could show success feedback but not critical
       } else {
-        toast.info(`${action} is not supported yet`);
+        // Not supported - show info, not error
+        setActionError(new Error(`${action} is not supported yet`));
       }
     } catch (err) {
-      toast.error(`Failed to ${action} job`);
+      const error = err instanceof Error ? err : new Error(`Failed to ${action} job`);
+      setActionError(error);
+      logger.error(`Failed to ${action} training job`, { component: 'TrainingPage', jobId, action }, error);
     }
   };
 
@@ -72,12 +73,29 @@ export function TrainingPage() {
         <div>
           <h1 className="text-3xl font-bold">Training Management</h1>
           <p className="text-muted-foreground">Manage training jobs, templates, and monitoring</p>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
         <Button onClick={handleStartTraining}>
           <Brain className="mr-2 h-4 w-4" />
           Start Training
         </Button>
       </div>
+
+      {/* Error Recovery */}
+      {error && ErrorRecoveryTemplates.trainingError(
+        () => refreshData(),
+        () => setIsWizardOpen(true)
+      )}
+      {actionError && (
+        <ErrorRecovery
+          title="Action Failed"
+          message={actionError.message}
+          recoveryActions={[
+            { label: 'Retry', action: () => setActionError(null) },
+            { label: 'View Logs', action: () => {/* Navigate to logs */} }
+          ]}
+        />
+      )}
 
       {/* Training Jobs Table */}
       <Card>

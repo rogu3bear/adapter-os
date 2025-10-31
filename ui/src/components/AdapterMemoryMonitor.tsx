@@ -31,7 +31,7 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
-import { toast } from 'sonner';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface AdapterMemoryMonitorProps {
   adapters: Adapter[];
@@ -50,6 +50,12 @@ export function AdapterMemoryMonitor({
 }: AdapterMemoryMonitorProps) {
   const [memoryPressureThreshold, setMemoryPressureThreshold] = useState(80);
   const [selectedCategory, setSelectedCategory] = useState<AdapterCategory | 'all'>('all');
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
 
   // Calculate memory statistics
   const totalMemoryUsed = adapters.reduce((sum, adapter) => sum + adapter.memory_bytes, 0);
@@ -137,13 +143,14 @@ export function AdapterMemoryMonitor({
       const result = await apiClient.evictAdapter(adapterId);
       onEvictAdapter(adapterId);
 
-      toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
+      showStatus(`Adapter evicted: ${result.message || 'Memory freed successfully.'}`, 'success');
       logger.info('Adapter evicted successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'evictAdapter',
         adapterId,
         result
       });
+      setErrorRecovery(null);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
       logger.error('Failed to evict adapter', {
@@ -152,7 +159,13 @@ export function AdapterMemoryMonitor({
         adapterId,
         error: errorMessage
       }, error instanceof Error ? error : new Error(String(error)));
-      toast.error(`Failed to evict adapter: ${errorMessage}`);
+      setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => handleEvictAdapter(adapterId)
+        )
+      );
     }
   };
 
@@ -168,13 +181,14 @@ export function AdapterMemoryMonitor({
       await apiClient.pinAdapter(adapterId, pinned);
       onPinAdapter(adapterId, pinned);
 
-      toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
+      showStatus(pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', 'success');
       logger.info('Adapter pin status updated successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'pinToggle',
         adapterId,
         pinned
       });
+      setErrorRecovery(null);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
       logger.error('Failed to pin/unpin adapter', {
@@ -184,7 +198,13 @@ export function AdapterMemoryMonitor({
         pinned,
         error: errorMessage
       }, error instanceof Error ? error : new Error(String(error)));
-      toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
+      setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => handlePinToggle(adapterId, pinned)
+        )
+      );
     }
   };
 
@@ -193,6 +213,36 @@ export function AdapterMemoryMonitor({
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Memory Overview */}
       <Card>
         <CardHeader>

@@ -173,6 +173,56 @@ export interface TelemetryBundle {
   policy_hash_b3?: string;
 }
 
+// Unified telemetry event for logs API
+export interface UnifiedTelemetryEvent {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  level: 'Debug' | 'Info' | 'Warn' | 'Error' | 'Critical';
+  message: string;
+  component?: string;
+  tenant_id?: string;
+  trace_id?: string;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+// Metrics types
+export interface MetricsSnapshotResponse {
+  timestamp: number;
+  counters: Record<string, number>;
+  gauges: Record<string, number>;
+  histograms: Record<string, any>;
+}
+
+export interface MetricsSeriesResponse {
+  series_name: string;
+  points: MetricDataPointResponse[];
+}
+
+export interface MetricDataPointResponse {
+  timestamp: number;
+  value: number;
+  labels?: Record<string, string>;
+}
+
+// Trace types
+export interface Trace {
+  trace_id: string;
+  spans: Span[];
+  root_span_id: string | null;
+}
+
+export interface Span {
+  span_id: string;
+  trace_id: string;
+  parent_id: string | null;
+  name: string;
+  start_ns: number;
+  end_ns: number | null;
+  attributes: Record<string, any>;
+  status: 'ok' | 'error' | 'unset';
+}
+
 // Golden baselines
 export interface GoldenRunSummary {
   name: string;

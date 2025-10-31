@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -15,7 +15,9 @@ import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { logger } from '../utils/logger';
+// 【ui/src/components/Policies.tsx§1-25】 - Replace toast errors with ErrorRecovery
 import { HelpTooltip } from './ui/help-tooltip';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 
@@ -29,8 +31,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   const { selectedTenant } = useTenant();
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
+  const effectiveUserId = effectiveUser.id;
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [policiesError, setPoliciesError] = useState<Error | null>(null);
   const [showSignModal, setShowSignModal] = useState(false);
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [showEditorModal, setShowEditorModal] = useState(false);
@@ -42,9 +46,9 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
   useEffect(() => {
     fetchPolicies();
-  }, []);
+  }, [fetchPolicies]);
 
-  const fetchPolicies = async () => {
+  const fetchPolicies = useCallback(async () => {
     try {
       const data = await apiClient.listPolicies();
       setPolicies(data);
@@ -54,12 +58,12 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         component: 'Policies',
         operation: 'fetchPolicies',
         tenantId: effectiveTenant,
-        userId: effectiveUser.id
+        userId: effectiveUserId
       }, err instanceof Error ? err : new Error(String(err)));
     } finally {
       setLoading(false);
     }
-  };
+  }, [effectiveTenant, effectiveUserId]);
 
   const handleSignPolicy = async (policy: Policy) => {
     try {
@@ -67,10 +71,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       setSignResult(result);
       setSelectedPolicy(policy);
       setShowSignModal(true);
-      toast.success(`Policy ${policy.cpid} signed successfully`);
+      // Success shown in modal - no need for toast
     } catch (err) {
-      toast.error('Failed to sign policy');
-      // Replace: console.error(err);
+      const error = err instanceof Error ? err : new Error('Failed to sign policy');
+      setPoliciesError(error);
       logger.error('Failed to sign policy', {
         component: 'Policies',
         operation: 'signPolicy',
@@ -83,16 +87,16 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
   const handleComparePolicy = async () => {
     if (!selectedPolicy || !compareCpid2) {
-      toast.error('Please select both policies to compare');
+      setPoliciesError(new Error('Please select both policies to compare'));
       return;
     }
     try {
       const result = await apiClient.comparePolicies(selectedPolicy.cpid, compareCpid2);
       setCompareResult(result);
-      toast.success('Policy comparison complete');
+      // Comparison results shown in UI - no need for toast
     } catch (err) {
-      toast.error('Failed to compare policies');
-      // Replace: console.error(err);
+      const error = err instanceof Error ? err : new Error('Failed to compare policies');
+      setPoliciesError(error);
       logger.error('Failed to compare policies', {
         component: 'Policies',
         operation: 'comparePolicies',
@@ -117,9 +121,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      toast.success(`Policy ${policy.cpid} exported`);
+      // Browser download feedback is sufficient
     } catch (err) {
-      toast.error('Failed to export policy');
+      const error = err instanceof Error ? err : new Error('Failed to export policy');
+      setPoliciesError(error);
       // Replace: console.error(err);
       logger.error('Failed to export policy', {
         component: 'Policies',
@@ -130,6 +135,22 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       }, err instanceof Error ? err : new Error(String(err)));
     }
   };
+
+  if (policiesError) {
+    return (
+      <ErrorRecovery
+        title="Policies Error"
+        message={policiesError.message}
+        recoveryActions={[
+          { label: 'Retry Loading', action: () => {
+            setPoliciesError(null);
+            fetchPolicies();
+          }},
+          { label: 'View Logs', action: () => {/* Navigate to logs */} }
+        ]}
+      />
+    );
+  }
 
   if (loading) {
     return <div className="text-center p-8">Loading policies...</div>;
@@ -291,7 +312,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                   signed_at: signResult.signed_at,
                 };
                 navigator.clipboard.writeText(JSON.stringify(attestation, null, 2));
-                toast.success('Attestation copied');
+                // Browser clipboard API provides feedback
               }}
             >
               Copy Attestation

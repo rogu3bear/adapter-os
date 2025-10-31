@@ -4,6 +4,7 @@
   import RootLayout from "./layout/RootLayout";
   import FeatureLayout from "./layout/FeatureLayout";
   import { LayoutProvider, useAuth, useTenant, RequireAuth } from "./layout/LayoutProvider";
+  import { BreadcrumbProvider } from "./contexts/BreadcrumbContext";
 import { Dashboard } from "./components/Dashboard";
 import { Telemetry } from "./components/Telemetry";
 import { AlertsPage } from "./components/AlertsPage";
@@ -252,7 +253,8 @@ import "./index.css";
   createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <LayoutProvider>
-        <Routes>
+        <BreadcrumbProvider>
+          <Routes>
           <Route element={<RootLayout />}> 
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/login" element={<LoginRoute />} />
@@ -307,6 +309,7 @@ import "./index.css";
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>
+        </BreadcrumbProvider>
       </LayoutProvider>
     </BrowserRouter>
   );

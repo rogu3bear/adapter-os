@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -20,8 +20,9 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { RouterConfig, FeatureVector, AdapterScore } from '../api/types';
-import { toast } from 'sonner';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { logger } from '../utils/logger';
+import { Alert, AlertDescription } from './ui/alert';
 
 interface RouterConfigPageProps {
   selectedTenant: string;
@@ -56,13 +57,17 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   const [testPrompt, setTestPrompt] = useState('');
   const [testResults, setTestResults] = useState<AdapterScore[] | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [pageError, setPageError] = useState<Error | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'warning' | 'info' } | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadRouterConfig();
-  }, [selectedTenant]);
+  }, [loadRouterConfig]);
 
-  const loadRouterConfig = async () => {
+  const loadRouterConfig = useCallback(async () => {
     setIsLoading(true);
+    setPageError(null);
     try {
       // Load current policy to get router config
       const policies = await apiClient.listPolicies();
@@ -90,11 +95,13 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         tenant: selectedTenant,
         error: errorMessage
       });
-      toast.error('Failed to load router configuration');
+      const err = error instanceof Error ? error : new Error(errorMessage);
+      setPageError(err);
+      setStatusMessage({ message: 'Failed to load router configuration.', variant: 'warning' });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedTenant]);
 
   const handleConfigChange = (field: keyof RouterConfig, value: any) => {
     setConfig(prev => ({ ...prev, [field]: value }));
@@ -113,7 +120,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       [key]: value / total
     }), {} as FeatureWeights);
     setFeatureWeights(normalized);
-    toast.success('Weights normalized to sum to 1.0');
+    setStatusMessage({ message: 'Feature weights normalized to sum to 1.0.', variant: 'success' });
   };
 
   const resetToDefaults = () => {
@@ -131,11 +138,12 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       prompt_verb: 0.10
     });
     setHasUnsavedChanges(false);
-    toast.success('Reset to default configuration');
+    setStatusMessage({ message: 'Router configuration reset to defaults.', variant: 'success' });
   };
 
   const saveConfiguration = async () => {
     setIsSaving(true);
+    setPageError(null);
     try {
       // Get current policy
       const policies = await apiClient.listPolicies();
@@ -174,7 +182,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         tenant: selectedTenant,
         config
       });
-      toast.success('Router configuration saved successfully');
+      setStatusMessage({ message: 'Router configuration saved successfully.', variant: 'success' });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to save router config';
       logger.error('Failed to save router config', {
@@ -183,15 +191,19 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         tenant: selectedTenant,
         error: errorMessage
       });
-      toast.error('Failed to save configuration');
+      const err = error instanceof Error ? error : new Error(errorMessage);
+      setPageError(err);
+      setStatusMessage({ message: 'Failed to save configuration.', variant: 'warning' });
     } finally {
       setIsSaving(false);
     }
   };
 
   const testRouterConfig = async () => {
+    setValidationMessage(null);
+    setPageError(null);
     if (!testPrompt.trim()) {
-      toast.error('Please enter a test prompt');
+      setValidationMessage('Please enter a test prompt before running the router test.');
       return;
     }
 
@@ -206,7 +218,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         operation: 'testRouterConfig',
         resultCount: result.selected_adapters.length
       });
-      toast.success('Router test completed');
+      setStatusMessage({ message: 'Router test completed successfully.', variant: 'success' });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to test router';
       logger.error('Failed to test router', {
@@ -215,7 +227,9 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         testPrompt,
         error: errorMessage
       });
-      toast.error('Router test failed');
+      const err = error instanceof Error ? error : new Error(errorMessage);
+      setPageError(err);
+      setStatusMessage({ message: 'Router test failed.', variant: 'warning' });
     } finally {
       setIsLoading(false);
     }
@@ -226,6 +240,52 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
   return (
     <div className="space-y-6">
+      {pageError && ErrorRecoveryTemplates.genericError(
+        pageError,
+        () => {
+          if (validationMessage) {
+            setValidationMessage(null);
+          }
+          loadRouterConfig();
+        }
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          {statusMessage.variant === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-green-600" />
+          ) : (
+            <AlertCircle className={`w-4 h-4 ${statusMessage.variant === 'warning' ? 'text-amber-600' : 'text-blue-600'}`} />
+          )}
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {validationMessage && (
+        <Alert className="border-amber-200 bg-amber-50">
+          <AlertCircle className="w-4 h-4 text-amber-600" />
+          <AlertDescription className="text-amber-700">{validationMessage}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

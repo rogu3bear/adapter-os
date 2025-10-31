@@ -55,7 +55,8 @@ import {
   Pin,
   MoreHorizontal,
   ArrowUp,
-  FileText
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -66,7 +67,6 @@ import {
 import apiClient from '../api/client';
 import { User } from '../api/types';
 import { useSSE } from '../hooks/useSSE';
-import { toast } from 'sonner';
 import { TrainingMonitor } from './TrainingMonitor';
 import { useNavigate } from 'react-router-dom';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
@@ -184,6 +184,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<React.ReactElement | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [upsertActivate, setUpsertActivate] = useState(true);
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
   const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
@@ -195,6 +196,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const clearFeedback = () => {
     setSuccessFeedback(null);
     setErrorRecovery(null);
+    setStatusMessage(null);
+  };
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
   };
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
@@ -308,7 +313,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         tenantId: selectedTenant,
         errorMessage: errorMsg,
       }, toError(err));
-      toast.error(errorMsg);
     }
   }, [selectedTenant]);
 
@@ -342,16 +346,21 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       await apiClient.deleteAdapter(adapterId);
       setAdapters(adapters.filter(a => a.adapter_id !== adapterId));
       setDeleteConfirmId(null);
-      toast.success('Adapter deleted successfully');
+      showStatus('Adapter deleted successfully.', 'success');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to delete adapter';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to delete adapter');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handleDeleteAdapter(adapterId)
+        )
+      );
     }
   };
 
   const handleLoadAdapter = async (adapterId: string) => {
     try {
-      toast.info('Loading adapter...');
+      showStatus('Loading adapter...', 'info');
       await apiClient.loadAdapter(adapterId);
       setSuccessFeedback(
         SuccessTemplates.adapterLoaded(
@@ -360,6 +369,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         )
       );
       await loadAdapters();
+      setStatusMessage(null);
     } catch (err) {
       const adapterName = adapters.find(a => a.adapter_id === adapterId)?.name || 'Adapter';
       setErrorRecovery(
@@ -368,18 +378,25 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           () => handleLoadAdapter(adapterId)
         )
       );
+      setStatusMessage(null);
     }
   };
 
   const handleUnloadAdapter = async (adapterId: string) => {
     try {
-      toast.info('Unloading adapter...');
+      showStatus('Unloading adapter...', 'info');
       await apiClient.unloadAdapter(adapterId);
-      toast.success('Adapter unloaded successfully');
+      showStatus('Adapter unloaded successfully.', 'success');
       await loadAdapters();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to unload adapter';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to unload adapter');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handleUnloadAdapter(adapterId)
+        )
+      );
+      setStatusMessage(null);
     }
   };
 
@@ -387,28 +404,38 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     try {
       if (adapter.pinned) {
         await apiClient.unpinAdapter(adapter.adapter_id);
-        toast.success('Adapter unpinned');
+        showStatus('Adapter unpinned.', 'success');
       } else {
         await apiClient.pinAdapter(adapter.adapter_id, true);
-        toast.success('Adapter pinned');
+        showStatus('Adapter pinned.', 'success');
       }
       await loadAdapters();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to toggle pin';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to toggle pin');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handlePinToggle(adapter)
+        )
+      );
     }
   };
 
   const handlePromoteState = async (adapterId: string) => {
     try {
       const result = await apiClient.promoteAdapterState(adapterId);
-      toast.success(`State promoted: ${result.old_state} → ${result.new_state}`);
+      showStatus(`State promoted: ${result.old_state} → ${result.new_state}`, 'success');
       // Refresh adapters list
       const adaptersData = await apiClient.listAdapters();
       setAdapters(adaptersData);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to promote adapter state';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to promote adapter state');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handlePromoteState(adapterId)
+        )
+      );
     }
   };
 
@@ -433,10 +460,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       }
 
       if (successCount > 0) {
-        toast.success(`Successfully loaded ${successCount} adapter(s)`);
+        showStatus(`Successfully loaded ${successCount} adapter(s).`, 'success');
       }
       if (errorCount > 0) {
-        toast.error(`Failed to load ${errorCount} adapter(s)`);
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            new Error(`Failed to load ${errorCount} adapter(s).`),
+            () => performBulkLoad()
+          )
+        );
       }
 
       await loadAdapters();
@@ -473,10 +505,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       }
 
       if (successCount > 0) {
-        toast.success(`Successfully unloaded ${successCount} adapter(s)`);
+        showStatus(`Successfully unloaded ${successCount} adapter(s).`, 'success');
       }
       if (errorCount > 0) {
-        toast.error(`Failed to unload ${errorCount} adapter(s)`);
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            new Error(`Failed to unload ${errorCount} adapter(s).`),
+            () => performBulkUnload()
+          )
+        );
       }
 
       await loadAdapters();
@@ -513,10 +550,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       }
 
       if (successCount > 0) {
-        toast.success(`Successfully deleted ${successCount} adapter(s)`);
+        showStatus(`Successfully deleted ${successCount} adapter(s).`, 'success');
       }
       if (errorCount > 0) {
-        toast.error(`Failed to delete ${errorCount} adapter(s)`);
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            new Error(`Failed to delete ${errorCount} adapter(s).`),
+            () => performBulkDelete()
+          )
+        );
       }
 
       await loadAdapters();
@@ -562,10 +604,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       a.download = `${adapterId}-manifest.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Manifest downloaded');
+      showStatus('Manifest downloaded.', 'success');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to download manifest';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to download manifest');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handleDownloadManifest(adapterId)
+        )
+      );
     }
   };
 
@@ -578,8 +625,13 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       setHealthData(health);
       setShowHealthModal(true);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch adapter health';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to fetch adapter health');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handleViewHealth(adapterId)
+        )
+      );
     }
   };
 
@@ -634,6 +686,38 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           {errorRecovery}
         </div>
       )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          {statusMessage.variant === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-green-600" />
+          ) : statusMessage.variant === 'warning' ? (
+            <AlertCircle className="w-4 h-4 text-amber-600" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-blue-600" />
+          )}
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <ContentSection
         title="Adapter Management"
         subtitle="Train, manage, and monitor LoRA adapters for your models"
@@ -697,8 +781,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   <TableRow>
                     <TableHead className="table-cell-standard w-12">
                       <Checkbox
-                        checked={selectedAdapters.length === adapters.length && adapters.length > 0}
-                        indeterminate={selectedAdapters.length > 0 && selectedAdapters.length < adapters.length}
+                        checked={
+                          adapters.length === 0
+                            ? false
+                            : selectedAdapters.length === adapters.length
+                              ? true
+                              : selectedAdapters.length > 0
+                                ? 'indeterminate'
+                                : false
+                        }
                         onCheckedChange={(checked) => {
                           if (checked) {
                             setSelectedAdapters(adapters.map(a => a.adapter_id));
@@ -973,7 +1064,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <TrainingWizard
             onComplete={(jobId) => {
-              toast.success(`Training job ${jobId} started`);
+              showStatus(`Training job ${jobId} started.`, 'success');
               setIsTrainingDialogOpen(false);
               // Optionally refresh adapters or navigate to training monitor
             }}
@@ -988,7 +1079,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         onOpenChange={setIsLanguageDialogOpen}
         selectedTenant={selectedTenant}
         onSuccess={(jobId) => {
-          toast.success(`Training job ${jobId} started`);
+          showStatus(`Training job ${jobId} started.`, 'success');
           setIsLanguageDialogOpen(false);
           setSelectedTrainingJob(jobId);
           setActiveTab('training');
@@ -1045,7 +1136,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   <Button
                     onClick={async () => {
                       if (!uploadFile) {
-                        toast.error('Please select a file');
+                        showStatus('Please select a file before uploading.', 'warning');
                         return;
                       }
 
@@ -1125,14 +1216,21 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                       path: upsertPath,
                       activate: upsertActivate,
                     });
-                    toast.success(`Upserted: ${data.adapter_id}`);
+                    showStatus(`Upserted adapter ${data.adapter_id}.`, 'success');
                     setIsCreateDialogOpen(false);
                     setUpsertRoot('');
                     setUpsertPath('');
                     setUpsertActivate(true);
                     await loadAdapters();
                   } catch (err) {
-                    toast.error('Upsert failed');
+                    setErrorRecovery(
+                      ErrorRecoveryTemplates.genericError(
+                        err instanceof Error ? err : new Error('Upsert failed'),
+                        () => {
+                          setErrorRecovery(null);
+                        }
+                      )
+                    );
                   }
                 }}>Create</Button>
               </DialogFooter>
@@ -1175,7 +1273,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   path: upsertPath,
                   activate: upsertActivate,
                 });
-                toast.success(`Upserted: ${data.adapter_id}`);
+                showStatus(`Upserted adapter ${data.adapter_id}.`, 'success');
                 setUpsertOpen(false);
                 setUpsertRoot('');
                 setUpsertPath('');
@@ -1183,7 +1281,14 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                 const adaptersData = await apiClient.listAdapters();
                 setAdapters(adaptersData);
               } catch (err) {
-                toast.error('Upsert failed');
+                setErrorRecovery(
+                  ErrorRecoveryTemplates.genericError(
+                    err instanceof Error ? err : new Error('Upsert failed'),
+                    () => {
+                      setErrorRecovery(null);
+                    }
+                  )
+                );
               }
             }}>Submit</Button>
           </DialogFooter>

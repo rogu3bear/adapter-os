@@ -1,3 +1,4 @@
+// 【ui/src/components/ResourceMonitor.tsx§94-178】 - Replace manual polling with standardized hook
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -5,13 +6,13 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { 
-  Cpu, 
-  MemoryStick, 
-  HardDrive, 
-  Zap, 
-  Activity, 
-  AlertTriangle, 
+import {
+  Cpu,
+  MemoryStick,
+  HardDrive,
+  Zap,
+  Activity,
+  AlertTriangle,
   CheckCircle,
   TrendingUp,
   TrendingDown,
@@ -23,6 +24,10 @@ import {
   Server
 } from 'lucide-react';
 import apiClient from '../api/client';
+import { logger, toError } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface ResourceMonitorProps {
   jobId?: string;
@@ -84,98 +89,116 @@ interface NodeInfo {
 export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   const [metrics, setMetrics] = useState<ResourceMetrics[]>([]);
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isMonitoring, setIsMonitoring] = useState(true);
-  const intervalRef = useRef<number | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [isMonitoring] = useState(true); // Always monitoring with usePolling hook
 
-  // Mock data removed - using real API data
-
+  // Fetch node info once on mount
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchNodeInfo = async () => {
+      if (!nodeId) return;
       try {
-        // Fetch node info if nodeId is provided
-        if (nodeId) {
-          const node = await apiClient.getNodeDetails(nodeId);
-          setNodeInfo({
-            id: node.id,
-            hostname: node.hostname || nodeId,
-            metal_family: node.metal_family || 'Unknown',
-            memory_gb: node.memory_gb || 0,
-            gpu_count: node.gpu_count || 0,
-            gpu_type: node.gpu_type || 'Unknown',
-            status: node.status,
-            last_heartbeat: node.last_heartbeat || new Date().toISOString()
-          });
-        }
-
-        // Fetch system metrics - using SSE stream for real-time updates handled separately
-        const systemMetrics = await apiClient.getSystemMetrics();
-        
-        // Convert system metrics to resource metrics format
-        const newMetrics: ResourceMetrics = {
-          timestamp: new Date().toISOString(),
-          cpu: {
-            usage: systemMetrics.cpu_usage_percent || 0,
-            cores: systemMetrics.cpu_cores || 0,
-            temperature: systemMetrics.cpu_temp_celsius || 0
-          },
-          memory: {
-            used: systemMetrics.memory_used_gb || 0,
-            total: systemMetrics.memory_total_gb || 0,
-            usage_percent: systemMetrics.memory_usage_percent || 0
-          },
-          gpu: {
-            utilization: systemMetrics.gpu_utilization_percent || 0,
-            memory_used: systemMetrics.gpu_memory_used_gb || 0,
-            memory_total: systemMetrics.gpu_memory_total_gb || 0,
-            temperature: systemMetrics.gpu_temp_celsius || 0,
-            power_draw: systemMetrics.gpu_power_watts || 0
-          },
-          disk: {
-            used: systemMetrics.disk_used_gb || 0,
-            total: systemMetrics.disk_total_gb || 0,
-            usage_percent: systemMetrics.disk_usage_percent || 0,
-            io_read: systemMetrics.disk_read_mbps || 0,
-            io_write: systemMetrics.disk_write_mbps || 0
-          },
-          network: {
-            bytes_in: systemMetrics.network_rx_bytes || 0,
-            bytes_out: systemMetrics.network_tx_bytes || 0,
-            packets_in: systemMetrics.network_rx_packets || 0,
-            packets_out: systemMetrics.network_tx_packets || 0
-          },
-          training: jobId ? {
-            tokens_per_second: systemMetrics.tokens_per_second || 0,
-            loss: systemMetrics.current_loss || 0,
-            learning_rate: systemMetrics.learning_rate || 0,
-            current_epoch: systemMetrics.current_epoch || 0,
-            total_epochs: systemMetrics.total_epochs || 0
-          } : undefined
-        };
-        
-        setMetrics(prev => [...prev.slice(-59), newMetrics]); // Keep last 60 data points
-        setError(null);
+        const node = await apiClient.getNodeDetails(nodeId);
+        setNodeInfo({
+          id: node.id,
+          hostname: node.hostname || nodeId,
+          metal_family: node.metal_family || 'Unknown',
+          memory_gb: node.memory_gb || 0,
+          gpu_count: node.gpu_count || 0,
+          gpu_type: node.gpu_type || 'Unknown',
+          status: node.status,
+          last_heartbeat: node.last_heartbeat || new Date().toISOString()
+        });
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch resource metrics');
-      } finally {
-        setLoading(false);
+        logger.error('Failed to fetch node info', {
+          component: 'ResourceMonitor',
+          operation: 'fetchNodeInfo',
+          nodeId
+        }, toError(err));
       }
     };
+    fetchNodeInfo();
+  }, [nodeId]);
 
-    fetchData();
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for resource metrics
+  const fetchResourceMetrics = async () => {
+    const systemMetrics = await apiClient.getSystemMetrics();
 
-    if (isMonitoring) {
-      // Fixed 1-second interval for instant updates
-      intervalRef.current = window.setInterval(fetchData, 1000);
+    // Convert system metrics to resource metrics format
+    const newMetrics: ResourceMetrics = {
+      timestamp: new Date().toISOString(),
+      cpu: {
+        usage: systemMetrics.cpu_usage_percent || 0,
+        cores: systemMetrics.cpu_cores || 0,
+        temperature: systemMetrics.cpu_temp_celsius || 0
+      },
+      memory: {
+        used: systemMetrics.memory_used_gb || 0,
+        total: systemMetrics.memory_total_gb || 0,
+        usage_percent: systemMetrics.memory_usage_percent || 0
+      },
+      gpu: {
+        utilization: systemMetrics.gpu_utilization_percent || 0,
+        memory_used: systemMetrics.gpu_memory_used_gb || 0,
+        memory_total: systemMetrics.gpu_memory_total_gb || 0,
+        temperature: systemMetrics.gpu_temp_celsius || 0,
+        power_draw: systemMetrics.gpu_power_watts || 0
+      },
+      disk: {
+        used: systemMetrics.disk_used_gb || 0,
+        total: systemMetrics.disk_total_gb || 0,
+        usage_percent: systemMetrics.disk_usage_percent || 0,
+        io_read: systemMetrics.disk_read_mbps || 0,
+        io_write: systemMetrics.disk_write_mbps || 0
+      },
+      network: {
+        bytes_in: systemMetrics.network_rx_bytes || 0,
+        bytes_out: systemMetrics.network_tx_bytes || 0,
+        packets_in: systemMetrics.network_rx_packets || 0,
+        packets_out: systemMetrics.network_tx_packets || 0
+      },
+      training: jobId ? {
+        tokens_per_second: systemMetrics.tokens_per_second || 0,
+        loss: systemMetrics.current_loss || 0,
+        learning_rate: systemMetrics.learning_rate || 0,
+        current_epoch: systemMetrics.current_epoch || 0,
+        total_epochs: systemMetrics.total_epochs || 0
+      } : undefined
+    };
+
+    return newMetrics;
+  };
+
+  const {
+    data: polledMetrics,
+    isLoading: loading,
+    lastUpdated,
+    error: pollingError,
+    refetch: refreshMetrics
+  } = usePolling(
+    fetchResourceMetrics,
+    'fast', // Real-time updates for resource monitoring
+    {
+      showLoadingIndicator: true,
+      onError: (err) => {
+        const error = err instanceof Error ? err : new Error('Failed to fetch resource metrics');
+        setError(error);
+        logger.error('Failed to fetch resource metrics', {
+          component: 'ResourceMonitor',
+          operation: 'polling',
+          jobId,
+          nodeId
+        }, err);
+      }
     }
+  );
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [jobId, nodeId, isMonitoring]);
+  // Update metrics when polling data arrives
+  useEffect(() => {
+    if (polledMetrics) {
+      setMetrics(prev => [...prev.slice(-59), polledMetrics]); // Keep last 60 data points
+      setError(null);
+    }
+  }, [polledMetrics]);
 
   const getStatusColor = (usage: number) => {
     if (usage > 90) return 'text-red-600';
@@ -214,10 +237,14 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
 
   if (error) {
     return (
-      <Alert variant="destructive">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
+      <ErrorRecovery
+        title="Resource Monitor Error"
+        message={error.message}
+        recoveryActions={[
+          { label: 'Retry', action: () => refreshMetrics() },
+          { label: 'View Logs', action: () => {/* Navigate to logs */} }
+        ]}
+      />
     );
   }
 
@@ -235,6 +262,7 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
           <p className="text-muted-foreground">
             {nodeInfo.hostname} • {nodeInfo.metal_family} • {nodeInfo.gpu_count} GPUs
           </p>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
         <div className="flex items-center space-x-2">
           <Badge variant={isMonitoring ? "default" : "outline"}>

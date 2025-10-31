@@ -1,3 +1,5 @@
+// 【ui/src/components/ui/use-mobile.ts】 - Mobile detection hook
+// 【ui/src/components/MobileNavigation.tsx】 - Mobile navigation component
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -5,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
 import { useTheme, useAuth, useTenant } from './LayoutProvider';
+import { useIsMobile } from '@/components/ui/use-mobile';
+import { MobileNavigation } from '@/components/MobileNavigation';
 import {
   Lock,
   Menu,
@@ -40,6 +44,7 @@ export default function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (isSidebarOpen) {
@@ -87,21 +92,32 @@ export default function RootLayout() {
     roles?: UserRole[];
   }
 
+  // 【ui/src/layout/RootLayout.tsx§90-141】 - Navigation refactor: User-centric grouping
   const navigationGroups: NavGroup[] = [
     {
-      title: 'Overview',
+      title: 'Home',
       items: [
         { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { to: '/workflow', label: 'Getting Started', icon: Compass }
       ]
     },
     {
-      title: 'Management',
+      title: 'ML Pipeline',
       items: [
-        { to: '/tenants', label: 'Tenants', icon: Building },
-        { to: '/adapters', label: 'Adapters', icon: Box },
-        { to: '/policies', label: 'Policies', icon: Shield },
-        { to: '/metrics', label: 'Metrics', icon: Activity }
+        { to: '/trainer', label: 'Single-File Trainer', icon: Upload },
+        { to: '/training', label: 'Training Jobs', icon: Zap },
+        { to: '/testing', label: 'Testing', icon: FlaskConical },
+        { to: '/golden', label: 'Golden Runs', icon: GitCompare },
+        { to: '/promotion', label: 'Promotion', icon: TrendingUp },
+        { to: '/adapters', label: 'Adapters', icon: Box }
+      ]
+    },
+    {
+      title: 'Monitoring',
+      items: [
+        { to: '/metrics', label: 'Metrics', icon: Activity },
+        { to: '/monitoring', label: 'System Health', icon: Activity },
+        { to: '/routing', label: 'Routing Inspector', icon: Route }
       ]
     },
     {
@@ -109,32 +125,22 @@ export default function RootLayout() {
       items: [
         { to: '/inference', label: 'Inference', icon: Play },
         { to: '/telemetry', label: 'Telemetry', icon: Eye },
-        { to: '/audit', label: 'Audit', icon: FileText }
-      ]
-    },
-    {
-      title: 'Training',
-      items: [
-        { to: '/trainer', label: 'Single-File Trainer', icon: Upload },
-        { to: '/training', label: 'Training Jobs', icon: Zap },
-        { to: '/testing', label: 'Testing', icon: FlaskConical },
-        { to: '/golden', label: 'Golden Runs', icon: GitCompare }
-      ]
-    },
-    {
-      title: 'System',
-      items: [
-        { to: '/monitoring', label: 'System Health', icon: Activity },
-        { to: '/routing', label: 'Routing Inspector', icon: Route },
-        { to: '/promotion', label: 'Promotion', icon: TrendingUp },
         { to: '/replay', label: 'Replay', icon: RotateCcw }
+      ]
+    },
+    {
+      title: 'Compliance',
+      items: [
+        { to: '/policies', label: 'Policies', icon: Shield },
+        { to: '/audit', label: 'Audit', icon: FileText }
       ]
     },
     {
       title: 'Administration',
       items: [
         { to: '/admin', label: 'IT Admin', icon: Settings },
-        { to: '/reports', label: 'Reports', icon: BarChart3 }
+        { to: '/reports', label: 'Reports', icon: BarChart3 },
+        { to: '/tenants', label: 'Tenants', icon: Building }
       ],
       roles: ['Admin']
     }
@@ -201,48 +207,59 @@ export default function RootLayout() {
             Close Menu
           </Button>
           
-          {navigationGroups.filter(shouldShowGroup).map((group) => {
-            const isCollapsed = collapsedGroups[group.title];
-            return (
-              <div key={group.title} className="mb-4">
-                <button
-                  onClick={() => toggleGroup(group.title)}
-                  className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-                >
-                  <span>{group.title}</span>
-                  {isCollapsed ? (
-                    <ChevronRight className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
+          {isMobile ? (
+            <MobileNavigation 
+              groups={navigationGroups.filter(shouldShowGroup)}
+              onNavigate={(path) => {
+                navigate(path);
+                setIsSidebarOpen(false);
+              }}
+              userRole={user?.role}
+            />
+          ) : (
+            navigationGroups.filter(shouldShowGroup).map((group) => {
+              const isCollapsed = collapsedGroups[group.title];
+              return (
+                <div key={group.title} className="mb-4">
+                  <button
+                    onClick={() => toggleGroup(group.title)}
+                    className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                  >
+                    <span>{group.title}</span>
+                    {isCollapsed ? (
+                      <ChevronRight className="h-3 w-3" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )}
+                  </button>
+                  
+                  {!isCollapsed && (
+                    <div className="mt-1 space-y-1">
+                      {group.items.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = location.pathname === item.to;
+                        return (
+                          <Button
+                            key={item.to}
+                            variant={isActive ? 'default' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => {
+                              navigate(item.to);
+                              setIsSidebarOpen(false);
+                            }}
+                            aria-current={isActive ? 'page' : undefined}
+                          >
+                            <Icon className="h-4 w-4 mr-2" />
+                            {item.label}
+                          </Button>
+                        );
+                      })}
+                    </div>
                   )}
-                </button>
-                
-                {!isCollapsed && (
-                  <div className="mt-1 space-y-1">
-                    {group.items.map((item) => {
-                      const Icon = item.icon;
-                      const isActive = location.pathname === item.to;
-                      return (
-                        <Button
-                          key={item.to}
-                          variant={isActive ? 'default' : 'ghost'}
-                          className="w-full justify-start"
-                          onClick={() => {
-                            navigate(item.to);
-                            setIsSidebarOpen(false);
-                          }}
-                          aria-current={isActive ? 'page' : undefined}
-                        >
-                          <Icon className="h-4 w-4 mr-2" />
-                          {item.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 

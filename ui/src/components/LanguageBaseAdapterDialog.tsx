@@ -7,7 +7,7 @@ import { Switch } from './ui/switch';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, Brain } from 'lucide-react';
-import { toast } from 'sonner';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
 import { StartTrainingRequest, TrainingConfig } from '../api/types';
 
@@ -41,6 +41,12 @@ export function LanguageBaseAdapterDialog({
   const [adaptersRoot, setAdaptersRoot] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
 
   useEffect(() => {
     if (open) {
@@ -59,6 +65,8 @@ export function LanguageBaseAdapterDialog({
       setAdaptersRoot('');
       setIsSubmitting(false);
       setError(null);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     }
   }, [open, selectedTenant]);
 
@@ -108,13 +116,19 @@ export function LanguageBaseAdapterDialog({
       };
 
       const job = await apiClient.startTraining(req);
-      toast.success(`Training job ${job.id} started`);
+      showStatus(`Training job ${job.id} started.`, 'success');
       onSuccess?.(job.id);
       onOpenChange(false);
     } catch (e: any) {
       const message = e?.message || 'Failed to start training';
       setError(message);
-      toast.error(message);
+      setStatusMessage({ message, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          e instanceof Error ? e : new Error(message),
+          () => handleSubmit()
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -129,6 +143,36 @@ export function LanguageBaseAdapterDialog({
             Train Language Base Adapter
           </DialogTitle>
         </DialogHeader>
+
+        {errorRecovery && (
+          <div className="mb-4">
+            {errorRecovery}
+          </div>
+        )}
+
+        {statusMessage && (
+          <Alert
+            className={
+              statusMessage.variant === 'success'
+                ? 'border-green-200 bg-green-50'
+                : statusMessage.variant === 'warning'
+                  ? 'border-amber-200 bg-amber-50'
+                  : 'border-blue-200 bg-blue-50'
+            }
+          >
+            <AlertDescription
+              className={
+                statusMessage.variant === 'success'
+                  ? 'text-green-700'
+                  : statusMessage.variant === 'warning'
+                    ? 'text-amber-700'
+                    : 'text-blue-700'
+              }
+            >
+              {statusMessage.message}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="space-y-6 py-2">
           {error && (

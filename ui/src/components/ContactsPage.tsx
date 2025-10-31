@@ -7,7 +7,7 @@
  * Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8.1
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -30,7 +30,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
   // Fetch initial contacts
   useEffect(() => {
     fetchContacts();
-  }, [selectedTenant, filter]);
+  }, [fetchContacts, filter]);
 
   // Subscribe to contact updates via SSE
   useEffect(() => {
@@ -60,7 +60,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     return () => eventSource.close();
   }, [selectedTenant]);
 
-  const fetchContacts = async () => {
+  const fetchContacts = useCallback(async () => {
     setLoading(true);
     try {
       // Citation: ui/src/api/client.ts L57-L105
@@ -75,7 +75,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTenant]);
 
   const filteredContacts = contacts.filter(
     (c) =>

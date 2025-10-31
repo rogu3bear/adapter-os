@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -13,25 +13,27 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { 
-  Code, 
-  GitBranch, 
-  Plus, 
-  RefreshCw, 
-  FileText, 
-  Trash2, 
+import {
+  Code,
+  GitBranch,
+  Plus,
+  RefreshCw,
+  FileText,
+  Trash2,
   MoreHorizontal,
   FolderOpen,
   Brain,
   Target,
-  Zap
+  Zap,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Repository, Commit, User, RepositoryReportResponse } from '../api/types';
 import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface CodeIntelligenceProps {
   user: User;
@@ -48,14 +50,20 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [showTrainingDialog, setShowTrainingDialog] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
 
   const handleTrainingStarted = (sessionId: string) => {
-    toast.success(`Adapter training started: ${sessionId}`);
+    showStatus(`Adapter training started: ${sessionId}`, 'success');
     setShowTrainingDialog(false);
     fetchData();
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [repos, commits] = await Promise.all([
@@ -64,6 +72,8 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       ]);
       setRepositories(repos);
       setCommits(commits.slice(0, 10)); // Latest 10 commits
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch code intelligence data';
       logger.error('Failed to fetch code intelligence data', {
@@ -72,22 +82,34 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         tenantId: selectedTenant,
         errorMessage: errorMsg,
       }, toError(err));
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => fetchData()
+        )
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTenant]);
 
   useEffect(() => {
     fetchData();
-  }, [selectedTenant]);
+  }, [fetchData]);
 
   const handleTriggerScan = async (repoId: string) => {
     try {
       await apiClient.triggerRepositoryScan(repoId);
-      toast.success('Repository scan triggered');
+      showStatus('Repository scan triggered.', 'success');
     } catch (err) {
-      toast.error('Failed to trigger scan');
+      setStatusMessage({ message: 'Failed to trigger scan.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to trigger scan'),
+          () => handleTriggerScan(repoId)
+        )
+      );
       logger.error('Failed to trigger repository scan', {
         component: 'CodeIntelligence',
         operation: 'triggerScan',
@@ -104,7 +126,13 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       setSelectedRepo(repo);
       setShowReportModal(true);
     } catch (err) {
-      toast.error('Failed to fetch repository report');
+      setStatusMessage({ message: 'Failed to fetch repository report.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to fetch repository report'),
+          () => handleViewReport(repo)
+        )
+      );
       logger.error('Failed to fetch repository report', {
         component: 'CodeIntelligence',
         operation: 'getRepositoryReport',
@@ -118,12 +146,18 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     if (!selectedRepo) return;
     try {
       await apiClient.unregisterRepository(selectedRepo.id);
-      toast.success('Repository unregistered');
+      showStatus('Repository unregistered.', 'success');
       setShowUnregisterModal(false);
       setSelectedRepo(null);
       fetchData();
     } catch (err) {
-      toast.error('Failed to unregister repository');
+      setStatusMessage({ message: 'Failed to unregister repository.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to unregister repository'),
+          () => handleUnregister()
+        )
+      );
       logger.error('Failed to unregister repository', {
         component: 'CodeIntelligence',
         operation: 'unregisterRepository',
@@ -136,7 +170,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
   const handleFolderSelect = (folderPath: string, repoInfo: any) => {
     setShowFolderPicker(false);
     setShowTrainingDialog(true);
-    toast.success(`Selected repository: ${repoInfo.name}`);
+    showStatus(`Selected repository: ${repoInfo.name}`, 'info');
   };
 
   if (loading) {
@@ -145,6 +179,41 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          {statusMessage.variant === 'success' ? (
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          ) : (
+            <AlertCircle className={`h-4 w-4 ${statusMessage.variant === 'warning' ? 'text-amber-600' : 'text-blue-600'}`} />
+          )}
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex-between section-header">
         <div>
           <h1 className="section-title">Code Intelligence</h1>
@@ -362,7 +431,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
           </DialogHeader>
           <Alert variant="destructive">
             <AlertDescription>
-              This will remove the repository <strong>{selectedRepo?.url}</strong> and all associated 
+              This will remove the repository <strong>{selectedRepo?.url}</strong> and all associated
               ephemeral adapters. This action cannot be undone.
             </AlertDescription>
           </Alert>

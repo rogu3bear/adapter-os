@@ -86,7 +86,7 @@ function SystemHealthWidget() {
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [announce]);
 
   if (loading) {
     return (

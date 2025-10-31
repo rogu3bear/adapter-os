@@ -6,11 +6,11 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Alert, AlertDescription } from './ui/alert';
-import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { User } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { ArrowUp, History, Download, Undo2, Play, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface PromotionProps {
   user: User;
@@ -24,6 +24,8 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
   useEffect(() => {
     fetchHistory();
@@ -33,8 +35,16 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     try {
       const data = await apiClient.getPromotionHistory();
       setHistory(data);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (err) {
-      toast.error('Failed to load history');
+      setStatusMessage({ message: 'Failed to load history.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to load history.'),
+          () => fetchHistory()
+        )
+      );
     }
   };
 
@@ -43,8 +53,17 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     try {
       const result = await apiClient.dryRunPromotion(cpid);
       setDryRunResult(result);
+      setStatusMessage({ message: 'Dry run completed.', variant: 'info' });
+      setError(null);
     } catch (err) {
       setError('Dry run failed');
+      setStatusMessage({ message: 'Dry run failed.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Dry run failed.'),
+          () => handleDryRun()
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -55,8 +74,17 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     try {
       const data = await apiClient.getPromotionGates(cpid);
       setGates(data);
+      setStatusMessage({ message: 'Gate check completed.', variant: 'info' });
+      setError(null);
     } catch (err) {
       setError('Gate check failed');
+      setStatusMessage({ message: 'Gate check failed.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Gate check failed.'),
+          () => handleCheckGates()
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -66,10 +94,17 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     setLoading(true);
     try {
       await apiClient.promote({ cpid });
-      toast.success('Promoted successfully');
+      setStatusMessage({ message: 'Promoted successfully.', variant: 'success' });
       fetchHistory();
     } catch (err) {
       setError('Promotion failed');
+      setStatusMessage({ message: 'Promotion failed.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Promotion failed.'),
+          () => handlePromote()
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -79,10 +114,17 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     setLoading(true);
     try {
       await apiClient.rollback();
-      toast.success('Rollback successful');
+      setStatusMessage({ message: 'Rollback successful.', variant: 'success' });
       fetchHistory();
     } catch (err) {
       setError('Rollback failed');
+      setStatusMessage({ message: 'Rollback failed.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Rollback failed.'),
+          () => handleRollback()
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -92,6 +134,36 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Promotion Controls</CardTitle>

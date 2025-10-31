@@ -1,3 +1,4 @@
+// 【ui/src/components/dashboard/ReportingSummaryWidget.tsx§23-48】 - Replace manual polling with standardized hook
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -6,6 +7,9 @@ import { Link } from 'react-router-dom';
 import { Button } from '../ui/button';
 import apiClient from '../../api/client';
 import { logger, toError } from '../../utils/logger';
+import { usePolling } from '../../hooks/usePolling';
+import { LastUpdated } from '../ui/last-updated';
+import { ErrorRecovery, ErrorRecoveryTemplates } from '../ui/error-recovery';
 
 interface ReportingSummaryWidgetProps {
   selectedTenant?: string;
@@ -18,34 +22,72 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
     activeAdapters: 0,
     systemHealth: 0,
   });
-  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<Error | null>(null);
 
-  React.useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        // Fetch basic metrics
-        const [systemMetrics, adapters, trainingJobs] = await Promise.all([
-          apiClient.getSystemMetrics().catch(() => null),
-          apiClient.listAdapters().catch(() => []),
-          apiClient.listTrainingJobs().catch(() => []),
-        ]);
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for reporting metrics
+  const fetchReportingData = async () => {
+    const [systemMetrics, adapters, trainingJobs] = await Promise.all([
+      apiClient.getSystemMetrics().catch(() => null),
+      apiClient.listAdapters().catch(() => []),
+      apiClient.listTrainingJobs().catch(() => []),
+    ]);
 
-        setMetrics({
-          totalInferences: systemMetrics?.active_sessions || 0, // Use active_sessions as proxy
-          totalTrainingJobs: trainingJobs.length,
-          activeAdapters: adapters.filter((a: any) => ['hot', 'warm'].includes(a.current_state)).length,
-          systemHealth: systemMetrics?.memory_usage_pct || 0,
-        });
-      } catch (err) {
-        logger.error('Failed to fetch reporting metrics', { component: 'ReportingSummaryWidget' }, toError(err));
-      } finally {
-        setLoading(false);
-      }
+    return {
+      totalInferences: systemMetrics?.active_sessions || 0,
+      totalTrainingJobs: trainingJobs.length,
+      activeAdapters: adapters.filter((a: any) => ['hot', 'warm'].includes(a.current_state)).length,
+      systemHealth: systemMetrics?.memory_usage_pct || 0,
     };
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-  }, [selectedTenant]);
+  };
+
+  const {
+    data: reportingData,
+    isLoading: loading,
+    lastUpdated,
+    error: pollingError,
+    refetch: refreshMetrics
+  } = usePolling(
+    fetchReportingData,
+    'slow', // Background updates for reporting
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        const error = err instanceof Error ? err : new Error('Failed to fetch reporting metrics');
+        setError(error);
+        logger.error('Failed to fetch reporting metrics', { component: 'ReportingSummaryWidget' }, err);
+      }
+    }
+  );
+
+  // Update metrics when polling data arrives
+  React.useEffect(() => {
+    if (reportingData) {
+      setMetrics(reportingData);
+      setError(null);
+    }
+  }, [reportingData]);
+
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Reporting Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorRecovery
+            title="Reporting Widget Error"
+            message={error.message}
+            recoveryActions={[
+              { label: 'Retry', action: () => refreshMetrics() }
+            ]}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (loading) {
     return (
@@ -70,6 +112,7 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
           <FileText className="h-5 w-5" />
           Reporting Summary
         </CardTitle>
+        {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Quick Stats */}
