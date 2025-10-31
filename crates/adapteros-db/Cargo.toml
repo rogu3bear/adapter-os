@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
+adapteros-api-types = { path = "../adapteros-api-types" }
 
 # Workspace dependencies
 anyhow.workspace = true

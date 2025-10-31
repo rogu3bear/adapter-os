@@ -6,6 +6,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+extended-tests = []
+
 [[bin]]
 name = "adapteros-server"
 path = "src/main.rs"
@@ -13,9 +16,10 @@ path = "src/main.rs"
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-config = { path = "../adapteros-config" }
-adapteros-server-api = { path = "../adapteros-server-api" }
+adapteros-server-api = { path = "../adapteros-server-api", features = ["cdp", "federation"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-policy = { path = "../adapteros-policy" }
@@ -24,7 +28,8 @@ adapteros-git = { path = "../adapteros-git" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
-adapteros-orchestrator = { path = "../adapteros-orchestrator", features = ["cdp"] }
+adapteros-orchestrator = { path = "../adapteros-orchestrator", features = ["cdp", "federation"] }
+adapteros-federation = { path = "../adapteros-federation" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }

@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+test = false
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
@@ -32,6 +35,11 @@ git2 = "0.18"
 [[bin]]
 name = "codegraph"
 path = "src/bin/codegraph.rs"
+
+[[test]]
+name = "multi_language"
+path = "tests/multi_language.rs"
+required-features = ["extended-tests"]
 
 [dev-dependencies]
 tempfile = { workspace = true }
