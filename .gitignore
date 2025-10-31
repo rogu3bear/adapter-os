@@ -112,6 +112,10 @@ installer/*.xcodeproj/*.perspectivev3
 
 # SQLx
 .sqlx/
+!crates/adapteros-cli/.sqlx/
+!crates/adapteros-cli/.sqlx/**
+!crates/adapteros-db/.sqlx/
+!crates/adapteros-db/.sqlx/**
 
 # Metal compilation artifacts
 metal/*.metallib

@@ -398,6 +398,43 @@ Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.01-1:
 
 ---
 
+## 📊 Observability
+
+AdapterOS provides comprehensive monitoring and observability features for production deployments:
+
+### Buffer Tuning Options
+
+Configure buffer sizes based on your workload and memory constraints:
+
+```toml
+[telemetry]
+enabled = true
+# In-memory buffer for recent telemetry events (default: 1024)
+# Increase for high-throughput deployments to prevent event loss
+telemetry_buffer_capacity = 2048
+
+# Channel capacity for telemetry broadcasting (default: 256)
+# Increase if you have many concurrent telemetry consumers
+telemetry_channel_capacity = 512
+
+# In-memory buffer for recent trace events (default: 512)
+# Increase for detailed tracing in high-traffic environments
+trace_buffer_capacity = 1024
+```
+
+### Monitoring Features
+
+- **Prometheus Integration**: Exposes `/metrics` endpoint for scraping
+- **Structured Telemetry**: JSON-formatted event logging with metadata
+- **Health Checks**: `/health` endpoint for load balancer monitoring
+- **Performance Metrics**: Inference latency, throughput, and memory usage
+- **Policy Enforcement Tracking**: Audit trail for policy decisions
+- **Alert Integration**: Configurable thresholds for automated alerts
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete monitoring setup and alerting configuration.
+
+---
+
 ## 🔧 Configuration
 
 Example `configs/cp.toml`:
@@ -495,6 +532,9 @@ cargo watch -x test
 
 # Run benchmarks
 cargo bench
+
+# Populate demo monitoring data (uses var/cp.db)
+python3 scripts/seed_demo_data.py
 ```
 
 ---
