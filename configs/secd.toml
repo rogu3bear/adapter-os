@@ -1,0 +1,37 @@
+# Secure Enclave Daemon Configuration
+# This file configures the adapteros-secd daemon for hardware-backed operations
+
+[secd]
+# Secure Enclave settings
+enable_secure_enclave = false  # Set to true when hardware is available
+key_alias = "aos-host-signing"
+keychain_name = "AdapterOS-SecureEnclave"
+
+# Hardware requirements
+require_hardware_attestation = false  # Set to true for production
+attestation_timeout_secs = 30
+
+# Key lifecycle management
+key_rotation_interval_days = 365
+backup_enabled = false  # Keys never leave Secure Enclave
+
+# Development mode settings
+development_mode = true
+allow_software_fallback = true
+
+# Logging
+log_level = "info"
+log_secure_operations = true  # Log hardware operations (set to false in production)
+
+# Server configuration
+server_addr = "127.0.0.1:0"  # Dynamic port for UDS proxy
+uds_socket = "/var/run/aos-secd.sock"
+max_connections = 10
+
+# Security policies
+require_client_auth = true
+client_cert_path = "/etc/aos/secd/clients.pem"
+
+# Monitoring
+metrics_enabled = true
+health_check_interval_secs = 60

@@ -1157,6 +1157,7 @@ All significant events are logged:
 ```typescript
 interface TelemetryEvent {
   eventType: string;
+  kind?: string;
   timestamp: Date;
   traceId: string;
   cpid: string;

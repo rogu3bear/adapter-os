@@ -54,4 +54,4 @@ jobs:
       - name: Run focused tests
         run: |
           cargo test -p adapteros-trace --all-features --no-fail-fast
-
+          cargo test -p adapteros-server-api --test telemetry --no-fail-fast

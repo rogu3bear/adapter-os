@@ -432,7 +432,7 @@ AdapterOS MPLoRA introduces novel architectural innovations for deterministic mu
 
 1. ✅ Complete patent document draft (architectural specification)
 2. ⏳ File provisional patent application (ring buffer + entropy floor + determinism)
-3. ⏳ Complete shared downsample matrix integration
+3. ⏳ Implement MPLoRA shared downsample matrix (currently disabled by default)
 4. ⏳ Complete GPU orthogonal constraints integration
 5. ⏳ File continuation patent (expanded claims)
 
