@@ -1,4 +1,4 @@
-//! # AdapterOS Experimental Features
+//! # `AdapterOS` Experimental Features
 //!
 //! This crate contains experimental features that are **NOT FOR PRODUCTION USE**.
 //!
@@ -168,6 +168,7 @@ pub struct ExperimentalRegistry {
 
 impl ExperimentalRegistry {
     /// Create a new experimental feature registry
+    #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
             features: HashMap::new(),
@@ -246,21 +247,25 @@ impl ExperimentalRegistry {
     }
 
     /// Get feature metadata by name
+    #[must_use]
     pub fn get_feature(&self, name: &str) -> Option<&ExperimentalFeature> {
         self.features.get(name)
     }
 
     /// List all experimental features
+    #[must_use]
     pub fn list_features(&self) -> Vec<&ExperimentalFeature> {
         self.features.values().collect()
     }
 
     /// Check if a feature is experimental
+    #[must_use]
     pub fn is_experimental(&self, name: &str) -> bool {
         self.features.contains_key(name)
     }
 
     /// Get features by status
+    #[must_use]
     pub fn get_features_by_status(&self, status: FeatureStatus) -> Vec<&ExperimentalFeature> {
         self.features
             .values()
