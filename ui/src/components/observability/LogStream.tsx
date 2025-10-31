@@ -23,7 +23,11 @@ export function LogStream() {
   const [filters, setFilters] = useState({
     level: '',
     component: '',
+    tenant_id: '',
+    event_type: '',
     limit: 100,
+    start_time: '',
+    end_time: '',
   });
   const [autoScroll, setAutoScroll] = useState(true);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -43,13 +47,30 @@ export function LogStream() {
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const params = new URLSearchParams();
-        if (filters.level) params.set('level', filters.level);
-        if (filters.component) params.set('component', filters.component);
-        params.set('limit', filters.limit.toString());
-        
-        const data = await apiClient.request<LogEvent[]>(`/api/logs/query?${params}`);
-        setLogs(data);
+        const queryParams: any = {
+          limit: filters.limit,
+        };
+
+        if (filters.level) queryParams.level = filters.level;
+        if (filters.component) queryParams.component = filters.component;
+        if (filters.tenant_id) queryParams.tenant_id = filters.tenant_id;
+        if (filters.event_type) queryParams.event_type = filters.event_type;
+
+        const data = await apiClient.queryLogs(queryParams);
+
+        // Transform UnifiedTelemetryEvent to LogEvent format
+        const transformedLogs: LogEvent[] = data.map(event => ({
+          id: event.id,
+          timestamp: event.timestamp,
+          event_type: event.event_type,
+          level: event.level,
+          message: event.message,
+          component: event.component,
+          tenant_id: event.tenant_id,
+          trace_id: event.trace_id,
+        }));
+
+        setLogs(transformedLogs);
       } catch (err) {
         logger.error('Failed to fetch logs', { component: 'LogStream', operation: 'fetchLogs' }, toError(err));
       }
@@ -95,26 +116,60 @@ export function LogStream() {
       <CardContent>
         <div className="space-y-4">
           {/* Filters */}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
             <Input
               placeholder="Filter by level..."
               value={filters.level}
               onChange={(e) => setFilters({ ...filters, level: e.target.value })}
-              className="w-32"
             />
             <Input
               placeholder="Filter by component..."
               value={filters.component}
               onChange={(e) => setFilters({ ...filters, component: e.target.value })}
-              className="flex-1"
+            />
+            <Input
+              placeholder="Filter by tenant..."
+              value={filters.tenant_id}
+              onChange={(e) => setFilters({ ...filters, tenant_id: e.target.value })}
+            />
+            <Input
+              placeholder="Filter by event type..."
+              value={filters.event_type}
+              onChange={(e) => setFilters({ ...filters, event_type: e.target.value })}
             />
             <Input
               type="number"
               placeholder="Limit"
               value={filters.limit}
               onChange={(e) => setFilters({ ...filters, limit: parseInt(e.target.value) || 100 })}
-              className="w-24"
             />
+            <Input
+              type="datetime-local"
+              placeholder="Start time"
+              value={filters.start_time}
+              onChange={(e) => setFilters({ ...filters, start_time: e.target.value })}
+            />
+            <Input
+              type="datetime-local"
+              placeholder="End time"
+              value={filters.end_time}
+              onChange={(e) => setFilters({ ...filters, end_time: e.target.value })}
+            />
+            <Button
+              variant="outline"
+              onClick={() => setFilters({
+                level: '',
+                component: '',
+                tenant_id: '',
+                event_type: '',
+                limit: 100,
+                start_time: '',
+                end_time: '',
+              })}
+              className="w-full"
+            >
+              Clear Filters
+            </Button>
           </div>
 
           {/* Logs */}

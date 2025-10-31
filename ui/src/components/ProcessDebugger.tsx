@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -57,8 +57,9 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
+import { Alert, AlertDescription } from './ui/alert';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface ProcessDebuggerProps {
   workerId: string;
@@ -123,13 +124,21 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   // Filters
   const [logLevelFilter, setLogLevelFilter] = useState<string>('');
   const [searchFilter, setSearchFilter] = useState<string>('');
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  const fetchLogs = async () => {
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
+
+  const fetchLogs = useCallback(async () => {
     try {
       setLoading(true);
       // Citation: ui/src/api/client.ts L748-L755
       const data = await apiClient.getProcessLogs(workerId, { level: logLevelFilter });
       setLogs(data);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (error) {
       logger.error('Failed to fetch process logs', {
         component: 'ProcessDebugger',
@@ -137,13 +146,19 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         workerId,
         level: logLevelFilter || 'all',
       }, toError(error));
-      toast.error('Failed to load process logs');
+      setStatusMessage({ message: 'Failed to load process logs.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error('Failed to load process logs.'),
+          () => fetchLogs()
+        )
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [workerId, logLevelFilter]);
 
-  const fetchCrashes = async () => {
+  const fetchCrashes = useCallback(async () => {
     try {
       // Citation: ui/src/api/client.ts L758-L760
       const data = await apiClient.getProcessCrashes(workerId);
@@ -154,17 +169,25 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         stack_trace: crash.stack_trace,
       }));
       setCrashes(crashes);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (error) {
       logger.error('Failed to fetch process crashes', {
         component: 'ProcessDebugger',
         operation: 'fetchCrashes',
         workerId,
       }, toError(error));
-      toast.error('Failed to load crash dumps');
+      setStatusMessage({ message: 'Failed to load crash dumps.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error('Failed to load crash dumps.'),
+          () => fetchCrashes()
+        )
+      );
     }
-  };
+  }, [workerId]);
 
-  const fetchDebugSessions = async () => {
+  const fetchDebugSessions = useCallback(async () => {
     try {
       // Citation: ui/src/api/client.ts L762-L767
       const data = await apiClient.startDebugSession(workerId, {
@@ -179,17 +202,25 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         started_at: data.created_at,
       };
       setDebugSessions([session]);
+      setStatusMessage({ message: 'Debug session started.', variant: 'success' });
+      setErrorRecovery(null);
     } catch (error) {
       logger.error('Failed to start debug session', {
         component: 'ProcessDebugger',
         operation: 'startDebugSession',
         workerId,
       }, toError(error));
-      toast.error('Failed to load debug sessions');
+      setStatusMessage({ message: 'Failed to start debug session.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error('Failed to start debug session.'),
+          () => fetchDebugSessions()
+        )
+      );
     }
-  };
+  }, [workerId]);
 
-  const fetchTroubleshootingSteps = async () => {
+  const fetchTroubleshootingSteps = useCallback(async () => {
     try {
       // Citation: ui/src/api/client.ts L769-L774
       const data = await apiClient.runTroubleshootingStep(workerId, {
@@ -207,22 +238,30 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         started_at: new Date().toISOString(),
       };
       setTroubleshootingSteps([step]);
+      setStatusMessage({ message: 'Troubleshooting step started.', variant: 'info' });
+      setErrorRecovery(null);
     } catch (error) {
       logger.error('Failed to run troubleshooting step', {
         component: 'ProcessDebugger',
         operation: 'runTroubleshootingStep',
         workerId,
       }, toError(error));
-      toast.error('Failed to load troubleshooting steps');
+      setStatusMessage({ message: 'Failed to run troubleshooting step.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error('Failed to run troubleshooting step.'),
+          () => fetchTroubleshootingSteps()
+        )
+      );
     }
-  };
+  }, [workerId]);
 
   useEffect(() => {
     fetchLogs();
     fetchCrashes();
     fetchDebugSessions();
     fetchTroubleshootingSteps();
-  }, [workerId]);
+  }, [fetchLogs, fetchCrashes, fetchDebugSessions, fetchTroubleshootingSteps]);
 
   const getLogLevelColor = (level: string) => {
     switch (level) {
@@ -270,6 +309,36 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex-between">
         <div>
@@ -620,8 +689,8 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               Cancel
             </Button>
             <Button onClick={() => {
-              toast.success('Debug session started');
               setShowDebugModal(false);
+              showStatus('Debug session started.', 'success');
             }}>
               Start Session
             </Button>
@@ -670,8 +739,8 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               Cancel
             </Button>
             <Button onClick={() => {
-              toast.success('Troubleshooting step started');
               setShowTroubleshootModal(false);
+              showStatus('Troubleshooting step started.', 'info');
             }}>
               Run Step
             </Button>

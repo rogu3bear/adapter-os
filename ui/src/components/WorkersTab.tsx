@@ -1,3 +1,4 @@
+// 【ui/src/components/WorkersTab.tsx§64-69】 - Replace manual polling with standardized hook
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -23,6 +24,9 @@ import { WorkerResponse, Node, Plan } from '../api/types';
 import { SpawnWorkerModal } from './SpawnWorkerModal';
 import { ProcessDebugger } from './ProcessDebugger';
 import { logger, toError } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface WorkersTabProps {
   selectedTenant: string;
@@ -31,42 +35,55 @@ interface WorkersTabProps {
 export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [filteredWorkers, setFilteredWorkers] = useState<WorkerResponse[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [debugWorkerId, setDebugWorkerId] = useState<string | null>(null);
   const [hotSwapOpen, setHotSwapOpen] = useState(false);
   const [hotSwapAdd, setHotSwapAdd] = useState('');
   const [hotSwapRemove, setHotSwapRemove] = useState('');
-  
+  const [error, setError] = useState<Error | null>(null);
+
   // Filters
   const [filterTenant, setFilterTenant] = useState<string>('');
   const [filterNode, setFilterNode] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
 
-  const fetchWorkers = async () => {
-    try {
-      setLoading(true);
-      const data = await apiClient.listWorkers(selectedTenant || undefined);
-      setWorkers(data);
-      setFilteredWorkers(data);
-    } catch (error) {
-      logger.error('Failed to fetch workers', {
-        component: 'WorkersTab',
-        operation: 'listWorkers',
-        tenantFilter: selectedTenant || 'all',
-      }, toError(error));
-      toast.error('Failed to load workers');
-    } finally {
-      setLoading(false);
-    }
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for workers
+  const fetchWorkersData = async () => {
+    const data = await apiClient.listWorkers(selectedTenant || undefined);
+    return data;
   };
 
+  const {
+    data: workersData,
+    isLoading: loading,
+    lastUpdated,
+    error: pollingError,
+    refetch: refreshWorkers
+  } = usePolling(
+    fetchWorkersData,
+    'normal', // Background updates for workers
+    {
+      showLoadingIndicator: true,
+      onError: (err) => {
+        const error = err instanceof Error ? err : new Error('Failed to load workers');
+        setError(error);
+        logger.error('Failed to fetch workers', {
+          component: 'WorkersTab',
+          operation: 'polling',
+          tenantFilter: selectedTenant || 'all',
+        }, err);
+      }
+    }
+  );
+
+  // Update workers when polling data arrives
   useEffect(() => {
-    fetchWorkers();
-    // Poll every 1 second for instant updates
-    const interval = setInterval(fetchWorkers, 1000);
-    return () => clearInterval(interval);
-  }, [selectedTenant]);
+    if (workersData) {
+      setWorkers(workersData);
+      setFilteredWorkers(workersData);
+      setError(null);
+    }
+  }, [workersData]);
 
   useEffect(() => {
     // Apply filters
@@ -89,7 +106,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     try {
       await apiClient.stopWorker(workerId, force);
       toast.success(`Worker ${workerId} stopped`);
-      await fetchWorkers();
+      await refreshWorkers();
     } catch (error) {
       logger.error('Failed to stop worker', {
         component: 'WorkersTab',
@@ -136,6 +153,24 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     }
   };
 
+  if (error) {
+    return (
+      <ErrorRecovery
+        title="Workers Tab Error"
+        message={error.message}
+        recoveryActions={[
+          { label: 'Retry', action: () => refreshWorkers() },
+          { label: 'Clear Filters', action: () => {
+            setFilterTenant('');
+            setFilterNode('');
+            setFilterStatus('');
+            setError(null);
+          }}
+        ]}
+      />
+    );
+  }
+
   if (loading && workers.length === 0) {
     return <div className="text-center p-8">Loading workers...</div>;
   }
@@ -149,9 +184,10 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
           <p className="text-sm text-muted-foreground">
             Manage worker processes across compute nodes
           </p>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchWorkers}>
+          <Button variant="outline" size="sm" onClick={() => refreshWorkers()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>

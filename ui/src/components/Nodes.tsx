@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -31,7 +31,7 @@ import {
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
 import { Node, User, NodeDetailsResponse, NodePingResponse } from '../api/types';
-import { toast } from 'sonner';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { WorkersTab } from './WorkersTab';
 import { logger, toError } from '../utils/logger';
 
@@ -53,30 +53,44 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
   const [capacityDraft, setCapacityDraft] = useState<{ memory_gb?: number; gpu_count?: number }>({});
   const [pingResult, setPingResult] = useState<NodePingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   
   // Register form
   const [newHostname, setNewHostname] = useState('');
   const [newAgentEndpoint, setNewAgentEndpoint] = useState('');
 
-  const fetchNodes = async () => {
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
+
+  const fetchNodes = useCallback(async () => {
     try {
       const data = await apiClient.listNodes();
       setNodes(data);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (err) {
       logger.error('Failed to fetch nodes', {
         component: 'Nodes',
         operation: 'listNodes',
         tenantId: selectedTenant,
       }, toError(err));
-      toast.error('Failed to load nodes');
+      setStatusMessage({ message: 'Failed to load nodes.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to load nodes'),
+          () => fetchNodes()
+        )
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTenant]);
 
   useEffect(() => {
     fetchNodes();
-  }, [selectedTenant]);
+  }, [fetchNodes]);
 
   const handleRegisterNode = async () => {
     if (!newHostname.trim() || !newAgentEndpoint.trim()) {
@@ -85,22 +99,29 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     }
 
     try {
+      const hostname = newHostname;
       await apiClient.registerNode({
-        hostname: newHostname,
+        hostname,
         metal_family: 'M3', // Default value
         memory_gb: 128, // Default value
         agent_endpoint: newAgentEndpoint,
       });
-      toast.success(`Node "${newHostname}" registered successfully`);
       setShowRegisterModal(false);
       setNewHostname('');
       setNewAgentEndpoint('');
       setError(null);
+      showStatus(`Node "${hostname}" registered successfully.`, 'success');
       await fetchNodes();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to register node';
       setError(errorMsg);
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleRegisterNode()
+        )
+      );
       logger.error('Failed to register node', {
         component: 'Nodes',
         operation: 'registerNode',
@@ -112,18 +133,24 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
   const handleTestConnection = async (node: Node) => {
     try {
-      toast.info(`Testing connection to ${node.hostname}...`);
+      showStatus(`Testing connection to ${node.hostname}...`, 'info');
       const result = await apiClient.testNodeConnection(node.id);
       setPingResult(result);
       // Update row display optimistically
       setNodes(prev => prev.map(n => n.id === node.id ? { ...n, status: result.status as any } : n));
       if (result.status === 'reachable') {
-        toast.success(`Node is reachable (${result.latency_ms.toFixed(0)}ms)`);
+        showStatus(`Node is reachable (${result.latency_ms.toFixed(0)}ms).`, 'success');
       } else {
-        toast.error(`Node is ${result.status}`);
+        showStatus(`Node is ${result.status}.`, 'warning');
       }
     } catch (err) {
-      toast.error('Failed to test connection');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to test connection'),
+          () => handleTestConnection(node)
+        )
+      );
+      setStatusMessage({ message: 'Failed to test connection.', variant: 'warning' });
     }
   };
 
@@ -140,7 +167,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       setCapacityDraft({ memory_gb: details.memory_gb, gpu_count: (details as any).gpu_count });
       setShowDetailsModal(true);
     } catch (err) {
-      toast.error('Failed to load node details');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to load node details'),
+          () => handleViewDetails(node)
+        )
+      );
+      setStatusMessage({ message: 'Failed to load node details.', variant: 'warning' });
     }
   };
   const handleSaveLabelsCapacity = async () => {
@@ -148,19 +181,31 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     try {
       // Optimistic update only; backend endpoint not defined here
       setShowDetailsModal(false);
-      toast.success('Labels and capacity saved');
+      showStatus('Labels and capacity saved.', 'success');
     } catch (err) {
-      toast.error('Failed to save labels/capacity');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to save labels/capacity'),
+          () => handleSaveLabelsCapacity()
+        )
+      );
+      setStatusMessage({ message: 'Failed to save labels/capacity.', variant: 'warning' });
     }
   };
 
   const handleMarkOffline = async (node: Node) => {
     try {
       await apiClient.markNodeOffline(node.id);
-      toast.success(`Node "${node.hostname}" marked offline`);
+      showStatus(`Node "${node.hostname}" marked offline.`, 'success');
       await fetchNodes();
     } catch (err) {
-      toast.error('Failed to mark node offline');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to mark node offline'),
+          () => handleMarkOffline(node)
+        )
+      );
+      setStatusMessage({ message: 'Failed to mark node offline.', variant: 'warning' });
     }
   };
 
@@ -169,13 +214,19 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
     try {
       await apiClient.evictNode(selectedNode.id);
-      toast.success(`Node "${selectedNode.hostname}" evicted`);
+      showStatus(`Node "${selectedNode.hostname}" evicted.`, 'success');
       setShowConfirmEvictModal(false);
       setSelectedNode(null);
       await fetchNodes();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to evict node';
-      toast.error(errorMsg);
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleEvictNode()
+        )
+      );
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
     }
   };
 
@@ -185,6 +236,43 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          {statusMessage.variant === 'success' ? (
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          ) : statusMessage.variant === 'warning' ? (
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 text-blue-600" />
+          )}
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex-between section-header">
         <div>
           <h1 className="section-title">Compute Infrastructure</h1>

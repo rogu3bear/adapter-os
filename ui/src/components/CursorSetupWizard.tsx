@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from './ui/badge';
-import { toast } from 'sonner';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { CheckCircle, XCircle, Copy, ExternalLink } from 'lucide-react';
 import apiClient from '@/api/client';
 import { CursorConfigResponse } from '@/api/types';
@@ -18,23 +18,32 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [config, setConfig] = useState<CursorConfigResponse | null>(null);
+  const [wizardError, setWizardError] = useState<Error | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<'endpoint' | 'model' | null>(null);
 
   useEffect(() => {
     loadConfig();
   }, []);
 
   const loadConfig = async () => {
+    setIsLoading(true);
+    setWizardError(null);
     try {
       const configData = await apiClient.getCursorConfig();
       setConfig(configData);
     } catch (err) {
-      toast.error('Failed to load Cursor configuration');
+      const error = err instanceof Error ? err : new Error('Failed to load Cursor configuration');
+      setWizardError(error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, field: 'endpoint' | 'model') => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
+    setCopiedField(field);
   };
 
   // Step 1: Prerequisites Check
@@ -78,11 +87,14 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
           <Button
             size="sm"
             variant="outline"
-            onClick={() => copyToClipboard(config?.api_endpoint || '')}
+            onClick={() => copyToClipboard(config?.api_endpoint || '', 'endpoint')}
           >
             <Copy className="h-4 w-4" />
           </Button>
         </div>
+        {copiedField === 'endpoint' && (
+          <Badge variant="secondary" className="w-fit">Copied to clipboard</Badge>
+        )}
       </div>
       <Alert>
         <AlertDescription>
@@ -105,11 +117,14 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
           <Button
             size="sm"
             variant="outline"
-            onClick={() => copyToClipboard(config?.model_name || '')}
+            onClick={() => copyToClipboard(config?.model_name || '', 'model')}
           >
             <Copy className="h-4 w-4" />
           </Button>
         </div>
+        {copiedField === 'model' && (
+          <Badge variant="secondary" className="w-fit">Copied to clipboard</Badge>
+        )}
       </div>
       <Alert>
         <AlertDescription>
@@ -140,7 +155,7 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
   );
 
   const handleComplete = async () => {
-    toast.success('Cursor setup complete!');
+    setWizardError(null);
     onComplete();
   };
 
@@ -152,9 +167,10 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
       component: <PrerequisitesStep />,
       validate: () => {
         if (!config?.is_ready) {
-          toast.error('Please load a base model first');
+          setValidationError('Please load a base model first');
           return false;
         }
+        setValidationError(null);
         return true;
       },
     },
@@ -179,16 +195,41 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
   ];
 
   return (
-    <Wizard
-      steps={steps}
-      currentStep={currentStep}
-      onStepChange={setCurrentStep}
-      onComplete={handleComplete}
-      onCancel={onCancel}
-      title="Cursor IDE Setup"
-      completeButtonText="Complete Setup"
-      isLoading={isLoading}
-    />
+    <div className="space-y-4">
+      {wizardError && ErrorRecoveryTemplates.genericError(
+        wizardError,
+        () => {
+          setWizardError(null);
+          loadConfig();
+        }
+      )}
+
+      {validationError && (
+        <ErrorRecovery
+          title="Action Required"
+          message={validationError}
+          variant="warning"
+          recoveryActions={[
+            { label: 'Load Base Model', action: () => { window.location.href = '/adapters'; }, primary: true },
+            { label: 'Dismiss', action: () => setValidationError(null), variant: 'outline' }
+          ]}
+          showHelp={false}
+        />
+      )}
+
+      <Wizard
+        steps={steps}
+        currentStep={currentStep}
+        onStepChange={setCurrentStep}
+        onComplete={handleComplete}
+        onCancel={onCancel}
+        title="Cursor IDE Setup"
+        completeButtonText="Complete Setup"
+        isLoading={isLoading}
+      />
+    </div>
   );
 }
+
+export default CursorSetupWizard;
 

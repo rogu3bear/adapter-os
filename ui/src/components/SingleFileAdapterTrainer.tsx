@@ -1,4 +1,6 @@
-import React, { useState, useRef } from 'react';
+// 【ui/src/contexts/BreadcrumbContext.tsx§1-64】 - Breadcrumb context
+// 【ui/src/components/BreadcrumbNavigation.tsx§1-61】 - Breadcrumb component
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -26,8 +28,18 @@ import { logger, toError } from '@/utils/logger';
 import { ProgressIndicator, ContextualLoading, LoadingStates } from './ui/progress-indicator';
 import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
 import { useViewTransition } from '../hooks/useViewTransition';
+import { useBreadcrumb } from '../contexts/BreadcrumbContext';
+import { BreadcrumbNavigation } from './BreadcrumbNavigation';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 type TrainingStep = 'upload' | 'configure' | 'training' | 'complete';
+
+const STEP_LABELS: Record<TrainingStep, string> = {
+  upload: 'Upload File',
+  configure: 'Configure Training',
+  training: 'Training Progress',
+  complete: 'Test & Download'
+};
 
 interface TrainingMetrics {
   loss: number;
@@ -36,10 +48,23 @@ interface TrainingMetrics {
 }
 
 export function SingleFileAdapterTrainer() {
+  const { setBreadcrumbs } = useBreadcrumb();
   const [step, setStep] = useState<TrainingStep>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Update breadcrumbs based on current step
+  useEffect(() => {
+    const steps: TrainingStep[] = ['upload', 'configure', 'training', 'complete'];
+    const currentStepIndex = steps.indexOf(step);
+    const breadcrumbs = steps.slice(0, currentStepIndex + 1).map((s, idx) => ({
+      id: s,
+      label: STEP_LABELS[s],
+      href: idx === 0 ? '/trainer' : undefined
+    }));
+    setBreadcrumbs(breadcrumbs);
+  }, [step, setBreadcrumbs]);
   
   // Configuration state
   const [adapterName, setAdapterName] = useState('');
@@ -55,8 +80,9 @@ export function SingleFileAdapterTrainer() {
   // Training state
   const [trainingJob, setTrainingJob] = useState<TrainingJob | null>(null);
   const [trainingMetrics, setTrainingMetrics] = useState<TrainingMetrics | null>(null);
-  const [trainingError, setTrainingError] = useState<string | null>(null);
+  const [trainingError, setTrainingError] = useState<Error | null>(null);
   const [isTraining, setIsTraining] = useState(false);
+  const [uploadError, setUploadError] = useState<Error | null>(null);
 
   // Testing state
   const [testPrompt, setTestPrompt] = useState('');
@@ -87,7 +113,7 @@ export function SingleFileAdapterTrainer() {
 
   const handleStartTraining = async () => {
     if (!file || !adapterName) {
-      setTrainingError('Please provide a file and adapter name');
+      setTrainingError(new Error('Please provide a file and adapter name'));
       return;
     }
 
@@ -118,9 +144,11 @@ export function SingleFileAdapterTrainer() {
       // Poll for training progress
       pollTrainingProgress(response.id);
     } catch (error) {
-      setTrainingError(error instanceof Error ? error.message : 'Training failed');
+      const err = error instanceof Error ? error : new Error('Training failed');
+      setTrainingError(err);
       setIsTraining(false);
       setStep('configure');
+      logger.error('Training failed', { component: 'SingleFileAdapterTrainer' }, err);
     }
   };
 
@@ -142,16 +170,16 @@ export function SingleFileAdapterTrainer() {
           clearInterval(pollInterval);
           setIsTraining(false);
           setStep('complete');
-        } else if (job.status === 'failed') {
+        } else         if (job.status === 'failed') {
           clearInterval(pollInterval);
-          setTrainingError(job.error_message || 'Training failed');
+          setTrainingError(new Error(job.error_message || 'Training failed'));
           setIsTraining(false);
         }
       } catch (error) {
         logger.error('Failed to poll training job', { component: 'SingleFileAdapterTrainer', operation: 'pollTrainingJob' }, toError(error));
         clearInterval(pollInterval);
         setIsTraining(false);
-        setTrainingError('Lost connection to training job');
+        setTrainingError(new Error('Lost connection to training job'));
       }
     }, 2000); // Poll every 2 seconds
 
@@ -213,8 +241,9 @@ export function SingleFileAdapterTrainer() {
   };
 
   const handleUploadToServer = async () => {
+    setUploadError(null);
     if (!trainingJob?.artifact_path) {
-      toast.error('No artifact available to upload');
+      setUploadError(new Error('No artifact available to upload'));
       return;
     }
 
@@ -230,20 +259,24 @@ export function SingleFileAdapterTrainer() {
 
       // Upload via import API
       const adapter = await apiClient.importAdapter(file, true);
-      toast.success(`Adapter uploaded to server: ${adapter.name}`);
-
+      // Success - could show success feedback
+      
       // Optionally navigate to inference
       if (window.confirm('Adapter uploaded successfully! Would you like to chat with it now?')) {
         window.location.href = `/inference?adapter=${adapter.adapter_id}`;
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
-      toast.error(`Upload to server failed: ${errorMsg}`);
+      const error = err instanceof Error ? err : new Error('Upload failed');
+      setUploadError(error);
+      logger.error('Upload to server failed', { component: 'SingleFileAdapterTrainer' }, error);
     }
   };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Breadcrumb Navigation */}
+      <BreadcrumbNavigation />
+      
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold">Single-File Adapter Trainer</h1>
@@ -424,14 +457,25 @@ export function SingleFileAdapterTrainer() {
               </div>
             </div>
 
-            {trainingError && (
-              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 p-4 rounded-lg flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-red-900 dark:text-red-100">Training Error</p>
-                  <p className="text-sm text-red-700 dark:text-red-300">{trainingError}</p>
-                </div>
-              </div>
+            {trainingError && ErrorRecoveryTemplates.trainingError(
+              () => {
+                setTrainingError(null);
+                setStep('configure');
+              },
+              () => {
+                setTrainingError(null);
+                resetTrainer();
+              }
+            )}
+            {uploadError && (
+              <ErrorRecovery
+                title="Upload Failed"
+                message={uploadError.message}
+                recoveryActions={[
+                  { label: 'Retry Upload', action: () => { setUploadError(null); handleUploadToServer(); } },
+                  { label: 'Try Again Later', action: () => setUploadError(null) }
+                ]}
+              />
             )}
 
             <div className="flex gap-3">
@@ -508,7 +552,11 @@ export function SingleFileAdapterTrainer() {
         <div className="space-y-6">
           {SuccessTemplates.trainingComplete(
             adapterName,
-            () => setActiveTab('test'),
+            () => {
+              // Scroll to test section
+              const testSection = document.getElementById('test-section');
+              testSection?.scrollIntoView({ behavior: 'smooth' });
+            },
             () => {
               handleUploadToServer();
               transitionTo('/inference?adapter=' + trainingJob?.adapter_id);

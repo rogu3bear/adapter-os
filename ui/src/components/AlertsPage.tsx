@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// 【ui/src/components/AlertsPage.tsx§131-134】 - Replace manual polling with standardized hook
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -26,7 +27,7 @@ import apiClient from '../api/client';
 import { SystemMetrics } from '../api/types';
 import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
-
+import { usePolling } from '../hooks/usePolling';
 import { useTenant } from '@/layout/LayoutProvider';
 
 interface AlertsPageProps {
@@ -121,54 +122,53 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
-  useEffect(() => {
-    loadAlerts();
-    loadMetrics();
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for metrics
+  const { 
+    data: metricsData, 
+    lastUpdated: metricsLastUpdated 
+  } = usePolling(
+    () => apiClient.getSystemMetrics(),
+    'fast', // Real-time updates for alerts
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        logger.error('Failed to load system metrics for alerts', {
+          component: 'AlertsPage',
+          operation: 'loadMetrics',
+          tenantId: effectiveTenant,
+        }, err);
+      }
+    }
+  );
 
-    // Poll metrics every 2 seconds for instant updates
-    const interval = setInterval(loadMetrics, 2000);
-    return () => clearInterval(interval);
+  useEffect(() => {
+    const initialize = async () => {
+      await loadAlerts();
+    };
+    initialize();
   }, [selectedTenant]);
 
   useEffect(() => {
-    // Evaluate alert rules when metrics update
-    if (metrics) {
-      evaluateAlertRules(metrics);
-    }
-  }, [metrics, alertRules]);
-
-  const loadAlerts = () => {
-    // Mock alerts (in production, load from backend)
-    const mockAlerts: Alert[] = [
-      {
-        id: 'alert-1',
-        rule_id: 'rule-1',
-        rule_name: 'High Memory Usage',
-        severity: 'high',
-        message: 'Memory usage at 87% for 5 minutes',
-        current_value: 87,
-        threshold: 85,
-        triggered_at: new Date(Date.now() - 300000).toISOString(),
-        acknowledged: false
-      }
-    ];
-    setAlerts(mockAlerts);
-  };
-
-  const loadMetrics = async () => {
-    try {
-      const metricsData = await apiClient.getSystemMetrics();
+    // Update metrics when polling updates and evaluate alert rules
+    if (metricsData) {
       setMetrics(metricsData);
+      evaluateAlertRules(metricsData);
+    }
+  }, [metricsData, evaluateAlertRules]);
+
+  const loadAlerts = async () => {
+    try {
+      const alerts = await apiClient.listAlerts({ limit: 50 });
+      setAlerts(alerts);
     } catch (error) {
-      logger.error('Failed to load system metrics for alerts', {
-        component: 'AlertsPage',
-        operation: 'loadMetrics',
-        tenantId: effectiveTenant,
-      }, toError(error));
+      console.error('Failed to load alerts:', error);
+      setAlerts([]);
     }
   };
 
-  const evaluateAlertRules = (currentMetrics: SystemMetrics) => {
+  // Metrics loading now handled by usePolling hook
+
+  const evaluateAlertRules = useCallback((currentMetrics: SystemMetrics) => {
     alertRules.forEach(rule => {
       if (!rule.enabled) return;
 
@@ -209,7 +209,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
         }
       }
     });
-  };
+  }, [alertRules, alerts]);
 
   const handleToggleRule = (ruleId: string) => {
     setAlertRules(prev =>

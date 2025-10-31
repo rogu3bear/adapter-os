@@ -18,8 +18,10 @@ import { HelpTooltip } from './ui/help-tooltip';
 import { toast } from 'sonner';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
+// 【ui/src/components/Telemetry.tsx§1-27】 - Replace toast errors with ErrorRecovery
 import { GoldenCompareModal } from './GoldenCompareModal';
 import { logger, toError } from '../utils/logger';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface TelemetryProps {
   user?: User;
@@ -33,6 +35,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [telemetryError, setTelemetryError] = useState<Error | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [showPurgeModal, setShowPurgeModal] = useState(false);
@@ -47,17 +50,17 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   useEffect(() => {
     const fetchBundles = async () => {
       try {
+        setTelemetryError(null);
         const data = await apiClient.listTelemetryBundles();
         setBundles(data);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Failed to fetch telemetry bundles';
+        const error = err instanceof Error ? err : new Error('Failed to fetch telemetry bundles');
+        setTelemetryError(error);
         logger.error('Failed to fetch telemetry bundles', {
           component: 'Telemetry',
           operation: 'fetchBundles',
           tenantId: effectiveTenant,
-          errorMessage: errorMsg,
         }, toError(err));
-        toast.error(errorMsg);
       } finally {
         setLoading(false);
       }
@@ -69,9 +72,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   useEffect(() => {
     if (sseBundles && Array.isArray(sseBundles)) {
       setBundles(prev => [...sseBundles, ...prev].slice(0, 100)); // Keep last 100
-      if (sseBundles.length > 0) {
-        toast.info(`${sseBundles.length} new telemetry bundle(s) available`);
-      }
+      // SSE updates are silent - UI updates provide sufficient feedback
     }
   }, [sseBundles]);
 
@@ -87,7 +88,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success(`Bundle ${bundle.id.substring(0, 8)} exported`);
+    // Browser download feedback is sufficient
   };
 
   const handleVerifySignature = async (bundle: TelemetryBundle) => {
@@ -96,9 +97,10 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       setVerifyResult(result);
       setSelectedBundle(bundle);
       setShowVerifyModal(true);
-      toast.success(result.valid ? 'Signature valid' : 'Signature invalid');
+      // Verification result shown in modal - no need for toast
     } catch (err) {
-      toast.error('Failed to verify signature');
+      const error = err instanceof Error ? err : new Error('Failed to verify signature');
+      setTelemetryError(error);
       logger.error('Telemetry bundle signature verification failed', {
         component: 'Telemetry',
         operation: 'verifySignature',
@@ -117,13 +119,14 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const handlePurge = async () => {
     try {
       const result = await apiClient.purgeOldBundles(purgeKeepCount);
-      toast.success(`Purged ${result.purged_count} bundles, kept ${result.retained_count}`);
       setShowPurgeModal(false);
       // Refetch bundles
       const data = await apiClient.listTelemetryBundles();
       setBundles(data);
+      // UI updates provide sufficient feedback for purge results
     } catch (err) {
-      toast.error('Failed to purge bundles');
+      const error = err instanceof Error ? err : new Error('Failed to purge bundles');
+      setTelemetryError(error);
       logger.error('Failed to purge telemetry bundles', {
         component: 'Telemetry',
         operation: 'purgeBundles',
@@ -131,6 +134,23 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       }, toError(err));
     }
   };
+
+  if (telemetryError) {
+    return (
+      <ErrorRecovery
+        title="Telemetry Error"
+        message={telemetryError.message}
+        recoveryActions={[
+          { label: 'Retry Loading', action: () => {
+            setTelemetryError(null);
+            // Trigger refetch by re-running useEffect
+            window.location.reload();
+          }},
+          { label: 'View Logs', action: () => {/* Navigate to logs */} }
+        ]}
+      />
+    );
+  }
 
   if (loading) {
     return <div className="text-center p-8">Loading telemetry data...</div>;
@@ -294,7 +314,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                       verification_error: verifyResult.verification_error,
                     };
                     navigator.clipboard.writeText(JSON.stringify(receipt, null, 2));
-                    toast.success('Verification receipt copied');
+                    // Browser clipboard API provides feedback
                   }}
                 >
                   Copy Receipt

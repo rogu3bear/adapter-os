@@ -25,26 +25,41 @@ interface Trace {
 export function TraceTimeline() {
   const [traces, setTraces] = useState<string[]>([]);
   const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchParams, setSearchParams] = useState({
+    span_name: '',
+    status: '',
+    start_time_ns: '',
+    end_time_ns: '',
+  });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const fetchTraces = async () => {
+      setLoading(true);
       try {
-        const data = await apiClient.request<string[]>('/api/traces/search');
+        const params: any = {};
+        if (searchParams.span_name) params.span_name = searchParams.span_name;
+        if (searchParams.status) params.status = searchParams.status;
+        if (searchParams.start_time_ns) params.start_time_ns = new Date(searchParams.start_time_ns).getTime() * 1_000_000; // Convert to nanoseconds
+        if (searchParams.end_time_ns) params.end_time_ns = new Date(searchParams.end_time_ns).getTime() * 1_000_000;
+
+        const data = await apiClient.searchTraces(Object.keys(params).length > 0 ? params : undefined);
         setTraces(data);
       } catch (err) {
         logger.error('Failed to fetch traces', { component: 'TraceTimeline', operation: 'fetchTraces' }, toError(err));
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchTraces();
-    const interval = setInterval(fetchTraces, 5000); // Update every 5 seconds
+    const interval = setInterval(fetchTraces, 10000); // Update every 10 seconds
     return () => clearInterval(interval);
-  }, [searchQuery]);
+  }, [searchParams]);
 
   const handleTraceSelect = async (traceId: string) => {
     try {
-      const trace = await apiClient.request<Trace>(`/api/traces/${traceId}`);
+      const trace = await apiClient.getTrace(traceId);
       setSelectedTrace(trace);
     } catch (err) {
       logger.error('Failed to fetch trace', { component: 'TraceTimeline', operation: 'fetchTrace' }, toError(err));
@@ -55,26 +70,72 @@ export function TraceTimeline() {
     <div className="grid gap-4 md:grid-cols-3">
       <Card className="md:col-span-1">
         <CardHeader>
-          <CardTitle>Traces</CardTitle>
+          <CardTitle>Trace Search</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Input
-            placeholder="Search traces..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          {/* Search Filters */}
+          <div className="space-y-3">
+            <Input
+              placeholder="Span name..."
+              value={searchParams.span_name}
+              onChange={(e) => setSearchParams({ ...searchParams, span_name: e.target.value })}
+            />
+            <select
+              value={searchParams.status}
+              onChange={(e) => setSearchParams({ ...searchParams, status: e.target.value })}
+              className="w-full px-3 py-2 border rounded"
+            >
+              <option value="">Any status</option>
+              <option value="ok">OK</option>
+              <option value="error">Error</option>
+              <option value="unset">Unset</option>
+            </select>
+            <Input
+              type="datetime-local"
+              placeholder="Start time"
+              value={searchParams.start_time_ns}
+              onChange={(e) => setSearchParams({ ...searchParams, start_time_ns: e.target.value })}
+            />
+            <Input
+              type="datetime-local"
+              placeholder="End time"
+              value={searchParams.end_time_ns}
+              onChange={(e) => setSearchParams({ ...searchParams, end_time_ns: e.target.value })}
+            />
+            <Button
+              variant="outline"
+              onClick={() => setSearchParams({
+                span_name: '',
+                status: '',
+                start_time_ns: '',
+                end_time_ns: '',
+              })}
+              className="w-full"
+            >
+              Clear Filters
+            </Button>
+          </div>
+
+          {/* Trace List */}
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {traces.map((traceId) => (
-              <Button
-                key={traceId}
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => handleTraceSelect(traceId)}
-              >
-                {traceId.substring(0, 16)}...
-              </Button>
-            ))}
-            {traces.length === 0 && (
+            {loading ? (
+              <div className="text-center py-4 text-muted-foreground">
+                Searching traces...
+              </div>
+            ) : traces.length > 0 ? (
+              traces.map((traceId) => (
+                <Button
+                  key={traceId}
+                  variant={selectedTrace?.trace_id === traceId ? "default" : "outline"}
+                  className="w-full justify-start text-left h-auto p-3"
+                  onClick={() => handleTraceSelect(traceId)}
+                >
+                  <div className="font-mono text-xs break-all">
+                    {traceId}
+                  </div>
+                </Button>
+              ))
+            ) : (
               <div className="text-center py-4 text-muted-foreground">
                 No traces found
               </div>
@@ -90,30 +151,61 @@ export function TraceTimeline() {
         <CardContent>
           {selectedTrace ? (
             <div className="space-y-4">
-              <div>
-                <div className="font-semibold">Trace ID:</div>
-                <div className="font-mono text-sm">{selectedTrace.trace_id}</div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="font-semibold text-sm text-muted-foreground">Trace ID</div>
+                  <div className="font-mono text-sm break-all">{selectedTrace.trace_id}</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-sm text-muted-foreground">Root Span</div>
+                  <div className="font-mono text-sm">{selectedTrace.root_span_id || 'N/A'}</div>
+                </div>
               </div>
+
               <div className="space-y-2">
-                <div className="font-semibold">Spans:</div>
-                {selectedTrace.spans.map((span) => (
-                  <div key={span.span_id} className="border-l-2 pl-4 py-2">
-                    <div className="font-medium">{span.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      Duration: {span.end_ns
-                        ? ((span.end_ns - span.start_ns) / 1_000_000).toFixed(2)
-                        : 'ongoing'} ms
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Status: {span.status}
-                    </div>
-                  </div>
-                ))}
+                <div className="font-semibold">Span Timeline ({selectedTrace.spans.length} spans)</div>
+                <div className="space-y-1">
+                  {selectedTrace.spans
+                    .sort((a, b) => a.start_ns - b.start_ns)
+                    .map((span, index) => {
+                      const duration = span.end_ns ? (span.end_ns - span.start_ns) / 1_000_000 : 0;
+                      const startTime = new Date(span.start_ns / 1_000_000).toLocaleTimeString();
+                      const statusColor = span.status === 'error' ? 'border-red-500' :
+                                        span.status === 'ok' ? 'border-green-500' : 'border-gray-500';
+
+                      return (
+                        <div key={span.span_id} className={`border-l-4 pl-4 py-3 ${statusColor} bg-muted/20`}>
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">{span.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {duration.toFixed(2)}ms
+                            </div>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            Started: {startTime}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            ID: {span.span_id.substring(0, 16)}... | Status: {span.status}
+                          </div>
+                          {span.attributes && Object.keys(span.attributes).length > 0 && (
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium text-muted-foreground">Attributes:</div>
+                              <div className="font-mono bg-muted p-2 rounded mt-1 max-h-20 overflow-y-auto">
+                                {Object.entries(span.attributes).map(([key, value]) => (
+                                  <div key={key}>{key}: {String(value)}</div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
               </div>
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              Select a trace to view details
+              Select a trace to view its span timeline and details
             </div>
           )}
         </CardContent>

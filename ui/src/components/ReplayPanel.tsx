@@ -8,8 +8,10 @@ import { Badge } from './ui/badge';
 import { Shield, Play, Hash } from 'lucide-react';
 import apiClient from '../api/client';
 import { ReplaySession, ReplayVerificationResponse } from '../api/types';
+// 【ui/src/components/ReplayPanel.tsx§1-19】 - Replace toast errors with ErrorRecovery
 import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 import { useTenant } from '@/layout/LayoutProvider';
 
@@ -24,6 +26,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   const [sessions, setSessions] = useState<ReplaySession[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [replayError, setReplayError] = useState<Error | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyResponse, setVerifyResponse] = useState<ReplayVerificationResponse | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -34,10 +37,12 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   useEffect(() => {
     const fetchSessions = async () => {
       try {
+        setReplayError(null);
         const data = await apiClient.listReplaySessions(tenantId);
         setSessions(data);
       } catch (err) {
-        toast.error('Failed to load replay sessions');
+        const error = err instanceof Error ? err : new Error('Failed to load replay sessions');
+        setReplayError(error);
       } finally {
         setLoading(false);
       }
@@ -62,18 +67,36 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
       setVerifyResponse(result);
       
       if (result.signature_valid && result.hash_chain_valid) {
-        toast.success('Replay session verified successfully');
+        // Verification success shown in UI
       } else {
-        toast.error(`Verification failed: ${result.divergences.length} divergences found`);
+        setReplayError(new Error(`Verification failed: ${result.divergences.length} divergences found`));
       }
     } catch (err) {
-      toast.error('Verification error');
+      const error = err instanceof Error ? err : new Error('Verification error');
+      setReplayError(error);
     } finally {
       setVerifying(false);
     }
   };
 
   const currentSession = sessions.find(s => s.id === selectedSession);
+
+  if (replayError) {
+    return (
+      <ErrorRecovery
+        title="Replay Panel Error"
+        message={replayError.message}
+        recoveryActions={[
+          { label: 'Retry Loading', action: () => {
+            setReplayError(null);
+            // Trigger refetch by re-running useEffect
+            window.location.reload();
+          }},
+          { label: 'View Logs', action: () => {/* Navigate to logs */} }
+        ]}
+      />
+    );
+  }
 
   return (
     <div>
@@ -238,13 +261,14 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
             try {
               const ids = newBundleIds.split(',').map(s => s.trim()).filter(Boolean);
               const session = await apiClient.createReplaySession({ tenant_id: tenantId, cpid: newCpid, plan_id: newPlanId, telemetry_bundle_ids: ids });
-              toast.success('Replay session created');
+              // Success shown in UI updates
               setCreateOpen(false);
               setNewCpid(''); setNewPlanId(''); setNewBundleIds('');
               const data = await apiClient.listReplaySessions(tenantId);
               setSessions(data);
             } catch (err) {
-              toast.error('Failed to create replay session');
+              const error = err instanceof Error ? err : new Error('Failed to create replay session');
+              setReplayError(error);
             }
           }}>Create</Button>
         </DialogFooter>

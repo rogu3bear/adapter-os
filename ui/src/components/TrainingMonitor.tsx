@@ -1,3 +1,4 @@
+// 【ui/src/components/TrainingMonitor.tsx§45-88】 - Replace manual polling with standardized hook
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -24,8 +25,11 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { TrainingJob, TrainingMetrics, TrainingArtifactsResponse } from '../api/types';
-import { logger } from '../utils/logger';
+import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface TrainingMonitorProps {
   jobId: string;
@@ -37,55 +41,71 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
   const [metrics, setMetrics] = useState<TrainingMetrics | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [artifacts, setArtifacts] = useState<TrainingArtifactsResponse | null>(null);
-  const [isPolling, setIsPolling] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<number | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const logScrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const fetchJobData = async () => {
-      try {
-        const [jobData, metricsData, logsData] = await Promise.all([
-          apiClient.getTrainingJob(jobId),
-          apiClient.getTrainingMetrics(jobId),
-          apiClient.getTrainingLogs(jobId)
-        ]);
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for training monitor
+  const fetchTrainingData = async () => {
+    const [jobData, metricsData, logsData] = await Promise.all([
+      apiClient.getTrainingJob(jobId),
+      apiClient.getTrainingMetrics(jobId),
+      apiClient.getTrainingLogs(jobId)
+    ]);
 
-        setJob(jobData);
-        setMetrics(metricsData);
-        setLogs(logsData);
-
-        // Fetch artifacts separately; ignore errors so UI still updates
-        try {
-          const artifactsData = await apiClient.getTrainingArtifacts(jobId);
-          setArtifacts(artifactsData);
-        } catch (e) {
-          // Not all jobs produce artifacts; keep previous artifacts or null
-          if (!artifacts) setArtifacts(null);
-        }
-        setError(null);
-
-        // Auto-scroll logs to bottom
-        if (logScrollRef.current) {
-          logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch training data');
-      }
-    };
-
-    fetchJobData();
-
-    if (isPolling && job?.status === 'running') {
-      intervalRef.current = window.setInterval(fetchJobData, 1000); // Poll every 1 second for instant updates
+    // Fetch artifacts separately; ignore errors so UI still updates
+    let artifactsData: TrainingArtifactsResponse | null = null;
+    try {
+      artifactsData = await apiClient.getTrainingArtifacts(jobId);
+    } catch (e) {
+      // Not all jobs produce artifacts; keep null
     }
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+    return {
+      job: jobData,
+      metrics: metricsData,
+      logs: logsData,
+      artifacts: artifactsData
     };
-  }, [jobId, isPolling, job?.status]);
+  };
+
+  const {
+    data: trainingData,
+    isLoading: loading,
+    lastUpdated,
+    error: pollingError,
+    refetch: refreshTraining
+  } = usePolling(
+    fetchTrainingData,
+    'normal', // Background updates for training monitoring
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        const error = err instanceof Error ? err : new Error('Failed to fetch training data');
+        setError(error);
+        logger.error('Failed to fetch training data', {
+          component: 'TrainingMonitor',
+          operation: 'polling',
+          jobId
+        }, err);
+      }
+    }
+  );
+
+  // Update state when polling data arrives
+  useEffect(() => {
+    if (trainingData) {
+      setJob(trainingData.job);
+      setMetrics(trainingData.metrics);
+      setLogs(trainingData.logs);
+      setArtifacts(trainingData.artifacts);
+      setError(null);
+
+      // Auto-scroll logs to bottom
+      if (logScrollRef.current) {
+        logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+      }
+    }
+  }, [trainingData]);
 
   const handlePause = async () => {
     try {
@@ -197,10 +217,14 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
 
   if (error) {
     return (
-      <Alert variant="destructive">
-        <XCircle className="h-4 w-4" />
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
+      <ErrorRecovery
+        title="Training Monitor Error"
+        message={error.message}
+        recoveryActions={[
+          { label: 'Retry', action: () => refreshTraining() },
+          { label: 'Close Monitor', action: () => onClose?.() }
+        ]}
+      />
     );
   }
 
@@ -229,6 +253,7 @@ export function TrainingMonitor({ jobId, onClose }: TrainingMonitorProps) {
                 </>
               )}
             </div>
+            {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
           </div>
         </div>
         

@@ -1,14 +1,15 @@
+// 【ui/src/components/RealtimeMetrics.tsx§1-25】 - Replace manual SSE+polling with standardized hook
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { 
-  Activity, 
-  Cpu, 
-  HardDrive, 
-  Zap, 
-  Clock, 
+import {
+  Activity,
+  Cpu,
+  HardDrive,
+  Zap,
+  Clock,
   TrendingUp,
   Database,
   GitBranch,
@@ -16,9 +17,11 @@ import {
 } from 'lucide-react';
 import { SystemMetrics, User } from '../api/types';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { toast } from 'sonner'; // Add if not imported
+import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
 
 interface RealtimeMetricsProps {
   user: User;
@@ -37,9 +40,34 @@ interface MetricsHistory {
 export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [history, setHistory] = useState<MetricsHistory[]>([]);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const UPDATE_INTERVAL = 50; // ms - instant updates
-  const MAX_HISTORY = 120; // Keep last 120 data points (6 seconds at 50ms)
+  const MAX_HISTORY = 120; // Keep last 120 data points
+
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for real-time metrics
+  const fetchMetricsData = async () => {
+    const data = await apiClient.getSystemMetrics();
+    return data;
+  };
+
+  const {
+    data: polledMetrics,
+    isLoading,
+    lastUpdated,
+    error: pollingError,
+    refetch: refreshMetrics
+  } = usePolling(
+    fetchMetricsData,
+    'fast', // Real-time updates for metrics
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        logger.error('Metrics fetch failed', {
+          component: 'RealtimeMetrics',
+          operation: 'polling',
+          tenantId: selectedTenant,
+        }, err);
+      }
+    }
+  );
   
   // Training metrics
   const [trainingJobs, setTrainingJobs] = useState({
@@ -65,35 +93,22 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     totalArtifacts: 0,
   });
   
-  const fetchMetrics = async () => {
-    try {
-      // Citation: ui/src/api/client.ts L454-L456
-      const data = await apiClient.getSystemMetrics().catch((error) => {
-        logger.error('Metrics fetch failed', {
-          component: 'RealtimeMetrics',
-          operation: 'getSystemMetrics',
-          tenantId: selectedTenant,
-        }, toError(error));
-        return null; // Fallback to prevent crashes
-      });
+  // Update metrics and derived state when polling data arrives
+  useEffect(() => {
+    if (polledMetrics) {
+      setMetrics(polledMetrics);
 
-      if (!data) {
-        // Keep existing set calls with defaults
-        return;
-      }
-      setMetrics(data);
-        
       // Add to history
       setHistory(prev => {
         const newHistory = [...prev, {
           timestamp: Date.now(),
-          cpu: data.cpu_usage_percent || 0,
-          memory: data.memory_usage_pct || 0,
-          gpu: data.gpu_utilization_percent || 0,
-          tokensPerSec: data.tokens_per_second || 0,
-          latency: data.latency_p95_ms || 0,
-        }]; // Ensure no trailing comma issues in array
-        
+          cpu: polledMetrics.cpu_usage_percent || 0,
+          memory: polledMetrics.memory_usage_pct || 0,
+          gpu: polledMetrics.gpu_utilization_percent || 0,
+          tokensPerSec: polledMetrics.tokens_per_second || 0,
+          latency: polledMetrics.latency_p95_ms || 0,
+        }];
+
         // Keep only last MAX_HISTORY points
         if (newHistory.length > MAX_HISTORY) {
           return newHistory.slice(-MAX_HISTORY);
@@ -101,85 +116,33 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
         return newHistory;
       });
 
-      // Fetch training metrics (mock for now)
+      // Update training metrics (mock for now)
       setTrainingJobs({
         active: Math.floor(Math.random() * 5),
         completed: 42,
         pending: Math.floor(Math.random() * 10),
         total: 67,
       });
-      
-      // Fetch workload metrics
+
+      // Update workload metrics
       setWorkload({
-        activeWorkers: data?.active_sessions || 0,
+        activeWorkers: polledMetrics?.active_sessions || 0,
         queuedRequests: Math.floor(Math.random() * 20),
-        throughput: data?.tokens_per_second || 0,
-        avgLatency: data?.latency_p95_ms || 0,
+        throughput: polledMetrics?.tokens_per_second || 0,
+        avgLatency: polledMetrics?.latency_p95_ms || 0,
       });
-      
-      // Fetch import metrics (mock for now)
+
+      // Update import metrics (mock for now)
       setImports({
         reposScanning: Math.floor(Math.random() * 3),
-        adaptersLoaded: data?.adapter_count || 0,
+        adaptersLoaded: polledMetrics?.adapter_count || 0,
         modelsImported: 3,
         totalArtifacts: 156,
       });
-      
-    } catch (error) {
-      logger.error('Failed to fetch realtime metrics', {
-        component: 'RealtimeMetrics',
-        operation: 'fetchMetrics',
-        tenantId: selectedTenant,
-      }, toError(error));
-      toast.error('Failed to fetch metrics');
     }
-  };
+  }, [polledMetrics]);
   
-  useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
-    let fallbackInterval: NodeJS.Timeout | null = null;
-
-    const handleMetrics = (data: SystemMetrics | null) => {
-      if (data) {
-        setMetrics(data);
-        // Existing history update
-        setHistory(prev => {
-          const newHistory = [...prev, {
-            timestamp: Date.now(),
-            cpu: data.cpu_usage_percent || 0,
-            memory: data.memory_usage_pct || 0,
-            gpu: data.gpu_utilization_percent || 0,
-            tokensPerSec: data.tokens_per_second || 0,
-            latency: data.latency_p95_ms || 0,
-          }];
-          return newHistory.length > MAX_HISTORY ? newHistory.slice(-MAX_HISTORY) : newHistory;
-        });
-
-        // Existing setTrainingJobs, setWorkload, setImports (use data where possible)
-        setTrainingJobs(prev => ({ ...prev, active: data.active_sessions || 0 })); // Use active_sessions as proxy
-        // ... similar for others
-      } else {
-        toast.error('Metrics disconnected - reconnecting...');
-      }
-    };
-
-    // Try SSE
-    if (typeof EventSource !== 'undefined') {
-      unsubscribe = apiClient.subscribeToMetrics(handleMetrics);
-    } else {
-      // Fallback polling
-      const intervalMs = import.meta.env.VITE_METRICS_INTERVAL ? parseInt(import.meta.env.VITE_METRICS_INTERVAL) : 500;
-      fallbackInterval = setInterval(fetchMetrics, intervalMs);
-    }
-
-    // Initial fetch
-    fetchMetrics();
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-      if (fallbackInterval) clearInterval(fallbackInterval);
-    };
-  }, [selectedTenant]);
+  // Removed: SSE + manual polling logic replaced with usePolling hook above
   
   // Format chart data
   const chartData = history.map((h, idx) => ({
@@ -205,9 +168,14 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
             Real-time Metrics
           </h1>
           <p className="section-description">
-            System performance updated every {UPDATE_INTERVAL}ms - instant real-time
+            System performance with real-time updates
           </p>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
+        <Button onClick={() => refreshMetrics()} disabled={isLoading} variant="outline" size="sm">
+          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
       
       {/* System Resources */}

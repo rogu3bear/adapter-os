@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, CheckCircle, Server } from 'lucide-react';
-import { toast } from 'sonner';
+// 【ui/src/components/SpawnWorkerModal.tsx§1-35】 - Replace toast notifications with ErrorRecovery patterns
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
 import { Node, Plan, SpawnWorkerRequest } from '../api/types';
 import { logger, toError } from '../utils/logger';
@@ -29,16 +30,19 @@ export function SpawnWorkerModal({
   const [selectedPlan, setSelectedPlan] = useState<string>('');
   const [tenantId, setTenantId] = useState<string>(selectedTenant);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<Error | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      loadData();
+      void loadData();
       setTenantId(selectedTenant);
+      setModalError(null);
+      setValidationMessage(null);
     }
-  }, [open, selectedTenant]);
+  }, [open, selectedTenant, loadData]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [nodesData, plansData] = await Promise.all([
         apiClient.listNodes(),
@@ -51,30 +55,37 @@ export function SpawnWorkerModal({
       setPlans(plansData);
 
       // Auto-select first healthy node and plan if available
-      if (healthyNodes.length > 0 && !selectedNode) {
-        setSelectedNode(healthyNodes[0].id);
+      if (healthyNodes.length > 0) {
+        setSelectedNode((prev) => prev || healthyNodes[0].id);
       }
-      if (plansData.length > 0 && !selectedPlan) {
-        setSelectedPlan(plansData[0].id);
+      if (plansData.length > 0) {
+        setSelectedPlan((prev) => prev || plansData[0].id);
       }
+      setModalError(null);
+      setValidationMessage(null);
     } catch (err) {
       logger.error('Failed to load spawn worker data', {
         component: 'SpawnWorkerModal',
         operation: 'loadData',
         tenantId: selectedTenant,
       }, toError(err));
-      setError('Failed to load nodes and plans');
+      const error = err instanceof Error ? err : new Error('Failed to load nodes and plans');
+      setModalError(error);
+      setValidationMessage('Failed to load nodes and plans. Try refreshing.');
     }
-  };
+  }, [selectedTenant]);
 
   const handleSpawn = async () => {
+    setValidationMessage(null);
+    setModalError(null);
+
     if (!selectedNode || !selectedPlan || !tenantId) {
-      setError('Please select node, plan, and tenant');
+      setValidationMessage('Please select node, plan, and tenant.');
       return;
     }
 
     setIsLoading(true);
-    setError(null);
+    setModalError(null);
 
     try {
       const request: SpawnWorkerRequest = {
@@ -84,7 +95,6 @@ export function SpawnWorkerModal({
       };
 
       const worker = await apiClient.spawnWorker(request);
-      toast.success(`Worker ${worker.id} spawned successfully`);
       onSuccess();
       onOpenChange(false);
       
@@ -93,8 +103,9 @@ export function SpawnWorkerModal({
       setSelectedPlan('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to spawn worker';
-      setError(errorMessage);
-      toast.error(errorMessage);
+      const error = err instanceof Error ? err : new Error(errorMessage);
+      setModalError(error);
+      setValidationMessage(null);
       logger.error('Failed to spawn worker', {
         component: 'SpawnWorkerModal',
         operation: 'spawnWorker',
@@ -120,10 +131,22 @@ export function SpawnWorkerModal({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {error && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
+          {modalError && ErrorRecoveryTemplates.genericError(
+            modalError,
+            () => {
+              setModalError(null);
+              if (!selectedNode || !selectedPlan) {
+                void loadData();
+              } else {
+                void handleSpawn();
+              }
+            }
+          )}
+
+          {validationMessage && (
+            <Alert className="border-amber-200 bg-amber-50">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-amber-700">{validationMessage}</AlertDescription>
             </Alert>
           )}
 
@@ -213,4 +236,3 @@ export function SpawnWorkerModal({
     </Dialog>
   );
 }
-

@@ -6,7 +6,8 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import apiClient from '../api/client';
 import { GoldenCompareRequest, Strictness, VerificationReport } from '../api/types';
-import { toast } from 'sonner';
+// 【ui/src/components/GoldenCompareModal.tsx§1-40】 - Replace toast notifications with ErrorRecovery patterns
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface GoldenCompareModalProps {
   open: boolean;
@@ -24,7 +25,9 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
   const [verifyDevice, setVerifyDevice] = useState<boolean>(false);
   const [compareResult, setCompareResult] = useState<VerificationReport | null>(null);
   const [adapterFilter, setAdapterFilter] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [compareError, setCompareError] = useState<Error | null>(null);
+  const [validationWarning, setValidationWarning] = useState<string | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<'passed' | 'failed' | null>(null);
   const [limitRows, setLimitRows] = useState<boolean>(true);
   const [sortKey, setSortKey] = useState<'rel' | 'g_l2' | 'c_l2'>('rel');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
@@ -34,7 +37,9 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
     // Reset state when opened
     setCompareResult(null);
     setAdapterFilter(null);
-    setError(null);
+    setCompareError(null);
+    setValidationWarning(null);
+    setVerificationStatus(null);
     setLimitRows(true);
     // Load golden run names
     (async () => {
@@ -44,19 +49,23 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
         if (runs.length) setSelectedGolden((prev) => prev || runs[0]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to load golden baselines';
-        setError(msg);
-        toast.error(msg);
+        const error = err instanceof Error ? err : new Error(msg);
+        setCompareError(error);
       }
     })();
   }, [open]);
 
   const runGoldenCompare = async () => {
+    setValidationWarning(null);
+    setCompareError(null);
+    setVerificationStatus(null);
+
     if (!bundleId) {
-      toast.error('No bundle selected');
+      setValidationWarning('Select a telemetry bundle to begin verification.');
       return;
     }
     if (!selectedGolden) {
-      toast.error('Please select a golden baseline');
+      setValidationWarning('Please select a golden baseline before running the comparison.');
       return;
     }
     const req: GoldenCompareRequest = {
@@ -71,16 +80,15 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
     try {
       const res = await apiClient.goldenCompare(req);
       setCompareResult(res);
-      setError(null);
-      toast.success(res.passed ? 'Verification passed' : 'Verification failed');
+      setCompareError(null);
+      setVerificationStatus(res.passed ? 'passed' : 'failed');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Golden comparison failed';
       // Friendly 404 hint
       const friendly = /404|not found/i.test(msg)
         ? 'Baseline or bundle not found (404)'
         : msg;
-      setError(friendly);
-      toast.error(friendly);
+      setCompareError(new Error(friendly));
       setCompareResult(null);
     }
   };
@@ -109,7 +117,7 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
     });
     if (!limitRows) return sorted;
     return sorted.slice(0, 100);
-  }, [compareResult, adapterFilter, limitRows]);
+  }, [compareResult, adapterFilter, limitRows, sortDir, sortKey]);
 
   const exportCsv = (all: boolean = false) => {
     if (!compareResult) return;
@@ -147,9 +155,37 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
         </DialogHeader>
 
         <div className="space-y-4">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
+          {compareError && ErrorRecoveryTemplates.genericError(
+            compareError,
+            () => {
+              setCompareError(null);
+              void runGoldenCompare();
+            }
+          )}
+
+          {validationWarning && (
+            <Alert className="border-amber-200 bg-amber-50">
+              <AlertDescription className="text-amber-700">
+                {validationWarning}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {verificationStatus && (
+            <Alert className={
+              verificationStatus === 'passed'
+                ? 'border-green-200 bg-green-50'
+                : 'border-red-200 bg-red-50'
+            }>
+              <AlertDescription className={
+                verificationStatus === 'passed'
+                  ? 'text-green-700'
+                  : 'text-red-700'
+              }>
+                {verificationStatus === 'passed'
+                  ? 'Verification passed. No significant divergences detected.'
+                  : 'Verification failed. Review divergent layers below.'}
+              </AlertDescription>
             </Alert>
           )}
 

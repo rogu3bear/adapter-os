@@ -1,3 +1,4 @@
+// 【ui/src/components/TrainingWizard.tsx§1-981】 - Add density controls and breadcrumbs
 import React, { useState, useEffect } from 'react';
 import { Wizard, WizardStep } from './ui/wizard';
 import { Input } from './ui/input';
@@ -10,10 +11,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Alert, AlertDescription } from './ui/alert';
-import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder } from 'lucide-react';
+import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
+import { DensityProvider, useDensity } from '../contexts/DensityContext';
+import { DensityControls } from './ui/density-controls';
+import { useBreadcrumb } from '../contexts/BreadcrumbContext';
+import { BreadcrumbNavigation } from './BreadcrumbNavigation';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import {
   AdapterCategory,
   AdapterScope,
@@ -103,11 +109,30 @@ const LORA_TARGETS = [
   'embed_tokens', 'lm_head',
 ];
 
-export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
+// Inner component that uses density context
+function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX.Element {
+  const { setBreadcrumbs } = useBreadcrumb();
+  const { density, setDensity, spacing, textSizes } = useDensity();
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
+  const [wizardError, setWizardError] = useState<Error | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Update breadcrumbs based on current step
+  useEffect(() => {
+    const stepConfigs = [
+      { id: 'category', label: 'Category', icon: Code },
+      { id: 'basic-info', label: 'Basic Info', icon: FileText },
+      { id: 'data-source', label: 'Data Source', icon: Database },
+      { id: 'category-config', label: 'Configuration', icon: Settings },
+      { id: 'training-params', label: 'Parameters', icon: Zap },
+      { id: 'packaging', label: 'Packaging', icon: Folder },
+      { id: 'review', label: 'Review', icon: CheckCircle }
+    ];
+    setBreadcrumbs(stepConfigs.slice(0, currentStep + 1));
+  }, [currentStep, setBreadcrumbs]);
   
   const [state, setState] = useState<WizardState>({
     category: null,
@@ -131,20 +156,22 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     // Load repositories and templates
     const loadData = async () => {
       try {
-      const [reposData, templatesData] = await Promise.all([
-        apiClient.listRepositories(),
-        apiClient.listTrainingTemplates(),
-      ]);
-      setRepositories(reposData);
-      setTemplates(templatesData);
-    } catch (error) {
-      logger.error('Failed to preload training wizard data', {
-        component: 'TrainingWizard',
-        operation: 'loadData',
-      }, toError(error));
-      toast.error('Failed to load repositories and templates');
-    }
-  };
+        setWizardError(null);
+        const [reposData, templatesData] = await Promise.all([
+          apiClient.listRepositories(),
+          apiClient.listTrainingTemplates(),
+        ]);
+        setRepositories(reposData);
+        setTemplates(templatesData);
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error('Failed to load repositories and templates');
+        setWizardError(err);
+        logger.error('Failed to preload training wizard data', {
+          component: 'TrainingWizard',
+          operation: 'loadData',
+        }, toError(error));
+      }
+    };
     loadData();
   }, []);
 
@@ -812,6 +839,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   );
 
   const handleComplete = async () => {
+    setWizardError(null);
     setIsLoading(true);
     try {
       // Build training config
@@ -845,7 +873,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       } else if (state.dataSourceType === 'directory') {
         // Directory-based training
         if (!state.directoryRoot) {
-          toast.error('Please provide a directory root path for directory-based training');
+          setWizardError(new Error('Please provide a directory root path for directory-based training'));
           setIsLoading(false);
           return;
         }
@@ -854,27 +882,28 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       } else if (state.dataSourceType === 'custom') {
         // For custom, require dataset_path
         if (!state.datasetPath) {
-          toast.error('For custom training, please provide a dataset_path pointing to a training JSON file');
+          setWizardError(new Error('For custom training, please provide a dataset_path pointing to a training JSON file'));
           setIsLoading(false);
           return;
         }
       }
-      
+
       if (state.datasetPath) {
         trainingRequest.dataset_path = state.datasetPath;
       }
 
       const job = await apiClient.startTraining(trainingRequest);
 
-      toast.success(`Training job ${job.id} started successfully!`);
+      // Success - training started
       onComplete(job.id);
     } catch (error) {
+      const err = error instanceof Error ? error : new Error('Failed to start training');
+      setWizardError(err);
       logger.error('Training job start failed', {
         component: 'TrainingWizard',
         operation: 'startTraining',
         adapterName: state.name,
       }, toError(error));
-      toast.error(error instanceof Error ? error.message : 'Failed to start training');
     } finally {
       setIsLoading(false);
     }
@@ -887,8 +916,9 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Select adapter type',
       component: <CategoryStep />,
       validate: () => {
+        setValidationError(null);
         if (!state.category) {
-          toast.error('Please select an adapter category');
+          setValidationError('Please select an adapter category');
           return false;
         }
         return true;
@@ -900,8 +930,9 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Name and scope',
       component: <BasicInfoStep />,
       validate: () => {
+        setValidationError(null);
         if (!state.name.trim()) {
-          toast.error('Adapter name is required');
+          setValidationError('Adapter name is required');
           return false;
         }
         return true;
@@ -913,20 +944,21 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Select training data',
       component: <DataSourceStep />,
       validate: () => {
+        setValidationError(null);
         if (state.dataSourceType === 'template' && !state.templateId) {
-          toast.error('Please select a template');
+          setValidationError('Please select a template');
           return false;
         }
         if (state.dataSourceType === 'repository' && !state.repositoryId) {
-          toast.error('Please select a repository');
+          setValidationError('Please select a repository');
           return false;
         }
         if (state.dataSourceType === 'directory' && !state.directoryRoot?.trim()) {
-          toast.error('Please provide a directory root path');
+          setValidationError('Please provide a directory root path for directory-based training');
           return false;
         }
         if (state.dataSourceType === 'custom' && !state.datasetPath?.trim()) {
-          toast.error('Please provide a dataset_path for custom training');
+          setValidationError('For custom training, please provide a dataset_path pointing to a training JSON file');
           return false;
         }
         return true;
@@ -944,8 +976,9 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'LoRA configuration',
       component: <TrainingParamsStep />,
       validate: () => {
+        setValidationError(null);
         if (state.targets.length === 0) {
-          toast.error('Please select at least one LoRA target module');
+          setValidationError('Please select at least one LoRA target module');
           return false;
         }
         return true;
@@ -966,15 +999,47 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   ];
 
   return (
-    <Wizard
-      title="Training Wizard"
-      steps={steps}
-      currentStep={currentStep}
-      onStepChange={setCurrentStep}
-      onComplete={handleComplete}
-      onCancel={onCancel}
-      completeButtonText="Start Training"
-      isLoading={isLoading}
-    />
+    <div className={spacing.sectionGap}>
+      <BreadcrumbNavigation />
+      <div className="flex justify-between items-center mb-4">
+        <h2 className={textSizes.title}>Training Wizard</h2>
+        <DensityControls density={density} onDensityChange={setDensity} />
+      </div>
+
+      {/* Error Recovery */}
+      {wizardError && ErrorRecoveryTemplates.genericError(
+        wizardError,
+        () => { setWizardError(null); setCurrentStep(0); }
+      )}
+      {validationError && (
+        <ErrorRecovery
+          title="Validation Error"
+          message={validationError}
+          recoveryActions={[
+            { label: 'Fix Issue', action: () => setValidationError(null) }
+          ]}
+        />
+      )}
+
+      <Wizard
+        title="Training Wizard"
+        steps={steps}
+        currentStep={currentStep}
+        onStepChange={setCurrentStep}
+        onComplete={handleComplete}
+        onCancel={onCancel}
+        completeButtonText="Start Training"
+        isLoading={isLoading}
+      />
+    </div>
+  );
+}
+
+// Outer component with DensityProvider
+export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
+  return (
+    <DensityProvider pageKey="training-wizard">
+      <TrainingWizardInner onComplete={onComplete} onCancel={onCancel} />
+    </DensityProvider>
   );
 }

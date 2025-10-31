@@ -32,15 +32,19 @@ function ensureMermaidConfig(config?: MermaidConfig) {
 const Mermaid: React.FC<MermaidProps> = ({ chart, config, className, onRender, onError }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const renderKey = useMemo(() => `mermaid-${Math.random().toString(36).slice(2, 9)}`, [chart]);
+  const renderKey = useMemo(() => {
+    const chartSignature = chart?.length ?? 0;
+    return `mermaid-${chartSignature}-${Math.random().toString(36).slice(2, 9)}`;
+  }, [chart]);
 
   useEffect(() => {
-    if (!containerRef.current || typeof window === 'undefined') {
+    const element = containerRef.current;
+    if (!element || typeof window === 'undefined') {
       return;
     }
 
     if (!chart) {
-      containerRef.current.innerHTML = '';
+      element.innerHTML = '';
       setError(null);
       return;
     }
@@ -50,9 +54,9 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, config, className, onRender, o
     let cancelled = false;
     async function render() {
       try {
-        const { svg } = await mermaid.render(renderKey, chart, containerRef.current!);
-        if (!cancelled && containerRef.current) {
-          containerRef.current.innerHTML = svg;
+        const { svg } = await mermaid.render(renderKey, chart, element);
+        if (!cancelled) {
+          element.innerHTML = svg;
           setError(null);
           onRender?.();
         }
@@ -61,9 +65,7 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, config, className, onRender, o
           const message = err instanceof Error ? err.message : 'Unable to render diagram';
           setError(message);
           onError?.(err);
-          if (containerRef.current) {
-            containerRef.current.innerHTML = '';
-          }
+          element.innerHTML = '';
         }
       }
     }
@@ -72,9 +74,7 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, config, className, onRender, o
 
     return () => {
       cancelled = true;
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-      }
+      element.innerHTML = '';
     };
   }, [chart, config, onRender, onError, renderKey]);
 
