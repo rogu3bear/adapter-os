@@ -3,19 +3,32 @@
 //! This example demonstrates advanced usage of the patch proposal system
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
+#[cfg(feature = "extended-tests")]
 use adapteros_lora_worker::{
     evidence::{EvidencePolicy, EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics},
     patch_validator::{CodePolicy, PatchValidator, ValidationResult},
 };
+#[cfg(feature = "extended-tests")]
 use adapteros_manifest::Policies;
+#[cfg(feature = "extended-tests")]
 use adapteros_policy::PolicyEngine;
+#[cfg(feature = "extended-tests")]
 use adapteros_telemetry::TelemetryWriter;
+#[cfg(feature = "extended-tests")]
 use std::collections::HashMap;
+#[cfg(feature = "extended-tests")]
 use std::time::Instant;
+#[cfg(feature = "extended-tests")]
 use tokio;
 
+#[cfg(not(feature = "extended-tests"))]
+fn main() {
+    eprintln!("Enable the `extended-tests` feature to run the advanced patch proposal example.");
+}
+
+#[cfg(feature = "extended-tests")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
@@ -227,7 +240,7 @@ fn create_comprehensive_evidence() -> Vec<EvidenceSpan> {
             rev: "v1".to_string(),
             span_hash: "auth_doc_hash".to_string(),
             score: 0.88,
-            evidence_type: EvidenceType::Documentation,
+            evidence_type: EvidenceType::Doc,
             file_path: "docs/middleware.md".to_string(),
             start_line: 50,
             end_line: 60,
@@ -292,6 +305,14 @@ fn validate_evidence_quality(
         warnings: Vec::new(),
         confidence: if errors.is_empty() { 0.9 } else { 0.3 },
         violations: Vec::new(),
+        evidence_validation: None,
+        security_validation: None,
+        performance_validation: None,
+        test_validation: None,
+        lint_validation: None,
+        policy_compliance: None,
+        validation_duration_ms: 0,
+        telemetry_hash: None,
     })
 }
 
@@ -339,8 +360,8 @@ async fn validate_patch_advanced(
 fn create_advanced_policies() -> Policies {
     use adapteros_core::B3Hash;
     use adapteros_manifest::{
-        ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
-        MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
+        ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy,
+        IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
     };
 
     Policies {
@@ -398,6 +419,13 @@ fn create_advanced_policies() -> Policies {
             require_signature: true,
             require_sbom: true,
             cas_only: true,
+        },
+        drift: DriftPolicy {
+            os_build_tolerance: 1,
+            gpu_driver_tolerance: 0,
+            env_hash_tolerance: 0,
+            allow_warnings: true,
+            block_on_critical: true,
         },
     }
 }
@@ -475,7 +503,7 @@ fn display_advanced_patch_details(
         println!("\n[ALERT] Policy Violations:");
         for violation in &validation_result.violations {
             println!(
-                "   - {}: {}",
+                "   - {:?}: {}",
                 violation.violation_type, violation.description
             );
             if let Some(file_path) = &violation.file_path {

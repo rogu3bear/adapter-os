@@ -17,10 +17,19 @@
 //! cargo run --example basic_inference
 //! ```
 
+#[cfg(feature = "extended-tests")]
 use adapteros_core::{AosError, Result};
+#[cfg(feature = "extended-tests")]
 use adapteros_manifest::ManifestV3;
+#[cfg(feature = "extended-tests")]
 use std::fs;
 
+#[cfg(not(feature = "extended-tests"))]
+fn main() {
+    eprintln!("Enable the `extended-tests` feature to run the AdapterOS basic inference example.");
+}
+
+#[cfg(feature = "extended-tests")]
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
@@ -34,14 +43,21 @@ async fn main() -> Result<()> {
     let manifest_path = "manifests/qwen7b.json"; // Example path
     if !std::path::Path::new(manifest_path).exists() {
         eprintln!("❌ Manifest not found: {}", manifest_path);
-        return Err(AosError::Config(format!("Manifest not found: {}", manifest_path)));
+        return Err(AosError::Config(format!(
+            "Manifest not found: {}",
+            manifest_path
+        )));
     }
     let manifest_content = fs::read_to_string(manifest_path)
         .map_err(|e| AosError::Config(format!("Failed to read manifest: {}", e)))?;
     let manifest: ManifestV3 = serde_json::from_str(&manifest_content)
         .map_err(|e| AosError::Config(format!("Failed to parse manifest: {}", e)))?;
 
-    println!("✅ Manifest loaded: {} ({} adapters)", manifest.base.model_id, manifest.adapters.len());
+    println!(
+        "✅ Manifest loaded: {} ({} adapters)",
+        manifest.base.model_id,
+        manifest.adapters.len()
+    );
     println!("ℹ️  This example demonstrates manifest parsing and setup.\n     For full inference, start the server and use the Worker with Metal kernels.");
 
     Ok(())
