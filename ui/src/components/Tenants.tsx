@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -11,18 +11,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from './ui/switch';
 import { Alert, AlertDescription } from './ui/alert';
 import { Progress } from './ui/progress';
-import { 
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { 
-  Plus, 
-  Users, 
-  Shield, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  Plus,
+  Users,
+  Shield,
+  AlertTriangle,
+  CheckCircle,
   Settings,
   Lock,
   Eye,
@@ -33,12 +33,16 @@ import {
   Edit,
   Archive,
   Layers,
-  BarChart3
+  BarChart3,
+  Building2,
+  CreditCard,
+  Calendar,
+  AlertCircle
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
-import { toast } from 'sonner';
-import { logger } from '../utils/logger';
+import { logger, toError } from '../utils/logger';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface TenantsProps {
   user: User;
@@ -60,28 +64,43 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+  const userId = user.id;
 
-  const fetchTenants = async () => {
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
+
+  const fetchTenants = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiClient.listTenants();
       setTenants(data);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (err) {
       // Replace: console.error('Failed to fetch tenants:', err);
       logger.error('Failed to fetch tenants', {
         component: 'Tenants',
         operation: 'fetchTenants',
-        userId: user.id
+        userId
       }, err instanceof Error ? err : new Error(String(err)));
-      toast.error('Failed to load tenants');
+      setStatusMessage({ message: 'Failed to load tenants.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to load tenants'),
+          () => fetchTenants()
+        )
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   useEffect(() => {
     fetchTenants();
-  }, []);
+  }, [fetchTenants]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -97,23 +116,29 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         logger.error('Failed to fetch policies/adapters', {
           component: 'Tenants',
           operation: 'fetchPoliciesAdapters',
-          userId: user.id
+          userId
         }, err instanceof Error ? err : new Error(String(err)));
       }
     };
     fetchData();
-  }, []);
+  }, [userId]);
 
   const handleEdit = async () => {
     if (!selectedTenantForAction) return;
     try {
       await apiClient.updateTenant(selectedTenantForAction.id, editName);
-      toast.success('Tenant updated');
+      showStatus('Tenant updated.', 'success');
       setShowEditModal(false);
       fetchTenants();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to update tenant';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleEdit()
+        )
+      );
     }
   };
 
@@ -122,13 +147,19 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     if (!selectedTenantForAction) return;
     try {
       await apiClient.archiveTenant(selectedTenantForAction.id);
-      toast.success('Tenant archived');
+      showStatus('Tenant archived.', 'success');
       setShowArchiveModal(false);
       setSelectedTenantForAction(null);
       fetchTenants();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to archive tenant';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleArchive()
+        )
+      );
     }
   };
 
@@ -136,12 +167,18 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     if (!selectedTenantForAction) return;
     try {
       await apiClient.assignTenantPolicies(selectedTenantForAction.id, selectedPolicies);
-      toast.success(`Assigned ${selectedPolicies.length} policies`);
+      showStatus(`Assigned ${selectedPolicies.length} policies.`, 'success');
       setShowAssignPoliciesModal(false);
       setSelectedPolicies([]);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to assign policies';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleAssignPolicies()
+        )
+      );
     }
   };
 
@@ -149,12 +186,18 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     if (!selectedTenantForAction) return;
     try {
       await apiClient.assignTenantAdapters(selectedTenantForAction.id, selectedAdapters);
-      toast.success(`Assigned ${selectedAdapters.length} adapters`);
+      showStatus(`Assigned ${selectedAdapters.length} adapters.`, 'success');
       setShowAssignAdaptersModal(false);
       setSelectedAdapters([]);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to assign adapters';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleAssignAdapters()
+        )
+      );
     }
   };
 
@@ -166,18 +209,30 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       setShowUsageModal(true);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch tenant usage';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleViewUsage(tenant)
+        )
+      );
     }
   };
 
   const handlePause = async (tenant: ApiTenant) => {
     try {
       await apiClient.pauseTenant(tenant.id);
-      toast.success(`Tenant "${tenant.name}" paused`);
+      showStatus(`Tenant "${tenant.name}" paused.`, 'success');
       await fetchTenants();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to pause tenant';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handlePause(tenant)
+        )
+      );
     }
   };
 
@@ -230,13 +285,19 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     if (!newTenant.name.trim()) return;
     try {
       await apiClient.createTenant({ name: newTenant.name, isolation_level: 'standard' });
-      toast.success('Tenant created');
+      showStatus('Tenant created.', 'success');
       setNewTenant({ name: '', description: '', dataClassification: 'internal', itarCompliant: false });
       setIsCreateDialogOpen(false);
       await fetchTenants();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to create tenant';
-      toast.error(errorMsg);
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleCreateTenant()
+        )
+      );
     }
   };
 
@@ -256,6 +317,43 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          {statusMessage.variant === 'success' ? (
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          ) : statusMessage.variant === 'warning' ? (
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 text-blue-600" />
+          )}
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex-between section-header">
         <div>

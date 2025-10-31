@@ -12,7 +12,8 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { FileJson, FileText, AlertTriangle, CheckCircle, Save, X } from 'lucide-react';
-import { toast } from 'sonner';
+// 【ui/src/components/PolicyEditor.tsx§1-45】 - Replace toast notifications with ErrorRecovery patterns
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
 import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
 import { PolicyPackConfig } from '../api/types';
@@ -40,9 +41,13 @@ export function PolicyEditor({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [editorError, setEditorError] = useState<Error | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'warning' | 'info' } | null>(null);
 
   useEffect(() => {
     if (open) {
+      setEditorError(null);
+      setStatusMessage(null);
       if (existingPolicy) {
         try {
           const parsed = JSON.parse(existingPolicy);
@@ -64,7 +69,7 @@ export function PolicyEditor({
         setJsonContent(JSON.stringify(defaultConfig, null, 2));
       }
     }
-  }, [open, existingPolicy]);
+  }, [open, existingPolicy, initialCpid]);
 
   const updatePolicyField = (packId: string, fieldName: string, value: any) => {
     setPolicyConfig((prev) => ({
@@ -89,8 +94,12 @@ export function PolicyEditor({
         const parsed = JSON.parse(jsonContent);
         setPolicyConfig(parsed);
         setValidationErrors([]);
+        setStatusMessage(null);
       } catch (err) {
-        toast.error('Invalid JSON. Please fix the JSON before switching to form mode.');
+        setStatusMessage({
+          message: 'Invalid JSON. Please fix the JSON before switching to form mode.',
+          variant: 'warning'
+        });
         return;
       }
     }
@@ -100,30 +109,41 @@ export function PolicyEditor({
   const handleValidate = async () => {
     setIsValidating(true);
     setValidationErrors([]);
+    setEditorError(null);
+    setStatusMessage(null);
 
     try {
       const content = mode === 'json' ? jsonContent : JSON.stringify(policyConfig);
       const result = await apiClient.validatePolicy({ policy_json: content });
 
       if (result.valid) {
-        toast.success('Policy is valid');
         setValidationErrors([]);
+        setStatusMessage({ message: 'Policy is valid', variant: 'success' });
       } else {
         setValidationErrors(result.errors || []);
-        toast.error(`Policy validation failed: ${result.errors?.length} errors found`);
+        setStatusMessage({
+          message: `Policy validation failed: ${result.errors?.length || 0} issues found`,
+          variant: 'warning'
+        });
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Validation failed';
       setValidationErrors([errorMessage]);
-      toast.error(errorMessage);
+      const error = err instanceof Error ? err : new Error('Validation failed');
+      setEditorError(error);
     } finally {
       setIsValidating(false);
     }
   };
 
   const handleSave = async () => {
+    setEditorError(null);
+    setStatusMessage(null);
+
     if (!cpid.trim()) {
-      toast.error('CPID is required');
+      const message = 'CPID is required';
+      setValidationErrors([message]);
+      setStatusMessage({ message, variant: 'warning' });
       return;
     }
 
@@ -136,19 +156,23 @@ export function PolicyEditor({
       const validation = await apiClient.validatePolicy({ policy_json: content });
       if (!validation.valid) {
         setValidationErrors(validation.errors || []);
-        toast.error('Policy validation failed. Please fix errors before saving.');
+        setStatusMessage({
+          message: 'Policy validation failed. Please fix errors before saving.',
+          variant: 'warning'
+        });
         setIsSaving(false);
         return;
       }
 
       // Save policy
       await apiClient.createPolicy(cpid, content);
-      toast.success(`Policy ${cpid} saved successfully`);
       onSave();
       onOpenChange(false);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to save policy';
-      toast.error(errorMessage);
+      const error = err instanceof Error ? err : new Error('Failed to save policy');
+      setEditorError(error);
+      setStatusMessage(null);
     } finally {
       setIsSaving(false);
     }
@@ -283,6 +307,42 @@ export function PolicyEditor({
           <DialogTitle>Policy Editor</DialogTitle>
         </DialogHeader>
 
+        <div className="space-y-3">
+          {editorError && ErrorRecoveryTemplates.genericError(
+            editorError,
+            () => setEditorError(null)
+          )}
+
+          {statusMessage && (
+            <Alert
+              className={
+                statusMessage.variant === 'success'
+                  ? 'border-green-200 bg-green-50'
+                  : statusMessage.variant === 'warning'
+                    ? 'border-amber-200 bg-amber-50'
+                    : 'border-blue-200 bg-blue-50'
+              }
+            >
+              {statusMessage.variant === 'success' ? (
+                <CheckCircle className="h-4 w-4 text-green-600" />
+              ) : (
+                <AlertTriangle className={`h-4 w-4 ${statusMessage.variant === 'warning' ? 'text-amber-600' : 'text-blue-600'}`} />
+              )}
+              <AlertDescription
+                className={
+                  statusMessage.variant === 'success'
+                    ? 'text-green-700'
+                    : statusMessage.variant === 'warning'
+                      ? 'text-amber-700'
+                      : 'text-blue-700'
+                }
+              >
+                {statusMessage.message}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+
         <div className="space-y-4">
           {/* CPID Input */}
           <div className="space-y-2">
@@ -401,4 +461,3 @@ export function PolicyEditor({
     </Dialog>
   );
 }
-

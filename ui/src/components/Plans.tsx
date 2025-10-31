@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -21,12 +21,14 @@ import {
   RefreshCw, 
   Download, 
   GitCompare,
-  Undo2
+  Undo2,
+  CheckCircle,
+  AlertTriangle
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Plan, User, PlanComparisonResponse } from '../api/types';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface PlansProps {
   user: User;
@@ -43,32 +45,46 @@ export function Plans({ user, selectedTenant }: PlansProps) {
   const [showRollbackModal, setShowRollbackModal] = useState(false);
   const [showBuildModal, setShowBuildModal] = useState(false);
   const [manifestHash, setManifestHash] = useState('');
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  const fetchPlans = async () => {
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
+
+  const fetchPlans = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiClient.listPlans();
       setPlans(data);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (err) {
       logger.error('Failed to fetch plans', {
         component: 'Plans',
         operation: 'fetchPlans',
         tenantId: selectedTenant,
       }, toError(err));
-      toast.error('Failed to load plans');
+      setStatusMessage({ message: 'Failed to load plans.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to load plans'),
+          () => fetchPlans()
+        )
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTenant]);
 
   useEffect(() => {
     fetchPlans();
-  }, []);
+  }, [fetchPlans]);
 
   const handleRebuild = async (planId: string) => {
     try {
       await apiClient.rebuildPlan(planId);
-      toast.success('Plan rebuild initiated');
+      showStatus('Plan rebuild initiated.', 'success');
       fetchPlans();
     } catch (err) {
       logger.error('Failed to rebuild plan', {
@@ -77,7 +93,13 @@ export function Plans({ user, selectedTenant }: PlansProps) {
         planId,
         tenantId: selectedTenant,
       }, toError(err));
-      toast.error('Failed to rebuild plan');
+      setStatusMessage({ message: 'Failed to rebuild plan.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to rebuild plan'),
+          () => handleRebuild(planId)
+        )
+      );
     }
   };
 
@@ -90,30 +112,36 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       a.download = `plan-${planId}-manifest.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Manifest downloaded');
+      showStatus('Manifest downloaded.', 'success');
     } catch (err) {
       logger.error('Failed to export plan manifest', {
         component: 'Plans',
         operation: 'exportManifest',
         planId,
       }, toError(err));
-      toast.error('Failed to export manifest');
+      setStatusMessage({ message: 'Failed to export manifest.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to export manifest'),
+          () => handleExportManifest(planId)
+        )
+      );
     }
   };
 
   const handleComparePlans = async () => {
     if (!selectedPlan1 || !selectedPlan2) {
-      toast.error('Please select two plans to compare');
+      showStatus('Please select two plans to compare.', 'warning');
       return;
     }
     if (selectedPlan1 === selectedPlan2) {
-      toast.error('Please select different plans');
+      showStatus('Please select different plans.', 'warning');
       return;
     }
     try {
       const result = await apiClient.comparePlans(selectedPlan1, selectedPlan2);
       setCompareResult(result);
-      toast.success('Plans compared successfully');
+      showStatus('Plans compared successfully.', 'success');
     } catch (err) {
       logger.error('Failed to compare plans', {
         component: 'Plans',
@@ -121,7 +149,13 @@ export function Plans({ user, selectedTenant }: PlansProps) {
         planA: selectedPlan1,
         planB: selectedPlan2,
       }, toError(err));
-      toast.error('Failed to compare plans');
+      setStatusMessage({ message: 'Failed to compare plans.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to compare plans'),
+          () => handleComparePlans()
+        )
+      );
     }
   };
 
@@ -140,24 +174,30 @@ export function Plans({ user, selectedTenant }: PlansProps) {
     if (!manifestHash.trim()) return;
     try {
       await apiClient.buildPlan({ tenant_id: selectedTenant, manifest_hash_b3: manifestHash.trim() });
-      toast.success('Plan build started');
+      showStatus('Plan build started.', 'success');
       setShowBuildModal(false);
       setManifestHash('');
       fetchPlans();
     } catch (err) {
-      toast.error('Failed to start plan build');
       logger.error('Failed to start plan build', {
         component: 'Plans',
         operation: 'buildPlan',
         tenantId: selectedTenant,
       }, toError(err));
+      setStatusMessage({ message: 'Failed to start plan build.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to start plan build'),
+          () => handleBuildPlan()
+        )
+      );
     }
   };
 
   const handleRollback = async () => {
     try {
       await apiClient.rollback();
-      toast.success('Rollback initiated');
+      showStatus('Rollback initiated.', 'success');
       setShowRollbackModal(false);
       fetchPlans();
     } catch (err) {
@@ -166,7 +206,13 @@ export function Plans({ user, selectedTenant }: PlansProps) {
         operation: 'rollback',
         tenantId: selectedTenant,
       }, toError(err));
-      toast.error('Failed to rollback');
+      setStatusMessage({ message: 'Failed to rollback.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to rollback'),
+          () => handleRollback()
+        )
+      );
     }
   };
 
@@ -176,6 +222,43 @@ export function Plans({ user, selectedTenant }: PlansProps) {
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          {statusMessage.variant === 'success' ? (
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          ) : statusMessage.variant === 'warning' ? (
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 text-blue-600" />
+          )}
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex justify-between items-start">
         <div>
           <h1 className="section-title">Execution Plans</h1>

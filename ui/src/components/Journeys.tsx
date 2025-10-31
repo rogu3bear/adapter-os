@@ -32,16 +32,7 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
   const { data: journeyData, isLoading, error } = useQuery({
     queryKey: ['journey', activeTab, journeyId, selectedTenant],
     queryFn: async () => {
-      // Fetch journey data - placeholder implementation
-      // TODO: Implement proper journey endpoint in apiClient
-      const mockJourney: JourneyResponse = {
-        journey_type: activeTab,
-        id: journeyId,
-        data: {},
-        states: [],
-        created_at: new Date().toISOString(),
-      };
-      return mockJourney;
+      return apiClient.getJourney(activeTab, journeyId);
     },
     enabled: !!selectedTenant && !!journeyId,
   });

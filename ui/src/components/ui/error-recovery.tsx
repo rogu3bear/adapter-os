@@ -10,6 +10,7 @@ import React from 'react';
 import { Alert, AlertDescription, AlertTitle } from './alert';
 import { Button } from './button';
 import { AlertTriangle, RefreshCw, ArrowRight, HelpCircle, Home } from 'lucide-react';
+import { logger } from '../../utils/logger';
 
 export interface RecoveryAction {
   label: string;
@@ -134,7 +135,10 @@ export function ErrorRecovery({
                       window.open(helpUrl, '_blank');
                     } else {
                       // Default help action - could open help modal
-                      console.log('Help requested');
+                      logger.info('Help requested from error recovery component', {
+                        component: 'ErrorRecovery',
+                        operation: 'helpRequest'
+                      });
                     }
                   }}
                   className="text-xs"

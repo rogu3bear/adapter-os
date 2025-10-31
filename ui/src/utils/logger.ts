@@ -129,14 +129,38 @@ class Logger {
    */
   private async sendToTelemetry(logEntry: LogEntry) {
     try {
+      // Transform to UnifiedTelemetryEvent format expected by backend
+      const telemetryEvent = {
+        id: logEntry.timestamp.replace(/[:.]/g, '-'), // Create deterministic ID
+        timestamp: logEntry.timestamp,
+        event_type: logEntry.level === LogLevel.ERROR ? 'client_error' : 'client_log',
+        level: this.mapLogLevelToUnified(logEntry.level),
+        message: logEntry.message,
+        component: logEntry.context.component,
+        tenant_id: logEntry.context.tenantId,
+        user_id: logEntry.context.userId,
+        metadata: logEntry.context,
+      };
+
       await fetch('/api/v1/telemetry/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logEntry),
+        body: JSON.stringify([telemetryEvent]), // Backend expects array
+        credentials: 'include', // Include cookies for authentication
       });
     } catch (err) {
       // Fallback to console in case of telemetry failure
       window.console.error('Failed to send log to telemetry:', err);
+    }
+  }
+
+  private mapLogLevelToUnified(level: LogLevel): 'Debug' | 'Info' | 'Warn' | 'Error' | 'Critical' {
+    switch (level) {
+      case LogLevel.DEBUG: return 'Debug';
+      case LogLevel.INFO: return 'Info';
+      case LogLevel.WARN: return 'Warn';
+      case LogLevel.ERROR: return 'Error';
+      default: return 'Info';
     }
   }
 

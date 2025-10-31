@@ -1,9 +1,12 @@
+// 【ui/src/components/UserReportsPage.tsx§38-80】 - Replace manual polling with standardized hook
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
 import {
   Activity,
   Clock,
@@ -29,55 +32,69 @@ interface UserReportsPageProps {
 }
 
 export function UserReportsPage({ tenantId }: UserReportsPageProps) {
-  const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
-  const [recentTraining, setRecentTraining] = useState<TrainingJob[]>([]);
   const [recentActivity, setRecentActivity] = useState<TelemetryEvent[]>([]);
-  const [adapters, setAdapters] = useState<Adapter[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
+  const fetchReportData = async () => {
+    const [metricsRes, trainingRes, adaptersRes] = await Promise.all([
+      apiClient.getSystemMetrics().catch(() => null),
+      apiClient.listTrainingJobs().catch(() => []),
+      apiClient.listAdapters().catch(() => [])
+    ]);
+
+    // Mock recent activity - replace with actual telemetry endpoint when available
+    const activity: TelemetryEvent[] = [
+      {
+        id: '1',
+        timestamp: new Date().toISOString(),
+        event_type: 'inference',
+        level: 'info',
+        message: 'Inference completed successfully',
+        component: 'worker'
+      },
+      {
+        id: '2',
+        timestamp: new Date(Date.now() - 3600000).toISOString(),
+        event_type: 'training',
+        level: 'info',
+        message: 'Training job started',
+        component: 'orchestrator'
+      }
+    ];
+
+    return {
+      metrics: metricsRes,
+      recentTraining: trainingRes.slice(0, 5),
+      adapters: adaptersRes,
+      activity
+    };
+  };
+
+  const { 
+    data, 
+    isLoading: loading, 
+    lastUpdated,
+    error: pollingError 
+  } = usePolling(
+    fetchReportData,
+    'slow', // Background updates (reports)
+    {
+      showLoadingIndicator: true,
+      onError: (err) => {
+        logger.error('Failed to fetch user report data', { component: 'UserReportsPage', operation: 'fetchReportData' }, err);
+      }
+    }
+  );
+
+  const metrics = data?.metrics || null;
+  const recentTraining = data?.recentTraining || [];
+  const adapters = data?.adapters || [];
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [metricsRes, trainingRes, adaptersRes] = await Promise.all([
-          apiClient.getSystemMetrics().catch(() => null),
-          apiClient.listTrainingJobs().catch(() => []),
-          apiClient.listAdapters().catch(() => [])
-        ]);
-
-        setMetrics(metricsRes);
-        setRecentTraining(trainingRes.slice(0, 5));
-        setAdapters(adaptersRes);
-        
-        // Mock recent activity - replace with actual telemetry endpoint when available
-        setRecentActivity([
-          {
-            id: '1',
-            timestamp: new Date().toISOString(),
-            event_type: 'inference',
-            level: 'info',
-            message: 'Inference completed successfully',
-            component: 'worker'
-          },
-          {
-            id: '2',
-            timestamp: new Date(Date.now() - 3600000).toISOString(),
-            event_type: 'training',
-            level: 'info',
-            message: 'Training job started',
-            component: 'orchestrator'
-          }
-        ]);
-      } catch (error) {
-        logger.error('Failed to fetch user report data', { component: 'UserReportsPage', operation: 'fetchReportData' }, toError(error));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    const interval = setInterval(fetchData, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, [tenantId]);
+    if (data?.activity) {
+      setRecentActivity(data.activity);
+    }
+  }, [data]);
 
   if (loading) {
     return (

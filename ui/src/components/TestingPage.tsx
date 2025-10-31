@@ -11,10 +11,11 @@ import GoldenRuns from './GoldenRuns';
 import GoldenCompareModal from './GoldenCompareModal';
 import apiClient from '../api/client';
 import { Adapter, VerificationReport } from '../api/types';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
 import { Link } from 'react-router-dom';
 import { FlaskConical, CheckCircle, XCircle, AlertTriangle, Settings, Play, GitCompare } from 'lucide-react';
+import { Alert, AlertDescription } from './ui/alert';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 export function TestingPage() {
   const [adapters, setAdapters] = useState<Adapter[]>([]);
@@ -28,15 +29,29 @@ export function TestingPage() {
   });
   const [testResults, setTestResults] = useState<VerificationReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
 
   useEffect(() => {
     const fetchAdapters = async () => {
       try {
         const adaptersData = await apiClient.listAdapters();
         setAdapters(adaptersData.filter(a => a.active));
+        setStatusMessage(null);
+        setErrorRecovery(null);
       } catch (err) {
         logger.error('Failed to fetch adapters for testing', { component: 'TestingPage' }, toError(err));
-        toast.error('Failed to load adapters');
+        setStatusMessage({ message: 'Failed to load adapters.', variant: 'warning' });
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            err instanceof Error ? err : new Error('Failed to load adapters.'),
+            () => fetchAdapters()
+          )
+        );
       } finally {
         setLoading(false);
       }
@@ -51,7 +66,7 @@ export function TestingPage() {
 
   const handleRunTest = async () => {
     if (!selectedAdapter || !testConfig.selectedGolden) {
-      toast.error('Please select adapter and golden baseline');
+      showStatus('Please select adapter and golden baseline.', 'warning');
       return;
     }
     try {
@@ -63,9 +78,16 @@ export function TestingPage() {
       });
       setTestResults(report);
       setIsCompareModalOpen(true);
-      toast.success('Test completed');
+      showStatus('Test completed.', 'success');
+      setErrorRecovery(null);
     } catch (err) {
-      toast.error('Test failed');
+      setStatusMessage({ message: 'Test failed.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Test failed.'),
+          () => handleRunTest()
+        )
+      );
     }
     setIsConfigModalOpen(false);
   };
@@ -74,6 +96,36 @@ export function TestingPage() {
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Testing & Validation</h1>

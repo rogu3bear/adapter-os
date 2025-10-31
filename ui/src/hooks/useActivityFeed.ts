@@ -8,7 +8,7 @@
 //! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
 //! - Dashboard.tsx L220: "TODO: Replace with real-time activity feed from /v1/telemetry/events or audit log"
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { logger } from '../utils/logger';
 import apiClient from '../api/client';
 
@@ -67,65 +67,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
   const sseRef = useRef<EventSource | null>(null);
   const fallbackIntervalRef = useRef<number | null>(null);
 
-  const fetchEvents = async () => {
-    if (!enabled) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Fetch telemetry events from the audit log
-      const telemetryEvents = await apiClient.getTelemetryEvents({
-        limit: maxEvents,
-        tenantId,
-        userId,
-        startTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Last 24 hours
-      });
-
-      // Transform telemetry events to activity events
-      const activityEvents: ActivityEvent[] = telemetryEvents.map(event => ({
-        id: event.id,
-        timestamp: event.timestamp,
-        type: mapEventType(event.event_type),
-        severity: mapSeverity(event.level),
-        message: event.message,
-        component: event.component,
-        tenantId: event.tenant_id,
-        userId: event.user_id,
-        metadata: event.metadata,
-      }));
-
-      // Sort by timestamp (newest first)
-      activityEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
-      setEvents(activityEvents);
-      
-      logger.info('Activity feed updated', {
-        component: 'useActivityFeed',
-        operation: 'fetchEvents',
-        eventCount: activityEvents.length,
-        tenantId,
-        userId
-      });
-      
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch activity events';
-      setError(errorMessage);
-      
-      logger.error('Failed to fetch activity events', {
-        component: 'useActivityFeed',
-        operation: 'fetchEvents',
-        tenantId,
-        userId
-      }, err instanceof Error ? err : new Error(String(err)));
-      
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Map telemetry event types to activity types
-  const mapEventType = (eventType: string): ActivityEvent['type'] => {
+  const mapEventType = useCallback((eventType: string): ActivityEvent['type'] => {
     switch (eventType) {
       case 'node_recovery':
       case 'worker_recovery':
@@ -151,10 +93,9 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       default:
         return 'telemetry';
     }
-  };
+  }, []);
 
-  // Map log levels to severity levels
-  const mapSeverity = (level: string): ActivityEvent['severity'] => {
+  const mapSeverity = useCallback((level: string): ActivityEvent['severity'] => {
     switch (level.toLowerCase()) {
       case 'error':
         return 'error';
@@ -167,7 +108,62 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       default:
         return 'info';
     }
-  };
+  }, []);
+
+  const fetchEvents = useCallback(async () => {
+    if (!enabled) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Fetch telemetry events from the audit log
+      const telemetryEvents = await apiClient.getTelemetryEvents({
+        limit: maxEvents,
+        tenantId,
+        userId,
+        startTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Last 24 hours
+      });
+
+      // Transform telemetry events to activity events
+      const activityEvents: ActivityEvent[] = telemetryEvents.map(event => ({
+        id: event.id,
+        timestamp: event.timestamp,
+        type: mapEventType(event.event_type),
+        severity: mapSeverity(event.level),
+        message: event.message,
+        component: event.component,
+        tenantId: event.tenant_id,
+        userId: event.user_id,
+        metadata: event.metadata,
+      }));
+
+      // Sort by timestamp (newest first)
+      activityEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      setEvents(activityEvents);
+
+      logger.info('Activity feed updated', {
+        component: 'useActivityFeed',
+        operation: 'fetchEvents',
+        eventCount: activityEvents.length,
+        tenantId,
+        userId
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch activity events';
+      setError(errorMessage);
+
+      logger.error('Failed to fetch activity events', {
+        component: 'useActivityFeed',
+        operation: 'fetchEvents',
+        tenantId,
+        userId
+      }, err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled, mapEventType, mapSeverity, maxEvents, tenantId, userId]);
 
   useEffect(() => {
     fetchEvents();
@@ -283,7 +279,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       clearFallback();
       stopSSE();
     };
-  }, [enabled, maxEvents, tenantId, userId, useSSE]);
+  }, [enabled, fetchEvents, mapEventType, mapSeverity, maxEvents, tenantId, userId, useSSE]);
 
   return {
     events,

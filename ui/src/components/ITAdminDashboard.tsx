@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+// 【ui/src/components/ITAdminDashboard.tsx§74-78】 - Replace manual polling with standardized hook
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
+import { LastUpdated } from './ui/last-updated';
 import {
   Shield,
   Users,
@@ -36,46 +39,51 @@ interface ITAdminDashboardProps {
 }
 
 export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
-  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [models, setModels] = useState<BaseModelStatus[]>([]);
-  const [adapters, setAdapters] = useState<Adapter[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
+  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
   const fetchData = async () => {
-    try {
-      setRefreshing(true);
-      const [metricsRes, tenantsRes, nodesRes, alertsRes, modelsRes, adaptersRes] = await Promise.all([
-        apiClient.getSystemMetrics().catch(() => null),
-        apiClient.listTenants().catch(() => []),
-        apiClient.listNodes().catch(() => []),
-        apiClient.listAlerts({ limit: 10 }).catch(() => []),
-        apiClient.getAllModelsStatus().catch(() => ({ models: [], total_memory_mb: 0, active_model_count: 0 })),
-        apiClient.listAdapters().catch(() => [])
-      ]);
+    const [metricsRes, tenantsRes, nodesRes, alertsRes, modelsRes, adaptersRes] = await Promise.all([
+      apiClient.getSystemMetrics().catch(() => null),
+      apiClient.listTenants().catch(() => []),
+      apiClient.listNodes().catch(() => []),
+      apiClient.listAlerts({ limit: 10 }).catch(() => []),
+      apiClient.getAllModelsStatus().catch(() => ({ models: [], total_memory_mb: 0, active_model_count: 0 })),
+      apiClient.listAdapters().catch(() => [])
+    ]);
 
-      setSystemMetrics(metricsRes);
-      setTenants(tenantsRes);
-      setNodes(nodesRes);
-      setAlerts(alertsRes);
-      setModels(modelsRes.models || []);
-      setAdapters(adaptersRes);
-    } catch (error) {
-      logger.error('Failed to fetch admin data', { component: 'ITAdminDashboard', operation: 'fetchAdminData' }, toError(error));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    return {
+      metrics: metricsRes,
+      tenants: tenantsRes,
+      nodes: nodesRes,
+      alerts: alertsRes,
+      models: modelsRes.models || [],
+      adapters: adaptersRes
+    };
   };
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-  }, []);
+  const { 
+    data, 
+    isLoading: loading, 
+    lastUpdated, 
+    error: pollingError,
+    refetch: refreshData 
+  } = usePolling(
+    fetchData,
+    'slow', // Background updates (system health, admin)
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        logger.error('Failed to fetch admin data', { component: 'ITAdminDashboard', operation: 'fetchAdminData' }, err);
+      }
+    }
+  );
+
+  const systemMetrics = data?.metrics || null;
+  const tenants = data?.tenants || [];
+  const nodes = data?.nodes || [];
+  const alerts = data?.alerts || [];
+  const models = data?.models || [];
+  const adapters = data?.adapters || [];
+  const refreshing = false; // usePolling handles refreshing state
 
   const activeNodes = nodes.filter(n => n.status === 'online' || n.status === 'active').length;
   const activeTenants = tenants.filter(t => t.status === 'active' || !t.status).length;
@@ -97,9 +105,10 @@ export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
         <div>
           <h1 className="text-3xl font-bold">IT Admin Dashboard</h1>
           <p className="text-muted-foreground">System administration and monitoring</p>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
-        <Button onClick={fetchData} disabled={refreshing} variant="outline">
-          <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+        <Button onClick={() => refreshData()} disabled={loading} variant="outline">
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>

@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Play, Pause, Upload, CheckCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { Play, Pause, Upload, CheckCircle, XCircle, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ModelStatusResponse } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ModelImportWizard } from '@/components/ModelImportWizard';
 import { Button } from '@/components/ui/button';
 import { useTenant } from '@/layout/LayoutProvider';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 function getStatusIcon(status: ModelStatusResponse | null) {
   if (!status) return <XCircle className="h-5 w-5 text-gray-400" />;
@@ -29,6 +30,12 @@ export function BaseModelWidget() {
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
 
   const fetchStatus = useCallback(async () => {
     if (!selectedTenant) return;
@@ -36,9 +43,17 @@ export function BaseModelWidget() {
     try {
       const statusData = await apiClient.getBaseModelStatus(selectedTenant);
       setStatus(statusData);
+      setStatusMessage(null);
+      setErrorRecovery(null);
     } catch (error) {
-      toast.error('Failed to fetch base model status.');
       setStatus(null);
+      setStatusMessage({ message: 'Failed to fetch base model status.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error('Failed to fetch base model status.'),
+          () => fetchStatus()
+        )
+      );
     } finally {
       setIsLoading(false);
     }
@@ -50,16 +65,22 @@ export function BaseModelWidget() {
 
   const handleLoad = async () => {
     if (!status?.model_id) {
-      toast.error('No model ID available to load.');
+      showStatus('No model ID available to load.', 'warning');
       return;
     }
     setIsActionLoading(true);
     try {
       await apiClient.loadBaseModel(status.model_id);
-      toast.success('Base model loaded successfully.');
       fetchStatus();
+      showStatus('Base model load requested.', 'success');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load model.');
+      setStatusMessage({ message: err instanceof Error ? err.message : 'Failed to load model.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to load model.'),
+          () => handleLoad()
+        )
+      );
     } finally {
       setIsActionLoading(false);
     }
@@ -67,16 +88,22 @@ export function BaseModelWidget() {
 
   const handleUnload = async () => {
     if (!status?.model_id) {
-      toast.error('No model ID available to unload.');
+      showStatus('No model ID available to unload.', 'warning');
       return;
     }
     setIsActionLoading(true);
     try {
       await apiClient.unloadBaseModel(status.model_id);
-      toast.success('Base model unloaded successfully.');
       fetchStatus();
+      showStatus('Base model unload requested.', 'success');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to unload model.');
+      setStatusMessage({ message: err instanceof Error ? err.message : 'Failed to unload model.', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error('Failed to unload model.'),
+          () => handleUnload()
+        )
+      );
     } finally {
       setIsActionLoading(false);
     }
@@ -84,7 +111,7 @@ export function BaseModelWidget() {
 
   const handleImportComplete = () => {
     setShowImportWizard(false);
-    toast.success('Model import process started.');
+    showStatus('Model import process started.', 'success');
     fetchStatus();
   };
 
@@ -93,6 +120,36 @@ export function BaseModelWidget() {
 
   return (
     <>
+      {errorRecovery && (
+        <div className="mb-4">
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

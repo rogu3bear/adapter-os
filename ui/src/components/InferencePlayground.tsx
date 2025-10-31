@@ -30,9 +30,11 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { InferRequest, InferResponse, InferenceSession, Adapter } from '../api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+// 【ui/src/components/InferencePlayground.tsx§1-39】 - Replace toast errors with ErrorRecovery
 import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
 import { useSearchParams } from 'react-router-dom';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -49,6 +51,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('');
+  const [inferenceError, setInferenceError] = useState<Error | null>(null);
   
   // Inference configurations
   const [configA, setConfigA] = useState<InferenceConfig>({
@@ -109,7 +112,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           );
           if (targetAdapter) {
             setSelectedAdapterId(targetAdapter.id);
-            toast.success(`Adapter "${targetAdapter.name}" selected`);
+            // Success - no need for toast, UI updates
             return;
           } else {
             logger.warn('Requested adapter not found', {
@@ -161,10 +164,11 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
     if (!config.prompt.trim()) {
-      toast.error('Please enter a prompt');
+      setInferenceError(new Error('Please enter a prompt'));
       return;
     }
 
+    setInferenceError(null);
     setLoading(true);
     setResponse(null);
 
@@ -177,10 +181,10 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       const response = await apiClient.infer(inferenceRequest);
       setResponse(response);
       saveSession(config, response);
-      toast.success('Inference completed');
+      // Success - no need for toast
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Inference failed';
-      toast.error(errorMessage);
+      const error = err instanceof Error ? err : new Error('Inference failed');
+      setInferenceError(error);
       logger.error('Inference request failed', {
         component: 'InferencePlayground',
         operation: 'infer',
@@ -195,7 +199,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
+    // Success - no need for toast, UI feedback is sufficient
   };
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
@@ -217,7 +221,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success('Exported successfully');
+    // Success - browser download feedback is sufficient
   };
 
   const loadSession = (session: InferenceSession) => {
@@ -226,7 +230,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     if (session.response) {
       setResponseA(session.response);
     }
-    toast.success('Session loaded');
+    // Success - UI updates are sufficient feedback
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
@@ -393,6 +397,13 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   return (
     <div className="space-y-6">
+      {/* Error Recovery */}
+      {inferenceError && ErrorRecoveryTemplates.genericError(
+        inferenceError,
+        () => { setInferenceError(null); },
+        () => { setInferenceError(null); setPrompt(''); }
+      )}
+
       {/* Header */}
       <div className="flex-between">
         <div>

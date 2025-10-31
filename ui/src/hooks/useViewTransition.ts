@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { logger, toError } from '../utils/logger';
 
 /**
  * Hook for smooth page transitions using View Transitions API
@@ -30,7 +31,11 @@ export function useViewTransition() {
         });
       } catch (error) {
         // Fallback to regular navigation if transition fails
-        console.warn('View transition failed, falling back to regular navigation:', error);
+        logger.error(
+          'View transition failed, falling back to regular navigation',
+          { component: 'useViewTransition', operation: 'transitionTo' },
+          toError(error)
+        );
         navigate(path, options);
       }
     } else {

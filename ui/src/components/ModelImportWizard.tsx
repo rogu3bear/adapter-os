@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import { toast } from 'sonner';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ImportModelRequest } from '@/api/types';
@@ -27,6 +27,8 @@ interface WizardState {
 export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [wizardError, setWizardError] = useState<Error | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [state, setState] = useState<WizardState>({
     modelName: '',
     weightsPath: '',
@@ -148,6 +150,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
 
   const handleComplete = async () => {
     setIsLoading(true);
+    setWizardError(null);
     try {
       const request: ImportModelRequest = {
         model_name: state.modelName,
@@ -159,11 +162,10 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
       };
 
       const response = await apiClient.importModel(request);
-      toast.success(`Model import started: ${response.import_id}`);
       onComplete(response.import_id);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Import failed';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Import failed');
+      setWizardError(error);
     } finally {
       setIsLoading(false);
     }
@@ -177,9 +179,10 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
       component: <ModelNameStep />,
       validate: () => {
         if (!state.modelName.trim()) {
-          toast.error('Model name is required');
+          setValidationError('Model name is required');
           return false;
         }
+        setValidationError(null);
         return true;
       },
     },
@@ -190,13 +193,14 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
       component: <WeightsStep />,
       validate: () => {
         if (!state.weightsPath.trim()) {
-          toast.error('Weights path is required');
+          setValidationError('Weights path is required');
           return false;
         }
         if (!state.weightsPath.endsWith('.safetensors')) {
-          toast.error('Weights file must be .safetensors format');
+          setValidationError('Weights file must be .safetensors format');
           return false;
         }
+        setValidationError(null);
         return true;
       },
     },
@@ -207,9 +211,10 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
       component: <ConfigStep />,
       validate: () => {
         if (!state.configPath.trim() || !state.tokenizerPath.trim()) {
-          toast.error('Config and tokenizer paths are required');
+          setValidationError('Config and tokenizer paths are required');
           return false;
         }
+        setValidationError(null);
         return true;
       },
     },
@@ -222,16 +227,37 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
   ];
 
   return (
-    <Wizard
-      steps={steps}
-      currentStep={currentStep}
-      onStepChange={setCurrentStep}
-      onComplete={handleComplete}
-      onCancel={onCancel}
-      title="Import Base Model"
-      completeButtonText="Import Model"
-      isLoading={isLoading}
-    />
+    <div className="space-y-4">
+      {wizardError && ErrorRecoveryTemplates.genericError(
+        wizardError,
+        () => setWizardError(null)
+      )}
+
+      {validationError && (
+        <ErrorRecovery
+          title="Validation Required"
+          message={validationError}
+          variant="warning"
+          recoveryActions={[
+            { label: 'Fix Input', action: () => setValidationError(null), primary: true }
+          ]}
+          showHelp={false}
+        />
+      )}
+
+      <Wizard
+        steps={steps}
+        currentStep={currentStep}
+        onStepChange={setCurrentStep}
+        onComplete={handleComplete}
+        onCancel={onCancel}
+        title="Import Base Model"
+        completeButtonText="Import Model"
+        isLoading={isLoading}
+      />
+    </div>
   );
 }
+
+export default ModelImportWizard;
 

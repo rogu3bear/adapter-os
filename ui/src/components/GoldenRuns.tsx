@@ -6,8 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Alert, AlertDescription } from './ui/alert';
 import apiClient from '../api/client';
 import { GoldenRunSummary, GoldenCompareResult } from '../api/types';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 export function GoldenRuns() {
   const [names, setNames] = useState<string[]>([]);
@@ -17,6 +17,8 @@ export function GoldenRuns() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [compareResult, setCompareResult] = useState<GoldenCompareResult | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -27,7 +29,16 @@ export function GoldenRuns() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to load golden baselines';
         setError(msg);
-        toast.error(msg);
+        setStatusMessage({ message: msg, variant: 'warning' });
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            err instanceof Error ? err : new Error(msg),
+            () => {
+              setLoading(true);
+              loadRuns();
+            }
+          )
+        );
       } finally {
         setLoading(false);
       }
@@ -46,7 +57,16 @@ export function GoldenRuns() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to load baseline summary';
         setError(msg);
-        toast.error(msg);
+        setStatusMessage({ message: msg, variant: 'warning' });
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            err instanceof Error ? err : new Error(msg),
+            () => {
+              setLoading(true);
+              loadRuns();
+            }
+          )
+        );
         setSummary(null);
       }
     })();
@@ -58,7 +78,7 @@ export function GoldenRuns() {
         return prev.filter((id) => id !== runId);
       }
       if (prev.length >= 2) {
-        toast.error('Select at most two runs to compare');
+        setStatusMessage({ message: 'Select at most two runs to compare.', variant: 'warning' });
         return prev;
       }
       return [...prev, runId];
@@ -66,7 +86,11 @@ export function GoldenRuns() {
   };
 
   const handleCompare = async () => {
-    if (selectedRuns.length !== 2) return;
+    if (selectedRuns.length !== 2) {
+      setStatusMessage({ message: 'Select exactly two runs to compare.', variant: 'warning' });
+      return;
+    }
+    setLoading(true);
     try {
       const [runA, runB] = selectedRuns;
       const result = await apiClient.compareGoldenRuns(runA, runB);
@@ -78,7 +102,15 @@ export function GoldenRuns() {
         runA: selectedRuns[0],
         runB: selectedRuns[1],
       }, toError(error));
-      toast.error(error instanceof Error ? error.message : 'Failed to compare golden runs');
+      setStatusMessage({ message: error instanceof Error ? error.message : 'Failed to compare golden runs', variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(error instanceof Error ? error.message : 'Failed to compare golden runs'),
+          () => handleCompare()
+        )
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -94,6 +126,36 @@ export function GoldenRuns() {
           <p className="section-description">Browse baselines and epsilon summaries</p>
         </div>
       </div>
+
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="destructive">

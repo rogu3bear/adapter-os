@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from './ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { Alert, AlertDescription } from './ui/alert';
 import {
   Settings,
@@ -50,7 +51,8 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
-import { toast } from 'sonner';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { Alert, AlertDescription } from './ui/alert';
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -74,6 +76,8 @@ export function AdapterLifecycleManager({
   const [filterCategory, setFilterCategory] = useState<AdapterCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
   // Mock state records for demonstration
   const [stateRecords, setStateRecords] = useState<AdapterStateRecord[]>([]);
@@ -198,29 +202,39 @@ export function AdapterLifecycleManager({
       // Manual state setting requires backend enhancement
       if (newState === 'hot' || newState === 'warm') {
         await apiClient.promoteAdapterState(adapterId);
-        onAdapterUpdate(adapterId, { current_state: newState });
-        toast.success(`Adapter state promoted successfully`);
-        logger.info('Adapter state promoted', {
-          component: 'AdapterLifecycleManager',
-          operation: 'handleStateTransition',
-          adapterId,
-          newState
-        });
+        setStatusMessage({ message: 'Adapter state promoted successfully.', variant: 'success' });
+        // Refresh records
+        setStateRecords(prev => prev.map(record => (
+          record.adapter_id === adapterId
+            ? { ...record, state: newState }
+            : record
+          )));
       } else {
-        // For demotion or other state changes, update locally
-        // TODO: Implement full state transition API on backend
-        onAdapterUpdate(adapterId, { current_state: newState });
-        toast.info(`Local state updated to ${newState}. Note: Backend sync pending.`);
+        setStatusMessage({ message: `Local state updated to ${newState}. Backend sync pending.`, variant: 'info' });
+        setStateRecords(prev => prev.map(record => (
+          record.adapter_id === adapterId
+            ? { ...record, state: newState }
+            : record
+          )));
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update adapter state';
+      onAdapterUpdate(adapterId, { current_state: newState });
+      setErrorRecovery(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setStatusMessage({ message: `Failed to update state: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMessage),
+          () => handleStateTransition(adapterId, newState)
+        )
+      );
       logger.error('Failed to update adapter state', {
         component: 'AdapterLifecycleManager',
         operation: 'handleStateTransition',
         adapterId,
+        newState,
         error: errorMessage
       });
-      toast.error(`Failed to update state: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -229,26 +243,26 @@ export function AdapterLifecycleManager({
   const handlePinToggle = async (adapterId: string, pinned: boolean) => {
     setIsLoading(true);
     try {
-      // Call API to pin or unpin the adapter
       await apiClient.pinAdapter(adapterId, pinned);
+      setStatusMessage({ message: pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', variant: 'success' });
       onAdapterPin(adapterId, pinned);
-      toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
-      logger.info('Adapter pin state changed', {
-        component: 'AdapterLifecycleManager',
-        operation: 'handlePinToggle',
-        adapterId,
-        pinned
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
-      logger.error('Failed to pin/unpin adapter', {
+      setErrorRecovery(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMessage),
+          () => handlePinToggle(adapterId, pinned)
+        )
+      );
+      logger.error('Failed to toggle adapter pin state', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePinToggle',
         adapterId,
         pinned,
         error: errorMessage
       });
-      toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -257,25 +271,25 @@ export function AdapterLifecycleManager({
   const handleEvictAdapter = async (adapterId: string) => {
     setIsLoading(true);
     try {
-      // Call API to evict the adapter from memory
       const result = await apiClient.evictAdapter(adapterId);
+      setStatusMessage({ message: `Adapter evicted: ${result.message || 'Memory freed successfully.'}`, variant: 'success' });
       onAdapterEvict(adapterId);
-      toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
-      logger.info('Adapter evicted', {
-        component: 'AdapterLifecycleManager',
-        operation: 'handleEvictAdapter',
-        adapterId,
-        result
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
+      setErrorRecovery(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMessage),
+          () => handleEvictAdapter(adapterId)
+        )
+      );
       logger.error('Failed to evict adapter', {
         component: 'AdapterLifecycleManager',
         operation: 'handleEvictAdapter',
         adapterId,
         error: errorMessage
       });
-      toast.error(`Failed to evict adapter: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -288,7 +302,7 @@ export function AdapterLifecycleManager({
       onPolicyUpdate(category, policy);
       // TODO: Backend implementation required - PUT /v1/adapters/category/:category/policy
       // This endpoint doesn't exist yet. For now, we update locally only.
-      toast.info(`Policy updated locally for ${category}. Backend sync pending API implementation.`);
+      setStatusMessage({ message: `Policy updated locally for ${category}. Backend sync pending API implementation.`, variant: 'info' });
       logger.warn('Policy update: backend endpoint not implemented', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePolicyUpdate',
@@ -304,7 +318,13 @@ export function AdapterLifecycleManager({
         category,
         error: errorMessage
       });
-      toast.error(`Failed to update policy: ${errorMessage}`);
+      setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => handlePolicyUpdate(category, policy)
+        )
+      );
     } finally {
       setIsLoading(false);
     }
@@ -312,6 +332,36 @@ export function AdapterLifecycleManager({
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">

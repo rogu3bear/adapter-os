@@ -60,8 +60,9 @@ import {
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
 import { User } from '../api/types';
-import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
+import { Alert, AlertDescription } from './ui/alert';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface DomainAdapterManagerProps {
   user: User;
@@ -130,6 +131,12 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
     description: '',
     config: {},
   });
+  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
+    setStatusMessage({ message, variant });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -147,7 +154,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
           tenantId: selectedTenant,
           errorMessage: errorMsg,
         }, toError(err));
-        toast.error(errorMsg);
+        showStatus(errorMsg, 'warning');
       } finally {
         setLoading(false);
       }
@@ -177,7 +184,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
     try {
       // API call - placeholder implementation
       // await apiClient.createDomainAdapter(newAdapterForm);
-      toast.success('Domain adapter created successfully');
+      showStatus('Domain adapter created successfully.', 'success');
       setIsCreateDialogOpen(false);
       setNewAdapterForm({
         name: '',
@@ -188,7 +195,19 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to create domain adapter';
-      toast.error(errorMsg);
+      logger.error('Failed to create domain adapter', {
+        component: 'DomainAdapterManager',
+        operation: 'createAdapter',
+        body: newAdapterForm,
+        errorMessage: errorMsg
+      }, toError(err));
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleCreateAdapter()
+        )
+      );
     }
   };
 
@@ -196,10 +215,22 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
     try {
       // API call - placeholder implementation
       // const result = await apiClient.testDomainAdapter(adapterId, inputData);
-      toast.success('Domain adapter test completed');
+      showStatus('Domain adapter test completed.', 'success');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to test domain adapter';
-      toast.error(errorMsg);
+      logger.error('Failed to test domain adapter', {
+        component: 'DomainAdapterManager',
+        operation: 'testAdapter',
+        adapterId: adapterId,
+        errorMessage: errorMsg
+      }, toError(err));
+      setStatusMessage({ message: errorMsg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMsg),
+          () => handleTestAdapter(adapterId, 'test_input')
+        )
+      );
     }
   };
 
@@ -210,6 +241,36 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   return (
     <div className="space-y-6">
+      {errorRecovery && (
+        <div>
+          {errorRecovery}
+        </div>
+      )}
+
+      {statusMessage && (
+        <Alert
+          className={
+            statusMessage.variant === 'success'
+              ? 'border-green-200 bg-green-50'
+              : statusMessage.variant === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-blue-200 bg-blue-50'
+          }
+        >
+          <AlertDescription
+            className={
+              statusMessage.variant === 'success'
+                ? 'text-green-700'
+                : statusMessage.variant === 'warning'
+                  ? 'text-amber-700'
+                  : 'text-blue-700'
+            }
+          >
+            {statusMessage.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex-between section-header">
         <div>
           <h1 className="section-title">Domain Adapter Management</h1>
@@ -627,7 +688,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
                 Close
               </Button>
               <Button onClick={() => {
-                toast.info('Determinism tests started');
+                showStatus('Determinism tests started.', 'info');
                 setIsTestDialogOpen(false);
               }}>
                 Start Tests
