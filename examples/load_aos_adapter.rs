@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 
     // Example 2: Using LifecycleManager (full orchestrator integration)
     println!("2. Using LifecycleManager:");
-    let lifecycle_manager = LifecycleManager::new(
+    let mut lifecycle_manager = LifecycleManager::new(
         vec!["base_adapter".to_string(), "code_adapter".to_string()],
         &Policies::default(),
         adapters_path,
@@ -66,9 +66,11 @@ async fn main() -> Result<()> {
 
     // Example 3: Preloading adapters
     println!("3. Preloading adapters:");
-    match lifecycle_manager.preload_adapter(0) {
-        Ok(handle) => {
-            println!("   ✓ Preloaded adapter 0: {} bytes", handle.memory_bytes);
+    match lifecycle_manager.warmup_cache(&["base_adapter".to_string(), "code_adapter".to_string()])
+    {
+        Ok(()) => {
+            println!("   ✓ Preload requested for base and code adapters");
+            println!("   ✓ Missing adapters are skipped gracefully");
         }
         Err(e) => {
             println!("   ⚠ Failed to preload: {}", e);
