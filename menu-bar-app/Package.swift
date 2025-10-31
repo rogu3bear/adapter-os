@@ -20,6 +20,11 @@ let package = Package(
             dependencies: [],
             path: "Sources/AdapterOSMenu"
         ),
+        .testTarget(
+            name: "AdapterOSMenuTests",
+            dependencies: ["AdapterOSMenu"],
+            path: "Tests"
+        ),
     ]
 )
 

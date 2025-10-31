@@ -39,14 +39,18 @@ final class StatusReader {
 
     // MARK: - Internal read
     private func readInternal() async throws -> (AdapterOSStatus, (hash: Data, snippet: String)) {
+        // Capture only the properties we need to avoid Sendable issues
+        let filePath = self.filePath
+        let decoder = self.decoder
+
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 do {
-                    guard FileManager.default.fileExists(atPath: self.filePath) else {
+                    guard FileManager.default.fileExists(atPath: filePath) else {
                         throw StatusReadError.fileMissing
                     }
 
-                    let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: self.filePath))
+                    let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: filePath))
                     defer { try? handle.close() }
                     let data = try handle.readToEnd() ?? Data()
                     if data.isEmpty { throw StatusReadError.decodeFailed }
@@ -57,7 +61,7 @@ final class StatusReader {
 
                     // Decode JSON
                     do {
-                        let status = try self.decoder.decode(AdapterOSStatus.self, from: data)
+                        let status = try decoder.decode(AdapterOSStatus.self, from: data)
                         let snippet = Self.makeSnippet(from: data)
                         continuation.resume(returning: (status, (hashData, snippet)))
                     } catch {
@@ -67,11 +71,11 @@ final class StatusReader {
                     continuation.resume(throwing: error)
                 } catch let error as NSError {
                     if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
-                        continuation.resume(throwing: .fileMissing)
+                        continuation.resume(throwing: StatusReadError.fileMissing)
                     } else if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
-                        continuation.resume(throwing: .permissionDenied)
+                        continuation.resume(throwing: StatusReadError.permissionDenied)
                     } else {
-                        continuation.resume(throwing: .unknown)
+                        continuation.resume(throwing: StatusReadError.unknown)
                     }
                 }
             }

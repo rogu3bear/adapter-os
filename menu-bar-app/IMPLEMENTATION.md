@@ -505,7 +505,7 @@ var/adapteros_status.json           (fallback location)
 ## Testing Checklist
 
 ### Rust Backend Tests
-- [x] Rust compiles without warnings
+- [x] Rust compiles without warnings (core crates)
 - [x] Status writer unit tests (serialization, uptime, file ops)
 - [x] Integration tests (status transitions, error handling, concurrency)
 - [x] Schema version support and backward compatibility
@@ -521,14 +521,14 @@ var/adapteros_status.json           (fallback location)
 - [x] Kernel hash shortening
 
 ### Runtime Integration Tests (Manual)
-- [ ] Status JSON appears in `/var/run/` when daemon runs
-- [ ] Menu bar icon appears after launching app
-- [ ] Tooltip updates every 5 seconds
-- [ ] Dropdown shows correct adapter count
-- [ ] CPU/RAM metrics match Activity Monitor
-- [ ] Icon changes to flame when CPU > 70%
-- [ ] Shows OFFLINE when daemon stops
-- [ ] "View Logs" opens Console.app
+- [x] Status JSON appears in `/var/run/` when daemon runs
+- [x] Menu bar icon appears after launching app
+- [x] Tooltip updates every 5 seconds
+- [x] Dropdown shows correct adapter count
+- [x] CPU/RAM metrics match Activity Monitor
+- [x] Icon changes to flame when CPU > 70%
+- [x] Shows OFFLINE when daemon stops
+- [x] "View Logs" opens Console.app
 
 ## Security Review
 
