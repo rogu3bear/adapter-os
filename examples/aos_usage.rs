@@ -7,15 +7,25 @@
 //! - Manifest-only loading for fast operations
 //! - Migration between format versions
 
+#[cfg(feature = "extended-tests")]
 use adapteros_crypto::Keypair;
+#[cfg(feature = "extended-tests")]
 use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
+#[cfg(feature = "extended-tests")]
 use adapteros_single_file_adapter::{
     get_compatibility_report, migrate_adapter, CompressionLevel, LineageInfo, LoadOptions,
     Mutation, PackageOptions, SingleFileAdapter, SingleFileAdapterLoader,
     SingleFileAdapterPackager, SingleFileAdapterValidator, AOS_FORMAT_VERSION,
 };
+#[cfg(feature = "extended-tests")]
 use std::collections::HashMap;
 
+#[cfg(not(feature = "extended-tests"))]
+fn main() {
+    eprintln!("Enable the `extended-tests` feature to run the advanced AdapterOS .aos example.");
+}
+
+#[cfg(feature = "extended-tests")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Create a new .aos adapter
@@ -45,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "extended-tests")]
 async fn create_aos_adapter() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Example 1: Creating .aos adapter ===\n");
 
@@ -111,6 +122,7 @@ async fn create_aos_adapter() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "extended-tests")]
 async fn load_and_verify_aos_adapter() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Example 2: Loading and verifying .aos adapter ===\n");
 
@@ -145,6 +157,7 @@ async fn load_and_verify_aos_adapter() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+#[cfg(feature = "extended-tests")]
 async fn extract_aos_components() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Example 3: Extracting components ===\n");
 
@@ -175,6 +188,7 @@ async fn extract_aos_components() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "extended-tests")]
 async fn create_aos_with_lineage() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Example 4: Creating adapter with lineage tracking ===\n");
 
