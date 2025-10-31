@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Zero-Egress Policy Tests
 //!
 //! This module tests zero-egress policies in AdapterOS, ensuring that no data

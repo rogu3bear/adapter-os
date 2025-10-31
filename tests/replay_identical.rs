@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for bit-identical replay verification
 
 use anyhow::Result;

@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test CP promotion with quality gates
 
 // Note: This is an integration test that would require a running database

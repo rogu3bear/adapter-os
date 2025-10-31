@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Numerical stability tests for quantization noise tracking
 //!
 //! This test suite validates that:

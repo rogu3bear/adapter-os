@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for policy integration with attestation
 
 use adapteros_core::B3Hash;

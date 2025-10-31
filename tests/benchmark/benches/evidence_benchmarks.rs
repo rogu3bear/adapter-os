@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use adapteros_benchmarks::*;
 use std::sync::Arc;

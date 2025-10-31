@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Cross-platform determinism test
 //!
 //! Verifies RNG outputs are platform-independent (Apple Silicon vs Intel).

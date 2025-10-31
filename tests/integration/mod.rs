@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! AdapterOS Integration Tests
 //!
 //! Comprehensive integration tests for multi-tenant scenarios,

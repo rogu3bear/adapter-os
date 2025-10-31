@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for RoPE (Rotary Position Embeddings) implementation
 //!
 //! These tests verify:

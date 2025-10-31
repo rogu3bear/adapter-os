@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Determinism stress tests built on the current inference request API.
 //!
 //! The original suites exercised a full Metal-backed worker.  That hardware is

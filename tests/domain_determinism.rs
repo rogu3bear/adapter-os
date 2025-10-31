@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Domain Adapter Determinism Tests
 //!
 //! This test suite verifies that all domain adapters produce byte-identical

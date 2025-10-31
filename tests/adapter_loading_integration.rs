@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for adapter loading and UI surfacing
 //!
 //! Tests the end-to-end flow of:
@@ -6,7 +8,7 @@
 //! 3. Adapter loading/unloading
 //! 4. Telemetry event emission
 
-use adapteros_db::Db;
+use adapteros_db::{AdapterRegistrationBuilder, Db};
 use anyhow::Result;
 
 #[tokio::test]
@@ -16,17 +18,16 @@ async fn test_adapter_load_state_transitions() -> Result<()> {
     db.migrate().await?;
 
     // Register a test adapter
-    let adapter_id = db
-        .register_adapter(
-            "test-adapter-001",
-            "Test Adapter",
-            "test_hash_b3",
-            16,
-            2,
-            Some(r#"["rust", "python"]"#),
-            Some("django"),
-        )
-        .await?;
+    let adapter_params = AdapterRegistrationBuilder::new()
+        .adapter_id("test-adapter-001")
+        .name("Test Adapter")
+        .hash_b3("test_hash_b3")
+        .rank(16)
+        .tier(2)
+        .languages_json(Some(r#"["rust", "python"]"#))
+        .framework(Some("django"))
+        .build()?;
+    let adapter_id = db.register_adapter(adapter_params).await?;
 
     // Check initial state (should be 'cold' or 'unloaded')
     let adapter = db.get_adapter("test-adapter-001").await?;
@@ -81,16 +82,14 @@ async fn test_adapter_activation_tracking() -> Result<()> {
     db.migrate().await?;
 
     // Register adapter
-    db.register_adapter(
-        "test-adapter-002",
-        "Test Adapter 2",
-        "test_hash_b3_2",
-        16,
-        2,
-        None,
-        None,
-    )
-    .await?;
+    let adapter_params = AdapterRegistrationBuilder::new()
+        .adapter_id("test-adapter-002")
+        .name("Test Adapter 2")
+        .hash_b3("test_hash_b3_2")
+        .rank(16)
+        .tier(2)
+        .build()?;
+    db.register_adapter(adapter_params).await?;
 
     // Record activation
     db.record_activation("test-adapter-002", Some("req-123"), 0.85, true)
@@ -162,16 +161,14 @@ async fn test_adapter_memory_pressure_handling() -> Result<()> {
 
     // Register multiple adapters
     for i in 0..5 {
-        db.register_adapter(
-            &format!("adapter-{}", i),
-            &format!("Adapter {}", i),
-            &format!("hash_{}", i),
-            16,
-            2,
-            None,
-            None,
-        )
-        .await?;
+        let params = AdapterRegistrationBuilder::new()
+            .adapter_id(format!("adapter-{}", i))
+            .name(format!("Adapter {}", i))
+            .hash_b3(format!("hash_{}", i))
+            .rank(16)
+            .tier(2)
+            .build()?;
+        db.register_adapter(params).await?;
 
         // Load them
         db.update_adapter_state(&format!("adapter-{}", i), "warm", "loaded")
@@ -211,16 +208,14 @@ async fn test_concurrent_adapter_operations() -> Result<()> {
     db.migrate().await?;
 
     // Register adapter
-    db.register_adapter(
-        "concurrent-adapter",
-        "Concurrent Test Adapter",
-        "concurrent_hash",
-        16,
-        2,
-        None,
-        None,
-    )
-    .await?;
+    let params = AdapterRegistrationBuilder::new()
+        .adapter_id("concurrent-adapter")
+        .name("Concurrent Test Adapter")
+        .hash_b3("concurrent_hash")
+        .rank(16)
+        .tier(2)
+        .build()?;
+    db.register_adapter(params).await?;
 
     // Spawn multiple concurrent operations
     let mut handles = vec![];

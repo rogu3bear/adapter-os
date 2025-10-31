@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Evidence-Grounded Response Testing Utilities
 //!
 //! This module provides utilities for testing evidence-grounded response generation

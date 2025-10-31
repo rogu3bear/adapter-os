@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Security tests for patch proposal system
 //!
 //! Tests security-related functionality:

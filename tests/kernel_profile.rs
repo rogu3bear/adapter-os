@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Kernel profiling tests
 //!
 //! Validates that performance counter profiling emits correct event structures

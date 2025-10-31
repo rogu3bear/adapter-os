@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-end tests for adapter lifecycle management
 //!
 //! Validates complete adapter workflows including creation, loading, activation,

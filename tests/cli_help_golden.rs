@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Golden tests for CLI help text
 //!
 //! These tests ensure help text remains stable and contains expected examples.

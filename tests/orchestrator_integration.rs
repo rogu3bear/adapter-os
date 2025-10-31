@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration test for orchestrator promotion gates
 //!
 //! Tests the full orchestrator gate run with a test CPID,

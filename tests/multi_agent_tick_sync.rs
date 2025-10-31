@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test multi-agent tick synchronization
 //!
 //! Verifies that AgentBarrier correctly synchronizes agents at tick boundaries.

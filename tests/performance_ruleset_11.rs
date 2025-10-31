@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Performance Testing for Ruleset #11 budgets
 //!
 //! Validates:

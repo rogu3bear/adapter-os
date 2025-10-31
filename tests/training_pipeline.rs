@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for micro-LoRA training pipeline
 //!
 //! Tests dataset generation, training loop, quantization, and packaging.

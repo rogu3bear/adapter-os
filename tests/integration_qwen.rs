@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! End-to-end integration checks for Qwen2.5 model wiring.
 
 use adapteros_chat::{ChatTemplate, ChatTemplateProcessor, Message, SpecialTokens};

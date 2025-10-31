@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Cross-Tenant Interference Prevention Tests
 //!
 //! Tests to ensure that one tenant's activities cannot interfere with

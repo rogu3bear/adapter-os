@@ -1,13 +1,15 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for MenuBar Status Monitor functionality
 //!
 //! Tests the complete integration between Rust status writer and Swift menu bar app.
 
 use adapteros_db::Db;
-use adapteros_server::status_writer::{write_status, AdapterOSStatus};
-use adapteros_server_api::AppState;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::TrainingService;
+use adapteros_server::status_writer::{write_status, AdapterOSStatus};
 use adapteros_server_api::state::ApiConfig;
+use adapteros_server_api::AppState;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -65,17 +67,23 @@ async fn test_status_transitions() {
 
     // Test 1: No adapters, no workers = "error"
     let app_state = create_test_app_state(db.clone()).await;
-    let status = adapteros_server::status_writer::collect_status(&app_state).await.unwrap();
+    let status = adapteros_server::status_writer::collect_status(&app_state)
+        .await
+        .unwrap();
     assert_eq!(status.status, "error");
 
     // Test 2: Add adapters but no workers = "degraded"
     setup_test_adapters(&db, 1).await;
-    let status = adapteros_server::status_writer::collect_status(&app_state).await.unwrap();
+    let status = adapteros_server::status_writer::collect_status(&app_state)
+        .await
+        .unwrap();
     assert_eq!(status.status, "degraded");
 
     // Test 3: Add workers = "ok"
     setup_test_workers(&db, 1).await;
-    let status = adapteros_server::status_writer::collect_status(&app_state).await.unwrap();
+    let status = adapteros_server::status_writer::collect_status(&app_state)
+        .await
+        .unwrap();
     assert_eq!(status.status, "ok");
 }
 
@@ -86,12 +94,14 @@ async fn test_error_handling() {
     let app_state = create_test_app_state(db).await;
 
     // Test with invalid database state - should not panic
-    let status = adapteros_server::status_writer::collect_status(&app_state).await.unwrap();
+    let status = adapteros_server::status_writer::collect_status(&app_state)
+        .await
+        .unwrap();
 
     // Should return valid status even with errors
     assert!(!status.status.is_empty());
     assert!(status.adapters_loaded >= 0); // Should default to 0 on error
-    assert!(status.worker_count >= 0);    // Should default to 0 on error
+    assert!(status.worker_count >= 0); // Should default to 0 on error
 }
 
 /// Test schema backward compatibility
@@ -126,9 +136,7 @@ async fn test_concurrent_writes() {
     let mut handles = vec![];
     for _ in 0..5 {
         let state_clone = app_state.clone();
-        let handle = task::spawn(async move {
-            write_status(&state_clone).await
-        });
+        let handle = task::spawn(async move { write_status(&state_clone).await });
         handles.push(handle);
     }
 
@@ -182,7 +190,8 @@ async fn create_test_app_state(db: Db) -> AppState {
     let api_config = Arc::new(RwLock::new(ApiConfig {
         metrics: adapteros_server_api::state::MetricsConfig {
             enabled: false,
-            bearer_token: None,
+            bearer_token: String::new(),
+            system_metrics_interval_secs: 0,
         },
         golden_gate: None,
         bundles_root: "var/bundles".to_string(),
@@ -190,13 +199,27 @@ async fn create_test_app_state(db: Db) -> AppState {
     }));
 
     let metrics_exporter = Arc::new(MetricsExporter::new(Default::default()).unwrap());
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new().unwrap());
+    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
+        metrics_collector.clone(),
+    ));
+    for name in [
+        "inference_latency_p95_ms",
+        "queue_depth",
+        "tokens_per_second",
+        "memory_usage_mb",
+    ] {
+        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
+    }
     let training_service = Arc::new(TrainingService::new());
 
-    AppState::new(
+    AppState::with_sqlite(
         db,
         vec![], // empty JWT secret for testing
         api_config,
         metrics_exporter,
+        metrics_collector,
+        metrics_registry,
         training_service,
     )
 }

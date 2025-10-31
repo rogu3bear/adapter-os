@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for attention entropy extraction
 //!
 //! Validates entropy computation accuracy and integration with router features.

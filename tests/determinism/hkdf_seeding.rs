@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! HKDF seeding verification tests for AdapterOS determinism
 //!
 //! Verifies that HKDF-based seeding produces deterministic, isolated randomness

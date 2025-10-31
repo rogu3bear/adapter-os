@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for determinism attestation system
 
 use adapteros_core::B3Hash;

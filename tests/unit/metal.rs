@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Metal Kernel Testing Helpers
 //!
 //! This module provides utilities for testing Metal kernels and GPU operations

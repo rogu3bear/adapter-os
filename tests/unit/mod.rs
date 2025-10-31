@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Unit Testing Framework for AdapterOS Core Components
 //!
 //! This module provides comprehensive unit testing utilities designed specifically

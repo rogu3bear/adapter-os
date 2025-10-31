@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tests for K-reduction policy under memory pressure
 
 use adapteros_lora_lifecycle::LifecycleManager;

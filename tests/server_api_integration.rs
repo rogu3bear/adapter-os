@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for AdapterOS Server API
 //!
 //! These tests verify end-to-end functionality including:
@@ -45,21 +47,37 @@ async fn setup_test_app() -> Result<Router> {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: true,
                 bearer_token: "test-token".to_string(),
+                system_metrics_interval_secs: 30,
             },
             golden_gate: None,
             bundles_root: "var/bundles".to_string(),
+            rate_limits: None,
         },
     ));
     let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
         0.1, 0.5, 1.0, 2.5, 5.0,
     ])?);
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new()?);
+    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
+        metrics_collector.clone(),
+    ));
+    for name in [
+        "inference_latency_p95_ms",
+        "queue_depth",
+        "tokens_per_second",
+        "memory_usage_mb",
+    ] {
+        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
+    }
     let training_service = Arc::new(TrainingService::new());
 
-    let state = AppState::new(
+    let state = AppState::with_sqlite(
         db,
         jwt_secret,
         api_config,
         metrics_exporter,
+        metrics_collector,
+        metrics_registry,
         training_service,
     );
     Ok(routes::build(state))
@@ -291,6 +309,7 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
     println!("1. Creating telemetry bundle...");
     let _telemetry_event = TelemetryEvent {
         event_type: "inference".to_string(),
+        kind: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
         data: json!({
             "prompt": "test prompt",

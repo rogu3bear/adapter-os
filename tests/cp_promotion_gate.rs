@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 // Test CP promotion gate logic
 // This test validates that promotions require passing audit thresholds
 

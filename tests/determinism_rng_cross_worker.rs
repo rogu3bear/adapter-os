@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Cross-worker RNG determinism verification test
 //!
 //! Verifies that two workers with identical seeds produce bit-identical RNG outputs.

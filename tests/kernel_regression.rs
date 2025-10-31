@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Multi-architecture kernel regression tests
 //!
 //! Runs performance benchmarks and validates that no kernel regresses

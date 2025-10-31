@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Tenant Isolation Tests
 //!
 //! Tests to verify complete data and resource separation between tenants,

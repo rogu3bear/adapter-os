@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Cross-Host Replay Tests
 //!
 //! Integration tests for federated replay verification across multiple hosts

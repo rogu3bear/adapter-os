@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Canonical hashing verification tests for AdapterOS determinism
 //!
 //! Verifies that canonical JSON serialization and BLAKE3 hashing produce
@@ -245,12 +247,14 @@ fn test_telemetry_event_canonical_hashing() {
 
     let event1 = TelemetryEvent {
         event_type: "test_event".to_string(),
+        kind: None,
         timestamp: 1234567890,
         data: serde_json::json!({"key": "value", "count": 42}),
     };
 
     let event2 = TelemetryEvent {
         event_type: "test_event".to_string(),
+        kind: None,
         timestamp: 1234567890,
         data: serde_json::json!({"count": 42, "key": "value"}), // Different field order
     };

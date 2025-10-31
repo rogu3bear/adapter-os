@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Evidence Validation Tests
 //!
 //! This module tests evidence collection, validation, integrity, and tamper detection

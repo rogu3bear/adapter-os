@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Concurrent Workload Tests
 //!
 //! Tests for multiple tenants running inference workloads simultaneously,

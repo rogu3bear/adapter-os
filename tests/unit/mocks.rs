@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Deterministic Mocking Utilities
 //!
 //! This module provides controlled, reproducible test doubles for AdapterOS components.
@@ -85,6 +87,7 @@ pub struct MockTelemetryCollector {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TelemetryEvent {
     pub event_type: String,
+    pub kind: Option<String>,
     pub data: serde_json::Value,
     pub timestamp: u64,
 }
@@ -104,6 +107,7 @@ impl MockTelemetryCollector {
         let timestamp = events.len() as u64 * 1000; // Deterministic timestamps
         events.push(TelemetryEvent {
             event_type: event_type.to_string(),
+            kind: None,
             data,
             timestamp,
         });

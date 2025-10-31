@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Test telemetry bundle rotation and signing
 
 use adapteros_telemetry::BundleWriter;

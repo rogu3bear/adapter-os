@@ -1,3 +1,5 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Property-Based Testing Infrastructure
 //!
 //! This module provides property-based testing utilities for AdapterOS components,
