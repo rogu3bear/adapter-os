@@ -7,6 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription } from './ui/alert';
+import { Checkbox } from './ui/checkbox';
+import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
+import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +50,31 @@ export function Plans({ user, selectedTenant }: PlansProps) {
   const [manifestHash, setManifestHash] = useState('');
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+  const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
+  const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
+
+  const bulkActions: BulkAction[] = [
+    {
+      id: 'delete',
+      label: 'Delete Selected',
+      variant: 'destructive',
+      handler: async (selectedItems) => {
+        setConfirmationOptions({
+          title: 'Delete Plans',
+          description: `Are you sure you want to delete ${selectedItems.length} plan(s)? This action cannot be undone.`,
+          confirmText: 'Delete',
+          variant: 'destructive',
+        });
+        setPendingBulkAction(() => async () => {
+          // TODO: Implement deletePlan API endpoint
+          showStatus('Plan deletion not yet implemented', 'warning');
+        });
+        setConfirmationOpen(true);
+      },
+    },
+  ];
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
@@ -261,8 +289,8 @@ export function Plans({ user, selectedTenant }: PlansProps) {
 
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="section-title">Execution Plans</h1>
-          <p className="section-description">
+          <h1 className="text-2xl font-bold">Execution Plans</h1>
+          <p className="text-sm text-muted-foreground">
             Manage compiled plans and kernel configurations
           </p>
         </div>
@@ -282,14 +310,35 @@ export function Plans({ user, selectedTenant }: PlansProps) {
         </div>
       </div>
 
-      <Card className="card-standard">
+      <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
           <CardTitle>Plans</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table className="table-standard">
+          <Table className="border-collapse w-full">
             <TableHeader>
               <TableRow>
+                <TableHead className="p-4 border-b border-border w-12">
+                  <Checkbox
+                    checked={
+                      plans.length === 0
+                        ? false
+                        : selectedPlans.length === plans.length
+                          ? true
+                          : selectedPlans.length > 0
+                            ? 'indeterminate'
+                            : false
+                    }
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedPlans(plans.map(p => p.id));
+                      } else {
+                        setSelectedPlans([]);
+                      }
+                    }}
+                    aria-label="Select all plans"
+                  />
+                </TableHead>
                 <TableHead>Plan ID</TableHead>
                 <TableHead>CPID</TableHead>
                 <TableHead>Status</TableHead>
@@ -301,18 +350,31 @@ export function Plans({ user, selectedTenant }: PlansProps) {
             <TableBody>
               {plans.map((plan) => (
                 <TableRow key={plan.id}>
-                  <TableCell className="table-cell-standard font-medium">{plan.id}</TableCell>
-                  <TableCell className="table-cell-standard">{plan.cpid}</TableCell>
-                  <TableCell className="table-cell-standard">
+                  <TableCell className="p-4 border-b border-border">
+                    <Checkbox
+                      checked={selectedPlans.includes(plan.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedPlans(prev => [...prev, plan.id]);
+                        } else {
+                          setSelectedPlans(prev => prev.filter(id => id !== plan.id));
+                        }
+                      }}
+                      aria-label={`Select ${plan.id}`}
+                    />
+                  </TableCell>
+                  <TableCell className="p-4 border-b border-border font-medium">{plan.id}</TableCell>
+                  <TableCell className="p-4 border-b border-border">{plan.cpid}</TableCell>
+                  <TableCell className="p-4 border-b border-border">
                     <Badge variant={plan.status === 'ready' ? 'default' : 'secondary'}>
                       {plan.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="table-cell-standard">{new Date(plan.created_at).toLocaleString()}</TableCell>
-                  <TableCell className="table-cell-standard font-mono text-xs">
+                  <TableCell className="p-4 border-b border-border">{new Date(plan.created_at).toLocaleString()}</TableCell>
+                  <TableCell className="p-4 border-b border-border font-mono text-xs">
                     {plan.metallib_hash?.substring(0, 16) || 'N/A'}
                   </TableCell>
-                  <TableCell className="table-cell-standard">
+                  <TableCell className="p-4 border-b border-border">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="sm">
@@ -335,7 +397,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
               ))}
               {plans.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="table-cell-standard text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="p-4 border-b border-border text-center text-muted-foreground">
                     No plans available
                   </TableCell>
                 </TableRow>
@@ -522,6 +584,38 @@ export function Plans({ user, selectedTenant }: PlansProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Action Bar */}
+      <BulkActionBar
+        selectedItems={selectedPlans}
+        actions={bulkActions}
+        onClearSelection={() => setSelectedPlans([])}
+        itemName="plan"
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmationOpen}
+        onOpenChange={(open) => {
+          setConfirmationOpen(open);
+          if (!open) {
+            setPendingBulkAction(null);
+            setConfirmationOptions(null);
+          }
+        }}
+        onConfirm={async () => {
+          if (pendingBulkAction) {
+            await pendingBulkAction();
+            setPendingBulkAction(null);
+            setConfirmationOptions(null);
+          }
+        }}
+        options={confirmationOptions || {
+          title: 'Confirm Action',
+          description: 'Are you sure?',
+          variant: 'default'
+        }}
+      />
     </div>
   );
 }

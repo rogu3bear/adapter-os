@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Wizard, WizardStep } from '@/components/ui/wizard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
-import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
+import { Upload, FileCheck, Settings, CheckCircle, RotateCcw } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ImportModelRequest } from '@/api/types';
+import { useWizardPersistence } from '../hooks/useWizardPersistence';
 
 interface ModelImportWizardProps {
   onComplete: (importId: string) => void;
@@ -16,6 +18,7 @@ interface ModelImportWizardProps {
 }
 
 interface WizardState {
+  currentStep?: number;
   modelName: string;
   weightsPath: string;
   configPath: string;
@@ -25,18 +28,58 @@ interface WizardState {
 }
 
 export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardProps) {
-  const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [state, setState] = useState<WizardState>({
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [savedState, setSavedState] = useState<WizardState | null>(null);
+
+  const initialState: WizardState = {
+    currentStep: 0,
     modelName: '',
     weightsPath: '',
     configPath: '',
     tokenizerPath: '',
     tokenizerConfigPath: '',
     metadata: {},
+  };
+
+  const {
+    state,
+    setState: setPersistedState,
+    clearState: clearPersistedState,
+    hasSavedState,
+    loadSavedState,
+  } = useWizardPersistence<WizardState>({
+    storageKey: 'model-import-wizard',
+    initialState,
+    onSavedStateDetected: (saved) => {
+      setSavedState(saved);
+      setShowResumeDialog(true);
+    },
   });
+
+  const [currentStep, setCurrentStep] = useState(state.currentStep || 0);
+
+  // Sync currentStep with state persistence
+  useEffect(() => {
+    setPersistedState({ currentStep });
+  }, [currentStep, setPersistedState]);
+
+  const handleResume = () => {
+    const restoredState = loadSavedState();
+    if (restoredState && restoredState.currentStep !== undefined) {
+      setCurrentStep(restoredState.currentStep);
+    }
+    setShowResumeDialog(false);
+  };
+
+  const handleStartFresh = () => {
+    clearPersistedState();
+    setPersistedState(initialState);
+    setCurrentStep(0);
+    setShowResumeDialog(false);
+  };
 
   // Step 1: Model Name
   const ModelNameStep = () => (
@@ -47,7 +90,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
           id="modelName"
           placeholder="e.g., qwen2.5-7b-instruct"
           value={state.modelName}
-          onChange={(e) => setState({ ...state, modelName: e.target.value })}
+          onChange={(e) => setPersistedState({ modelName: e.target.value })}
         />
         <p className="text-sm text-gray-500 mt-1">
           A friendly name to identify this model
@@ -70,7 +113,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
           id="weightsPath"
           placeholder="/path/to/model/weights.safetensors"
           value={state.weightsPath}
-          onChange={(e) => setState({ ...state, weightsPath: e.target.value })}
+          onChange={(e) => setPersistedState({ weightsPath: e.target.value })}
         />
         <p className="text-sm text-gray-500 mt-1">
           Absolute path to SafeTensors weights file
@@ -94,7 +137,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
           id="configPath"
           placeholder="/path/to/model/config.json"
           value={state.configPath}
-          onChange={(e) => setState({ ...state, configPath: e.target.value })}
+          onChange={(e) => setPersistedState({ configPath: e.target.value })}
         />
       </div>
       <div>
@@ -103,7 +146,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
           id="tokenizerPath"
           placeholder="/path/to/model/tokenizer.json"
           value={state.tokenizerPath}
-          onChange={(e) => setState({ ...state, tokenizerPath: e.target.value })}
+          onChange={(e) => setPersistedState({ tokenizerPath: e.target.value })}
         />
       </div>
       <div>
@@ -112,7 +155,7 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
           id="tokenizerConfigPath"
           placeholder="/path/to/model/tokenizer_config.json"
           value={state.tokenizerConfigPath}
-          onChange={(e) => setState({ ...state, tokenizerConfigPath: e.target.value })}
+          onChange={(e) => setPersistedState({ tokenizerConfigPath: e.target.value })}
         />
       </div>
     </div>
@@ -162,6 +205,8 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
       };
 
       const response = await apiClient.importModel(request);
+      // Success - clear persisted state
+      clearPersistedState();
       onComplete(response.import_id);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Import failed');
@@ -228,6 +273,43 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
 
   return (
     <div className="space-y-4">
+      {/* Resume Dialog */}
+      <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5" />
+              Resume Previous Session?
+            </DialogTitle>
+            <DialogDescription>
+              We found a saved model import configuration from a previous session. Would you like to resume where you left off?
+            </DialogDescription>
+          </DialogHeader>
+          {savedState && (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Model:</span>
+                <span className="font-medium">{savedState.modelName || 'Untitled'}</span>
+              </div>
+              {savedState.currentStep !== undefined && (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Progress:</span>
+                  <span className="font-medium">Step {savedState.currentStep + 1} of 4</span>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={handleStartFresh}>
+              Start Fresh
+            </Button>
+            <Button onClick={handleResume}>
+              Resume
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {wizardError && ErrorRecoveryTemplates.genericError(
         wizardError,
         () => setWizardError(null)

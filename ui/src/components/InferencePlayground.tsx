@@ -35,6 +35,11 @@ import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
 import { useSearchParams } from 'react-router-dom';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { useProgressiveHints } from '../hooks/useProgressiveHints';
+import { getPageHints } from '../data/page-hints';
+import { ProgressiveHint } from './ui/progressive-hint';
+import { ToolPageHeader } from './ui/page-headers/ToolPageHeader';
+import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -52,6 +57,30 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('');
   const [inferenceError, setInferenceError] = useState<Error | null>(null);
+  const [adaptersLoadError, setAdaptersLoadError] = useState<Error | null>(null);
+
+  // Graceful degradation: Monitor adapter availability
+  const adapterAvailability = useFeatureDegradation({
+    featureId: 'adapters',
+    healthCheck: () => {
+      // Check current adapter state, don't reload (that's handled by useEffect)
+      return adapters.length > 0;
+    },
+    checkInterval: 30000,
+  });
+
+  // Progressive hints
+  const hints = getPageHints('inference').map(hint => ({
+    ...hint,
+    condition: hint.id === 'no-adapters-inference'
+      ? () => adapters.length === 0
+      : hint.condition
+  }));
+  const { getVisibleHint, dismissHint } = useProgressiveHints({
+    pageKey: 'inference',
+    hints
+  });
+  const visibleHint = getVisibleHint();
   
   // Inference configurations
   const [configA, setConfigA] = useState<InferenceConfig>({
@@ -129,10 +158,13 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           setSelectedAdapterId(activeAdapter.id);
         }
       } catch (err) {
+        const error = err instanceof Error ? err : new Error('Failed to load adapters');
         logger.error('Failed to load adapters', {
           component: 'InferencePlayground',
           operation: 'loadAdapters',
-        }, toError(err));
+        }, error);
+        setAdaptersLoadError(error);
+        // Don't set inferenceError - allow graceful degradation with base model
       }
     };
     loadAdapters();
@@ -236,9 +268,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
     <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="w-full justify-between">
+        <Button variant="ghost" className="w-full justify-between" aria-label="Toggle advanced options" aria-expanded={showAdvanced}>
           <span className="flex items-center gap-2">
-            <Settings2 className="h-4 w-4" />
+            <Settings2 className="h-4 w-4" aria-hidden="true" />
             Advanced Options
           </span>
           <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
@@ -375,7 +407,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                 className="absolute top-2 right-2"
                 onClick={() => handleCopy(response.text)}
               >
-                <Copy className="h-4 w-4" />
+                <Copy className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
           </CardContent>
@@ -400,19 +432,24 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       {/* Error Recovery */}
       {inferenceError && ErrorRecoveryTemplates.genericError(
         inferenceError,
-        () => { setInferenceError(null); },
         () => { setInferenceError(null); setPrompt(''); }
       )}
 
+      {visibleHint && (
+        <ProgressiveHint
+          title={visibleHint.hint.title}
+          content={visibleHint.hint.content}
+          onDismiss={() => dismissHint(visibleHint.hint.id)}
+          placement={visibleHint.hint.placement}
+        />
+      )}
+
       {/* Header */}
-      <div className="flex-between">
-        <div>
-          <h1 className="text-2xl font-bold">Inference Playground</h1>
-          <p className="text-sm text-muted-foreground">
-            Test model inference with advanced configuration options
-          </p>
-        </div>
-        <div className="flex gap-2">
+      <ToolPageHeader
+        title="Inference Playground"
+        description="Test model inference with advanced configuration options"
+        secondaryActions={
+          <div className="flex gap-2">
           <Button
             variant={mode === 'single' ? 'default' : 'outline'}
             onClick={() => setMode('single')}
@@ -427,8 +464,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
             <Split className="h-4 w-4 mr-2" />
             Comparison
           </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {mode === 'single' ? (
         /* Single Mode */
@@ -440,18 +478,41 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                 <CardTitle className="text-base">Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Graceful degradation alert */}
+                {adapterAvailability.isDegraded && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>
+                      {adapters.length === 0
+                        ? 'No adapters available. Inference will use base model only.'
+                        : 'Adapter loading issues detected. Some adapters may be unavailable.'}
+                      {!adaptersLoadError && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => adapterAvailability.checkHealth()}
+                          className="ml-2"
+                        >
+                          Retry
+                        </Button>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="space-y-2">
-                  <Label htmlFor="adapter">Adapter (Optional)</Label>
-                  <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId}>
+                  <Label htmlFor="adapter">
+                    Adapter {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None - base model only)</span>}
+                  </Label>
+                  <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId} disabled={adapters.length === 0}>
                     <SelectTrigger id="adapter">
-                      <SelectValue placeholder="Select adapter or use default..." />
+                      <SelectValue placeholder={adapters.length === 0 ? "No adapters available" : "Select adapter or use default..."} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">Default (No adapter)</SelectItem>
                       {adapters.map((adapter) => (
                         <SelectItem key={adapter.id} value={adapter.id}>
                           <div className="flex items-center gap-2">
-                            <Code className="h-4 w-4" />
+                            <Code className="h-4 w-4" aria-hidden="true" />
                             <span>{adapter.name}</span>
                             <span className="text-xs text-muted-foreground">
                               ({adapter.current_state})
@@ -462,7 +523,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Select a trained adapter to use for inference. Leave empty to use base model.
+                    {adapters.length === 0 
+                      ? 'No adapters available. Inference will use base model only.'
+                      : 'Select a trained adapter to use for inference. Leave empty to use base model.'}
                   </p>
                 </div>
 
@@ -483,8 +546,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                   className="w-full"
                   onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
                   disabled={isLoadingA}
+                  aria-label="Run inference with current configuration"
                 >
-                  <Play className="h-4 w-4 mr-2" />
+                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
                   {isLoadingA ? 'Generating...' : 'Generate'}
                 </Button>
 
@@ -506,7 +570,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
-                    <History className="h-4 w-4" />
+                    <History className="h-4 w-4" aria-hidden="true" />
                     Recent Sessions
                   </CardTitle>
                 </CardHeader>
@@ -582,7 +646,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                   onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
                   disabled={isLoadingA || !prompt.trim()}
                 >
-                  <Play className="h-4 w-4 mr-2" />
+                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
                   Generate A
                 </Button>
                 {renderResponse(responseA, isLoadingA)}
@@ -604,7 +668,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                   onClick={() => handleInfer(configB, setResponseB, setIsLoadingB)}
                   disabled={isLoadingB || !prompt.trim()}
                 >
-                  <Play className="h-4 w-4 mr-2" />
+                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
                   Generate B
                 </Button>
                 {renderResponse(responseB, isLoadingB)}
@@ -617,7 +681,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" />
+                  <BarChart3 className="h-4 w-4" aria-hidden="true" />
                   Comparison Summary
                 </CardTitle>
               </CardHeader>

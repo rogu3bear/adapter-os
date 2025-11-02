@@ -11,15 +11,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Alert, AlertDescription } from './ui/alert';
-import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder, Settings } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
+import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder, Settings, RotateCcw, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
 import { DensityProvider, useDensity } from '../contexts/DensityContext';
-import { DensityControls } from './ui/density-controls';
-import { useBreadcrumb } from '../contexts/BreadcrumbContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { useWizardPersistence } from '../hooks/useWizardPersistence';
 import {
   AdapterCategory,
   AdapterScope,
@@ -34,6 +35,8 @@ interface TrainingWizardProps {
 }
 
 interface WizardState {
+  // Current step
+  currentStep?: number;
   // Step 1: Category
   category: AdapterCategory | null;
   
@@ -111,30 +114,17 @@ const LORA_TARGETS = [
 
 // Inner component that uses density context
 function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX.Element {
-  const { setBreadcrumbs } = useBreadcrumb();
   const { density, setDensity, spacing, textSizes } = useDensity();
-  const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
   const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [savedState, setSavedState] = useState<WizardState | null>(null);
 
-  // Update breadcrumbs based on current step
-  useEffect(() => {
-    const stepConfigs = [
-      { id: 'category', label: 'Category', icon: Code },
-      { id: 'basic-info', label: 'Basic Info', icon: FileText },
-      { id: 'data-source', label: 'Data Source', icon: Database },
-      { id: 'category-config', label: 'Configuration', icon: Settings },
-      { id: 'training-params', label: 'Parameters', icon: Zap },
-      { id: 'packaging', label: 'Packaging', icon: Folder },
-      { id: 'review', label: 'Review', icon: CheckCircle }
-    ];
-    setBreadcrumbs(stepConfigs.slice(0, currentStep + 1));
-  }, [currentStep, setBreadcrumbs]);
-  
-  const [state, setState] = useState<WizardState>({
+  const initialState: WizardState = {
+    currentStep: 0,
     category: null,
     name: '',
     description: '',
@@ -150,7 +140,43 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     registerAfter: true,
     adaptersRoot: './adapters',
     tier: 8,
+  };
+
+  const {
+    state,
+    setState: setPersistedState,
+    clearState: clearPersistedState,
+    hasSavedState,
+    loadSavedState,
+  } = useWizardPersistence<WizardState>({
+    storageKey: 'training-wizard',
+    initialState,
+    onSavedStateDetected: (saved) => {
+      setSavedState(saved);
+      setShowResumeDialog(true);
+    },
   });
+
+  const [currentStep, setCurrentStep] = useState(state.currentStep || 0);
+
+  // Sync currentStep with state persistence
+  useEffect(() => {
+    setPersistedState({ currentStep });
+  }, [currentStep, setPersistedState]);
+
+  // Update breadcrumbs based on current step
+  useEffect(() => {
+    const stepConfigs = [
+      { id: 'category', label: 'Category', icon: Code },
+      { id: 'basic-info', label: 'Basic Info', icon: FileText },
+      { id: 'data-source', label: 'Data Source', icon: Database },
+      { id: 'category-config', label: 'Configuration', icon: Settings },
+      { id: 'training-params', label: 'Parameters', icon: Zap },
+      { id: 'packaging', label: 'Packaging', icon: Folder },
+      { id: 'review', label: 'Review', icon: CheckCircle }
+    ];
+    // Breadcrumbs are now derived statelessly from URL - no manual management needed
+  }, [currentStep]);
 
   useEffect(() => {
     // Load repositories and templates
@@ -175,8 +201,25 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     loadData();
   }, []);
 
+  const handleResume = () => {
+    // loadSavedState already updates the persisted state
+    const restoredState = loadSavedState();
+    if (restoredState && restoredState.currentStep !== undefined) {
+      setCurrentStep(restoredState.currentStep);
+    }
+    setShowResumeDialog(false);
+  };
+
+  const handleStartFresh = () => {
+    clearPersistedState();
+    // Reset to initial state
+    setPersistedState(initialState);
+    setCurrentStep(0);
+    setShowResumeDialog(false);
+  };
+
   const updateState = (updates: Partial<WizardState>) => {
-    setState((prev) => ({ ...prev, ...updates }));
+    setPersistedState(updates);
   };
 
   // Step 1: Category Selection
@@ -446,6 +489,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
       </div>
     </div>
   );
+};
 
   // Step 4: Category-Specific Configuration
   const CategoryConfigStep = () => {
@@ -766,75 +810,270 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </AlertDescription>
       </Alert>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Configuration Summary</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="font-medium">Category</p>
-              <p className="text-muted-foreground capitalize">{state.category}</p>
+      <Accordion type="multiple" defaultValue={['basic']} className="w-full">
+        <AccordionItem value="basic">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Basic Information
             </div>
-            <div>
-              <p className="font-medium">Name</p>
-              <p className="text-muted-foreground">{state.name}</p>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid grid-cols-2 gap-4 text-sm pt-2">
+              <div>
+                <p className="font-medium">Category</p>
+                <p className="text-muted-foreground capitalize">{state.category}</p>
+              </div>
+              <div>
+                <p className="font-medium">Name</p>
+                <p className="text-muted-foreground">{state.name}</p>
+              </div>
+              <div>
+                <p className="font-medium">Scope</p>
+                <p className="text-muted-foreground capitalize">{state.scope}</p>
+              </div>
+              <div>
+                <p className="font-medium">Description</p>
+                <p className="text-muted-foreground">{state.description || 'No description'}</p>
+              </div>
             </div>
-            <div>
-              <p className="font-medium">Scope</p>
-              <p className="text-muted-foreground capitalize">{state.scope}</p>
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="data-source">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Data Source
             </div>
-            <div>
-              <p className="font-medium">Data Source</p>
-              <p className="text-muted-foreground capitalize">{state.dataSourceType}</p>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-2 text-sm pt-2">
+              <div>
+                <p className="font-medium">Type</p>
+                <p className="text-muted-foreground capitalize">{state.dataSourceType}</p>
+              </div>
               {state.dataSourceType === 'directory' && state.directoryRoot && (
-                <p className="text-xs text-muted-foreground font-mono mt-1">
-                  {state.directoryRoot}{state.directoryPath ? `/${state.directoryPath}` : ''}
-                </p>
+                <div>
+                  <p className="font-medium">Directory Path</p>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    {state.directoryRoot}{state.directoryPath ? `/${state.directoryPath}` : ''}
+                  </p>
+                </div>
+              )}
+              {state.dataSourceType === 'template' && state.templateId && (
+                <div>
+                  <p className="font-medium">Template ID</p>
+                  <p className="text-muted-foreground">{state.templateId}</p>
+                </div>
+              )}
+              {state.dataSourceType === 'repository' && state.repositoryId && (
+                <div>
+                  <p className="font-medium">Repository ID</p>
+                  <p className="text-muted-foreground">{state.repositoryId}</p>
+                </div>
+              )}
+              {state.datasetPath && (
+                <div>
+                  <p className="font-medium">Dataset Path</p>
+                  <p className="text-muted-foreground font-mono text-xs">{state.datasetPath}</p>
+                </div>
               )}
             </div>
-            <div>
-              <p className="font-medium">Rank</p>
-              <p className="text-muted-foreground">{state.rank}</p>
-            </div>
-            <div>
-              <p className="font-medium">Epochs</p>
-              <p className="text-muted-foreground">{state.epochs}</p>
-            </div>
-            <div>
-              <p className="font-medium">Learning Rate</p>
-              <p className="text-muted-foreground">{state.learningRate}</p>
-            </div>
-            <div>
-              <p className="font-medium">Batch Size</p>
-              <p className="text-muted-foreground">{state.batchSize}</p>
-            </div>
-          </div>
+          </AccordionContent>
+        </AccordionItem>
 
-          {state.category === 'code' && state.language && (
-            <div>
-              <p className="font-medium text-sm">Language</p>
-              <Badge>{state.language}</Badge>
+        <AccordionItem value="category-config">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Category Configuration
             </div>
-          )}
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-2 text-sm pt-2">
+              {state.category === 'code' && state.language && (
+                <div>
+                  <p className="font-medium">Language</p>
+                  <Badge>{state.language}</Badge>
+                  {state.symbolTargets && state.symbolTargets.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-medium">Symbol Targets</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {state.symbolTargets.map((target) => (
+                          <Badge key={target} variant="outline">{target}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {state.category === 'framework' && (
+                <div className="space-y-2">
+                  {state.frameworkId && (
+                    <div>
+                      <p className="font-medium">Framework</p>
+                      <Badge>{state.frameworkId} {state.frameworkVersion || ''}</Badge>
+                    </div>
+                  )}
+                  {state.apiPatterns && state.apiPatterns.length > 0 && (
+                    <div>
+                      <p className="font-medium">API Patterns</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {state.apiPatterns.map((pattern) => (
+                          <Badge key={pattern} variant="outline">{pattern}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {state.category === 'codebase' && (
+                <div className="space-y-2">
+                  {state.repoScope && (
+                    <div>
+                      <p className="font-medium">Repository Scope</p>
+                      <p className="text-muted-foreground">{state.repoScope}</p>
+                    </div>
+                  )}
+                  {state.filePatterns && state.filePatterns.length > 0 && (
+                    <div>
+                      <p className="font-medium">File Patterns</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {state.filePatterns.map((pattern) => (
+                          <Badge key={pattern} variant="outline">{pattern}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {state.excludePatterns && state.excludePatterns.length > 0 && (
+                    <div>
+                      <p className="font-medium">Exclude Patterns</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {state.excludePatterns.map((pattern) => (
+                          <Badge key={pattern} variant="outline">{pattern}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {state.category === 'ephemeral' && (
+                <div className="space-y-2">
+                  {state.ttlSeconds && (
+                    <div>
+                      <p className="font-medium">TTL</p>
+                      <p className="text-muted-foreground">{state.ttlSeconds} seconds</p>
+                    </div>
+                  )}
+                  {state.contextWindow && (
+                    <div>
+                      <p className="font-medium">Context Window</p>
+                      <p className="text-muted-foreground">{state.contextWindow} tokens</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
 
-          {state.category === 'framework' && state.frameworkId && (
-            <div>
-              <p className="font-medium text-sm">Framework</p>
-              <Badge>{state.frameworkId} {state.frameworkVersion}</Badge>
+        <AccordionItem value="training-params">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Training Parameters
             </div>
-          )}
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid grid-cols-2 gap-4 text-sm pt-2">
+              <div>
+                <p className="font-medium">Rank</p>
+                <p className="text-muted-foreground">{state.rank}</p>
+              </div>
+              <div>
+                <p className="font-medium">Alpha</p>
+                <p className="text-muted-foreground">{state.alpha}</p>
+              </div>
+              <div>
+                <p className="font-medium">Epochs</p>
+                <p className="text-muted-foreground">{state.epochs}</p>
+              </div>
+              <div>
+                <p className="font-medium">Learning Rate</p>
+                <p className="text-muted-foreground">{state.learningRate}</p>
+              </div>
+              <div>
+                <p className="font-medium">Batch Size</p>
+                <p className="text-muted-foreground">{state.batchSize}</p>
+              </div>
+              {state.warmupSteps && (
+                <div>
+                  <p className="font-medium">Warmup Steps</p>
+                  <p className="text-muted-foreground">{state.warmupSteps}</p>
+                </div>
+              )}
+              {state.maxSeqLength && (
+                <div>
+                  <p className="font-medium">Max Sequence Length</p>
+                  <p className="text-muted-foreground">{state.maxSeqLength}</p>
+                </div>
+              )}
+            </div>
+            <div className="mt-4">
+              <p className="font-medium text-sm">LoRA Targets ({state.targets.length})</p>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {state.targets.map((target) => (
+                  <Badge key={target} variant="outline">{target}</Badge>
+                ))}
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
 
-          <div>
-            <p className="font-medium text-sm">LoRA Targets ({state.targets.length})</p>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {state.targets.map((target) => (
-                <Badge key={target} variant="outline">{target}</Badge>
-              ))}
+        <AccordionItem value="packaging">
+          <AccordionTrigger>
+            <div className="flex items-center gap-2">
+              <Folder className="h-4 w-4" />
+              Packaging & Registration
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-2 text-sm pt-2">
+              <div className="flex items-center gap-2">
+                <p className="font-medium">Package After Training:</p>
+                <Badge variant={state.packageAfter ? 'default' : 'outline'}>
+                  {state.packageAfter ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <p className="font-medium">Register After Packaging:</p>
+                <Badge variant={state.registerAfter ? 'default' : 'outline'}>
+                  {state.registerAfter ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              {state.adaptersRoot && (
+                <div>
+                  <p className="font-medium">Adapters Root</p>
+                  <p className="text-muted-foreground font-mono text-xs">{state.adaptersRoot}</p>
+                </div>
+              )}
+              {state.adapterId && (
+                <div>
+                  <p className="font-medium">Adapter ID</p>
+                  <p className="text-muted-foreground">{state.adapterId}</p>
+                </div>
+              )}
+              {state.tier && (
+                <div>
+                  <p className="font-medium">Tier</p>
+                  <p className="text-muted-foreground">{state.tier}</p>
+                </div>
+              )}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 
@@ -894,7 +1133,8 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
       const job = await apiClient.startTraining(trainingRequest);
 
-      // Success - training started
+      // Success - training started, clear persisted state
+      clearPersistedState();
       onComplete(job.id);
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Failed to start training');
@@ -1000,16 +1240,89 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
   return (
     <div className={spacing.sectionGap}>
+      {/* Resume Dialog */}
+      <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5" />
+              Resume Previous Session?
+            </DialogTitle>
+            <DialogDescription>
+              We found a saved training configuration from a previous session. Would you like to resume where you left off?
+            </DialogDescription>
+          </DialogHeader>
+          {savedState && (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Adapter:</span>
+                <span className="font-medium">{savedState.name || 'Untitled'}</span>
+              </div>
+              {savedState.category && (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Category:</span>
+                  <span className="font-medium capitalize">{savedState.category}</span>
+                </div>
+              )}
+              {savedState.currentStep !== undefined && (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Progress:</span>
+                  <span className="font-medium">Step {savedState.currentStep + 1} of 7</span>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={handleStartFresh}>
+              Start Fresh
+            </Button>
+            <Button onClick={handleResume}>
+              Resume
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <BreadcrumbNavigation />
       <div className="flex justify-between items-center mb-4">
         <h2 className={textSizes.title}>Training Wizard</h2>
-        <DensityControls density={density} onDensityChange={setDensity} />
+        <div className="flex items-center gap-2">
+          {hasSavedState && !showResumeDialog && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const saved = loadSavedState();
+                if (saved && saved.currentStep !== undefined) {
+                  setCurrentStep(saved.currentStep);
+                }
+              }}
+              className="text-xs"
+            >
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Load Saved
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Error Recovery */}
-      {wizardError && ErrorRecoveryTemplates.genericError(
-        wizardError,
-        () => { setWizardError(null); setCurrentStep(0); }
+      {wizardError && (
+        <ErrorRecovery
+          title="Training Wizard Error"
+          message="An error occurred while setting up the training wizard."
+          error={wizardError}
+          recoveryActions={[
+            {
+              label: 'Reset Wizard',
+              action: () => {
+                setWizardError(null);
+                setCurrentStep(0);
+              },
+              primary: true
+            }
+          ]}
+        />
       )}
       {validationError && (
         <ErrorRecovery

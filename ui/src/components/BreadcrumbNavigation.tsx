@@ -1,5 +1,6 @@
 import React from 'react';
-import { useBreadcrumb } from '../contexts/BreadcrumbContext';
+import { Link } from 'react-router-dom';
+import { useBreadcrumbs } from '@/hooks/useBreadcrumbs';
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -10,10 +11,17 @@ import {
 } from './ui/breadcrumb';
 import { ChevronRight, Home } from 'lucide-react';
 
+/**
+ * BreadcrumbNavigation - Stateless breadcrumb component
+ * Derives breadcrumbs from current URL pathname using route configuration
+ */
 export function BreadcrumbNavigation() {
-  const { breadcrumbs } = useBreadcrumb();
+  const breadcrumbs = useBreadcrumbs();
 
-  if (breadcrumbs.length === 0) {
+  // Filter out Home since we'll add it explicitly, and non-clickable items
+  const displayBreadcrumbs = breadcrumbs.filter(b => b.id !== 'home' && b.href !== '#');
+
+  if (displayBreadcrumbs.length === 0) {
     return null;
   }
 
@@ -27,8 +35,8 @@ export function BreadcrumbNavigation() {
           </BreadcrumbLink>
         </BreadcrumbItem>
         
-        {breadcrumbs.map((item, index) => {
-          const isLast = index === breadcrumbs.length - 1;
+        {displayBreadcrumbs.map((item, index) => {
+          const isLast = index === displayBreadcrumbs.length - 1;
           const Icon = item.icon;
           
           return (
@@ -43,12 +51,11 @@ export function BreadcrumbNavigation() {
                     {item.label}
                   </BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink 
-                    href={item.href || '#'} 
-                    className="flex items-center gap-1"
-                  >
-                    {Icon && <Icon className="h-4 w-4" />}
-                    {item.label}
+                  <BreadcrumbLink asChild>
+                    <Link to={item.href} className="flex items-center gap-1">
+                      {Icon && <Icon className="h-4 w-4" />}
+                      {item.label}
+                    </Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>

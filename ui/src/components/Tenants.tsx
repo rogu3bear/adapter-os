@@ -6,11 +6,18 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { VirtualizedTableRows } from './ui/virtualized-table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Alert, AlertDescription } from './ui/alert';
 import { Progress } from './ui/progress';
+import { Checkbox } from './ui/checkbox';
+import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
+import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
+import { ExportDialog, ExportOptions } from './ui/export-dialog';
+import { useUndoRedoContext } from '../contexts/UndoRedoContext';
+import { TenantImportWizard } from './TenantImportWizard';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,12 +44,15 @@ import {
   Building2,
   CreditCard,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Upload
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { BookmarkButton } from './ui/bookmark-button';
 
 interface TenantsProps {
   user: User;
@@ -50,6 +60,7 @@ interface TenantsProps {
 }
 
 export function Tenants({ user, selectedTenant }: TenantsProps) {
+  const { addAction } = useUndoRedoContext();
   const [tenants, setTenants] = useState<ApiTenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -62,10 +73,16 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
   const [usageData, setUsageData] = useState<TenantUsageResponse | null>(null);
   const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>([]);
+  const [selectedTenants, setSelectedTenants] = useState<string[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
+  const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const userId = user.id;
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
@@ -146,11 +163,23 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
   const handleArchive = async () => {
     if (!selectedTenantForAction) return;
     try {
-      await apiClient.archiveTenant(selectedTenantForAction.id);
+      const tenant = selectedTenantForAction;
+      await apiClient.archiveTenant(tenant.id);
       showStatus('Tenant archived.', 'success');
       setShowArchiveModal(false);
       setSelectedTenantForAction(null);
-      fetchTenants();
+      await fetchTenants();
+
+      // Record undo action
+      addAction({
+        type: 'archive_tenant',
+        description: `Archive tenant "${tenant.name}"`,
+        previousState: tenant,
+        reverse: async () => {
+          // Would need restore/unarchive endpoint - for now, show warning
+          showStatus('Undo not available - restore requires API endpoint.', 'warning');
+        },
+      });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to archive tenant';
       setStatusMessage({ message: errorMsg, variant: 'warning' });
@@ -221,9 +250,25 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
 
   const handlePause = async (tenant: ApiTenant) => {
     try {
+      const previousStatus = tenant.status;
       await apiClient.pauseTenant(tenant.id);
       showStatus(`Tenant "${tenant.name}" paused.`, 'success');
       await fetchTenants();
+
+      // Record undo action
+      addAction({
+        type: 'pause_tenant',
+        description: `Pause tenant "${tenant.name}"`,
+        previousState: tenant,
+        reverse: async () => {
+          // Resume tenant - would need an API endpoint to resume
+          showStatus('Undo not available - resume requires API endpoint.', 'warning');
+        },
+        forward: async () => {
+          await apiClient.pauseTenant(tenant.id);
+          await fetchTenants();
+        },
+      });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to pause tenant';
       setStatusMessage({ message: errorMsg, variant: 'warning' });
@@ -231,6 +276,199 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         ErrorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMsg),
           () => handlePause(tenant)
+        )
+      );
+    }
+  };
+
+  // Bulk action handlers
+  const handleBulkPause = async (tenantIds: string[]) => {
+    const performBulkPause = async () => {
+      const pausedTenants = tenants.filter(t => tenantIds.includes(t.id));
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const tenantId of tenantIds) {
+        try {
+          await apiClient.pauseTenant(tenantId);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          logger.error('Failed to pause tenant in bulk operation', {
+            component: 'Tenants',
+            operation: 'bulkPause',
+            tenantId
+          }, toError(err));
+        }
+      }
+
+      if (successCount > 0) {
+        showStatus(`Successfully paused ${successCount} tenant(s).`, 'success');
+        
+        // Record undo action
+        addAction({
+          type: 'bulk_pause_tenants',
+          description: `Pause ${successCount} tenant(s)`,
+          previousState: pausedTenants.slice(0, successCount),
+          reverse: async () => {
+            showStatus('Undo not available - resume requires API endpoint.', 'warning');
+          }
+        });
+      }
+      if (errorCount > 0) {
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            new Error(`Failed to pause ${errorCount} tenant(s).`),
+            () => performBulkPause()
+          )
+        );
+      }
+
+      await fetchTenants();
+      setSelectedTenants([]);
+    };
+
+    setConfirmationOptions({
+      title: 'Pause Tenants',
+      description: `Pause ${tenantIds.length} tenant(s)? This will stop new sessions for these tenants.`,
+      confirmText: 'Pause Tenants',
+      variant: 'default'
+    });
+    setPendingBulkAction(() => performBulkPause);
+    setConfirmationOpen(true);
+  };
+
+  const handleBulkArchive = async (tenantIds: string[]) => {
+    const performBulkArchive = async () => {
+      const archivedTenants = tenants.filter(t => tenantIds.includes(t.id));
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const tenantId of tenantIds) {
+        try {
+          await apiClient.archiveTenant(tenantId);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          logger.error('Failed to archive tenant in bulk operation', {
+            component: 'Tenants',
+            operation: 'bulkArchive',
+            tenantId
+          }, toError(err));
+        }
+      }
+
+      if (successCount > 0) {
+        showStatus(`Successfully archived ${successCount} tenant(s).`, 'success');
+        
+        // Record undo action
+        addAction({
+          type: 'bulk_archive_tenants',
+          description: `Archive ${successCount} tenant(s)`,
+          previousState: archivedTenants.slice(0, successCount),
+          reverse: async () => {
+            showStatus('Undo not available - restore requires API endpoint.', 'warning');
+          }
+        });
+      }
+      if (errorCount > 0) {
+        setErrorRecovery(
+          ErrorRecoveryTemplates.genericError(
+            new Error(`Failed to archive ${errorCount} tenant(s).`),
+            () => performBulkArchive()
+          )
+        );
+      }
+
+      await fetchTenants();
+      setSelectedTenants([]);
+    };
+
+    setConfirmationOptions({
+      title: 'Archive Tenants',
+      description: `Permanently archive ${tenantIds.length} tenant(s)? All associated resources will be suspended. This action can be reversed by an administrator.`,
+      confirmText: 'Archive Tenants',
+      variant: 'destructive'
+    });
+    setPendingBulkAction(() => performBulkArchive);
+    setConfirmationOpen(true);
+  };
+
+  const bulkActions: BulkAction[] = [
+    {
+      id: 'pause',
+      label: 'Pause',
+      handler: handleBulkPause
+    },
+    {
+      id: 'archive',
+      label: 'Archive',
+      variant: 'destructive',
+      handler: handleBulkArchive
+    }
+  ];
+
+  const handleExport = async (options: ExportOptions) => {
+    try {
+      let tenantsToExport: ApiTenant[] = [];
+
+      if (options.scope === 'selected') {
+        tenantsToExport = tenants.filter(t => selectedTenants.includes(t.id));
+      } else if (options.scope === 'all') {
+        tenantsToExport = tenants;
+      } else {
+        // filtered - for now, same as all
+        tenantsToExport = tenants;
+      }
+
+      if (tenantsToExport.length === 0) {
+        showStatus('No tenants to export.', 'warning');
+        setShowExportDialog(false);
+        return;
+      }
+
+      // Create export file
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `tenants-export-${timestamp}`;
+
+      if (options.format === 'json') {
+        const blob = new Blob([JSON.stringify(tenantsToExport, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV export
+        const headers = ['id', 'name', 'description', 'status', 'data_classification', 'itar_compliant', 'users', 'adapters', 'policies', 'last_activity', 'created_at'];
+        const csvRows = tenantsToExport.map(t => 
+          headers.map(header => {
+            const value = (t as any)[header] || '';
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          }).join(',')
+        );
+        const csv = [headers.join(','), ...csvRows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      showStatus(`Exported ${tenantsToExport.length} tenant(s).`, 'success');
+      setShowExportDialog(false);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to export tenants');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handleExport(options)
         )
       );
     }
@@ -250,15 +488,15 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     const currentStatus = status || 'active';
     switch (currentStatus) {
       case 'active':
-        return <div className="status-indicator status-success"><CheckCircle className="icon-small" />Active</div>;
+        return <div className="status-indicator status-success"><CheckCircle className="h-3 w-3" />Active</div>;
       case 'suspended':
-        return <div className="status-indicator status-error"><AlertTriangle className="icon-small" />Suspended</div>;
+        return <div className="status-indicator status-error"><AlertTriangle className="h-3 w-3" />Suspended</div>;
       case 'maintenance':
-        return <div className="status-indicator status-warning"><Settings className="icon-small" />Maintenance</div>;
+        return <div className="status-indicator status-warning"><Settings className="h-3 w-3" />Maintenance</div>;
       case 'paused':
-        return <div className="status-indicator status-neutral"><Lock className="icon-small" />Inactive</div>;
+        return <div className="status-indicator status-neutral"><Lock className="h-3 w-3" />Inactive</div>;
       case 'archived':
-        return <div className="status-indicator status-neutral"><Database className="icon-small" />Archived</div>;
+        return <div className="status-indicator status-neutral"><Database className="h-3 w-3" />Archived</div>;
       default:
         return <div className="status-indicator status-neutral">Unknown</div>;
     }
@@ -275,7 +513,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     
     return (
       <div className={`status-indicator ${colors[current]}`}>
-        <Lock className="icon-small" />
+        <Lock className="h-3 w-3" />
         {current.toUpperCase()}
       </div>
     );
@@ -355,27 +593,27 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       )}
 
       {/* Header */}
-      <div className="flex-between section-header">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="section-title">Tenant Management</h1>
-          <p className="section-description">
+          <h1 className="text-2xl font-bold">Tenant Management</h1>
+          <p className="text-sm text-muted-foreground">
             Manage tenant isolation, data classification, and access controls
           </p>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button>
-              <Plus className="icon-standard mr-2" />
+              <Plus className="h-4 w-4 mr-2" />
               Create Tenant
             </Button>
           </DialogTrigger>
-          <DialogContent className="modal-standard">
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Create New Tenant</DialogTitle>
             </DialogHeader>
-            <div className="form-field">
-              <div className="form-field">
-                <Label htmlFor="name" className="form-label">Tenant Name</Label>
+            <div className="mb-4">
+              <div className="mb-4">
+                <Label htmlFor="name" className="font-medium text-sm mb-1">Tenant Name</Label>
                 <Input
                   id="name"
                   placeholder="Enter tenant name"
@@ -384,8 +622,8 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                 />
               </div>
               
-              <div className="form-field">
-                <Label htmlFor="description" className="form-label">Description</Label>
+              <div className="mb-4">
+                <Label htmlFor="description" className="font-medium text-sm mb-1">Description</Label>
                 <Textarea
                   id="description"
                   placeholder="Describe the tenant's purpose"
@@ -394,8 +632,8 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                 />
               </div>
               
-              <div className="form-field">
-                <Label htmlFor="classification" className="form-label">Data Classification</Label>
+              <div className="mb-4">
+                <Label htmlFor="classification" className="font-medium text-sm mb-1">Data Classification</Label>
                 <Select 
                   value={newTenant.dataClassification} 
                   onValueChange={(value: any) => setNewTenant({ ...newTenant, dataClassification: value })}
@@ -412,8 +650,8 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                 </Select>
               </div>
               
-              <div className="flex-between">
-                <Label htmlFor="itar" className="form-label">ITAR Compliance Required</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="itar" className="font-medium text-sm mb-1">ITAR Compliance Required</Label>
                 <Switch
                   id="itar"
                   checked={newTenant.itarCompliant}
@@ -421,7 +659,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                 />
               </div>
               
-              <div className="flex-standard justify-end">
+              <div className="flex items-center justify-end">
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                   Cancel
                 </Button>
@@ -436,10 +674,10 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
 
       {/* Tenant Statistics */}
       <div className="grid-standard grid-cols-4">
-        <Card className="card-standard">
+        <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
           <CardContent className="pt-6">
-            <div className="flex-center">
-              <Users className="icon-standard text-blue-600" />
+            <div className="flex items-center justify-center">
+              <Users className="h-4 w-4 text-blue-600" />
               <div>
                 <p className="text-2xl font-bold">{tenants.length}</p>
                 <p className="text-xs text-muted-foreground">Total Tenants</p>
@@ -448,10 +686,10 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           </CardContent>
         </Card>
         
-        <Card className="card-standard">
+        <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
           <CardContent className="pt-6">
-            <div className="flex-center">
-              <CheckCircle className="icon-standard text-green-600" />
+            <div className="flex items-center justify-center">
+              <CheckCircle className="h-4 w-4 text-green-600" />
               <div>
                 <p className="text-2xl font-bold">{tenants.filter(t => t.status === 'active').length}</p>
                 <p className="text-xs text-muted-foreground">Active</p>
@@ -460,10 +698,10 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           </CardContent>
         </Card>
         
-        <Card className="card-standard">
+        <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
           <CardContent className="pt-6">
-            <div className="flex-center">
-              <Shield className="icon-standard text-orange-600" />
+            <div className="flex items-center justify-center">
+              <Shield className="h-4 w-4 text-orange-600" />
               <div>
                 <p className="text-2xl font-bold">{tenants.filter(t => t.itarCompliant).length}</p>
                 <p className="text-xs text-muted-foreground">ITAR Compliant</p>
@@ -472,12 +710,12 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           </CardContent>
         </Card>
         
-        <Card className="card-standard">
+        <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
           <CardContent className="pt-6">
-            <div className="flex-center">
-              <Database className="icon-standard text-purple-600" />
+            <div className="flex items-center justify-center">
+              <Database className="h-4 w-4 text-purple-600" />
               <div>
-                <p className="text-2xl font-bold">{tenants.reduce((sum, t) => sum + t.adapters, 0)}</p>
+                <p className="text-2xl font-bold">{tenants.reduce((sum, t) => sum + (t.adapters ?? 0), 0)}</p>
                 <p className="text-xs text-muted-foreground">Total Adapters</p>
               </div>
             </div>
@@ -486,118 +724,190 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       </div>
 
       {/* Tenants Table */}
-      <Card className="card-standard">
+      <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
-          <CardTitle>Active Tenants</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Active Tenants</CardTitle>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowImportDialog(true)}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowExportDialog(true)}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <Table className="table-standard">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="table-cell-standard">Tenant</TableHead>
-                <TableHead className="table-cell-standard">Status</TableHead>
-                <TableHead className="table-cell-standard">Classification</TableHead>
-                <TableHead className="table-cell-standard">Users</TableHead>
-                <TableHead className="table-cell-standard">Adapters</TableHead>
-                <TableHead className="table-cell-standard">Policies</TableHead>
-                <TableHead className="table-cell-standard">ITAR</TableHead>
-                <TableHead className="table-cell-standard">Last Activity</TableHead>
-                <TableHead className="table-cell-standard">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tenants.map((tenant) => (
-                <TableRow key={tenant.id}>
-                  <TableCell className="table-cell-standard">
-                    <div>
-                      <p className="font-medium">{tenant.name}</p>
-                      <p className="text-sm text-muted-foreground">{tenant.description || 'No description'}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">{getStatusBadge(tenant.status)}</TableCell>
-                  <TableCell className="table-cell-standard">{getClassificationBadge(tenant.data_classification)}</TableCell>
-                  <TableCell className="table-cell-standard">
-                    <div className="flex-center">
-                      <UserCheck className="icon-small text-muted-foreground" />
-                      <span>{tenant.users || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <div className="flex-center">
-                      <Network className="icon-small text-muted-foreground" />
-                      <span>{tenant.adapters || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <div className="flex-center">
-                      <Shield className="icon-small text-muted-foreground" />
-                      <span>{tenant.policies || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    {tenant.itar_compliant ? (
-                      <div className="status-indicator status-success">Yes</div>
-                    ) : (
-                      <div className="status-indicator status-neutral">No</div>
-                    )}
-                  </TableCell>
-                  <TableCell className="table-cell-standard text-sm text-muted-foreground">
-                    {tenant.last_activity || 'Unknown'}
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {tenant.status !== 'paused' && tenant.status !== 'archived' && (
-                          <DropdownMenuItem onClick={() => handlePause(tenant)}>
-                            <Lock className="mr-2 h-4 w-4" />
-                            Pause
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setEditName(tenant.name);
-                          setShowEditModal(true);
-                        }}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setShowAssignPoliciesModal(true);
-                        }}>
-                          <Shield className="mr-2 h-4 w-4" />
-                          Assign Policies
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setShowAssignAdaptersModal(true);
-                        }}>
-                          <Layers className="mr-2 h-4 w-4" />
-                          Assign Adapters
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleViewUsage(tenant)}>
-                          <BarChart3 className="mr-2 h-4 w-4" />
-                          View Usage
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setShowArchiveModal(true);
-                        }}>
-                          <Archive className="mr-2 h-4 w-4 text-red-600" />
-                          Archive
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+          <div className="max-h-[600px] overflow-auto" data-virtual-container>
+            <Table className="border-collapse w-full" role="table" aria-label="Tenant management">
+              <TableHeader>
+                <TableRow role="row">
+                  <TableHead className="p-4 border-b border-border w-12" role="columnheader" scope="col">
+                    <Checkbox
+                      checked={
+                        tenants.length === 0
+                          ? false
+                          : selectedTenants.length === tenants.length
+                            ? true
+                            : selectedTenants.length > 0
+                              ? 'indeterminate'
+                              : false
+                      }
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedTenants(tenants.map(t => t.id));
+                        } else {
+                          setSelectedTenants([]);
+                        }
+                      }}
+                      aria-label="Select all tenants"
+                    />
+                  </TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Tenant</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Status</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Classification</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Users</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Adapters</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Policies</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">ITAR</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Activity</TableHead>
+                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                <VirtualizedTableRows items={tenants} estimateSize={60}>
+                  {(tenant) => {
+                    const tenantTyped = tenant as typeof tenants[0];
+                    return (
+                      <TableRow key={tenantTyped.id}>
+                        <TableCell className="p-4 border-b border-border">
+                          <Checkbox
+                            checked={selectedTenants.includes(tenantTyped.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedTenants(prev => [...prev, tenantTyped.id]);
+                              } else {
+                                setSelectedTenants(prev => prev.filter(id => id !== tenantTyped.id));
+                              }
+                            }}
+                            aria-label={`Select ${tenantTyped.name}`}
+                          />
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">
+                          <div>
+                            <p className="font-medium">{tenantTyped.name}</p>
+                            <p className="text-sm text-muted-foreground">{tenantTyped.description || 'No description'}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">{getStatusBadge(tenantTyped.status)}</TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">{getClassificationBadge(tenantTyped.data_classification)}</TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">
+                          <div className="flex items-center justify-center">
+                            <UserCheck className="h-3 w-3 text-muted-foreground" />
+                            <span>{tenantTyped.users || 0}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">
+                          <div className="flex items-center justify-center">
+                            <Network className="h-3 w-3 text-muted-foreground" />
+                            <span>{tenantTyped.adapters || 0}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">
+                          <div className="flex items-center justify-center">
+                            <Shield className="h-3 w-3 text-muted-foreground" />
+                            <span>{tenantTyped.policies || 0}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">
+                          {tenantTyped.itar_compliant ? (
+                            <div className="status-indicator status-success">Yes</div>
+                          ) : (
+                            <div className="status-indicator status-neutral">No</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border text-sm text-muted-foreground" role="gridcell">
+                          {tenantTyped.last_activity || 'Unknown'}
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border" role="gridcell">
+                          <div className="flex items-center gap-1">
+                            <BookmarkButton
+                              type="tenant"
+                              title={tenantTyped.name}
+                              url={`/tenants?tenant=${encodeURIComponent(tenantTyped.id)}`}
+                              entityId={tenantTyped.id}
+                              description={tenantTyped.description || `Tenant • ${tenantTyped.isolation_level || 'Unknown isolation'}`}
+                              variant="ghost"
+                              size="icon"
+                            />
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" aria-label={`Actions for ${tenantTyped.name}`}>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {tenantTyped.status !== 'paused' && tenantTyped.status !== 'archived' && (
+                                  <DropdownMenuItem onClick={() => handlePause(tenantTyped)}>
+                                    <Lock className="mr-2 h-4 w-4" />
+                                    Pause
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => {
+                                  setSelectedTenantForAction(tenantTyped);
+                                  setEditName(tenantTyped.name);
+                                  setShowEditModal(true);
+                                }}>
+                                  <Edit className="mr-2 h-4 w-4" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  setSelectedTenantForAction(tenantTyped);
+                                  setShowAssignPoliciesModal(true);
+                                }}>
+                                  <Shield className="mr-2 h-4 w-4" />
+                                  Assign Policies
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  setSelectedTenantForAction(tenantTyped);
+                                  setShowAssignAdaptersModal(true);
+                                }}>
+                                  <Layers className="mr-2 h-4 w-4" />
+                                  Assign Adapters
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleViewUsage(tenantTyped)}>
+                                  <BarChart3 className="mr-2 h-4 w-4" />
+                                  View Usage
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  setSelectedTenantForAction(tenantTyped);
+                                  setShowArchiveModal(true);
+                                }}>
+                                  <Archive className="mr-2 h-4 w-4 text-red-600" />
+                                  Archive
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }}
+                </VirtualizedTableRows>
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -618,10 +928,10 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditModal(false)}>
+            <Button variant="outline" onClick={() => setShowEditModal(false)} aria-label="Cancel tenant edit">
               Cancel
             </Button>
-            <Button onClick={handleEdit}>Save Changes</Button>
+            <Button onClick={handleEdit} aria-label="Save tenant changes">Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -806,6 +1116,69 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
               Archive Tenant
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Action Bar */}
+      <BulkActionBar
+        selectedItems={selectedTenants}
+        actions={bulkActions}
+        onClearSelection={() => setSelectedTenants([])}
+        itemName="tenant"
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmationOpen}
+        onOpenChange={(open) => {
+          setConfirmationOpen(open);
+          if (!open) {
+            setPendingBulkAction(null);
+            setConfirmationOptions(null);
+          }
+        }}
+        onConfirm={async () => {
+          if (pendingBulkAction) {
+            await pendingBulkAction();
+            setPendingBulkAction(null);
+            setConfirmationOptions(null);
+          }
+        }}
+        options={confirmationOptions || {
+          title: 'Confirm Action',
+          description: 'Are you sure?',
+          variant: 'default'
+        }}
+      />
+
+      {/* Export Dialog */}
+      <ExportDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        onExport={handleExport}
+        itemName="tenants"
+        hasSelected={selectedTenants.length > 0}
+        hasFilters={false}
+        defaultFormat="json"
+        defaultScope={selectedTenants.length > 0 ? 'selected' : 'all'}
+      />
+
+      {/* Undo/Redo Bar */}
+
+      {/* Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Tenant</DialogTitle>
+          </DialogHeader>
+          <TenantImportWizard
+            onComplete={(tenant) => {
+              setShowImportDialog(false);
+              fetchTenants();
+              showStatus(`Tenant "${tenant.name}" created successfully.`, 'success');
+            }}
+            onCancel={() => setShowImportDialog(false)}
+          />
         </DialogContent>
       </Dialog>
     </div>

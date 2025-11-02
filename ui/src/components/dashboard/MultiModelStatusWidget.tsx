@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { apiClient } from '../../api/client';
 import type { BaseModelStatus, AllModelsStatusResponse } from '../../api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
-import { logger, toError } from '../../utils/logger';
-import { useEffect, useState } from 'react';
+import { logger } from '../../utils/logger';
+import { usePolling } from '../../hooks/usePolling';
 
 interface ModelStatusBadgeProps {
   status: BaseModelStatus['status'];
@@ -51,42 +51,22 @@ function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
 }
 
 export const MultiModelStatusWidget: React.FC = () => {
-  const [status, setStatus] = useState<AllModelsStatusResponse | null>(null);
-
-  useEffect(() => {
-    const pollStatus = async () => {
-      try {
-        const response = await apiClient.getAllModelsStatus();
-        setStatus(response);
-      } catch (err) {
-        logger.error('Failed to fetch all models status', { component: 'MultiModelStatusWidget' }, toError(err));
-        setStatus({ models: [], total_memory_mb: 0, active_model_count: 0 } as AllModelsStatusResponse);
+  const { data: status } = usePolling(
+    () => apiClient.getAllModelsStatus(),
+    'slow',
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        logger.error('Failed to fetch all models status', { component: 'MultiModelStatusWidget' }, err);
       }
-    };
+    }
+  );
 
-    pollStatus();
-    const interval = setInterval(pollStatus, 10000); // 10 seconds
+  // Use fallback data if status is null
+  const statusData: AllModelsStatusResponse = status ?? { models: [], total_memory_mb: 0, active_model_count: 0 };
 
-    return () => clearInterval(interval);
-  }, []);
-
-  if (status === null) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Loaded Models</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-32 animate-pulse bg-muted rounded" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // No explicit error field in AllModelsStatusResponse; errors are handled via logging and defaults
-
-  const models = status.models;
-  const totalMemoryMb = status.total_memory_mb;
+  const models = statusData.models;
+  const totalMemoryMb = statusData.total_memory_mb;
 
   const loadedModels = models.filter(m => m.is_loaded);
   const loadingModels = models.filter(m => m.status === 'loading' || m.status === 'unloading');

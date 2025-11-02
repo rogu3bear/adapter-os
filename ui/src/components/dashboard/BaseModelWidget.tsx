@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Play, Pause, Upload, CheckCircle, XCircle, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
+import { Play, Pause, Upload, Download, CheckCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ModelStatusResponse } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ModelImportWizard } from '@/components/ModelImportWizard';
 import { Button } from '@/components/ui/button';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant, useAuth } from '@/layout/LayoutProvider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
 
@@ -26,12 +26,15 @@ function getStatusIcon(status: ModelStatusResponse | null) {
 
 export function BaseModelWidget() {
   const { selectedTenant } = useTenant();
+  const { user } = useAuth();
   const [status, setStatus] = useState<ModelStatusResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const isAdmin = user?.role === 'Admin';
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
@@ -115,8 +118,46 @@ export function BaseModelWidget() {
     fetchStatus();
   };
 
+  const handleDownload = async () => {
+    if (!status?.model_id) {
+      showStatus('No model ID available to download.', 'warning');
+      return;
+    }
+    if (!isAdmin) {
+      showStatus('Only administrators can download base models.', 'warning');
+      return;
+    }
+    setIsActionLoading(true);
+    try {
+      const response = await apiClient.downloadModel(status.model_id);
+      if (!response.artifacts || response.artifacts.length === 0) {
+        showStatus('No downloadable artifacts are available for this model.', 'warning');
+        return;
+      }
+
+      const targetArtifact = response.artifacts.find((artifact) => artifact.artifact === 'weights') ?? response.artifacts[0];
+      const downloadUrl = apiClient.buildUrl(targetArtifact.download_url);
+
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = targetArtifact.filename;
+      anchor.rel = 'noopener noreferrer';
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+
+      showStatus(`Download starting for ${targetArtifact.filename}.`, 'success');
+    } catch (err) {
+      setStatusMessage({ message: err instanceof Error ? err.message : 'Failed to download model.', variant: 'warning' });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   const canLoad = status && ['unloaded', 'error'].includes(status.status);
   const canUnload = status && status.status === 'loaded';
+  const disableDownload = !status?.model_id || isActionLoading || !isAdmin;
 
   return (
     <>
@@ -183,10 +224,22 @@ export function BaseModelWidget() {
                   Unload
                 </Button>
               </div>
-              <Button onClick={() => setShowImportWizard(true)} variant="secondary" className="w-full">
-                <Upload className="h-4 w-4 mr-2" />
-                Import New Model
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleDownload}
+                  disabled={disableDownload}
+                  variant="outline"
+                  className="flex-1"
+                  title={!isAdmin ? 'Only admins can download base models' : undefined}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+                <Button onClick={() => setShowImportWizard(true)} variant="secondary" className="flex-1">
+                  <Upload className="h-4 w-4 mr-2" />
+                  Import New Model
+                </Button>
+              </div>
             </>
           )}
         </CardContent>

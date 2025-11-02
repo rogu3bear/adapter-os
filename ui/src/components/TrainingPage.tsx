@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { VirtualizedTableRows } from './ui/virtualized-table';
 import { Dialog, DialogContent } from './ui/dialog';
 import { TrainingWizard } from './TrainingWizard';
 import { TrainingMonitor } from './TrainingMonitor';
@@ -17,6 +18,7 @@ import { Progress } from './ui/progress';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ConfigPageHeader } from './ui/page-headers/ConfigPageHeader';
 
 export function TrainingPage() {
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
@@ -69,17 +71,16 @@ export function TrainingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Training Management</h1>
-          <p className="text-muted-foreground">Manage training jobs, templates, and monitoring</p>
-          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
-        </div>
-        <Button onClick={handleStartTraining}>
-          <Brain className="mr-2 h-4 w-4" />
-          Start Training
-        </Button>
-      </div>
+      <ConfigPageHeader
+        title="Training Management"
+        description="Manage training jobs, templates, and monitoring"
+        primaryAction={{
+          label: 'Start Training',
+          icon: Brain,
+          onClick: handleStartTraining
+        }}
+      />
+      {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
 
       {/* Error Recovery */}
       {error && ErrorRecoveryTemplates.trainingError(
@@ -108,59 +109,66 @@ export function TrainingPage() {
           ) : trainingJobs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">No training jobs found</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Progress</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {trainingJobs.map(job => (
-                  <TableRow key={job.id}>
-                    <TableCell className="font-medium">{job.adapter_name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {getStatusIcon(job.status)}
-                        {job.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Progress value={job.progress} className="w-24" />
-                      {job.progress}%
-                    </TableCell>
-                    <TableCell>{new Date(job.started_at).toLocaleString()}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setSelectedJob(job.id)}>
-                          <Activity className="h-4 w-4" />
-                        </Button>
-                        {job.status === 'running' && (
-                          <>
-                            <Button size="sm" variant="outline" onClick={() => handleJobAction(job.id, 'pause')}>
-                              <Pause className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleJobAction(job.id, 'stop')}>
-                              <Square className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
-                        {job.status === 'completed' && (
-                          <Link to="/testing">
-                            <Button size="sm" variant="default">
-                              Test Adapter
-                            </Button>
-                          </Link>
-                        )}
-                      </div>
-                    </TableCell>
+            <div className="max-h-[600px] overflow-auto" data-virtual-container>
+              <Table role="table" aria-label="Training jobs">
+                <TableHeader>
+                  <TableRow role="row">
+                    <TableHead role="columnheader" scope="col">Name</TableHead>
+                    <TableHead role="columnheader" scope="col">Status</TableHead>
+                    <TableHead role="columnheader" scope="col">Progress</TableHead>
+                    <TableHead role="columnheader" scope="col">Started</TableHead>
+                    <TableHead role="columnheader" scope="col">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  <VirtualizedTableRows items={trainingJobs} estimateSize={60}>
+                    {(job) => {
+                      const jobTyped = job as typeof trainingJobs[0];
+                      return (
+                        <TableRow key={jobTyped.id}>
+                          <TableCell className="font-medium">{jobTyped.adapter_name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {getStatusIcon(jobTyped.status)}
+                              {jobTyped.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Progress value={jobTyped.progress} className="w-24" />
+                            {jobTyped.progress}%
+                          </TableCell>
+                          <TableCell>{new Date(jobTyped.started_at).toLocaleString()}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => setSelectedJob(jobTyped.id)}>
+                                <Activity className="h-4 w-4" />
+                              </Button>
+                              {jobTyped.status === 'running' && (
+                                <>
+                                  <Button size="sm" variant="outline" onClick={() => handleJobAction(jobTyped.id, 'pause')} aria-label={`Pause ${jobTyped.adapter_name}`}>
+                                    <Pause className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => handleJobAction(jobTyped.id, 'stop')} aria-label={`Stop ${jobTyped.adapter_name}`}>
+                                    <Square className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
+                              {jobTyped.status === 'completed' && (
+                                <Link to="/testing">
+                                  <Button size="sm" variant="default" aria-label={`Test ${jobTyped.adapter_name}`}>
+                                    Test Adapter
+                                  </Button>
+                                </Link>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }}
+                  </VirtualizedTableRows>
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

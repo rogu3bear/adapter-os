@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -20,30 +20,32 @@ export function GoldenRuns() {
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const runs = await apiClient.listGoldenRuns();
-        setNames(runs);
-        if (runs.length) setSelected(runs[0]);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to load golden baselines';
-        setError(msg);
-        setStatusMessage({ message: msg, variant: 'warning' });
-        setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
-            err instanceof Error ? err : new Error(msg),
-            () => {
-              setLoading(true);
-              loadRuns();
-            }
-          )
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const loadRuns = useCallback(async () => {
+    try {
+      const runs = await apiClient.listGoldenRuns();
+      setNames(runs);
+      if (runs.length) setSelected(runs[0]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load golden baselines';
+      setError(msg);
+      setStatusMessage({ message: msg, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(msg),
+          () => {
+            setLoading(true);
+            loadRuns();
+          }
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadRuns();
+  }, [loadRuns]);
 
   useEffect(() => {
     if (!selected) {
@@ -70,7 +72,7 @@ export function GoldenRuns() {
         setSummary(null);
       }
     })();
-  }, [selected]);
+  }, [selected, loadRuns]);
 
   const toggleRunSelection = (runId: string) => {
     setSelectedRuns((prev) => {
@@ -120,10 +122,10 @@ export function GoldenRuns() {
 
   return (
     <div className="space-y-6">
-      <div className="flex-between section-header">
+      <div className="flex-between flex items-center justify-between mb-6">
         <div>
-          <h1 className="section-title">Golden Baselines</h1>
-          <p className="section-description">Browse baselines and epsilon summaries</p>
+          <h1 className="text-2xl font-bold">Golden Baselines</h1>
+          <p className="text-sm text-muted-foreground">Browse baselines and epsilon summaries</p>
         </div>
       </div>
 

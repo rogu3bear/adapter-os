@@ -1,12 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from './ui/button';
-import { Download } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 
 interface ExportButtonProps {
-  data: any[];
+  data?: any[];
   format: 'csv' | 'json';
   filename?: string;
   className?: string;
+  // API-based export: function that returns a Blob
+  onExport?: (format: 'csv' | 'json') => Promise<Blob>;
+  // For API exports, provide the mime type
+  mimeType?: string;
 }
 
 export const ExportButton: React.FC<ExportButtonProps> = ({
@@ -14,7 +18,11 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
   format,
   filename,
   className,
+  onExport,
+  mimeType,
 }) => {
+  const [isLoading, setIsLoading] = useState(false);
+
   const convertToCSV = (data: any[]): string => {
     if (data.length === 0) return '';
     
@@ -35,30 +43,48 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
     return [csvHeaders, ...csvRows].join('\n');
   };
 
-  const downloadFile = (content: string, filename: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
+  const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
-    
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
     URL.revokeObjectURL(url);
   };
 
-  const handleExport = () => {
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    downloadBlob(blob, filename);
+  };
+
+  const handleExport = async () => {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
     const baseFilename = filename || `export-${timestamp}`;
     
-    if (format === 'csv') {
-      const csv = convertToCSV(data);
-      downloadFile(csv, `${baseFilename}.csv`, 'text/csv');
-    } else {
-      const json = JSON.stringify(data, null, 2);
-      downloadFile(json, `${baseFilename}.json`, 'application/json');
+    if (onExport) {
+      // API-based export
+      setIsLoading(true);
+      try {
+        const blob = await onExport(format);
+        const extension = format === 'csv' ? 'csv' : 'json';
+        downloadBlob(blob, `${baseFilename}.${extension}`);
+      } catch (error) {
+        // Error handling should be done by parent component
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    } else if (data) {
+      // Local data export
+      if (format === 'csv') {
+        const csv = convertToCSV(data);
+        downloadFile(csv, `${baseFilename}.csv`, 'text/csv');
+      } else {
+        const json = JSON.stringify(data, null, 2);
+        downloadFile(json, `${baseFilename}.json`, 'application/json');
+      }
     }
   };
 
@@ -68,9 +94,14 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
       variant="outline"
       size="sm"
       className={className}
+      disabled={isLoading || (!data && !onExport)}
     >
-      <Download className="h-4 w-4 mr-2" />
-      Export {format.toUpperCase()}
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <Download className="h-4 w-4 mr-2" />
+      )}
+      {isLoading ? 'Exporting...' : `Export ${format.toUpperCase()}`}
     </Button>
   );
 };
@@ -119,3 +150,4 @@ export const ExportMetrics: React.FC<{ data: any[]; className?: string }> = ({
     </div>
   );
 };
+

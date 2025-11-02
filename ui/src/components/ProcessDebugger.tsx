@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { ScrollArea } from './ui/scroll-area';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { 
   Bug, 
   Play, 
@@ -58,8 +59,6 @@ import {
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
-import { Alert, AlertDescription } from './ui/alert';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface ProcessDebuggerProps {
   workerId: string;

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import apiClient from '../../api/client';
 import { logger, toError } from '../../utils/logger';
+import { usePolling } from '../../hooks/usePolling';
 
 interface Span {
   span_id: string;
@@ -31,31 +32,43 @@ export function TraceTimeline() {
     start_time_ns: '',
     end_time_ns: '',
   });
-  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const fetchTraces = async () => {
-      setLoading(true);
-      try {
-        const params: any = {};
-        if (searchParams.span_name) params.span_name = searchParams.span_name;
-        if (searchParams.status) params.status = searchParams.status;
-        if (searchParams.start_time_ns) params.start_time_ns = new Date(searchParams.start_time_ns).getTime() * 1_000_000; // Convert to nanoseconds
-        if (searchParams.end_time_ns) params.end_time_ns = new Date(searchParams.end_time_ns).getTime() * 1_000_000;
+  const fetchTraces = async (): Promise<string[]> => {
+    const params: any = {};
+    if (searchParams.span_name) params.span_name = searchParams.span_name;
+    if (searchParams.status) params.status = searchParams.status;
+    if (searchParams.start_time_ns) params.start_time_ns = new Date(searchParams.start_time_ns).getTime() * 1_000_000; // Convert to nanoseconds
+    if (searchParams.end_time_ns) params.end_time_ns = new Date(searchParams.end_time_ns).getTime() * 1_000_000;
 
-        const data = await apiClient.searchTraces(Object.keys(params).length > 0 ? params : undefined);
-        setTraces(data);
-      } catch (err) {
-        logger.error('Failed to fetch traces', { component: 'TraceTimeline', operation: 'fetchTraces' }, toError(err));
-      } finally {
-        setLoading(false);
+    const data = await apiClient.searchTraces(Object.keys(params).length > 0 ? params : undefined);
+    return data;
+  };
+
+  const { data: polledTraces, isLoading: loading, refetch } = usePolling(
+    fetchTraces,
+    'slow',
+    {
+      showLoadingIndicator: false,
+      enabled: false, // Disable auto-polling, we'll refetch manually and on searchParams change
+      onSuccess: (data) => {
+        setTraces(data as string[]);
+      },
+      onError: (err) => {
+        logger.error('Failed to fetch traces', { component: 'TraceTimeline', operation: 'fetchTraces' }, err);
       }
-    };
+    }
+  );
 
-    fetchTraces();
-    const interval = setInterval(fetchTraces, 10000); // Update every 10 seconds
-    return () => clearInterval(interval);
-  }, [searchParams]);
+  // Refetch when searchParams change
+  React.useEffect(() => {
+    refetch();
+  }, [searchParams, refetch]);
+
+  // Update traces when polling data changes
+  React.useEffect(() => {
+    if (!polledTraces) return;
+    setTraces(polledTraces);
+  }, [polledTraces]);
 
   const handleTraceSelect = async (traceId: string) => {
     try {

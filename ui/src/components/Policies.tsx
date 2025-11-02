@@ -6,6 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Shield, Plus, CheckCircle, MoreHorizontal, FileSignature, GitCompare, Download, Edit, FileText } from 'lucide-react';
+import { ExportMenu } from './ui/export-menu';
+import { Checkbox } from './ui/checkbox';
+import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
+import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '../api/types';
@@ -15,11 +19,15 @@ import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { logger } from '../utils/logger';
-// 【ui/src/components/Policies.tsx§1-25】 - Replace toast errors with ErrorRecovery
 import { HelpTooltip } from './ui/help-tooltip';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { Skeleton } from './ui/skeleton';
+import { BookmarkButton } from './ui/bookmark-button';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useProgressiveHints } from '../hooks/useProgressiveHints';
+import { getPageHints } from '../data/page-hints';
+import { ProgressiveHint } from './ui/progressive-hint';
 
 interface PoliciesProps {
   user?: User;
@@ -44,26 +52,41 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   const [compareCpid2, setCompareCpid2] = useState('');
   const [activeTab, setActiveTab] = useState('packs');
 
-  useEffect(() => {
-    fetchPolicies();
-  }, [fetchPolicies]);
+  // Progressive hints
+  const hints = getPageHints('policies');
+  const { getVisibleHint, dismissHint } = useProgressiveHints({
+    pageKey: 'policies',
+    hints
+  });
+  const visibleHint = getVisibleHint();
+  const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
+  const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
 
   const fetchPolicies = useCallback(async () => {
     try {
       const data = await apiClient.listPolicies();
       setPolicies(data);
+      setPoliciesError(null);
     } catch (err) {
-      // Replace: console.error('Failed to fetch policies:', err);
+      const error = err instanceof Error ? err : new Error('Failed to fetch policies');
       logger.error('Failed to fetch policies', {
         component: 'Policies',
         operation: 'fetchPolicies',
         tenantId: effectiveTenant,
         userId: effectiveUserId
-      }, err instanceof Error ? err : new Error(String(err)));
+      }, error);
+      // Major error: data loading failure
+      setPoliciesError(error);
     } finally {
       setLoading(false);
     }
   }, [effectiveTenant, effectiveUserId]);
+
+  useEffect(() => {
+    fetchPolicies();
+  }, [fetchPolicies]);
 
   const handleSignPolicy = async (policy: Policy) => {
     try {
@@ -136,6 +159,96 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
     }
   };
 
+  const handleExportAllPolicies = async (format: 'csv' | 'json') => {
+    try {
+      const policiesToExport = policies;
+      // Export all policies as JSON array (backend API returns single policy, so we collect them)
+      if (format === 'json') {
+        const exports = await Promise.all(
+          policiesToExport.map(policy => apiClient.exportPolicy(policy.cpid))
+        );
+        const dataStr = JSON.stringify(exports, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `policies-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV format - convert policies array to CSV
+        const csvHeaders = ['CPID', 'Schema Hash', 'Status'];
+        const csvRows = policiesToExport.map(policy => [
+          policy.cpid,
+          policy.schema_hash,
+          'Active'
+        ]);
+        const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.join(','))].join('\n');
+        const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(csvBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `policies-export-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to export policies');
+      setPoliciesError(error);
+      logger.error('Failed to export all policies', {
+        component: 'Policies',
+        operation: 'exportAllPolicies',
+        tenantId: effectiveTenant,
+        userId: effectiveUser.id
+      }, err instanceof Error ? err : new Error(String(err)));
+    }
+  };
+
+  const handleBulkExportPolicies = async (policyCpids: string[]) => {
+    const performBulkExport = async () => {
+      try {
+        const policiesToExport = policies.filter(p => policyCpids.includes(p.cpid));
+        const exports = await Promise.all(
+          policiesToExport.map(policy => apiClient.exportPolicy(policy.cpid))
+        );
+        const dataStr = JSON.stringify(exports, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `policies-selected-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast.success(`Exported ${policyCpids.length} policy/policies.`);
+        setSelectedPolicies([]);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error('Failed to export policies');
+        setPoliciesError(error);
+        logger.error('Failed to export selected policies', {
+          component: 'Policies',
+          operation: 'bulkExportPolicies',
+          tenantId: effectiveTenant,
+          userId: effectiveUser.id
+        }, err instanceof Error ? err : new Error(String(err)));
+      }
+    };
+    await performBulkExport();
+  };
+
+  const bulkActions: BulkAction[] = [
+    {
+      id: 'export',
+      label: 'Export Selected',
+      handler: handleBulkExportPolicies
+    }
+  ];
+
   if (policiesError) {
     return (
       <ErrorRecovery
@@ -153,7 +266,19 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   }
 
   if (loading) {
-    return <div className="text-center p-8">Loading policies...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-10 w-48" />
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      </div>
+    );
   }
 
   // Citation: CLAUDE.md L151-L172 - 20 policy packs enforced by mplora-policy
@@ -165,6 +290,14 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
   return (
     <div className="space-y-6">
+      {visibleHint && (
+        <ProgressiveHint
+          title={visibleHint.hint.title}
+          content={visibleHint.hint.content}
+          onDismiss={() => dismissHint(visibleHint.hint.id)}
+          placement={visibleHint.hint.placement}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -174,6 +307,11 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportMenu
+            onExport={handleExportAllPolicies}
+            filename="policies-export"
+            formats={['csv', 'json']}
+          />
           <Button onClick={() => { setSelectedPolicy(null); setShowEditorModal(true); }}>
             <Plus className="h-4 w-4 mr-2" />
             New Policy
@@ -198,14 +336,35 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         {/* Policy Packs Tab */}
         <TabsContent value="packs" className="space-y-4">
 
-      <Card className="card-standard">
+      <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
           <CardTitle>Active Policies</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table className="table-standard">
+          <Table className="border-collapse w-full">
             <TableHeader>
               <TableRow>
+                <TableHead className="p-4 border-b border-border w-12">
+                  <Checkbox
+                    checked={
+                      policies.length === 0
+                        ? false
+                        : selectedPolicies.length === policies.length
+                          ? true
+                          : selectedPolicies.length > 0
+                            ? 'indeterminate'
+                            : false
+                    }
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedPolicies(policies.map(p => p.cpid));
+                      } else {
+                        setSelectedPolicies([]);
+                      }
+                    }}
+                    aria-label="Select all policies"
+                  />
+                </TableHead>
                 <TableHead>
                   <HelpTooltip helpId="cpid">
                     <span>CPID</span>
@@ -223,24 +382,47 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             <TableBody>
               {policies.map((policy) => (
                 <TableRow key={policy.cpid}>
-                  <TableCell className="table-cell-standard font-medium">{policy.cpid}</TableCell>
-                  <TableCell className="table-cell-standard font-mono text-xs">
+                  <TableCell className="p-4 border-b border-border">
+                    <Checkbox
+                      checked={selectedPolicies.includes(policy.cpid)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedPolicies(prev => [...prev, policy.cpid]);
+                        } else {
+                          setSelectedPolicies(prev => prev.filter(id => id !== policy.cpid));
+                        }
+                      }}
+                      aria-label={`Select ${policy.cpid}`}
+                    />
+                  </TableCell>
+                  <TableCell className="p-4 border-b border-border font-medium">{policy.cpid}</TableCell>
+                  <TableCell className="p-4 border-b border-border font-mono text-xs">
                     {policy.schema_hash.substring(0, 16)}
                   </TableCell>
-                  <TableCell className="table-cell-standard">
+                  <TableCell className="p-4 border-b border-border">
                     <Badge variant="default">
-                      <CheckCircle className="icon-small mr-1" />
+                      <CheckCircle className="h-3 w-3 mr-1" />
                       Active
                     </Badge>
                   </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="icon-standard" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                  <TableCell className="p-4 border-b border-border">
+                    <div className="flex items-center gap-1">
+                      <BookmarkButton
+                        type="policy"
+                        title={policy.cpid}
+                        url={`/policies?policy=${encodeURIComponent(policy.cpid)}`}
+                        entityId={policy.cpid}
+                        description={`Policy • ${policy.schema_hash.substring(0, 8)}`}
+                        variant="ghost"
+                        size="icon"
+                      />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreHorizontal className="icon-standard" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}>
                           <Edit className="icon-standard mr-2" />
                           Edit
@@ -259,12 +441,13 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
               {policies.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="table-cell-standard text-center text-muted-foreground">
+                  <TableCell colSpan={4} className="p-4 border-b border-border text-center text-muted-foreground">
                     No policies configured
                   </TableCell>
                 </TableRow>
@@ -276,26 +459,26 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
       {/* Sign Policy Modal */}
       <Dialog open={showSignModal} onOpenChange={setShowSignModal}>
-        <DialogContent className="modal-standard">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Policy Signature</DialogTitle>
           </DialogHeader>
           {signResult && (
             <div className="space-y-3">
-              <div className="form-field">
-                <p className="form-label">CPID</p>
+              <div className="mb-4">
+                <p className="font-medium text-sm mb-1">CPID</p>
                 <p className="text-sm text-muted-foreground font-mono">{signResult.cpid}</p>
               </div>
-              <div className="form-field">
-                <p className="form-label">Signature</p>
+              <div className="mb-4">
+                <p className="font-medium text-sm mb-1">Signature</p>
                 <p className="text-xs text-muted-foreground font-mono break-all">{signResult.signature}</p>
               </div>
-              <div className="form-field">
-                <p className="form-label">Signed By</p>
+              <div className="mb-4">
+                <p className="font-medium text-sm mb-1">Signed By</p>
                 <p className="text-sm text-muted-foreground">{signResult.signed_by}</p>
               </div>
-              <div className="form-field">
-                <p className="form-label">Signed At</p>
+              <div className="mb-4">
+                <p className="font-medium text-sm mb-1">Signed At</p>
                 <p className="text-sm text-muted-foreground">{useTimestamp(signResult.signed_at)}</p>
               </div>
             </div>
@@ -347,17 +530,17 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
       {/* Compare Policies Modal */}
       <Dialog open={showCompareModal} onOpenChange={setShowCompareModal}>
-        <DialogContent className="modal-large">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Compare Policies</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="form-field">
-              <label className="form-label">First Policy</label>
+            <div className="mb-4">
+              <label className="font-medium text-sm mb-1">First Policy</label>
               <p className="text-sm text-muted-foreground font-mono">{selectedPolicy?.cpid}</p>
             </div>
-            <div className="form-field">
-              <label className="form-label">Second Policy CPID</label>
+            <div className="mb-4">
+              <label className="font-medium text-sm mb-1">Second Policy CPID</label>
               <select 
                 className="w-full p-2 border rounded"
                 value={compareCpid2}
@@ -371,8 +554,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             </div>
             {compareResult && (
               <div className="mt-4 space-y-3 border-t pt-4">
-                <div className="form-field">
-                  <p className="form-label">Differences ({compareResult.differences.length})</p>
+                <div className="mb-4">
+                  <p className="font-medium text-sm mb-1">Differences ({compareResult.differences.length})</p>
                   <ul className="list-disc list-inside text-sm text-muted-foreground mt-2">
                     {compareResult.differences.map((diff, idx) => (
                       <li key={idx} className="font-mono text-xs">{diff}</li>
@@ -380,8 +563,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                   </ul>
                 </div>
                 {compareResult.added_keys.length > 0 && (
-                  <div className="form-field">
-                    <p className="form-label text-green-600">Added Keys</p>
+                  <div className="mb-4">
+                    <p className="font-medium text-sm mb-1 text-green-600">Added Keys</p>
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                       {compareResult.added_keys.map((key, idx) => (
                         <li key={idx} className="font-mono text-xs">{key}</li>
@@ -390,8 +573,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                   </div>
                 )}
                 {compareResult.removed_keys.length > 0 && (
-                  <div className="form-field">
-                    <p className="form-label text-red-600">Removed Keys</p>
+                  <div className="mb-4">
+                    <p className="font-medium text-sm mb-1 text-red-600">Removed Keys</p>
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                       {compareResult.removed_keys.map((key, idx) => (
                         <li key={idx} className="font-mono text-xs">{key}</li>
@@ -484,6 +667,14 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         cpid={selectedPolicy?.cpid}
         existingPolicy={selectedPolicy?.policy_json}
         onSave={fetchPolicies}
+      />
+
+      {/* Bulk Action Bar */}
+      <BulkActionBar
+        selectedItems={selectedPolicies}
+        actions={bulkActions}
+        onClearSelection={() => setSelectedPolicies([])}
+        itemName="policy"
       />
     </div>
   );

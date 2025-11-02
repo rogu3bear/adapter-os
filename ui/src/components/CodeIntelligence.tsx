@@ -34,6 +34,7 @@ import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
 import { logger, toError } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
 
 interface CodeIntelligenceProps {
   user: User;
@@ -102,6 +103,25 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     try {
       await apiClient.triggerRepositoryScan(repoId);
       showStatus('Repository scan triggered.', 'success');
+      
+      // Emit activity event (tenant_id/user_id auto-extracted from JWT)
+      try {
+        await apiClient.createActivityEvent({
+          event_type: ACTIVITY_EVENT_TYPES.REPO_SCAN_TRIGGERED,
+          target_type: 'repository',
+          target_id: repoId,
+          metadata_json: JSON.stringify({
+            repo_id: repoId,
+          }),
+        });
+      } catch (activityErr) {
+        // Non-blocking: log but don't fail the scan
+        logger.warn('Failed to emit scan activity event', {
+          component: 'CodeIntelligence',
+          operation: 'handleTriggerScan',
+          error: activityErr instanceof Error ? activityErr.message : String(activityErr),
+        });
+      }
     } catch (err) {
       setStatusMessage({ message: 'Failed to trigger scan.', variant: 'warning' });
       setErrorRecovery(
@@ -125,6 +145,25 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       setReportData(report);
       setSelectedRepo(repo);
       setShowReportModal(true);
+      
+      // Emit activity event (tenant_id/user_id auto-extracted from JWT)
+      try {
+        await apiClient.createActivityEvent({
+          event_type: ACTIVITY_EVENT_TYPES.REPO_REPORT_VIEWED,
+          target_type: 'repository',
+          target_id: repo.id,
+          metadata_json: JSON.stringify({
+            repo_id: repo.id,
+          }),
+        });
+      } catch (activityErr) {
+        // Non-blocking: log but don't fail the report view
+        logger.warn('Failed to emit report view activity event', {
+          component: 'CodeIntelligence',
+          operation: 'handleViewReport',
+          error: activityErr instanceof Error ? activityErr.message : String(activityErr),
+        });
+      }
     } catch (err) {
       setStatusMessage({ message: 'Failed to fetch repository report.', variant: 'warning' });
       setErrorRecovery(
@@ -214,10 +253,10 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         </Alert>
       )}
 
-      <div className="flex-between section-header">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="section-title">Code Intelligence</h1>
-          <p className="section-description">
+          <h1 className="text-2xl font-bold">Code Intelligence</h1>
+          <p className="text-sm text-muted-foreground">
             Build codebase adapters from your Git repositories
           </p>
         </div>
@@ -242,12 +281,12 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
 
         <TabsContent value="repositories" className="space-y-4">
 
-          <Card className="card-standard">
+          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
             <CardHeader>
               <CardTitle>Repositories</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table className="table-standard">
+              <Table className="border-collapse w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Repository</TableHead>
@@ -260,20 +299,20 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
                 <TableBody>
                   {repositories.map((repo) => (
                     <TableRow key={repo.id}>
-                      <TableCell className="table-cell-standard font-medium">{repo.url}</TableCell>
-                      <TableCell className="table-cell-standard">
+                      <TableCell className="p-4 border-b border-border font-medium">{repo.url}</TableCell>
+                      <TableCell className="p-4 border-b border-border">
                         <Badge variant="outline">
-                          <GitBranch className="icon-small mr-1" />
+                          <GitBranch className="h-3 w-3 mr-1" />
                           {repo.branch}
                         </Badge>
                       </TableCell>
-                      <TableCell className="table-cell-standard">{repo.commit_count}</TableCell>
-                      <TableCell className="table-cell-standard">
+                      <TableCell className="p-4 border-b border-border">{repo.commit_count}</TableCell>
+                      <TableCell className="p-4 border-b border-border">
                         {repo.last_scan
                           ? new Date(repo.last_scan).toLocaleString()
                           : 'Never'}
                       </TableCell>
-                      <TableCell className="table-cell-standard">
+                      <TableCell className="p-4 border-b border-border">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm">
@@ -303,7 +342,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
                   ))}
                   {repositories.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="table-cell-standard text-center text-muted-foreground">
+                      <TableCell colSpan={5} className="p-4 border-b border-border text-center text-muted-foreground">
                         No repositories registered
                       </TableCell>
                     </TableRow>
@@ -339,12 +378,12 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         </TabsContent>
 
         <TabsContent value="commits" className="space-y-4">
-          <Card className="card-standard">
+          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
             <CardHeader>
               <CardTitle>Recent Commits</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table className="table-standard">
+              <Table className="border-collapse w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead>SHA</TableHead>
@@ -356,17 +395,17 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
                 <TableBody>
                   {commits.map((commit) => (
                     <TableRow key={commit.sha}>
-                      <TableCell className="table-cell-standard font-mono text-xs">
+                      <TableCell className="p-4 border-b border-border font-mono text-xs">
                         {commit.sha.substring(0, 8)}
                       </TableCell>
-                      <TableCell className="table-cell-standard">{commit.message}</TableCell>
-                      <TableCell className="table-cell-standard">{commit.author}</TableCell>
-                      <TableCell className="table-cell-standard">{new Date(commit.timestamp).toLocaleString()}</TableCell>
+                      <TableCell className="p-4 border-b border-border">{commit.message}</TableCell>
+                      <TableCell className="p-4 border-b border-border">{commit.author}</TableCell>
+                      <TableCell className="p-4 border-b border-border">{new Date(commit.timestamp).toLocaleString()}</TableCell>
                     </TableRow>
                   ))}
                   {commits.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="table-cell-standard text-center text-muted-foreground">
+                      <TableCell colSpan={4} className="p-4 border-b border-border text-center text-muted-foreground">
                         No commits analyzed
                       </TableCell>
                     </TableRow>

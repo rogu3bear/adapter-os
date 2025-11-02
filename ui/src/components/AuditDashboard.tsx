@@ -26,6 +26,7 @@ import { Policy, TelemetryBundle, PromotionGate } from '../api/types';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ExportDialog, ExportOptions } from './ui/export-dialog';
 
 interface AuditDashboardProps {
   selectedTenant: string;
@@ -58,10 +59,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedControl, setSelectedControl] = useState<ComplianceStatus | null>(null);
   const [auditError, setAuditError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    loadAuditData();
-  }, [loadAuditData]);
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   const loadAuditData = useCallback(async () => {
     setIsLoading(true);
@@ -90,6 +88,10 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       setIsLoading(false);
     }
   }, [selectedTenant]);
+
+  useEffect(() => {
+    loadAuditData();
+  }, [loadAuditData]);
 
   const generateComplianceData = (policies: Policy[]) => {
     const controls: ComplianceStatus[] = [
@@ -221,45 +223,55 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
     }
   };
 
-  const handleExportReport = async () => {
+  const handleExport = async (options: ExportOptions) => {
     try {
       logger.info('Exporting audit logs', {
         component: 'AuditDashboard',
-        operation: 'handleExportReport',
-        tenant: selectedTenant
+        operation: 'handleExport',
+        tenant: selectedTenant,
+        format: options.format
       });
 
-      // Export last 30 days of audit logs as JSON
+      // Calculate date range - default to last 30 days if not provided
+      const endTime = options.endDate ? new Date(options.endDate).toISOString() : new Date().toISOString();
+      const startTime = options.startDate 
+        ? new Date(options.startDate).toISOString() 
+        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
       const blob = await apiClient.exportAuditLogs({
-        format: 'json',
+        format: options.format,
         tenantId: selectedTenant,
-        startTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        endTime: new Date().toISOString(),
+        startTime,
+        endTime,
       });
 
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const extension = options.format === 'json' ? 'json' : 'csv';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `audit-logs-${timestamp}.${extension}`;
       a.click();
       URL.revokeObjectURL(url);
 
       logger.info('Audit logs exported successfully', {
         component: 'AuditDashboard',
-        operation: 'handleExportReport',
+        operation: 'handleExport',
         tenant: selectedTenant
       });
 
-      // Browser download feedback is sufficient
+      toast.success('Audit logs exported successfully');
+      setShowExportDialog(false);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to export audit logs';
       setAuditError(new Error(errorMessage));
       logger.error('Failed to export audit logs', {
         component: 'AuditDashboard',
-        operation: 'handleExportReport',
+        operation: 'handleExport',
         tenant: selectedTenant,
         error: errorMessage
       });
+      toast.error(`Failed to export audit logs: ${errorMessage}`);
     }
   };
 
@@ -337,7 +349,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportReport}>
+          <Button variant="outline" onClick={() => setShowExportDialog(true)}>
             <Download className="w-4 h-4 mr-2" />
             Export Audit Logs
           </Button>
@@ -673,6 +685,21 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Export Dialog */}
+      <ExportDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        onExport={handleExport}
+        itemName="audit logs"
+        hasSelected={false}
+        hasFilters={false}
+        defaultFormat="json"
+        defaultScope="all"
+        showDateRange={true}
+        defaultStartDate={new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+        defaultEndDate={new Date().toISOString().split('T')[0]}
+      />
     </div>
   );
 

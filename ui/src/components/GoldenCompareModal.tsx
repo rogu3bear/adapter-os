@@ -149,7 +149,7 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="modal-large">
+      <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>Compare to Golden Baseline</DialogTitle>
         </DialogHeader>
@@ -190,8 +190,8 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="form-field">
-              <label className="form-label">Golden Baseline</label>
+            <div className="mb-4">
+              <label className="font-medium text-sm mb-1">Golden Baseline</label>
               <select
                 className="w-full p-2 border rounded"
                 value={selectedGolden}
@@ -204,8 +204,8 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
               </select>
             </div>
 
-            <div className="form-field">
-              <label className="form-label">Strictness</label>
+            <div className="mb-4">
+              <label className="font-medium text-sm mb-1">Strictness</label>
               <select
                 className="w-full p-2 border rounded"
                 value={strictness}
@@ -217,8 +217,8 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
               </select>
             </div>
 
-            <div className="form-field">
-              <label className="form-label">Verification Toggles</label>
+            <div className="mb-4">
+              <label className="font-medium text-sm mb-1">Verification Toggles</label>
               <div className="flex flex-wrap gap-3">
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={verifyToolchain} onChange={e=>setVerifyToolchain(e.target.checked)} />Toolchain</label>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={verifyAdapters} onChange={e=>setVerifyAdapters(e.target.checked)} />Adapters</label>

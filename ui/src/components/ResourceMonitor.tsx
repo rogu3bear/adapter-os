@@ -90,7 +90,7 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   const [metrics, setMetrics] = useState<ResourceMetrics[]>([]);
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  const [isMonitoring] = useState(true); // Always monitoring with usePolling hook
+  const [isMonitoring, setIsMonitoring] = useState(true); // Always monitoring with usePolling hook
 
   // Fetch node info once on mount
   useEffect(() => {
@@ -194,10 +194,9 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
 
   // Update metrics when polling data arrives
   useEffect(() => {
-    if (polledMetrics) {
-      setMetrics(prev => [...prev.slice(-59), polledMetrics]); // Keep last 60 data points
-      setError(null);
-    }
+    if (!polledMetrics) return;
+    setMetrics(prev => [...prev.slice(-59), polledMetrics]); // Keep last 60 data points
+    setError(null);
   }, [polledMetrics]);
 
   const getStatusColor = (usage: number) => {

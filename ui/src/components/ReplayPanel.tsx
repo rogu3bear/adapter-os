@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Shield, Play, Hash } from 'lucide-react';
 import apiClient from '../api/client';
 import { ReplaySession, ReplayVerificationResponse } from '../api/types';
@@ -12,6 +13,7 @@ import { ReplaySession, ReplayVerificationResponse } from '../api/types';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { logger, toError } from '../utils/logger';
 
 import { useTenant } from '@/layout/LayoutProvider';
 
@@ -42,6 +44,11 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
         setSessions(data);
       } catch (err) {
         const error = err instanceof Error ? err : new Error('Failed to load replay sessions');
+        logger.error('Failed to load replay sessions', {
+          component: 'ReplayPanel',
+          operation: 'fetchSessions',
+          tenantId,
+        }, toError(err));
         setReplayError(error);
       } finally {
         setLoading(false);
@@ -69,10 +76,24 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
       if (result.signature_valid && result.hash_chain_valid) {
         // Verification success shown in UI
       } else {
-        setReplayError(new Error(`Verification failed: ${result.divergences.length} divergences found`));
+        const verificationError = new Error(`Verification failed: ${result.divergences.length} divergences found`);
+        logger.warn('Replay verification failed', {
+          component: 'ReplayPanel',
+          operation: 'verify',
+          sessionId: selectedSession,
+          tenantId,
+          divergenceCount: result.divergences.length,
+        });
+        setReplayError(verificationError);
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Verification error');
+      logger.error('Replay verification error', {
+        component: 'ReplayPanel',
+        operation: 'verify',
+        sessionId: selectedSession,
+        tenantId,
+      }, toError(err));
       setReplayError(error);
     } finally {
       setVerifying(false);
@@ -126,44 +147,65 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
 
         {currentSession && (
           <div className="space-y-3 border rounded p-3">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">CPID:</span>
-                <div className="font-mono">{currentSession.cpid}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Plan ID:</span>
-                <div className="font-mono">{currentSession.plan_id}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Snapshot:</span>
-                <div>{useTimestamp(currentSession.snapshot_at)}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Bundles:</span>
-                <div>{currentSession.telemetry_bundle_ids.length}</div>
-              </div>
-            </div>
+            <Accordion type="multiple" defaultValue={['basic']} className="w-full">
+              <AccordionItem value="basic">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Session Overview</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid grid-cols-2 gap-2 text-sm pt-2">
+                    <div>
+                      <span className="text-muted-foreground">CPID:</span>
+                      <div className="font-mono">{currentSession.cpid}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Plan ID:</span>
+                      <div className="font-mono">{currentSession.plan_id}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Snapshot:</span>
+                      <div>{useTimestamp(currentSession.snapshot_at)}</div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Bundles:</span>
+                      <div>{currentSession.telemetry_bundle_ids.length}</div>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs">
-                <Hash className="h-3 w-3" />
-                <span className="text-muted-foreground">Manifest:</span>
-                <code className="font-mono">{currentSession.manifest_hash_b3.substring(0, 16)}...</code>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <Hash className="h-3 w-3" />
-                <span className="text-muted-foreground">Policy:</span>
-                <code className="font-mono">{currentSession.policy_hash_b3.substring(0, 16)}...</code>
-              </div>
-              {currentSession.kernel_hash_b3 && (
-                <div className="flex items-center gap-2 text-xs">
-                  <Hash className="h-3 w-3" />
-                  <span className="text-muted-foreground">Kernel:</span>
-                  <code className="font-mono">{currentSession.kernel_hash_b3.substring(0, 16)}...</code>
-                </div>
-              )}
-            </div>
+              <AccordionItem value="hashes">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-2">
+                    <Hash className="h-4 w-4" />
+                    <span className="text-sm font-medium">Cryptographic Hashes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-1 pt-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <Hash className="h-3 w-3" />
+                      <span className="text-muted-foreground">Manifest:</span>
+                      <code className="font-mono">{currentSession.manifest_hash_b3.substring(0, 16)}...</code>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <Hash className="h-3 w-3" />
+                      <span className="text-muted-foreground">Policy:</span>
+                      <code className="font-mono">{currentSession.policy_hash_b3.substring(0, 16)}...</code>
+                    </div>
+                    {currentSession.kernel_hash_b3 && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <Hash className="h-3 w-3" />
+                        <span className="text-muted-foreground">Kernel:</span>
+                        <code className="font-mono">{currentSession.kernel_hash_b3.substring(0, 16)}...</code>
+                      </div>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
 
             <Button 
               onClick={handleVerify} 
@@ -239,19 +281,19 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <label className="form-label">Tenant</label>
+            <label className="font-medium text-sm mb-1">Tenant</label>
             <Input value={tenantId} readOnly />
           </div>
           <div>
-            <label className="form-label">CPID</label>
+            <label className="font-medium text-sm mb-1">CPID</label>
             <Input value={newCpid} onChange={(e) => setNewCpid(e.target.value)} placeholder="cp_..." />
           </div>
           <div>
-            <label className="form-label">Plan ID</label>
+            <label className="font-medium text-sm mb-1">Plan ID</label>
             <Input value={newPlanId} onChange={(e) => setNewPlanId(e.target.value)} placeholder="plan_..." />
           </div>
           <div>
-            <label className="form-label">Telemetry Bundle IDs (comma-separated)</label>
+            <label className="font-medium text-sm mb-1">Telemetry Bundle IDs (comma-separated)</label>
             <Input value={newBundleIds} onChange={(e) => setNewBundleIds(e.target.value)} placeholder="b1,b2" />
           </div>
         </div>

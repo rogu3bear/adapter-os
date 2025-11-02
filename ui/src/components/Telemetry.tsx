@@ -1,36 +1,89 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { VirtualizedTableRows } from './ui/virtualized-table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Activity, Download, Eye, CheckCircle, MoreHorizontal, Shield, Trash2 } from 'lucide-react';
+import { ExportMenu } from './ui/export-menu';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { LoadingState } from './ui/loading-state';
+import { Checkbox } from './ui/checkbox';
+import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import apiClient from '../api/client';
 import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '../api/types';
-import { useSSE } from '../hooks/useSSE';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
 import { HelpTooltip } from './ui/help-tooltip';
 import { toast } from 'sonner';
+import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 // 【ui/src/components/Telemetry.tsx§1-27】 - Replace toast errors with ErrorRecovery
 import { GoldenCompareModal } from './GoldenCompareModal';
 import { logger, toError } from '../utils/logger';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { DensityControls } from './ui/density-controls';
+import { useDensity } from '../contexts/DensityContext';
 
 interface TelemetryProps {
   user?: User;
   selectedTenant?: string;
+  onToolbarChange?: (actions: React.ReactNode) => void;
 }
 
-export function Telemetry({ user: userProp, selectedTenant: tenantProp }: TelemetryProps) {
+interface TelemetryToolbarProps {
+  density: ReturnType<typeof useDensity>['density'];
+  onDensityChange: ReturnType<typeof useDensity>['setDensity'];
+  connected: boolean;
+  onExportAll: (format: 'csv' | 'json') => Promise<void>;
+  exportDisabled: boolean;
+  onPurge: () => void;
+}
+
+function TelemetryToolbar({
+  density,
+  onDensityChange,
+  connected,
+  onExportAll,
+  exportDisabled,
+  onPurge,
+}: TelemetryToolbarProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <DensityControls
+        density={density}
+        onDensityChange={onDensityChange}
+        showLabel={false}
+        className="min-w-[160px]"
+      />
+      <ExportMenu
+        onExport={onExportAll}
+        filename="telemetry-bundles-export"
+        formats={['csv', 'json']}
+        disabled={exportDisabled}
+      />
+      <Badge variant={connected ? 'default' : 'secondary'} className="flex items-center gap-2">
+        <Activity className="h-4 w-4" aria-hidden="true" />
+        {connected ? 'Capturing Events (Live)' : 'Capturing Events'}
+      </Badge>
+      <Button variant="destructive" size="sm" onClick={onPurge}>
+        <Trash2 className="icon-standard mr-2" />
+        Purge Old Bundles
+      </Button>
+    </div>
+  );
+}
+
+export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolbarChange }: TelemetryProps) {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
+  const { density, setDensity } = useDensity();
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
@@ -41,11 +94,131 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyBundleSignatureResponse | null>(null);
   const [selectedBundle, setSelectedBundle] = useState<TelemetryBundle | null>(null);
+  const [selectedBundles, setSelectedBundles] = useState<string[]>([]);
   const [purgeKeepCount, setPurgeKeepCount] = useState(12);
+  
+  // Filtering state
+  const [filterValues, setFilterValues] = useState<FilterValues>({});
+  
+  // Filter configurations for telemetry bundles
+  const telemetryFilterConfigs: FilterConfig[] = [
+    {
+      id: 'search',
+      label: 'Search',
+      type: 'text',
+      placeholder: 'Search by bundle ID or CPID...',
+    },
+    {
+      id: 'cpid',
+      label: 'CPID',
+      type: 'text',
+      placeholder: 'Filter by CPID...',
+    },
+    {
+      id: 'dateRange',
+      label: 'Created Date Range',
+      type: 'dateRange',
+    },
+    {
+      id: 'eventCount',
+      label: 'Event Count Range',
+      type: 'number',
+      min: 0,
+      placeholder: 'Min/Max events',
+    },
+    {
+      id: 'sizeRange',
+      label: 'Size Range (MB)',
+      type: 'number',
+      min: 0,
+      placeholder: 'Min/Max size',
+    },
+  ];
+  
+  // Filter bundles based on filter values
+  const filteredBundles = bundles.filter(bundle => {
+    // Search filter
+    if (filterValues.search) {
+      const searchLower = String(filterValues.search).toLowerCase();
+      if (
+        !bundle.id.toLowerCase().includes(searchLower) &&
+        !bundle.cpid.toLowerCase().includes(searchLower)
+      ) {
+        return false;
+      }
+    }
+    
+    // CPID filter
+    if (filterValues.cpid && !bundle.cpid.toLowerCase().includes(String(filterValues.cpid).toLowerCase())) {
+      return false;
+    }
+    
+    // Date range filter
+    if (filterValues.dateRange && typeof filterValues.dateRange === 'object') {
+      const range = filterValues.dateRange as { start?: string; end?: string };
+      const bundleDate = new Date(bundle.created_at);
+      if (range.start && bundleDate < new Date(range.start)) {
+        return false;
+      }
+      if (range.end) {
+        const endDate = new Date(range.end);
+        endDate.setHours(23, 59, 59, 999); // Include entire end day
+        if (bundleDate > endDate) {
+          return false;
+        }
+      }
+    }
+    
+    // Event count range
+    if (filterValues.eventCount && typeof filterValues.eventCount === 'object') {
+      const range = filterValues.eventCount as { min?: number; max?: number };
+      if (range.min !== undefined && bundle.event_count < range.min) {
+        return false;
+      }
+      if (range.max !== undefined && bundle.event_count > range.max) {
+        return false;
+      }
+    }
+    
+    // Size range (convert MB to bytes for comparison)
+    if (filterValues.sizeRange && typeof filterValues.sizeRange === 'object') {
+      const range = filterValues.sizeRange as { min?: number; max?: number };
+      const bundleSizeMB = bundle.size_bytes / 1024 / 1024;
+      if (range.min !== undefined && bundleSizeMB < range.min) {
+        return false;
+      }
+      if (range.max !== undefined && bundleSizeMB > range.max) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+
+  useEffect(() => {
+    if (loading) {
+      logger.debug('Telemetry: showing loading state', {
+        component: 'Telemetry',
+        tenantId: effectiveTenant,
+      });
+    }
+  }, [loading, effectiveTenant]);
+
+  useEffect(() => {
+    if (!loading && filteredBundles.length === 0) {
+      logger.info('Telemetry: empty state rendered', {
+        component: 'Telemetry',
+        tenantId: effectiveTenant,
+        totalBundles: bundles.length,
+        filterCount: filteredBundles.length,
+      });
+    }
+  }, [bundles.length, effectiveTenant, filteredBundles.length, loading]);
+  
   // Golden compare modal is encapsulated in its own component
 
-  // SSE for real-time bundle notifications
-  const { data: sseBundles, connected } = useSSE<TelemetryBundle[]>('/v1/stream/telemetry');
+  // SSE connection state for bundles
+  const [sseConnected, setSseConnected] = useState(false);
 
   useEffect(() => {
     const fetchBundles = async () => {
@@ -68,13 +241,50 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     fetchBundles();
   }, [effectiveTenant]);
 
-  // Update bundles from SSE stream
+  // SSE for real-time bundle notifications
   useEffect(() => {
-    if (sseBundles && Array.isArray(sseBundles)) {
-      setBundles(prev => [...sseBundles, ...prev].slice(0, 100)); // Keep last 100
-      // SSE updates are silent - UI updates provide sufficient feedback
-    }
-  }, [sseBundles]);
+    const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
+    const url = `${baseUrl}/v1/stream/telemetry`;
+    
+    const eventSource = new EventSource(url);
+
+    eventSource.onopen = () => {
+      setSseConnected(true);
+    };
+
+    eventSource.onerror = () => {
+      setSseConnected(false);
+    };
+
+    // Listen for bundle events (single objects or arrays)
+    eventSource.addEventListener('bundles', (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        // Normalize: handle both single object and array
+        const bundleList = Array.isArray(payload) ? payload : [payload];
+        
+        setBundles((prev) => {
+          // Merge new bundles, avoiding duplicates by ID
+          const existingIds = new Set(prev.map(b => b.id));
+          const newBundles = bundleList.filter(b => !existingIds.has(b.id));
+          if (newBundles.length === 0) return prev;
+          
+          // Prepend new bundles and limit to last 100
+          const merged = [...newBundles, ...prev];
+          return merged.slice(0, 100);
+        });
+      } catch (err) {
+        logger.error('Failed to parse bundles SSE payload', {
+          component: 'Telemetry',
+          operation: 'sse_bundles_parse',
+        }, toError(err));
+      }
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, []);
 
   const handleExportBundle = (bundle: TelemetryBundle) => {
     // Download bundle as JSON
@@ -90,6 +300,71 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     URL.revokeObjectURL(url);
     // Browser download feedback is sufficient
   };
+
+  const handleExportAllBundles = useCallback(async (format: 'csv' | 'json') => {
+    try {
+      if (format === 'json') {
+        // Export all bundles using the API endpoint
+        const exportPromises = bundles.map(bundle => apiClient.exportTelemetryBundle(bundle.id));
+        const exportResults = await Promise.all(exportPromises);
+        
+        // For bundles with download URLs, we can either download each or combine them
+        // For now, export as a JSON array of bundle metadata and download URLs
+        const exportData = {
+          exported_at: new Date().toISOString(),
+          bundle_count: bundles.length,
+          bundles: exportResults.map((result, index) => ({
+            bundle_id: result.bundle_id,
+            events_count: result.events_count,
+            size_bytes: result.size_bytes,
+            download_url: result.download_url,
+            expires_at: result.expires_at,
+            bundle_info: bundles[index]
+          }))
+        };
+        
+        const dataStr = JSON.stringify(exportData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `telemetry-bundles-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV format - export bundle metadata
+        const csvHeaders = ['Bundle ID', 'CPID', 'Events', 'Size (MB)', 'Merkle Root', 'Created At'];
+        const csvRows = bundles.map(bundle => [
+          bundle.id,
+          bundle.cpid,
+          bundle.event_count.toString(),
+          (bundle.size_bytes / 1024 / 1024).toFixed(2),
+          bundle.merkle_root || 'N/A',
+          bundle.created_at
+        ]);
+        const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
+        const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(csvBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `telemetry-bundles-export-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to export telemetry bundles');
+      setTelemetryError(error);
+      logger.error('Failed to export telemetry bundles', {
+        component: 'Telemetry',
+        operation: 'exportAllBundles',
+        bundleCount: bundles.length,
+      }, toError(err));
+    }
+  }, [bundles]);
 
   const handleVerifySignature = async (bundle: TelemetryBundle) => {
     try {
@@ -116,7 +391,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
 
   // Compare execution moved into GoldenCompareModal
 
-  const handlePurge = async () => {
+  const handlePurge = useCallback(async () => {
     try {
       const result = await apiClient.purgeOldBundles(purgeKeepCount);
       setShowPurgeModal(false);
@@ -133,7 +408,57 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         keepCount: purgeKeepCount,
       }, toError(err));
     }
-  };
+  }, [purgeKeepCount]);
+
+  const handleBulkExportBundles = useCallback(async (bundleIds: string[]) => {
+    try {
+      const bundlesToExport = bundles.filter(b => bundleIds.includes(b.id));
+      const exportPromises = bundlesToExport.map(bundle => apiClient.exportTelemetryBundle(bundle.id));
+      const exportResults = await Promise.all(exportPromises);
+      
+      const exportData = {
+        exported_at: new Date().toISOString(),
+        bundle_count: bundlesToExport.length,
+        bundles: exportResults.map((result, index) => ({
+          bundle_id: result.bundle_id,
+          events_count: result.events_count,
+          size_bytes: result.size_bytes,
+          download_url: result.download_url,
+          expires_at: result.expires_at,
+          bundle_info: bundlesToExport[index]
+        }))
+      };
+      
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `telemetry-bundles-selected-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${bundleIds.length} bundle(s).`);
+      setSelectedBundles([]);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to export telemetry bundles');
+      setTelemetryError(error);
+      logger.error('Failed to export selected telemetry bundles', {
+        component: 'Telemetry',
+        operation: 'bulkExportBundles',
+        bundleIds,
+      }, toError(err));
+    }
+  }, [bundles]);
+
+  const bulkActions: BulkAction[] = useMemo(() => [
+    {
+      id: 'export',
+      label: 'Export Selected',
+      handler: handleBulkExportBundles
+    }
+  ], [handleBulkExportBundles]);
 
   if (telemetryError) {
     return (
@@ -153,102 +478,164 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   }
 
   if (loading) {
-    return <div className="text-center p-8">Loading telemetry data...</div>;
+    return (
+      <LoadingState
+        title="Loading telemetry data"
+        description="Gathering recent bundles and live stream status."
+        skeletonLines={5}
+      />
+    );
   }
+
+  useEffect(() => {
+    if (!onToolbarChange) return;
+    const toolbar = (
+      <TelemetryToolbar
+        density={density}
+        onDensityChange={setDensity}
+        connected={sseConnected}
+        onExportAll={handleExportAllBundles}
+        exportDisabled={bundles.length === 0}
+        onPurge={() => setShowPurgeModal(true)}
+      />
+    );
+    onToolbarChange(toolbar);
+    return () => {
+      onToolbarChange(null);
+    };
+  }, [onToolbarChange, density, setDensity, sseConnected, handleExportAllBundles, bundles.length]);
 
   return (
     <div className="space-y-6">
-      <div className="flex-between section-header">
-        <div>
-          <h1 className="section-title">Telemetry Bundles</h1>
-          <p className="section-description">
-            View and export telemetry data for audit and compliance
-          </p>
-        </div>
-        <div className="flex-center">
-          <div className={connected ? "status-indicator status-success" : "status-indicator status-neutral"}>
-            <Activity className="icon-small mr-1" />
-            {connected ? 'Capturing Events (Live)' : 'Capturing Events'}
-          </div>
-          <Button variant="destructive" onClick={() => setShowPurgeModal(true)}>
-            <Trash2 className="icon-standard mr-2" />
-            Purge Old Bundles
-          </Button>
-        </div>
-      </div>
 
-      <Card className="card-standard">
+      <AdvancedFilter
+        configs={telemetryFilterConfigs}
+        values={filterValues}
+        onChange={setFilterValues}
+        className="mb-4"
+        title="Filter Bundles"
+      />
+
+      <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
-          <CardTitle>Event Bundles</CardTitle>
+          <CardTitle>
+            Event Bundles
+            {filteredBundles.length !== bundles.length && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({filteredBundles.length} of {bundles.length})
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table className="table-standard">
+          <Table className="border-collapse w-full">
             <TableHeader>
               <TableRow>
+                <TableHead className="p-4 border-b border-border w-12">
+                  <Checkbox
+                    checked={
+                      filteredBundles.length === 0
+                        ? false
+                        : selectedBundles.length === filteredBundles.length
+                          ? true
+                          : selectedBundles.length > 0
+                            ? 'indeterminate'
+                            : false
+                    }
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedBundles(filteredBundles.map(b => b.id));
+                      } else {
+                        setSelectedBundles([]);
+                      }
+                    }}
+                    aria-label="Select all bundles"
+                  />
+                </TableHead>
                 <TableHead>Bundle ID</TableHead>
-                <TableHead>
+                <TableHead role="columnheader" scope="col">
                   <HelpTooltip helpId="cpid">
                     <span>CPID</span>
                   </HelpTooltip>
                 </TableHead>
-                <TableHead>Events</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>
+                <TableHead role="columnheader" scope="col">Events</TableHead>
+                <TableHead role="columnheader" scope="col">Size</TableHead>
+                <TableHead role="columnheader" scope="col">
                   <HelpTooltip helpId="merkle-root">
                     <span>Merkle Root</span>
                   </HelpTooltip>
                 </TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead role="columnheader" scope="col">Created</TableHead>
+                <TableHead role="columnheader" scope="col">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {bundles.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-32">
+              {filteredBundles.length === 0 ? (
+                <TableRow role="row">
+                  <TableCell colSpan={7} className="h-32" role="gridcell" aria-live="polite">
                     <EmptyState
                       icon={Activity}
-                      title="No Telemetry Bundles Available"
-                      description="Telemetry bundles will appear here as they are generated. Events are being captured in real-time."
+                      title={bundles.length === 0 ? "No Telemetry Bundles Available" : "No Bundles Match Filters"}
+                      description={bundles.length === 0
+                        ? "Telemetry bundles will appear here as they are generated. Events are being captured in real-time."
+                        : "Try adjusting your filters to see more results."}
                     />
                   </TableCell>
                 </TableRow>
               ) : (
-                bundles.map((bundle) => (
-                  <TableRow key={bundle.id}>
-                  <TableCell className="table-cell-standard font-medium">{bundle.id.substring(0, 8)}</TableCell>
-                  <TableCell className="table-cell-standard">{bundle.cpid}</TableCell>
-                  <TableCell className="table-cell-standard">{bundle.event_count.toLocaleString()}</TableCell>
-                  <TableCell className="table-cell-standard">{(bundle.size_bytes / 1024 / 1024).toFixed(2)} MB</TableCell>
-                  <TableCell className="table-cell-standard font-mono text-xs">
-                    {bundle.merkle_root.substring(0, 16)}
-                  </TableCell>
-                  <TableCell className="table-cell-standard">{new Date(bundle.created_at).toLocaleString()}</TableCell>
-                  <TableCell className="table-cell-standard">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="icon-standard" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleExportBundle(bundle)}>
-                          <Download className="icon-standard mr-2" />
-                          Export
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleVerifySignature(bundle)}>
-                          <Shield className="icon-standard mr-2" />
-                          Verify Signature
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleCompareToGolden(bundle)}>
-                          <Eye className="icon-standard mr-2" />
-                          Compare to Golden
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-                ))
+                <VirtualizedTableRows items={filteredBundles} estimateSize={60}>
+                  {(bundle) => {
+                    const bundleTyped = bundle as typeof filteredBundles[0];
+                    return (
+                      <TableRow key={bundleTyped.id}>
+                        <TableCell className="p-4 border-b border-border">
+                          <Checkbox
+                            checked={selectedBundles.includes(bundleTyped.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedBundles(prev => [...prev, bundleTyped.id]);
+                              } else {
+                                setSelectedBundles(prev => prev.filter(id => id !== bundleTyped.id));
+                              }
+                            }}
+                            aria-label={`Select ${bundleTyped.id}`}
+                          />
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border font-medium">{bundleTyped.id.substring(0, 8)}</TableCell>
+                        <TableCell className="p-4 border-b border-border">{bundleTyped.cpid}</TableCell>
+                        <TableCell className="p-4 border-b border-border">{bundleTyped.event_count.toLocaleString()}</TableCell>
+                        <TableCell className="p-4 border-b border-border">{(bundleTyped.size_bytes / 1024 / 1024).toFixed(2)} MB</TableCell>
+                        <TableCell className="p-4 border-b border-border font-mono text-xs">
+                          {bundleTyped.merkle_root ? bundleTyped.merkle_root.substring(0, 16) : 'N/A'}
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border">{new Date(bundleTyped.created_at).toLocaleString()}</TableCell>
+                        <TableCell className="p-4 border-b border-border">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="icon-standard" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleExportBundle(bundleTyped)}>
+                                <Download className="icon-standard mr-2" />
+                                Export
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleVerifySignature(bundleTyped)}>
+                                <Shield className="icon-standard mr-2" />
+                                Verify Signature
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleCompareToGolden(bundleTyped)}>
+                                <Eye className="icon-standard mr-2" />
+                                Compare to Golden
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }}
+                </VirtualizedTableRows>
               )}
             </TableBody>
           </Table>
@@ -257,7 +644,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
 
       {/* Verify Signature Modal */}
       <Dialog open={showVerifyModal} onOpenChange={setShowVerifyModal}>
-        <DialogContent className="modal-large">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Bundle Signature Verification</DialogTitle>
           </DialogHeader>
@@ -277,25 +664,46 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                 />
               )}
               
-              <div className="form-field">
-                <p className="form-label">Bundle ID</p>
-                <p className="text-sm text-muted-foreground font-mono">{verifyResult.bundle_id}</p>
-              </div>
-              <div className="form-field">
-                <p className="form-label">Signature</p>
-                <p className="text-xs text-muted-foreground font-mono break-all">{verifyResult.signature}</p>
-              </div>
-              <div className="form-field">
-                <p className="form-label">Signed By</p>
-                <p className="text-sm text-muted-foreground">{verifyResult.signed_by}</p>
-              </div>
-              <div className="form-field">
-                <p className="form-label">Signed At</p>
-                <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
-              </div>
+              <Accordion type="multiple" defaultValue={['basic']} className="w-full">
+                <AccordionItem value="basic">
+                  <AccordionTrigger>
+                    <span className="text-sm font-medium">Verification Details</span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-3 pt-2">
+                      <div className="mb-4">
+                        <p className="font-medium text-sm mb-1">Bundle ID</p>
+                        <p className="text-sm text-muted-foreground font-mono">{verifyResult.bundle_id}</p>
+                      </div>
+                      <div className="mb-4">
+                        <p className="font-medium text-sm mb-1">Signed By</p>
+                        <p className="text-sm text-muted-foreground">{verifyResult.signed_by}</p>
+                      </div>
+                      <div className="mb-4">
+                        <p className="font-medium text-sm mb-1">Signed At</p>
+                        <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
+                      </div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value="signature">
+                  <AccordionTrigger>
+                    <span className="text-sm font-medium">Signature Details</span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="pt-2">
+                      <div className="mb-4">
+                        <p className="font-medium text-sm mb-1">Signature</p>
+                        <p className="text-xs text-muted-foreground font-mono break-all">{verifyResult.signature}</p>
+                      </div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
               {verifyResult.verification_error && (
-                <div className="form-field">
-                  <p className="form-label text-red-600">Error</p>
+                <div className="mb-4">
+                  <p className="font-medium text-sm mb-1 text-red-600">Error</p>
                   <p className="text-sm text-muted-foreground">{verifyResult.verification_error}</p>
                 </div>
               )}
@@ -354,7 +762,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
 
       {/* Purge Bundles Modal */}
       <Dialog open={showPurgeModal} onOpenChange={setShowPurgeModal}>
-        <DialogContent className="modal-standard">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Purge Old Telemetry Bundles</DialogTitle>
           </DialogHeader>
@@ -363,8 +771,8 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
               This will delete old telemetry bundles based on retention policy. This action cannot be undone.
             </AlertDescription>
           </Alert>
-          <div className="form-field">
-            <label className="form-label">Keep Latest Bundles Per CPID</label>
+          <div className="mb-4">
+            <label className="font-medium text-sm mb-1">Keep Latest Bundles Per CPID</label>
             <input
               type="number"
               className="w-full p-2 border rounded"
@@ -393,6 +801,14 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         open={showCompareModal}
         onOpenChange={setShowCompareModal}
         bundleId={selectedBundle ? selectedBundle.id : null}
+      />
+
+      {/* Bulk Action Bar */}
+      <BulkActionBar
+        selectedItems={selectedBundles}
+        actions={bulkActions}
+        onClearSelection={() => setSelectedBundles([])}
+        itemName="bundle"
       />
     </div>
   );

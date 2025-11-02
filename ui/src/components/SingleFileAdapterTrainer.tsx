@@ -1,4 +1,4 @@
-// 【ui/src/contexts/BreadcrumbContext.tsx§1-64】 - Breadcrumb context
+// Breadcrumbs are now derived statelessly from URL (see useBreadcrumbs hook)
 // 【ui/src/components/BreadcrumbNavigation.tsx§1-61】 - Breadcrumb component
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -28,7 +28,6 @@ import { logger, toError } from '@/utils/logger';
 import { ProgressIndicator, ContextualLoading, LoadingStates } from './ui/progress-indicator';
 import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
 import { useViewTransition } from '../hooks/useViewTransition';
-import { useBreadcrumb } from '../contexts/BreadcrumbContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
@@ -48,24 +47,11 @@ interface TrainingMetrics {
 }
 
 export function SingleFileAdapterTrainer() {
-  const { setBreadcrumbs } = useBreadcrumb();
   const [step, setStep] = useState<TrainingStep>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Update breadcrumbs based on current step
-  useEffect(() => {
-    const steps: TrainingStep[] = ['upload', 'configure', 'training', 'complete'];
-    const currentStepIndex = steps.indexOf(step);
-    const breadcrumbs = steps.slice(0, currentStepIndex + 1).map((s, idx) => ({
-      id: s,
-      label: STEP_LABELS[s],
-      href: idx === 0 ? '/trainer' : undefined
-    }));
-    setBreadcrumbs(breadcrumbs);
-  }, [step, setBreadcrumbs]);
-  
   // Configuration state
   const [adapterName, setAdapterName] = useState('');
   const [config, setConfig] = useState<TrainingConfig>({
@@ -152,8 +138,19 @@ export function SingleFileAdapterTrainer() {
     }
   };
 
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const pollTrainingProgress = async (jobId: string) => {
-    const pollInterval = setInterval(async () => {
+    // Clear any existing polling
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+    }
+
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const job = await apiClient.getTrainingJob(jobId);
         setTrainingJob(job);
@@ -167,25 +164,51 @@ export function SingleFileAdapterTrainer() {
         }
 
         if (job.status === 'completed') {
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
           setIsTraining(false);
           setStep('complete');
-        } else         if (job.status === 'failed') {
-          clearInterval(pollInterval);
+        } else if (job.status === 'failed') {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
           setTrainingError(new Error(job.error_message || 'Training failed'));
           setIsTraining(false);
         }
       } catch (error) {
         logger.error('Failed to poll training job', { component: 'SingleFileAdapterTrainer', operation: 'pollTrainingJob' }, toError(error));
-        clearInterval(pollInterval);
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
         setIsTraining(false);
         setTrainingError(new Error('Lost connection to training job'));
       }
     }, 2000); // Poll every 2 seconds
 
     // Cleanup after 30 minutes
-    setTimeout(() => clearInterval(pollInterval), 30 * 60 * 1000);
+    pollTimeoutRef.current = setTimeout(() => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    }, 30 * 60 * 1000);
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      if (pollTimeoutRef.current) {
+        clearTimeout(pollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleTestInference = async () => {
     if (!testPrompt || !trainingJob?.adapter_id) {
@@ -281,7 +304,7 @@ export function SingleFileAdapterTrainer() {
       <div>
         <h1 className="text-3xl font-bold">Single-File Adapter Trainer</h1>
         <p className="text-muted-foreground">
-          Train a custom LoRA adapter from a single file and test it interactively
+          Train a custom adapter from a single file and test it interactively
         </p>
       </div>
 
@@ -640,4 +663,3 @@ export function SingleFileAdapterTrainer() {
     </div>
   );
 }
-

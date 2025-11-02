@@ -33,15 +33,6 @@ export function SpawnWorkerModal({
   const [modalError, setModalError] = useState<Error | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      void loadData();
-      setTenantId(selectedTenant);
-      setModalError(null);
-      setValidationMessage(null);
-    }
-  }, [open, selectedTenant, loadData]);
-
   const loadData = useCallback(async () => {
     try {
       const [nodesData, plansData] = await Promise.all([
@@ -74,6 +65,15 @@ export function SpawnWorkerModal({
       setValidationMessage('Failed to load nodes and plans. Try refreshing.');
     }
   }, [selectedTenant]);
+
+  useEffect(() => {
+    if (open) {
+      void loadData();
+      setTenantId(selectedTenant);
+      setModalError(null);
+      setValidationMessage(null);
+    }
+  }, [open, selectedTenant, loadData]);
 
   const handleSpawn = async () => {
     setValidationMessage(null);

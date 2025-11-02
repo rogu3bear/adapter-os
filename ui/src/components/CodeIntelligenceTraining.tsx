@@ -31,6 +31,7 @@ import {
 } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
+import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
 
 interface CodeIntelligenceTrainingProps {
   tenantId: string;
@@ -229,6 +230,30 @@ export function CodeIntelligenceTraining({
       });
 
       toast.success(`Training started successfully (session ${result.session_id})`);
+      
+      // Emit activity event (tenant_id/user_id auto-extracted from JWT)
+      try {
+        await apiClient.createActivityEvent({
+          event_type: ACTIVITY_EVENT_TYPES.TRAINING_SESSION_STARTED,
+          target_type: 'training_session',
+          target_id: result.session_id,
+          metadata_json: JSON.stringify({
+            session_id: result.session_id,
+            repo_id: selectedRepo,
+            adapter_name: `${category}_${selectedRepo.replace(/[^a-zA-Z0-9]/g, '_')}`,
+            category,
+            scope,
+          }),
+        });
+      } catch (activityErr) {
+        // Non-blocking: log but don't fail the training start
+        logger.warn('Failed to emit training start activity event', {
+          component: 'CodeIntelligenceTraining',
+          operation: 'handleStartTraining',
+          error: activityErr instanceof Error ? activityErr.message : String(activityErr),
+        });
+      }
+      
       onTrainingStarted?.(result.session_id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start training';

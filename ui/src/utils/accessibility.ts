@@ -84,27 +84,58 @@ export function useFocusRestore(active: boolean) {
 export function useKeyboardShortcuts(handlers: {
   onSearch?: () => void;
   onHelp?: () => void;
+  onNotifications?: () => void;
 }) {
-  const { onSearch, onHelp } = handlers;
+  const { onSearch, onHelp, onNotifications } = handlers;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Ignore if typing in input/textarea/select or with modifiers
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target as HTMLElement)?.isContentEditable) {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (
+        tag === 'input' ||
+        tag === 'textarea' ||
+        tag === 'select' ||
+        target?.isContentEditable
+      ) {
         return;
       }
-      if (e.key === '/' && onSearch) {
+
+      const key = e.key;
+      const lowered = key.toLowerCase();
+
+      if (
+        onSearch &&
+        (e.metaKey || e.ctrlKey) &&
+        lowered === 'k'
+      ) {
         e.preventDefault();
         onSearch();
+        return;
       }
-      if ((e.key === '?' || (e.shiftKey && e.key === '/')) && onHelp) {
+
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && key === '/' && onSearch) {
+        e.preventDefault();
+        onSearch();
+        return;
+      }
+
+      if (!e.metaKey && !e.ctrlKey && (key === '?' || (e.shiftKey && key === '/')) && onHelp) {
         e.preventDefault();
         onHelp();
+        return;
+      }
+
+      if (
+        onNotifications &&
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        lowered === 'n'
+      ) {
+        e.preventDefault();
+        onNotifications();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onSearch, onHelp]);
+  }, [onSearch, onHelp, onNotifications]);
 }
-

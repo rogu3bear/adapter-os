@@ -61,10 +61,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'warning' | 'info' } | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadRouterConfig();
-  }, [loadRouterConfig]);
-
   const loadRouterConfig = useCallback(async () => {
     setIsLoading(true);
     setPageError(null);
@@ -102,6 +98,10 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       setIsLoading(false);
     }
   }, [selectedTenant]);
+
+  useEffect(() => {
+    loadRouterConfig();
+  }, [loadRouterConfig]);
 
   const handleConfigChange = (field: keyof RouterConfig, value: any) => {
     setConfig(prev => ({ ...prev, [field]: value }));
