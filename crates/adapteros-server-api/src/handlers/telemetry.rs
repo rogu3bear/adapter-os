@@ -141,20 +141,18 @@ pub async fn stream_logs(
 
     let stream = BroadcastStream::new(rx).filter_map(move |res| {
         let filters = filters_for_stream.clone();
-        async move {
-            match res {
-                Ok(event) if event_matches_filters(&event, &filters) => {
-                    match serde_json::to_string(&event) {
-                        Ok(json) => Some(Ok(Event::default().data(json))),
-                        Err(e) => {
-                            warn!("failed to serialize log event for stream: {}", e);
-                            None
-                        }
+        match res {
+            Ok(event) if event_matches_filters(&event, &filters) => {
+                match serde_json::to_string(&event) {
+                    Ok(json) => Some(Ok(Event::default().data(json))),
+                    Err(e) => {
+                        warn!("failed to serialize log event for stream: {}", e);
+                        None
                     }
                 }
-                Ok(_) => None,
-                Err(_) => None,
             }
+            Ok(_) => None,
+            Err(_) => None,
         }
     });
 
@@ -206,19 +204,19 @@ pub async fn get_trace(
     Ok(Json(trace))
 }
 
-#[derive(Clone, Default)]
-struct NormalizedLogFilters {
-    tenant_id: Option<String>,
-    event_type: Option<String>,
-    level: Option<LogLevel>,
-    component: Option<String>,
-    trace_id: Option<String>,
+#[derive(Clone, Debug, Default)]
+pub struct NormalizedLogFilters {
+    pub tenant_id: Option<String>,
+    pub event_type: Option<String>,
+    pub level: Option<LogLevel>,
+    pub component: Option<String>,
+    pub trace_id: Option<String>,
 }
 
-#[derive(Clone)]
-struct ParsedLogFilters {
-    telemetry: TelemetryFilters,
-    realtime: NormalizedLogFilters,
+#[derive(Clone, Debug)]
+pub struct ParsedLogFilters {
+    pub telemetry: TelemetryFilters,
+    pub realtime: NormalizedLogFilters,
 }
 
 impl Default for ParsedLogFilters {
@@ -230,7 +228,7 @@ impl Default for ParsedLogFilters {
     }
 }
 
-fn normalize_log_filters(params: &LogsQueryParams) -> Result<ParsedLogFilters, ErrorResponse> {
+pub fn normalize_log_filters(params: &LogsQueryParams) -> Result<ParsedLogFilters, ErrorResponse> {
     let mut telemetry_filters = TelemetryFilters::default();
     let mut realtime_filters = NormalizedLogFilters::default();
 
@@ -305,7 +303,7 @@ fn parse_log_level(level: &str) -> Option<LogLevel> {
     }
 }
 
-fn event_matches_filters(event: &UnifiedTelemetryEvent, filters: &NormalizedLogFilters) -> bool {
+pub fn event_matches_filters(event: &UnifiedTelemetryEvent, filters: &NormalizedLogFilters) -> bool {
     if let Some(ref tenant) = filters.tenant_id {
         if event.tenant_id.as_ref() != Some(tenant) {
             return false;
