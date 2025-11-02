@@ -94,7 +94,12 @@ export function useSSE<T = unknown>(
         try {
           const errorData = JSON.parse((event as MessageEvent).data);
           setError(errorData.error || 'SSE error');
-        } catch {
+        } catch (parseErr) {
+          logger.warn('Failed to parse SSE error event data', {
+            component: 'useSSE',
+            endpoint,
+            operation: 'parse_error_event',
+          }, toError(parseErr));
           setError('Connection error');
         }
       });
@@ -122,6 +127,8 @@ export function useSSE<T = unknown>(
         endpoint,
       }, toError(e));
     }
+    // Note: onError and onMessage are intentionally in dependencies.
+    // If callers want to avoid reconnections, they should memoize these callbacks.
   }, [endpoint, enabled, onError, onMessage]);
 
   return { data, error, connected };

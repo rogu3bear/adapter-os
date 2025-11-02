@@ -8,7 +8,39 @@ export interface InformationDensityConfig {
   persist?: boolean;
 }
 
-export function useInformationDensity(config: InformationDensityConfig) {
+export interface UseInformationDensityReturn {
+  density: InformationDensity;
+  setDensity: (density: InformationDensity) => void;
+  spacing: {
+    cardPadding: string;
+    sectionGap: string;
+    gridGap: string;
+    buttonGap: string;
+    formFieldGap: string;
+    tableCellPadding: string;
+    modalPadding: string;
+  };
+  textSizes: {
+    title: string;
+    subtitle: string;
+    body: string;
+    caption: string;
+  };
+  isCompact: boolean;
+  isComfortable: boolean;
+  isSpacious: boolean;
+}
+
+/**
+ * Hook for managing information density settings with optional localStorage persistence.
+ *
+ * @param config - Configuration object
+ * @param config.key - Unique key for localStorage persistence
+ * @param config.defaultDensity - Initial density setting (default: 'comfortable')
+ * @param config.persist - Whether to persist state in localStorage (default: true)
+ * @returns Object with density state, setter, and utility functions
+ */
+export function useInformationDensity(config: InformationDensityConfig): UseInformationDensityReturn {
   const { key, defaultDensity = 'comfortable', persist = true } = config;
   
   // Get initial state from localStorage if persistence is enabled

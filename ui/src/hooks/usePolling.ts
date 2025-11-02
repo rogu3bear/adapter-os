@@ -2,6 +2,7 @@
 // 【ui/src/components/RealtimeMetrics.tsx§138-182】 - Metrics polling pattern
 // 【ui/src/utils/logger.ts】 - Error handling pattern
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { logger, toError } from '../utils/logger';
 
 export interface PollingConfig {
   intervalMs?: number; // Override default interval
@@ -46,32 +47,54 @@ export function usePolling<T>(
   const [error, setError] = useState<Error | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
+  
+  // Store latest values in refs to avoid recreating callbacks
+  const fetchFnRef = useRef(fetchFn);
+  const showLoadingIndicatorRef = useRef(showLoadingIndicator);
+  const onErrorRef = useRef(onError);
+  const onSuccessRef = useRef(onSuccess);
+  
+  useEffect(() => {
+    fetchFnRef.current = fetchFn;
+    showLoadingIndicatorRef.current = showLoadingIndicator;
+    onErrorRef.current = onError;
+    onSuccessRef.current = onSuccess;
+  }, [fetchFn, showLoadingIndicator, onError, onSuccess]);
 
   const fetchData = useCallback(async () => {
     if (!mountedRef.current) return;
     
     try {
-      if (showLoadingIndicator) setIsLoading(true);
-      const result = await fetchFn();
+      if (showLoadingIndicatorRef.current) setIsLoading(true);
+      const result = await fetchFnRef.current();
       
       if (!mountedRef.current) return;
       
       setData(result);
       setLastUpdated(new Date());
       setError(null);
-      onSuccess?.(result);
+      onSuccessRef.current?.(result);
     } catch (err) {
       if (!mountedRef.current) return;
       
       const error = err instanceof Error ? err : new Error(String(err));
       setError(error);
-      onError?.(error);
+      
+      // Log error before calling onError callback
+      logger.error('Polling operation failed', {
+        component: 'usePolling',
+        operation: 'fetchData',
+        intervalMs: intervalMs,
+        speed,
+      }, toError(err));
+      
+      onErrorRef.current?.(error);
     } finally {
-      if (mountedRef.current && showLoadingIndicator) {
+      if (mountedRef.current && showLoadingIndicatorRef.current) {
         setIsLoading(false);
       }
     }
-  }, [fetchFn, showLoadingIndicator, onError, onSuccess]);
+  }, []); // Empty deps - use refs for values
 
   const refetch = useCallback(async () => {
     await fetchData();
@@ -82,14 +105,29 @@ export function usePolling<T>(
     
     if (!enabled) {
       setIsLoading(false);
+      // Clean up any existing interval
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       return;
+    }
+
+    // Clean up any existing interval first
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
 
     // Initial fetch
     fetchData();
 
     // Set up polling interval
-    intervalRef.current = setInterval(fetchData, intervalMs);
+    intervalRef.current = setInterval(() => {
+      if (mountedRef.current && enabled) {
+        fetchData();
+      }
+    }, intervalMs);
 
     return () => {
       mountedRef.current = false;
