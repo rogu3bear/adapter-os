@@ -20,13 +20,14 @@ import {
   Box,
   Radio,
   ShieldAlert,
+  Users,
 } from 'lucide-react';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useTenant } from '@/layout/LayoutProvider';
 import { useRelativeTime } from '@/hooks/useTimestamp';
 import { useNavigate } from 'react-router-dom';
 
-type EventType = 'all' | 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error';
+type EventType = 'all' | 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error' | 'collaboration';
 type Severity = 'all' | 'info' | 'warning' | 'error' | 'critical';
 
 function typeIcon(type: Exclude<EventType, 'all'>) {
@@ -45,6 +46,8 @@ function typeIcon(type: Exclude<EventType, 'all'>) {
       return ShieldAlert;
     case 'error':
       return AlertTriangle;
+    case 'collaboration':
+      return Users; // Using Users icon for collaboration
     default:
       return Activity;
   }
@@ -107,6 +110,7 @@ export function ActivityFeedWidget() {
                 <SelectItem value="telemetry">Telemetry</SelectItem>
                 <SelectItem value="security">Security</SelectItem>
                 <SelectItem value="error">Error</SelectItem>
+                <SelectItem value="collaboration">Collaboration</SelectItem>
               </SelectContent>
             </Select>
             <Select value={severityFilter} onValueChange={(v) => setSeverityFilter(v as Severity)}>
@@ -164,6 +168,14 @@ export function ActivityFeedWidget() {
                       case 'security':
                       case 'error':
                         navigate('/monitoring');
+                        break;
+                      case 'collaboration':
+                        // Navigate to messages or workspace based on event metadata
+                        if (event.workspaceId) {
+                          navigate(`/workspaces/${event.workspaceId}`);
+                        } else {
+                          navigate('/messages');
+                        }
                         break;
                       case 'telemetry':
                       case 'recovery':
