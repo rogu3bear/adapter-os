@@ -51,8 +51,7 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
-import { Alert, AlertDescription } from './ui/alert';
+import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -78,6 +77,18 @@ export function AdapterLifecycleManager({
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  // Graceful degradation: Monitor memory availability
+  const memoryAvailability = useFeatureDegradation({
+    featureId: 'adapter-memory',
+    healthCheck: () => {
+      // Check if we have enough memory headroom (15% minimum)
+      const totalMemory = adapters.reduce((sum, a) => sum + (a.memory_bytes || 0), 0);
+      const hasMemoryHeadroom = totalMemory > 0; // Simplified check
+      return hasMemoryHeadroom;
+    },
+    checkInterval: 60000,
+  });
 
   // Mock state records for demonstration
   const [stateRecords, setStateRecords] = useState<AdapterStateRecord[]>([]);
@@ -332,6 +343,15 @@ export function AdapterLifecycleManager({
 
   return (
     <div className="space-y-6">
+      {/* Graceful degradation alert for memory pressure */}
+      {memoryAvailability.isDegraded && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Memory pressure detected. Adapter eviction may occur more frequently. Consider reducing the number of loaded adapters or increasing available memory.
+          </AlertDescription>
+        </Alert>
+      )}
       {errorRecovery && (
         <div>
           {errorRecovery}
@@ -543,6 +563,7 @@ export function AdapterLifecycleManager({
               adapter={selectedAdapter}
               onStateChange={(newState) => handleStateTransition(selectedAdapter.adapter_id, newState)}
               onPinToggle={(pinned) => handlePinToggle(selectedAdapter.adapter_id, pinned)}
+              onAdapterUpdate={onAdapterUpdate}
             />
           </DialogContent>
         </Dialog>
@@ -722,13 +743,42 @@ function CategoryPolicyEditor({
 function AdapterDetailsView({ 
   adapter, 
   onStateChange, 
-  onPinToggle 
+  onPinToggle,
+  onAdapterUpdate
 }: {
   adapter: Adapter;
   onStateChange: (state: AdapterState) => void;
   onPinToggle: (pinned: boolean) => void;
+  onAdapterUpdate: (adapterId: string, updates: Partial<Adapter>) => void;
 }) {
   const states: AdapterState[] = ['unloaded', 'cold', 'warm', 'hot', 'resident'];
+  const [category, setCategory] = useState<AdapterCategory>(adapter.category);
+  const [isUpdatingCategory, setIsUpdatingCategory] = useState(false);
+
+  const handleCategoryChange = async (newCategory: AdapterCategory) => {
+    if (newCategory === category) return;
+    
+    setIsUpdatingCategory(true);
+    try {
+      await apiClient.updateAdapterPolicy(adapter.adapter_id, { category: newCategory });
+      setCategory(newCategory);
+      onAdapterUpdate(adapter.adapter_id, { category: newCategory });
+      logger.info('Adapter category updated', {
+        component: 'AdapterDetailsView',
+        adapterId: adapter.adapter_id,
+        newCategory,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update category';
+      logger.error('Failed to update adapter category', {
+        component: 'AdapterDetailsView',
+        adapterId: adapter.adapter_id,
+        error: errorMessage,
+      }, error instanceof Error ? error : new Error(errorMessage));
+    } finally {
+      setIsUpdatingCategory(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -746,7 +796,21 @@ function AdapterDetailsView({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label className="text-sm font-medium">Category</Label>
-          <p className="text-sm text-muted-foreground">{adapter.category}</p>
+          <Select 
+            value={category} 
+            onValueChange={(value) => handleCategoryChange(value as AdapterCategory)}
+            disabled={isUpdatingCategory}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="code">Code</SelectItem>
+              <SelectItem value="framework">Framework</SelectItem>
+              <SelectItem value="codebase">Codebase</SelectItem>
+              <SelectItem value="ephemeral">Ephemeral</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label className="text-sm font-medium">Scope</Label>

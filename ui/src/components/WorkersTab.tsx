@@ -76,13 +76,16 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     }
   );
 
+  const fetchWorkers = async () => {
+    await refreshWorkers();
+  };
+
   // Update workers when polling data arrives
   useEffect(() => {
-    if (workersData) {
-      setWorkers(workersData);
-      setFilteredWorkers(workersData);
-      setError(null);
-    }
+    if (!workersData) return;
+    setWorkers(workersData);
+    setFilteredWorkers(workersData);
+    setError(null);
   }, [workersData]);
 
   useEffect(() => {
@@ -359,11 +362,11 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="form-label">Add (comma-separated adapter IDs)</label>
+              <label className="font-medium text-sm mb-1">Add (comma-separated adapter IDs)</label>
               <Input value={hotSwapAdd} onChange={(e) => setHotSwapAdd(e.target.value)} placeholder="adapter_a,adapter_b" />
             </div>
             <div>
-              <label className="form-label">Remove (comma-separated adapter IDs)</label>
+              <label className="font-medium text-sm mb-1">Remove (comma-separated adapter IDs)</label>
               <Input value={hotSwapRemove} onChange={(e) => setHotSwapRemove(e.target.value)} placeholder="adapter_x,adapter_y" />
             </div>
           </div>

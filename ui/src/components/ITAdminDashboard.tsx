@@ -1,5 +1,5 @@
 // 【ui/src/components/ITAdminDashboard.tsx§74-78】 - Replace manual polling with standardized hook
-import React, { useState } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -7,19 +7,16 @@ import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
+import { LoadingState } from './ui/loading-state';
 import {
-  Shield,
   Users,
   Server,
   Database,
-  Settings,
   Activity,
   AlertTriangle,
   CheckCircle,
   XCircle,
   RefreshCw,
-  Download,
-  Upload,
   TrendingUp,
   HardDrive,
   Cpu,
@@ -36,9 +33,28 @@ import type {
 
 interface ITAdminDashboardProps {
   tenantId?: string;
+  onToolbarChange?: (actions: React.ReactNode) => void;
 }
 
-export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
+interface AdminToolbarProps {
+  loading: boolean;
+  lastUpdated?: Date | null;
+  onRefresh: () => void;
+}
+
+function AdminToolbar({ loading, lastUpdated, onRefresh }: AdminToolbarProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {lastUpdated && <LastUpdated timestamp={lastUpdated} className="text-xs text-muted-foreground" />}
+      <Button onClick={onRefresh} disabled={loading} variant="outline" size="sm">
+        <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
+export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboardProps) {
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
   const fetchData = async () => {
     const [metricsRes, tenantsRes, nodesRes, alertsRes, modelsRes, adaptersRes] = await Promise.all([
@@ -72,7 +88,11 @@ export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
     {
       showLoadingIndicator: false,
       onError: (err) => {
-        logger.error('Failed to fetch admin data', { component: 'ITAdminDashboard', operation: 'fetchAdminData' }, err);
+        logger.error(
+          'Failed to fetch admin data',
+          { component: 'ITAdminDashboard', operation: 'fetchAdminData' },
+          toError(err),
+        );
       }
     }
   );
@@ -83,35 +103,32 @@ export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
   const alerts = data?.alerts || [];
   const models = data?.models || [];
   const adapters = data?.adapters || [];
-  const refreshing = false; // usePolling handles refreshing state
 
   const activeNodes = nodes.filter(n => n.status === 'online' || n.status === 'active').length;
   const activeTenants = tenants.filter(t => t.status === 'active' || !t.status).length;
   const criticalAlerts = alerts.filter(a => a.severity === 'critical' && a.status === 'active').length;
   const loadedModels = models.filter(m => m.is_loaded).length;
 
+  React.useEffect(() => {
+    if (!onToolbarChange) return;
+    onToolbarChange(
+      <AdminToolbar loading={loading} lastUpdated={lastUpdated ?? null} onRefresh={() => refreshData()} />
+    );
+    return () => onToolbarChange(null);
+  }, [onToolbarChange, loading, lastUpdated, refreshData]);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-      </div>
+      <LoadingState
+        title="Loading admin insights"
+        description="Collecting system health, tenant status, and alerts."
+        skeletonLines={3}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">IT Admin Dashboard</h1>
-          <p className="text-muted-foreground">System administration and monitoring</p>
-          {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
-        </div>
-        <Button onClick={() => refreshData()} disabled={loading} variant="outline">
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
 
       {/* Critical Alerts Banner */}
       {criticalAlerts > 0 && (
@@ -349,36 +366,6 @@ export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
         </Card>
       </div>
 
-      {/* System Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            System Actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Button variant="outline" className="h-20 flex-col">
-              <Users className="w-6 h-6 mb-2" />
-              Manage Users
-            </Button>
-            <Button variant="outline" className="h-20 flex-col">
-              <Server className="w-6 h-6 mb-2" />
-              Node Config
-            </Button>
-            <Button variant="outline" className="h-20 flex-col">
-              <Download className="w-6 h-6 mb-2" />
-              Export Logs
-            </Button>
-            <Button variant="outline" className="h-20 flex-col">
-              <Shield className="w-6 h-6 mb-2" />
-              Security Settings
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Adapter Statistics */}
       <Card>
         <CardHeader>
@@ -414,4 +401,3 @@ export function ITAdminDashboard({ tenantId }: ITAdminDashboardProps) {
     </div>
   );
 }
-

@@ -120,6 +120,8 @@ export const MonitoringDashboard: React.FC = () => {
         const cpuValue = pickMetric(system, ['cpu_usage', 'cpu_usage_percent', 'memory_usage_pct']);
         const latencyValue = pickMetric(system, ['avg_latency_ms', 'latency_p95_ms']);
 
+        if (!isMounted) return;
+
         setMetricHistory((prev) =>
           [
             ...prev.slice(-59),

@@ -15,6 +15,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { Contact } from '@/api/types';
 
 interface ContactsPageProps {
@@ -26,6 +27,35 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
   const [filter, setFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const fetchContacts = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Citation: ui/src/api/client.ts L57-L105
+      const data = await apiClient.listContacts(selectedTenant);
+      setContacts(data);
+      setErrorRecovery(null);
+    } catch (error) {
+      logger.error('Failed to fetch contacts', {
+        component: 'ContactsPage',
+        operation: 'listContacts',
+        tenantId: selectedTenant,
+      }, toError(error));
+      setContacts([]);
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error('Failed to load contacts'),
+          () => {
+            setErrorRecovery(null);
+            fetchContacts();
+          }
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedTenant]);
 
   // Fetch initial contacts
   useEffect(() => {
@@ -50,31 +80,15 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
                 ? { ...c, ...data.payload, interaction_count: c.interaction_count + 1 }
                 : c
             );
-          } else {
-            return [...prev, { id: data.payload.name, ...data.payload, interaction_count: 1 }];
           }
+          return [...prev, { id: data.payload.name, ...data.payload, interaction_count: 1 }];
         });
       }
     });
 
-    return () => eventSource.close();
-  }, [selectedTenant]);
-
-  const fetchContacts = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Citation: ui/src/api/client.ts L57-L105
-      const data = await apiClient.listContacts(selectedTenant);
-      setContacts(data);
-    } catch (error) {
-      logger.error('Failed to fetch contacts', {
-        component: 'ContactsPage',
-        operation: 'listContacts',
-        tenantId: selectedTenant,
-      }, toError(error));
-    } finally {
-      setLoading(false);
-    }
+    return () => {
+      eventSource.close();
+    };
   }, [selectedTenant]);
 
   const filteredContacts = contacts.filter(
@@ -105,6 +119,9 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Error Recovery */}
+      {errorRecovery}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

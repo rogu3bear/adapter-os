@@ -72,6 +72,9 @@ export const toError = (error: unknown): Error => {
 
 class Logger {
   private isDevelopment = import.meta.env.DEV;
+  // Track recent error toasts to prevent spam (message -> last shown timestamp)
+  private errorToastHistory = new Map<string, number>();
+  private readonly ERROR_TOAST_THROTTLE_MS = 10000; // 10 seconds
   
   /**
    * Log a message with structured context and error information
@@ -113,9 +116,36 @@ class Logger {
       this.sendToTelemetry(logEntry);
     }
 
-    // User-facing errors: Show toast notification
+    // User-facing errors: Show toast notification (with throttling to prevent spam)
     if (level === LogLevel.ERROR && error) {
-      toast.error(message);
+      const isBackgroundOperation = context?.operation === 'fetchNotifications' || 
+                                   context?.operation === 'sse_init' ||
+                                   context?.operation === 'storage_listener';
+      
+      // For background operations, suppress toasts (errors still logged and shown in UI)
+      // For user-initiated actions, show toast with throttling
+      if (!isBackgroundOperation) {
+        const now = Date.now();
+        const lastShown = this.errorToastHistory.get(message);
+        
+        // Show toast if we haven't shown this error recently (throttle duplicate errors)
+        if (!lastShown || (now - lastShown) > this.ERROR_TOAST_THROTTLE_MS) {
+          toast.error(message);
+          this.errorToastHistory.set(message, now);
+          
+          // Clean up old entries periodically to prevent memory leaks
+          if (this.errorToastHistory.size > 50) {
+            const cutoff = now - this.ERROR_TOAST_THROTTLE_MS * 2;
+            for (const [key, timestamp] of this.errorToastHistory.entries()) {
+              if (timestamp < cutoff) {
+                this.errorToastHistory.delete(key);
+              }
+            }
+          }
+        }
+      }
+      // Background operations: errors are logged but no toast shown
+      // Users can see errors in NotificationCenter UI or check console logs
     }
   }
 

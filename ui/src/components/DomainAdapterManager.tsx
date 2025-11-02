@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { 
   Plus, 
   Settings, 
@@ -61,8 +62,6 @@ import {
 import apiClient from '../api/client';
 import { User } from '../api/types';
 import { logger, toError } from '../utils/logger';
-import { Alert, AlertDescription } from './ui/alert';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface DomainAdapterManagerProps {
   user: User;
@@ -271,14 +270,14 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
         </Alert>
       )}
 
-      <div className="flex-between section-header">
+      <div className="flex items-center justify-between flex items-center justify-between mb-6">
         <div>
-          <h1 className="section-title">Domain Adapter Management</h1>
-          <p className="section-description">
+          <h1 className="text-2xl font-bold">Domain Adapter Management</h1>
+          <p className="text-sm text-muted-foreground">
             Manage deterministic domain adapters for text, vision, and telemetry processing
           </p>
         </div>
-        <div className="flex-standard">
+        <div className="flex items-center">
           <Button onClick={() => setIsTestDialogOpen(true)}>
             <TestTube className="icon-standard mr-2" />
             Run Tests
@@ -298,25 +297,25 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
           <TabsTrigger value="manifests">Manifests</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="adapters" className="form-field">
-          <Card className="card-standard">
+        <TabsContent value="adapters" className="mb-4">
+          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
             <CardHeader>
-              <CardTitle className="flex-center">
-                <Layers className="icon-large mr-2" />
+              <CardTitle className="flex items-center justify-center">
+                <Layers className="h-6 w-6 mr-2" />
                 Domain Adapters
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table className="table-standard">
+              <Table className="border-collapse w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="table-cell-standard">Name</TableHead>
-                    <TableHead className="table-cell-standard">Domain</TableHead>
-                    <TableHead className="table-cell-standard">Status</TableHead>
-                    <TableHead className="table-cell-standard">Epsilon (ε)</TableHead>
-                    <TableHead className="table-cell-standard">Executions</TableHead>
-                    <TableHead className="table-cell-standard">Last Used</TableHead>
-                    <TableHead className="table-cell-standard">Actions</TableHead>
+                    <TableHead className="p-4 border-b border-border">Name</TableHead>
+                    <TableHead className="p-4 border-b border-border">Domain</TableHead>
+                    <TableHead className="p-4 border-b border-border">Status</TableHead>
+                    <TableHead className="p-4 border-b border-border">Epsilon (ε)</TableHead>
+                    <TableHead className="p-4 border-b border-border">Executions</TableHead>
+                    <TableHead className="p-4 border-b border-border">Last Used</TableHead>
+                    <TableHead className="p-4 border-b border-border">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -333,8 +332,8 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
                   ) : (
                     adapters.map((adapter) => (
                       <TableRow key={adapter.id}>
-                        <TableCell className="table-cell-standard">
-                          <div className="flex-center">
+                        <TableCell className="p-4 border-b border-border">
+                          <div className="flex items-center justify-center">
                             {getDomainIcon(adapter.domain_type)}
                             <div>
                               <div className="font-medium">{adapter.name}</div>
@@ -344,20 +343,20 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="table-cell-standard">
-                          <div className="status-indicator status-neutral flex-center">
+                        <TableCell className="p-4 border-b border-border">
+                          <div className="status-indicator status-neutral flex items-center justify-center">
                             {getDomainIcon(adapter.domain_type)}
                             <span>{adapter.domain_type}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="table-cell-standard">
+                        <TableCell className="p-4 border-b border-border">
                           <Badge className={getStatusBadge(adapter.status)}>
                             {adapter.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="table-cell-standard">
+                        <TableCell className="p-4 border-b border-border">
                           {adapter.epsilon_stats ? (
-                            <div className="flex-center">
+                            <div className="flex items-center justify-center">
                               <Hash className="icon-standard" />
                               <span>ε: {adapter.epsilon_stats.mean_error.toFixed(4)}</span>
                             </div>
@@ -365,19 +364,19 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
                             <span className="text-muted-foreground">No data</span>
                           )}
                         </TableCell>
-                        <TableCell className="table-cell-standard">
-                          <div className="flex-center">
+                        <TableCell className="p-4 border-b border-border">
+                          <div className="flex items-center justify-center">
                             <Target className="icon-standard" />
                             <span>{adapter.execution_count}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="table-cell-standard">
-                          <div className="flex-center">
+                        <TableCell className="p-4 border-b border-border">
+                          <div className="flex items-center justify-center">
                             <Clock className="icon-standard" />
                             <span>{adapter.last_execution ? new Date(adapter.last_execution).toLocaleString() : 'Never'}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="table-cell-standard">
+                        <TableCell className="p-4 border-b border-border">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="sm">
@@ -596,7 +595,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
       {/* Create Adapter Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="modal-large">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Create Domain Adapter</DialogTitle>
           </DialogHeader>
@@ -672,7 +671,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
       {/* Test Dialog */}
       <Dialog open={isTestDialogOpen} onOpenChange={setIsTestDialogOpen}>
-        <DialogContent className="modal-standard">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Run Determinism Tests</DialogTitle>
           </DialogHeader>

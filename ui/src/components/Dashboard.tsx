@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { logger, toError } from '../utils/logger';
+import type { MetricsSnapshotResponse } from '../api/types';
 import { 
   Activity, 
   Shield, 
@@ -15,9 +16,6 @@ import {
   FileText,
   TrendingUp
 } from 'lucide-react';
-import { DensityControls } from './ui/density-controls';
-import { ModelSelector } from './ModelSelector';
-import { useInformationDensity } from '../hooks/useInformationDensity';
 import { MLPipelineWidget } from './dashboard/MLPipelineWidget';
 import { NextStepsWidget } from './dashboard/NextStepsWidget';
 import { AdapterStatusWidget } from './dashboard/AdapterStatusWidget';
@@ -26,15 +24,12 @@ import { ActiveAlertsWidget } from './dashboard/ActiveAlertsWidget';
 import { MultiModelStatusWidget } from './dashboard/MultiModelStatusWidget';
 import { BaseModelWidget } from './dashboard/BaseModelWidget';
 import { ReportingSummaryWidget } from './dashboard/ReportingSummaryWidget';
-import { CursorSetupWizard } from './CursorSetupWizard';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { useNavigate } from 'react-router-dom';
 import type { UserRole, User, SystemMetrics } from '@/api/types';
 import apiClient from '../api/client';
-import { Dispatch, SetStateAction } from 'react';
-import type { InformationDensity } from '../hooks/useInformationDensity';
 import { useAnnounce, useKeyboardShortcuts } from '@/utils/accessibility';
+import { usePolling } from '../hooks/usePolling';
 
 interface DashboardProps {
   user?: User;
@@ -58,35 +53,26 @@ interface DashboardLayout {
   }>;
 }
 
-interface DensityControlsProps {
-  density: InformationDensity;
-  setDensity: Dispatch<SetStateAction<InformationDensity>>;
-}
-
 // Simple system health widget for all roles
 function SystemHealthWidget() {
-  const [metrics, setMetrics] = React.useState<SystemMetrics | null>(null);
-  const [loading, setLoading] = React.useState(true);
   const announce = useAnnounce();
 
-  React.useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        const data = await apiClient.getSystemMetrics();
-        setMetrics(data);
-        if (data) {
-          announce(`Metrics updated. Active sessions ${data.active_sessions ?? 0}, latency ${data.latency_p95_ms ?? 0} milliseconds`);
+  const { data: metrics, isLoading: loading } = usePolling(
+    () => apiClient.getSystemMetrics(),
+    'normal',
+    {
+      showLoadingIndicator: false,
+      onSuccess: (data) => {
+        const metrics = data as MetricsSnapshotResponse;
+        if (metrics) {
+          announce(`Metrics updated. Active sessions ${metrics.gauges?.active_sessions ?? 0}, latency ${metrics.gauges?.latency_p95_ms ?? 0} milliseconds`);
         }
-      } catch (err) {
-        logger.error('Failed to fetch system metrics', { component: 'SystemHealthWidget' }, toError(err));
-      } finally {
-        setLoading(false);
+      },
+      onError: (err) => {
+        logger.error('Failed to fetch system metrics', { component: 'SystemHealthWidget' }, err);
       }
-    };
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 5000);
-    return () => clearInterval(interval);
-  }, [announce]);
+    }
+  );
 
   if (loading) {
     return (
@@ -151,7 +137,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Review Policies', icon: Shield, route: '/policies' },
       { label: 'View Telemetry', icon: Eye, route: '/telemetry' },
       { label: 'Manage Adapters', icon: Code, route: '/adapters' },
-      { label: 'Reports', icon: FileText, route: '/monitoring' }
+      { label: 'Reports', icon: FileText, route: '/reports' }
     ]
   },
   Operator: {
@@ -167,7 +153,6 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Test Adapter', icon: CheckCircle, route: '/testing' },
       { label: 'Run Inference', icon: Play, route: '/inference' },
       { label: 'View Routing', icon: TrendingUp, route: '/routing' },
-      { label: 'Configure Cursor', icon: Code, route: '#cursor-config' },
     ]
   },
   SRE: {
@@ -219,7 +204,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { id: 'active-alerts', component: ActiveAlertsWidget, priority: 4 }
     ],
     quickActions: [
-      { label: 'View Reports', icon: FileText, route: '/monitoring' },
+      { label: 'View Reports', icon: FileText, route: '/reports' },
       { label: 'Inference Playground', icon: Play, route: '/inference' },
       { label: 'System Metrics', icon: Activity, route: '/monitoring' },
       { label: 'Adapter Status', icon: Code, route: '/adapters' }
@@ -232,14 +217,6 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
   const { selectedTenant } = useTenant();
   const navigate = useNavigate();
   const effectiveUser = userProp ?? user!;
-  const [showCursorWizard, setShowCursorWizard] = React.useState(false);
-
-  // Information density management
-  const { density, setDensity } = useInformationDensity({
-    key: 'dashboard',
-    defaultDensity: 'comfortable',
-    persist: true
-  });
 
   if (!effectiveUser) {
     return null;
@@ -256,21 +233,6 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">
-            Dashboard
-          </h2>
-          <p className="text-muted-foreground">
-            Welcome back, {effectiveUser.display_name || effectiveUser.email}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <ModelSelector />
-          <DensityControls density={density} onDensityChange={setDensity} />
-        </div>
-      </div>
 
       {/* Widgets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -287,25 +249,23 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3" aria-label="Quick actions" role="list">
-            {layout.quickActions.map((action) => {
+            {layout.quickActions.map((action, index) => {
               const Icon = action.icon;
               return (
                 <Button
-                  key={action.route}
+                  key={`${action.label}-${index}`}
                   variant={action.variant || 'outline'}
                   className="justify-start h-auto py-4"
                   aria-label={`Quick action: ${action.label}`}
                   onClick={() => {
-                    if (action.route === '#cursor-config') {
-                      setShowCursorWizard(true);
-                    } else if (onNavigate) {
+                    if (onNavigate) {
                       onNavigate(action.route);
                     } else {
                       navigate(action.route);
                     }
                   }}
                 >
-                  <div className="flex items-center gap-3" role="listitem">
+                  <div className="flex items-center gap-3">
                     <Icon className="h-5 w-5" aria-hidden="true" />
                     <span className="font-medium">{action.label}</span>
                   </div>
@@ -315,15 +275,6 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
           </div>
         </CardContent>
       </Card>
-
-        <Dialog open={showCursorWizard} onOpenChange={setShowCursorWizard}>
-            <DialogContent className="max-w-4xl">
-                <CursorSetupWizard
-                onComplete={() => setShowCursorWizard(false)}
-                onCancel={() => setShowCursorWizard(false)}
-                />
-            </DialogContent>
-        </Dialog>
     </div>
   );
 }

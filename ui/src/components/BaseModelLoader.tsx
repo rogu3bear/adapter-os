@@ -8,6 +8,7 @@ import apiClient from '../api/client';
 import { ModelStatusResponse } from '../api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ModelImportWizard } from './ModelImportWizard';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 interface BaseModelLoaderProps {
   status: ModelStatusResponse | null;
@@ -17,21 +18,24 @@ interface BaseModelLoaderProps {
 export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [unloadError, setUnloadError] = useState<Error | null>(null);
 
   const handleLoad = async () => {
     if (!status?.model_id) {
-      toast.error('No model to load');
+      setLoadError(new Error('No model to load'));
       return;
     }
 
+    setLoadError(null);
     setIsLoading(true);
     try {
       await apiClient.loadBaseModel(status.model_id);
       toast.success('Base model loaded successfully');
       onRefresh();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load model';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to load model');
+      setLoadError(error);
     } finally {
       setIsLoading(false);
     }
@@ -39,18 +43,19 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
 
   const handleUnload = async () => {
     if (!status?.model_id) {
-      toast.error('No model to unload');
+      setUnloadError(new Error('No model to unload'));
       return;
     }
 
+    setUnloadError(null);
     setIsLoading(true);
     try {
       await apiClient.unloadBaseModel(status.model_id);
       toast.success('Base model unloaded successfully');
       onRefresh();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to unload model';
-      toast.error(errorMsg);
+      const error = err instanceof Error ? err : new Error('Failed to unload model');
+      setUnloadError(error);
     } finally {
       setIsLoading(false);
     }
@@ -93,6 +98,28 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {loadError && (
+            <ErrorRecovery
+              title="Failed to Load Model"
+              message={loadError.message}
+              error={loadError}
+              recoveryActions={[
+                { label: 'Try Again', action: handleLoad, primary: true },
+                { label: 'Refresh Status', action: onRefresh },
+              ]}
+            />
+          )}
+          {unloadError && (
+            <ErrorRecovery
+              title="Failed to Unload Model"
+              message={unloadError.message}
+              error={unloadError}
+              recoveryActions={[
+                { label: 'Try Again', action: handleUnload, primary: true },
+                { label: 'Refresh Status', action: onRefresh },
+              ]}
+            />
+          )}
           <div className="flex gap-2">
             <Button
               onClick={handleLoad}

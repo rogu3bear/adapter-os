@@ -8,6 +8,7 @@ import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Slider } from './ui/slider';
 import { HelpTooltip } from './ui/help-tooltip';
+import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import {
   Bell,
   AlertTriangle,
@@ -29,6 +30,7 @@ import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { useTenant } from '@/layout/LayoutProvider';
+import type { Alert } from '@/api/types';
 
 interface AlertsPageProps {
   selectedTenant?: string;
@@ -47,18 +49,6 @@ interface AlertRule {
   description: string;
 }
 
-interface Alert {
-  id: string;
-  rule_id: string;
-  rule_name: string;
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  message: string;
-  current_value: number;
-  threshold: number;
-  triggered_at: string;
-  resolved_at?: string;
-  acknowledged: boolean;
-}
 
 const DEFAULT_ALERT_RULES: AlertRule[] = [
   {
@@ -120,6 +110,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for metrics
@@ -140,31 +131,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       }
     }
   );
-
-  useEffect(() => {
-    const initialize = async () => {
-      await loadAlerts();
-    };
-    initialize();
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    // Update metrics when polling updates and evaluate alert rules
-    if (metricsData) {
-      setMetrics(metricsData);
-      evaluateAlertRules(metricsData);
-    }
-  }, [metricsData, evaluateAlertRules]);
-
-  const loadAlerts = async () => {
-    try {
-      const alerts = await apiClient.listAlerts({ limit: 50 });
-      setAlerts(alerts);
-    } catch (error) {
-      console.error('Failed to load alerts:', error);
-      setAlerts([]);
-    }
-  };
 
   // Metrics loading now handled by usePolling hook
 
@@ -191,25 +157,53 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       if (shouldAlert) {
         // Check if alert already exists
         const existingAlert = alerts.find(
-          a => a.rule_id === rule.id && !a.resolved_at
+          a => a.rule_id === rule.id && !a.resolved_at && a.status === 'active'
         );
         if (!existingAlert) {
-          const newAlert: Alert = {
-            id: `alert-${Date.now()}`,
-            rule_id: rule.id,
-            rule_name: rule.name,
-            severity: rule.severity,
-            message: `${rule.name}: ${metricValue} ${rule.condition === 'gt' ? '>' : rule.condition === 'lt' ? '<' : '='} ${rule.threshold}`,
-            current_value: metricValue,
-            threshold: rule.threshold,
-            triggered_at: new Date().toISOString(),
-            acknowledged: false
-          };
-          setAlerts(prev => [newAlert, ...prev]);
+          // Note: Real-time alert generation disabled - alerts should come from backend
+          // TODO: Implement proper real-time alert streaming from backend
         }
       }
     });
   }, [alertRules, alerts]);
+
+  const loadAlerts = useCallback(async () => {
+    try {
+      const alerts = await apiClient.listAlerts({ limit: 50 });
+      setAlerts(alerts as any); // TODO: Align Alert interfaces
+      setErrorRecovery(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load alerts';
+      logger.error('Failed to load alerts', {
+        component: 'AlertsPage',
+        operation: 'loadAlerts',
+        tenantId: effectiveTenant,
+      }, toError(error));
+      setAlerts([]);
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => {
+            setErrorRecovery(null);
+            void loadAlerts();
+          }
+        )
+      );
+    }
+  }, [effectiveTenant]);
+
+  // Initialize alerts when tenant changes
+  useEffect(() => {
+    void loadAlerts();
+  }, [loadAlerts]);
+
+  // Update metrics and evaluate alert rules when polling data arrives
+  useEffect(() => {
+    if (!metricsData) return;
+    
+    setMetrics(metricsData);
+    evaluateAlertRules(metricsData);
+  }, [metricsData, evaluateAlertRules]);
 
   const handleToggleRule = (ruleId: string) => {
     setAlertRules(prev =>
@@ -276,10 +270,13 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
   const activeAlerts = alerts.filter(a => !a.resolved_at);
   const criticalAlerts = activeAlerts.filter(a => a.severity === 'critical').length;
-  const unacknowledgedAlerts = activeAlerts.filter(a => !a.acknowledged).length;
+  const unacknowledgedAlerts = activeAlerts.filter(a => !(a.acknowledged_by || a.acknowledged_at)).length;
 
   return (
     <div className="space-y-6">
+      {/* Error Recovery */}
+      {errorRecovery}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -402,18 +399,18 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                       className={`
                         p-4 border-2 rounded-lg
                         ${getSeverityColor(alert.severity)}
-                        ${alert.acknowledged ? 'opacity-60' : ''}
+                        ${(alert.acknowledged_by || alert.acknowledged_at) ? 'opacity-60' : ''}
                       `}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <AlertTriangle className="w-5 h-5" />
-                            <span className="font-semibold">{alert.rule_name}</span>
+                            <span className="font-semibold">{alert.title}</span>
                             <Badge variant="outline">
                               {alert.severity.toUpperCase()}
                             </Badge>
-                            {alert.acknowledged && (
+                            {(alert.acknowledged_by || alert.acknowledged_at) && (
                               <Badge variant="outline" className="bg-blue-50">
                                 Acknowledged
                               </Badge>
@@ -421,19 +418,23 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                           </div>
                           <p className="text-sm mb-2">{alert.message}</p>
                           <div className="flex items-center gap-4 text-xs">
+                            {alert.metric_value !== undefined && (
+                              <span>
+                                Current: {alert.metric_value}
+                              </span>
+                            )}
+                            {alert.threshold_value !== undefined && (
+                              <span>
+                                Threshold: {alert.threshold_value}
+                              </span>
+                            )}
                             <span>
-                              Current: {alert.current_value}
-                            </span>
-                            <span>
-                              Threshold: {alert.threshold}
-                            </span>
-                            <span>
-                              Triggered: {new Date(alert.triggered_at).toLocaleString()}
+                              Created: {new Date(alert.created_at).toLocaleString()}
                             </span>
                           </div>
                         </div>
                         <div className="flex gap-2">
-                          {!alert.acknowledged && (
+                          {!(alert.acknowledged_by || alert.acknowledged_at) && (
                             <Button
                               size="sm"
                               variant="outline"

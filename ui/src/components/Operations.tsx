@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { useBreadcrumb } from '../contexts/BreadcrumbContext';
 import { useProgressiveDisclosure } from '../hooks/useProgressiveDisclosure';
 import { AdvancedToggle } from './ui/advanced-toggle';
 import { HelpTooltip } from './ui/help-tooltip';
@@ -53,7 +52,6 @@ interface OperationsProps {
 export function Operations({ user, selectedTenant }: OperationsProps) {
   const [activeTab, setActiveTab] = useState('plans');
   const [isLoading, setIsLoading] = useState(false);
-  const { addBreadcrumb, clearBreadcrumbs } = useBreadcrumb();
   const { isVisible: showAdvanced, toggle: toggleAdvanced } = useProgressiveDisclosure({
     key: 'operations-advanced',
     defaultVisible: false,
@@ -73,27 +71,7 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
   // Filter tabs based on advanced visibility
   const visibleTabs = operationTabs.filter(tab => !tab.advanced || showAdvanced);
 
-  // Set breadcrumb when component mounts
-  useEffect(() => {
-    clearBreadcrumbs();
-    addBreadcrumb({
-      id: 'operations',
-      label: 'Operations',
-      icon: Activity
-    });
-  }, [addBreadcrumb, clearBreadcrumbs]);
-
-  // Update breadcrumb when tab changes
-  useEffect(() => {
-    const currentTab = operationTabs.find(tab => tab.id === activeTab);
-    if (currentTab) {
-      addBreadcrumb({
-        id: `operations-${activeTab}`,
-        label: currentTab.label,
-        icon: currentTab.icon
-      });
-    }
-  }, [activeTab, addBreadcrumb, operationTabs]);
+  // Breadcrumbs are now derived statelessly from URL - no manual management needed
 
   return (
     <div className="space-y-6">

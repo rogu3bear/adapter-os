@@ -20,7 +20,9 @@ import {
   Settings,
   Trash2,
   Pin,
-  PinOff
+  PinOff,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import {
   Adapter,
@@ -52,14 +54,54 @@ export function AdapterMemoryMonitor({
   const [selectedCategory, setSelectedCategory] = useState<AdapterCategory | 'all'>('all');
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+  const [selectedAdapterIds, setSelectedAdapterIds] = useState<Set<string>>(new Set());
+  const [isLoading, setIsLoading] = useState(false);
+  const [memoryData, setMemoryData] = useState<{
+    total_memory_mb: number;
+    available_memory_mb: number;
+    memory_pressure_level: 'low' | 'medium' | 'high' | 'critical';
+    adapters: Array<{
+      id: string;
+      name: string;
+      memory_usage_mb: number;
+      state: string;
+      pinned: boolean;
+      category: string;
+    }>;
+  } | null>(null);
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
   };
 
-  // Calculate memory statistics
-  const totalMemoryUsed = adapters.reduce((sum, adapter) => sum + adapter.memory_bytes, 0);
-  const memoryUsagePercent = totalMemory > 0 ? (totalMemoryUsed / totalMemory) * 100 : 0;
+  // Fetch memory usage from API
+  const refreshMemoryData = async () => {
+    try {
+      const data = await apiClient.getMemoryUsage();
+      setMemoryData(data);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch memory usage';
+      logger.error('Failed to fetch memory usage', {
+        component: 'AdapterMemoryMonitor',
+        error: errorMessage,
+      }, error instanceof Error ? error : new Error(errorMessage));
+      // Fall back to props-based calculation
+    }
+  };
+
+  // Poll memory usage every 5 seconds
+  useEffect(() => {
+    refreshMemoryData();
+    const interval = setInterval(refreshMemoryData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate memory statistics - use API data if available, otherwise fall back to props
+  const totalMemoryUsed = memoryData
+    ? memoryData.total_memory_mb - memoryData.available_memory_mb
+    : adapters.reduce((sum, adapter) => sum + adapter.memory_bytes, 0) / 1024 / 1024;
+  const effectiveTotalMemory = memoryData ? memoryData.total_memory_mb : totalMemory / 1024 / 1024;
+  const memoryUsagePercent = effectiveTotalMemory > 0 ? (totalMemoryUsed / effectiveTotalMemory) * 100 : 0;
   
   const memoryByCategory = adapters.reduce((acc, adapter) => {
     acc[adapter.category] = (acc[adapter.category] || 0) + adapter.memory_bytes;
@@ -84,6 +126,11 @@ export function AdapterMemoryMonitor({
     });
 
   const getMemoryPressureLevel = () => {
+    // Use API pressure level if available
+    if (memoryData) {
+      return memoryData.memory_pressure_level;
+    }
+    // Otherwise calculate from usage percent
     if (memoryUsagePercent >= memoryPressureThreshold) return 'critical';
     if (memoryUsagePercent >= memoryPressureThreshold * 0.8) return 'high';
     if (memoryUsagePercent >= memoryPressureThreshold * 0.6) return 'medium';
@@ -142,6 +189,7 @@ export function AdapterMemoryMonitor({
 
       const result = await apiClient.evictAdapter(adapterId);
       onEvictAdapter(adapterId);
+      await refreshMemoryData(); // Refresh after eviction
 
       showStatus(`Adapter evicted: ${result.message || 'Memory freed successfully.'}`, 'success');
       logger.info('Adapter evicted successfully', {
@@ -180,6 +228,7 @@ export function AdapterMemoryMonitor({
 
       await apiClient.pinAdapter(adapterId, pinned);
       onPinAdapter(adapterId, pinned);
+      await refreshMemoryData(); // Refresh after pinning
 
       showStatus(pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', 'success');
       logger.info('Adapter pin status updated successfully', {
@@ -205,6 +254,147 @@ export function AdapterMemoryMonitor({
           () => handlePinToggle(adapterId, pinned)
         )
       );
+    }
+  };
+
+  const handleBulkPin = async (pinned: boolean) => {
+    if (selectedAdapterIds.size === 0) return;
+    
+    const adapterIds = Array.from(selectedAdapterIds);
+    setIsLoading(true);
+    
+    try {
+      const results = await Promise.allSettled(
+        adapterIds.map(id => apiClient.pinAdapter(id, pinned))
+      );
+      
+      const succeeded: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+      
+      results.forEach((result, index) => {
+        const adapterId = adapterIds[index];
+        if (result.status === 'fulfilled') {
+          succeeded.push(adapterId);
+          onPinAdapter(adapterId, pinned);
+        } else {
+          failed.push({
+            id: adapterId,
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          });
+        }
+      });
+      
+      await refreshMemoryData();
+      setSelectedAdapterIds(new Set());
+      
+      if (failed.length === 0) {
+        showStatus(
+          pinned 
+            ? `${succeeded.length} adapters pinned successfully.` 
+            : `${succeeded.length} adapters unpinned successfully.`,
+          'success'
+        );
+      } else {
+        showStatus(
+          `${succeeded.length} succeeded, ${failed.length} failed. First error: ${failed[0].error}`,
+          'warning'
+        );
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to bulk pin/unpin';
+      showStatus(`Failed to ${pinned ? 'pin' : 'unpin'} adapters: ${errorMessage}`, 'warning');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => handleBulkPin(pinned)
+        )
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBulkEvict = async () => {
+    if (selectedAdapterIds.size === 0) return;
+    
+    const adapterIds = Array.from(selectedAdapterIds);
+    setIsLoading(true);
+    
+    try {
+      // Filter out pinned adapters
+      const evictableIds = adapterIds.filter(id => {
+        const adapter = adapters.find(a => a.adapter_id === id);
+        return adapter && !adapter.pinned;
+      });
+      
+      if (evictableIds.length === 0) {
+        showStatus('No unpinned adapters selected for eviction.', 'warning');
+        setIsLoading(false);
+        return;
+      }
+      
+      const results = await Promise.allSettled(
+        evictableIds.map(id => apiClient.evictAdapter(id))
+      );
+      
+      const succeeded: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+      
+      results.forEach((result, index) => {
+        const adapterId = evictableIds[index];
+        if (result.status === 'fulfilled') {
+          succeeded.push(adapterId);
+          onEvictAdapter(adapterId);
+        } else {
+          failed.push({
+            id: adapterId,
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          });
+        }
+      });
+      
+      await refreshMemoryData();
+      setSelectedAdapterIds(new Set());
+      
+      if (failed.length === 0) {
+        showStatus(`${succeeded.length} adapters evicted successfully.`, 'success');
+      } else {
+        showStatus(
+          `${succeeded.length} succeeded, ${failed.length} failed. First error: ${failed[0].error}`,
+          'warning'
+        );
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapters';
+      showStatus(`Failed to evict adapters: ${errorMessage}`, 'warning');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => handleBulkEvict()
+        )
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const toggleAdapterSelection = (adapterId: string) => {
+    setSelectedAdapterIds(prev => {
+      const next = new Set(prev);
+      if (next.has(adapterId)) {
+        next.delete(adapterId);
+      } else {
+        next.add(adapterId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedAdapterIds.size === evictionCandidates.length) {
+      setSelectedAdapterIds(new Set());
+    } else {
+      setSelectedAdapterIds(new Set(evictionCandidates.map(a => a.adapter_id)));
     }
   };
 
@@ -258,7 +448,7 @@ export function AdapterMemoryMonitor({
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Total Memory Usage</span>
               <span className="text-sm text-muted-foreground">
-                {Math.round(totalMemoryUsed / 1024 / 1024)} MB / {Math.round(totalMemory / 1024 / 1024)} MB
+                {Math.round(totalMemoryUsed)} MB / {Math.round(effectiveTotalMemory)} MB
               </span>
             </div>
             <Progress value={memoryUsagePercent} className="h-3" />
@@ -385,16 +575,66 @@ export function AdapterMemoryMonitor({
       {/* Eviction Candidates */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center">
-            <Trash2 className="mr-2 h-5 w-5" />
-            Eviction Candidates
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Trash2 className="mr-2 h-5 w-5" />
+              Eviction Candidates
+            </div>
+            {selectedAdapterIds.size > 0 && (
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkPin(true)}
+                  disabled={isLoading}
+                >
+                  <Pin className="mr-2 h-4 w-4" />
+                  Pin Selected ({selectedAdapterIds.size})
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkEvict()}
+                  disabled={isLoading}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Evict Selected ({selectedAdapterIds.size})
+                </Button>
+              </div>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {evictionCandidates.length > 0 && (
+            <div className="mb-3 flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleSelectAll}
+              >
+                {selectedAdapterIds.size === evictionCandidates.length ? (
+                  <CheckSquare className="mr-2 h-4 w-4" />
+                ) : (
+                  <Square className="mr-2 h-4 w-4" />
+                )}
+                {selectedAdapterIds.size === evictionCandidates.length ? 'Deselect All' : 'Select All'}
+              </Button>
+            </div>
+          )}
           <div className="space-y-3">
             {evictionCandidates.slice(0, 10).map((adapter) => (
               <div key={adapter.adapter_id} className="flex items-center justify-between p-3 rounded-lg border">
                 <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => toggleAdapterSelection(adapter.adapter_id)}
+                    className="cursor-pointer"
+                  >
+                    {selectedAdapterIds.has(adapter.adapter_id) ? (
+                      <CheckSquare className="h-4 w-4 text-primary" />
+                    ) : (
+                      <Square className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </button>
                   {getCategoryIcon(adapter.category)}
                   <div>
                     <div className="font-medium">{adapter.name}</div>

@@ -42,7 +42,7 @@ export function TrainingStreamPage({ selectedTenant }: TrainingStreamPageProps) 
   useEffect(() => {
     const eventSource = new EventSource(`/api/v1/streams/training?tenant=${selectedTenant}`);
 
-    eventSource.addEventListener('training', (event) => {
+    const handleTrainingEvent = (event: MessageEvent) => {
       const data = JSON.parse(event.data);
       
       setEvents((prev) => [data, ...prev].slice(0, 100)); // Keep last 100
@@ -65,9 +65,13 @@ export function TrainingStreamPage({ selectedTenant }: TrainingStreamPageProps) 
           [...prev, { timestamp: data.timestamp, ...data.payload.metrics }].slice(-60) // Keep last 60
         );
       }
-    });
+    };
 
-    return () => eventSource.close();
+    eventSource.addEventListener('training', handleTrainingEvent);
+
+    return () => {
+      eventSource.close();
+    };
   }, [selectedTenant]);
 
   const getEventIcon = (type: string) => {

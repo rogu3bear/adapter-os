@@ -276,34 +276,45 @@
   padding: var(--button-padding-y) var(--button-padding-x);
 }
 
-/* Card standards */
-.card-standard {
-  padding: var(--card-padding);
-  border-radius: var(--card-radius);
-  border: 1px solid var(--border);
-  background-color: var(--card, var(--surface-1));
-  box-shadow: var(--card-shadow);
-}
-
-/* Form standards */
-.form-field {
-  margin-bottom: var(--form-field-gap);
-}
-
-.form-label {
+/* Status indicators with semantic color variants */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
   font-weight: var(--font-weight-medium);
-  font-size: var(--text-sm);
-  margin-bottom: var(--spacing-xs);
-  line-height: var(--line-height-body);
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
 }
 
-/* Table standards */
-.table-standard {
-  border-collapse: collapse;
-  width: 100%;
+.status-success {
+  background-color: var(--success-surface);
+  color: var(--success);
+  border: 1px solid var(--success-border);
 }
 
-.table-cell-standard {
-  padding: var(--table-cell-padding);
-  border-bottom: 1px solid var(--border);
+.status-error {
+  background-color: var(--error-surface);
+  color: var(--error);
+  border: 1px solid var(--error-border);
+}
+
+.status-warning {
+  background-color: var(--warning-surface);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+
+.status-info {
+  background-color: var(--info-surface);
+  color: var(--info);
+  border: 1px solid var(--info-border);
+}
+
+.status-neutral {
+  background-color: var(--surface-2);
+  color: var(--gray-600);
+  border: 1px solid var(--gray-300);
 }

@@ -161,13 +161,13 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex-between section-header">
+      <div className="flex-between flex items-center justify-between mb-6">
         <div>
-          <h1 className="section-title flex items-center gap-2">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
             <Activity className="icon-standard" />
             Real-time Metrics
           </h1>
-          <p className="section-description">
+          <p className="text-sm text-muted-foreground">
             System performance with real-time updates
           </p>
           {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
@@ -183,7 +183,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Cpu className="icon-small text-blue-500" />
+              <Cpu className="h-3 w-3 text-blue-500" />
               CPU Usage
             </CardTitle>
           </CardHeader>
@@ -201,7 +201,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <HardDrive className="icon-small text-green-500" />
+              <HardDrive className="h-3 w-3 text-green-500" />
               Memory
             </CardTitle>
           </CardHeader>
@@ -219,7 +219,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Zap className="icon-small text-purple-500" />
+              <Zap className="h-3 w-3 text-purple-500" />
               GPU
             </CardTitle>
           </CardHeader>
@@ -237,7 +237,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Clock className="icon-small text-orange-500" />
+              <Clock className="h-3 w-3 text-orange-500" />
               Latency
             </CardTitle>
           </CardHeader>
@@ -298,7 +298,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="icon-small" />
+            <TrendingUp className="h-3 w-3" />
             Training Jobs
           </CardTitle>
         </CardHeader>
@@ -328,7 +328,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Activity className="icon-small" />
+            <Activity className="h-3 w-3" />
             Workload
           </CardTitle>
         </CardHeader>
@@ -358,7 +358,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Database className="icon-small" />
+            <Database className="h-3 w-3" />
             Imports & Artifacts
           </CardTitle>
         </CardHeader>
@@ -369,7 +369,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
               <p className="text-2xl font-bold flex items-center gap-2">
                 {imports.reposScanning}
                 {imports.reposScanning > 0 && (
-                  <RefreshCw className="icon-small animate-spin text-blue-500" />
+                  <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />
                 )}
               </p>
             </div>

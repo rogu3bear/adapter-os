@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -9,8 +9,10 @@ import { Alert, AlertDescription } from './ui/alert';
 import apiClient from '../api/client';
 import { User } from '../api/types';
 import { logger, toError } from '../utils/logger';
-import { ArrowUp, History, Download, Undo2, Play, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { ArrowUp, History, Undo2, Play, CheckCircle } from 'lucide-react';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { EmptyState } from './ui/empty-state';
+import { LoadingState } from './ui/loading-state';
 
 interface PromotionProps {
   user: User;
@@ -28,15 +30,43 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
   useEffect(() => {
-    fetchHistory();
-  }, []);
+    if (loading) {
+      logger.debug('Promotion: action in-flight', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+      });
+    }
+  }, [loading, selectedTenant]);
 
-  const fetchHistory = async () => {
+  useEffect(() => {
+    if (!loading && history.length === 0) {
+      logger.info('Promotion: no history entries found', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+      });
+    }
+  }, [history.length, loading, selectedTenant]);
+
+  useEffect(() => {
+    if (!loading && gates.length === 0) {
+      logger.debug('Promotion: gate results empty', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+      });
+    }
+  }, [gates.length, loading, selectedTenant]);
+
+  const fetchHistory = useCallback(async () => {
     try {
       const data = await apiClient.getPromotionHistory();
       setHistory(data);
       setStatusMessage(null);
       setErrorRecovery(null);
+      logger.info('Promotion: history loaded', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+        entryCount: data.length,
+      });
     } catch (err) {
       setStatusMessage({ message: 'Failed to load history.', variant: 'warning' });
       setErrorRecovery(
@@ -45,8 +75,17 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           () => fetchHistory()
         )
       );
+      logger.error(
+        'Promotion: history load failed',
+        { component: 'Promotion', tenantId: selectedTenant },
+        toError(err),
+      );
     }
-  };
+  }, [selectedTenant]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const handleDryRun = async () => {
     setLoading(true);
@@ -55,6 +94,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       setDryRunResult(result);
       setStatusMessage({ message: 'Dry run completed.', variant: 'info' });
       setError(null);
+      logger.info('Promotion: dry run completed', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+        cpid,
+      });
     } catch (err) {
       setError('Dry run failed');
       setStatusMessage({ message: 'Dry run failed.', variant: 'warning' });
@@ -63,6 +107,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           err instanceof Error ? err : new Error('Dry run failed.'),
           () => handleDryRun()
         )
+      );
+      logger.error(
+        'Promotion: dry run failed',
+        { component: 'Promotion', tenantId: selectedTenant, cpid },
+        toError(err),
       );
     } finally {
       setLoading(false);
@@ -76,6 +125,12 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       setGates(data);
       setStatusMessage({ message: 'Gate check completed.', variant: 'info' });
       setError(null);
+      logger.info('Promotion: gate check completed', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+        cpid,
+        gateCount: data.length,
+      });
     } catch (err) {
       setError('Gate check failed');
       setStatusMessage({ message: 'Gate check failed.', variant: 'warning' });
@@ -84,6 +139,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           err instanceof Error ? err : new Error('Gate check failed.'),
           () => handleCheckGates()
         )
+      );
+      logger.error(
+        'Promotion: gate check failed',
+        { component: 'Promotion', tenantId: selectedTenant, cpid },
+        toError(err),
       );
     } finally {
       setLoading(false);
@@ -95,6 +155,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     try {
       await apiClient.promote({ cpid });
       setStatusMessage({ message: 'Promoted successfully.', variant: 'success' });
+      logger.info('Promotion: promote executed', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+        cpid,
+      });
       fetchHistory();
     } catch (err) {
       setError('Promotion failed');
@@ -104,6 +169,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           err instanceof Error ? err : new Error('Promotion failed.'),
           () => handlePromote()
         )
+      );
+      logger.error(
+        'Promotion: promote failed',
+        { component: 'Promotion', tenantId: selectedTenant, cpid },
+        toError(err),
       );
     } finally {
       setLoading(false);
@@ -115,6 +185,10 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     try {
       await apiClient.rollback();
       setStatusMessage({ message: 'Rollback successful.', variant: 'success' });
+      logger.warn('Promotion: rollback executed', {
+        component: 'Promotion',
+        tenantId: selectedTenant,
+      });
       fetchHistory();
     } catch (err) {
       setError('Rollback failed');
@@ -124,6 +198,11 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           err instanceof Error ? err : new Error('Rollback failed.'),
           () => handleRollback()
         )
+      );
+      logger.error(
+        'Promotion: rollback failed',
+        { component: 'Promotion', tenantId: selectedTenant },
+        toError(err),
       );
     } finally {
       setLoading(false);
@@ -164,6 +243,16 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
         </Alert>
       )}
 
+      {loading && (
+        <LoadingState
+          size="sm"
+          skeletonLines={0}
+          title="Processing promotion request"
+          description="Executing the selected promotion workflow."
+          className="border-none bg-transparent p-0"
+        />
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Promotion Controls</CardTitle>
@@ -184,23 +273,29 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       </Card>
 
       {/* Gate Visualization */}
-      {gates.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Gate Status</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader>
+          <CardTitle>Gate Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {gates.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle}
+              title="No gate evaluations yet"
+              description="Run Check Gates to evaluate promotion safety. Gate outcomes appear here."
+            />
+          ) : (
             <div className="space-y-2">
               {gates.map((gate, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2 border rounded">
+                <div key={idx} className="flex items-center justify-between rounded border p-2">
                   <span>{gate.name}</span>
                   <Badge variant={gate.status === 'passed' ? 'default' : 'destructive'}>{gate.status}</Badge>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       {/* Dry Run Preview */}
       {dryRunResult && (
@@ -230,14 +325,26 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {history.map((entry, idx) => (
-                <TableRow key={idx}>
-                  <TableCell>{entry.cpid}</TableCell>
-                  <TableCell>{entry.promoted_by}</TableCell>
-                  <TableCell>{new Date(entry.promoted_at).toLocaleString()}</TableCell>
-                  <TableCell><Badge>{entry.status}</Badge></TableCell>
+              {history.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4}>
+                    <EmptyState
+                      icon={History}
+                      title="No promotions recorded"
+                      description="Run a promotion or rollback to populate the timeline."
+                    />
+                  </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                history.map((entry, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell>{entry.cpid}</TableCell>
+                    <TableCell>{entry.promoted_by}</TableCell>
+                    <TableCell>{new Date(entry.promoted_at).toLocaleString()}</TableCell>
+                    <TableCell><Badge>{entry.status}</Badge></TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

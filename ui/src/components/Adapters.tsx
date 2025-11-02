@@ -6,6 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { VirtualizedTableRows } from './ui/virtualized-table';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
@@ -13,14 +14,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { LoadingState } from './ui/loading-state';
 import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
+import { ExportDialog, ExportOptions, ExportScope } from './ui/export-dialog';
 import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { TrainingWizard } from './TrainingWizard';
+import { AdapterImportWizard } from './AdapterImportWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
 import { useViewTransition } from '../hooks/useViewTransition';
+import { useUndoRedoContext } from '../contexts/UndoRedoContext';
 import { 
   Plus, 
   Code, 
@@ -82,6 +87,8 @@ import { RouterConfigPage } from './RouterConfigPage';
 import { TrainingStreamPage } from './TrainingStreamPage';
 import { DomainAdapterManager } from './DomainAdapterManager';
 import { logger, toError } from '../utils/logger';
+import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
+import { BookmarkButton } from './ui/bookmark-button';
 
 interface AdaptersProps {
   user: User;
@@ -166,6 +173,7 @@ interface AdaptersProps {
 
 export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const navigate = useNavigate();
+  const { addAction } = useUndoRedoContext();
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,6 +197,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
   const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
+  const [selectedAdapterForHealth, setSelectedAdapterForHealth] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
   const transitionTo = useViewTransition();
 
@@ -204,9 +213,33 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportDialogScope, setExportDialogScope] = useState<ExportScope>('all');
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // SSE connection for real-time adapter state updates
   const { data: sseAdapters } = useSSE<Adapter[]>('/v1/stream/adapters');
+
+  useEffect(() => {
+    const handleOpenExport = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope?: ExportScope }>).detail;
+      let scope = detail?.scope ?? (selectedAdapters.length > 0 ? 'selected' : 'all');
+
+      if (detail?.scope === 'selected' && selectedAdapters.length === 0) {
+        setStatusMessage({
+          message: 'Select at least one adapter before exporting from the command palette.',
+          variant: 'info',
+        });
+        scope = 'all';
+      }
+
+      setExportDialogScope(scope);
+      setShowExportDialog(true);
+    };
+
+    window.addEventListener('aos:open-adapter-export', handleOpenExport as EventListener);
+    return () => window.removeEventListener('aos:open-adapter-export', handleOpenExport as EventListener);
+  }, [selectedAdapters]);
 
   // Remove mock data - using real API now
   /* Mock data removed
@@ -336,17 +369,63 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   // Update adapters from SSE stream
   useEffect(() => {
-    if (sseAdapters) {
-      setAdapters(sseAdapters);
-    }
+    if (!sseAdapters) return;
+    setAdapters(sseAdapters);
   }, [sseAdapters]);
+
+  useEffect(() => {
+    setSelectedAdapters(prev => {
+      if (prev.length === 0) return prev;
+      const valid = new Set(adapters.map(adapter => adapter.adapter_id));
+      const next = prev.filter(id => valid.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [adapters]);
 
   const handleDeleteAdapter = async (adapterId: string) => {
     try {
+      const adapter = adapters.find(a => a.adapter_id === adapterId);
+      if (!adapter) return;
+
+      const previousAdapter = { ...adapter };
+      
       await apiClient.deleteAdapter(adapterId);
-      setAdapters(adapters.filter(a => a.adapter_id !== adapterId));
+      const updatedAdapters = adapters.filter(a => a.adapter_id !== adapterId);
+      setAdapters(updatedAdapters);
       setDeleteConfirmId(null);
       showStatus('Adapter deleted successfully.', 'success');
+
+      // Record undo action
+      addAction({
+        type: 'delete_adapter',
+        description: `Delete adapter "${adapter.name}"`,
+        previousState: previousAdapter,
+        reverse: async () => {
+          // Re-register the adapter (undo delete)
+          try {
+            await apiClient.registerAdapter({
+              adapter_id: previousAdapter.adapter_id,
+              name: previousAdapter.name,
+              hash_b3: previousAdapter.hash_b3,
+              rank: previousAdapter.rank,
+              tier: previousAdapter.tier,
+              category: previousAdapter.category,
+              framework: previousAdapter.framework,
+              scope: previousAdapter.scope,
+              languages_json: previousAdapter.languages_json,
+            });
+            await loadAdapters();
+            showStatus(`Adapter "${adapter.name}" restored.`, 'success');
+          } catch (err) {
+            logger.error('Failed to undo adapter delete', {
+              component: 'Adapters',
+              operation: 'undoDelete',
+              adapterId,
+            }, toError(err));
+            showStatus('Failed to restore adapter.', 'warning');
+          }
+        },
+      });
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to delete adapter');
       setErrorRecovery(
@@ -360,11 +439,36 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   const handleLoadAdapter = async (adapterId: string) => {
     try {
+      const adapter = adapters.find(a => a.adapter_id === adapterId);
+      const previousState = adapter?.current_state;
+      
       showStatus('Loading adapter...', 'info');
       await apiClient.loadAdapter(adapterId);
+      
+      // Record undo action
+      if (adapter && previousState) {
+        addAction({
+          type: 'load_adapter',
+          description: `Load adapter "${adapter.name}"`,
+          previousState: { adapterId, previousState },
+          reverse: async () => {
+            try {
+              await apiClient.unloadAdapter(adapterId);
+              await loadAdapters();
+            } catch (err) {
+              logger.error('Failed to undo adapter load', {
+                component: 'Adapters',
+                operation: 'undoLoad',
+                adapterId,
+              }, toError(err));
+            }
+          },
+        });
+      }
+      
       setSuccessFeedback(
         SuccessTemplates.adapterLoaded(
-          adapters.find(a => a.adapter_id === adapterId)?.name || 'Adapter',
+          adapter?.name || 'Adapter',
           () => transitionTo('/inference?adapter=' + adapterId)
         )
       );
@@ -384,8 +488,33 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   const handleUnloadAdapter = async (adapterId: string) => {
     try {
+      const adapter = adapters.find(a => a.adapter_id === adapterId);
+      const previousState = adapter?.current_state;
+      
       showStatus('Unloading adapter...', 'info');
       await apiClient.unloadAdapter(adapterId);
+      
+      // Record undo action
+      if (adapter && previousState) {
+        addAction({
+          type: 'unload_adapter',
+          description: `Unload adapter "${adapter.name}"`,
+          previousState: { adapterId, previousState },
+          reverse: async () => {
+            try {
+              await apiClient.loadAdapter(adapterId);
+              await loadAdapters();
+            } catch (err) {
+              logger.error('Failed to undo adapter unload', {
+                component: 'Adapters',
+                operation: 'undoUnload',
+                adapterId,
+              }, toError(err));
+            }
+          },
+        });
+      }
+      
       showStatus('Adapter unloaded successfully.', 'success');
       await loadAdapters();
     } catch (err) {
@@ -402,6 +531,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   const handlePinToggle = async (adapter: Adapter) => {
     try {
+      const previousPinned = adapter.pinned;
+      const isPinning = !adapter.pinned;
+      
       if (adapter.pinned) {
         await apiClient.unpinAdapter(adapter.adapter_id);
         showStatus('Adapter unpinned.', 'success');
@@ -409,6 +541,30 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         await apiClient.pinAdapter(adapter.adapter_id, true);
         showStatus('Adapter pinned.', 'success');
       }
+      
+      // Record undo action
+      addAction({
+        type: isPinning ? 'pin_adapter' : 'unpin_adapter',
+        description: `${isPinning ? 'Pin' : 'Unpin'} adapter "${adapter.name}"`,
+        previousState: { adapterId: adapter.adapter_id, pinned: previousPinned },
+        reverse: async () => {
+          try {
+            if (isPinning) {
+              await apiClient.unpinAdapter(adapter.adapter_id);
+            } else {
+              await apiClient.pinAdapter(adapter.adapter_id, true);
+            }
+            await loadAdapters();
+          } catch (err) {
+            logger.error('Failed to undo pin toggle', {
+              component: 'Adapters',
+              operation: 'undoPinToggle',
+              adapterId: adapter.adapter_id,
+            }, toError(err));
+          }
+        },
+      });
+      
       await loadAdapters();
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to toggle pin');
@@ -442,37 +598,89 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   // Bulk action handlers
   const handleBulkLoad = async (adapterIds: string[]) => {
     const performBulkLoad = async () => {
-      let successCount = 0;
-      let errorCount = 0;
+      const snapshots = adapters
+        .filter(adapter => adapterIds.includes(adapter.adapter_id))
+        .map(adapter => ({ ...adapter }));
+
+      if (snapshots.length === 0) {
+        showStatus('No adapters selected for load.', 'warning');
+        return;
+      }
+
+      // Optimistic update
+      setAdapters(prev =>
+        prev.map(adapter =>
+          adapterIds.includes(adapter.adapter_id)
+            ? { ...adapter, current_state: 'hot', active: true }
+            : adapter
+        )
+      );
+
+      const failedIds: string[] = [];
 
       for (const adapterId of adapterIds) {
         try {
           await apiClient.loadAdapter(adapterId);
-          successCount++;
         } catch (err) {
-          errorCount++;
+          failedIds.push(adapterId);
           logger.error('Failed to load adapter in bulk operation', {
             component: 'Adapters',
             operation: 'bulkLoad',
-            adapterId
+            adapterId,
           }, toError(err));
         }
       }
 
-      if (successCount > 0) {
-        showStatus(`Successfully loaded ${successCount} adapter(s).`, 'success');
-      }
-      if (errorCount > 0) {
+      if (failedIds.length > 0) {
+        // Revert failures to previous snapshot
+        setAdapters(prev =>
+          prev.map(adapter => {
+            if (!failedIds.includes(adapter.adapter_id)) return adapter;
+            const fallback = snapshots.find(snapshot => snapshot.adapter_id === adapter.adapter_id);
+            return fallback ? fallback : adapter;
+          })
+        );
+
         setErrorRecovery(
           ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to load ${errorCount} adapter(s).`),
-            () => performBulkLoad()
+            new Error(`Failed to load ${failedIds.length} adapter(s).`),
+            () => handleBulkLoad(failedIds)
           )
         );
       }
 
+      const successfulIds = adapterIds.filter(id => !failedIds.includes(id));
+
+      if (successfulIds.length > 0) {
+        showStatus(`Successfully loaded ${successfulIds.length} adapter(s).`, 'success');
+        addAction({
+          type: 'bulk_load_adapters',
+          description: `Load ${successfulIds.length} adapter(s)`,
+          previousState: snapshots.filter(snapshot => successfulIds.includes(snapshot.adapter_id)),
+          reverse: async () => {
+            try {
+              for (const snapshot of snapshots.filter(s => successfulIds.includes(s.adapter_id))) {
+                if (!snapshot.active) {
+                  await apiClient.unloadAdapter(snapshot.adapter_id);
+                } else {
+                  await apiClient.loadAdapter(snapshot.adapter_id);
+                }
+              }
+              await loadAdapters();
+              showStatus('Reverted adapter load.', 'success');
+            } catch (err) {
+              logger.error('Failed to undo adapter load', {
+                component: 'Adapters',
+                operation: 'undoBulkLoad',
+              }, toError(err));
+              showStatus('Failed to undo load operation.', 'warning');
+            }
+          },
+        });
+      }
+
       await loadAdapters();
-      setSelectedAdapters([]);
+      setSelectedAdapters(prev => prev.filter(id => failedIds.includes(id)));
     };
 
     setConfirmationOptions({
@@ -487,37 +695,87 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   const handleBulkUnload = async (adapterIds: string[]) => {
     const performBulkUnload = async () => {
-      let successCount = 0;
-      let errorCount = 0;
+      const snapshots = adapters
+        .filter(adapter => adapterIds.includes(adapter.adapter_id))
+        .map(adapter => ({ ...adapter }));
+
+      if (snapshots.length === 0) {
+        showStatus('No adapters selected for unload.', 'warning');
+        return;
+      }
+
+      setAdapters(prev =>
+        prev.map(adapter =>
+          adapterIds.includes(adapter.adapter_id)
+            ? { ...adapter, current_state: 'cold', active: false }
+            : adapter
+        )
+      );
+
+      const failedIds: string[] = [];
 
       for (const adapterId of adapterIds) {
         try {
           await apiClient.unloadAdapter(adapterId);
-          successCount++;
         } catch (err) {
-          errorCount++;
+          failedIds.push(adapterId);
           logger.error('Failed to unload adapter in bulk operation', {
             component: 'Adapters',
             operation: 'bulkUnload',
-            adapterId
+            adapterId,
           }, toError(err));
         }
       }
 
-      if (successCount > 0) {
-        showStatus(`Successfully unloaded ${successCount} adapter(s).`, 'success');
-      }
-      if (errorCount > 0) {
+      if (failedIds.length > 0) {
+        setAdapters(prev =>
+          prev.map(adapter => {
+            if (!failedIds.includes(adapter.adapter_id)) return adapter;
+            const fallback = snapshots.find(snapshot => snapshot.adapter_id === adapter.adapter_id);
+            return fallback ? fallback : adapter;
+          })
+        );
+
         setErrorRecovery(
           ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to unload ${errorCount} adapter(s).`),
-            () => performBulkUnload()
+            new Error(`Failed to unload ${failedIds.length} adapter(s).`),
+            () => handleBulkUnload(failedIds)
           )
         );
       }
 
+      const successfulIds = adapterIds.filter(id => !failedIds.includes(id));
+
+      if (successfulIds.length > 0) {
+        showStatus(`Successfully unloaded ${successfulIds.length} adapter(s).`, 'success');
+        addAction({
+          type: 'bulk_unload_adapters',
+          description: `Unload ${successfulIds.length} adapter(s)`,
+          previousState: snapshots.filter(snapshot => successfulIds.includes(snapshot.adapter_id)),
+          reverse: async () => {
+            try {
+              for (const snapshot of snapshots.filter(s => successfulIds.includes(s.adapter_id))) {
+                if (snapshot.active) {
+                  await apiClient.loadAdapter(snapshot.adapter_id);
+                } else {
+                  await apiClient.unloadAdapter(snapshot.adapter_id);
+                }
+              }
+              await loadAdapters();
+              showStatus('Reverted adapter unload.', 'success');
+            } catch (err) {
+              logger.error('Failed to undo adapter unload', {
+                component: 'Adapters',
+                operation: 'undoBulkUnload',
+              }, toError(err));
+              showStatus('Failed to undo unload operation.', 'warning');
+            }
+          },
+        });
+      }
+
       await loadAdapters();
-      setSelectedAdapters([]);
+      setSelectedAdapters(prev => prev.filter(id => failedIds.includes(id)));
     };
 
     setConfirmationOptions({
@@ -532,37 +790,85 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   const handleBulkDelete = async (adapterIds: string[]) => {
     const performBulkDelete = async () => {
-      let successCount = 0;
-      let errorCount = 0;
+      const snapshots = adapters
+        .filter(adapter => adapterIds.includes(adapter.adapter_id))
+        .map(adapter => ({ ...adapter }));
+
+      if (snapshots.length === 0) {
+        showStatus('No adapters selected for deletion.', 'warning');
+        return;
+      }
+
+      setAdapters(prev => prev.filter(adapter => !adapterIds.includes(adapter.adapter_id)));
+
+      const failedAdapters: Adapter[] = [];
 
       for (const adapterId of adapterIds) {
         try {
           await apiClient.deleteAdapter(adapterId);
-          successCount++;
         } catch (err) {
-          errorCount++;
+          const original = snapshots.find(adapter => adapter.adapter_id === adapterId);
+          if (original) {
+            failedAdapters.push(original);
+          }
           logger.error('Failed to delete adapter in bulk operation', {
             component: 'Adapters',
             operation: 'bulkDelete',
-            adapterId
+            adapterId,
           }, toError(err));
         }
       }
 
-      if (successCount > 0) {
-        showStatus(`Successfully deleted ${successCount} adapter(s).`, 'success');
-      }
-      if (errorCount > 0) {
+      if (failedAdapters.length > 0) {
+        setAdapters(prev => [...prev, ...failedAdapters]);
         setErrorRecovery(
           ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to delete ${errorCount} adapter(s).`),
-            () => performBulkDelete()
+            new Error(`Failed to delete ${failedAdapters.length} adapter(s).`),
+            () => handleBulkDelete(failedAdapters.map(adapter => adapter.adapter_id))
           )
         );
       }
 
+      const successfulAdapters = snapshots.filter(snapshot => !failedAdapters.some(failed => failed.adapter_id === snapshot.adapter_id));
+
+      if (successfulAdapters.length > 0) {
+        showStatus(`Successfully deleted ${successfulAdapters.length} adapter(s).`, 'success');
+
+        addAction({
+          type: 'bulk_delete_adapters',
+          description: `Delete ${successfulAdapters.length} adapter(s)`,
+          previousState: successfulAdapters,
+          reverse: async () => {
+            try {
+              for (const adapter of successfulAdapters) {
+                await apiClient.registerAdapter({
+                  adapter_id: adapter.adapter_id,
+                  name: adapter.name,
+                  hash_b3: adapter.hash_b3,
+                  rank: adapter.rank,
+                  tier: adapter.tier,
+                  category: adapter.category,
+                  framework: adapter.framework,
+                  scope: adapter.scope,
+                  languages_json: adapter.languages_json,
+                });
+              }
+              await loadAdapters();
+              showStatus(`Restored ${successfulAdapters.length} adapter(s).`, 'success');
+            } catch (err) {
+              logger.error('Failed to undo bulk adapter delete', {
+                component: 'Adapters',
+                operation: 'undoBulkDelete',
+                adapterIds: successfulAdapters.map(adapter => adapter.adapter_id),
+              }, toError(err));
+              showStatus('Failed to restore adapters.', 'warning');
+            }
+          },
+        });
+      }
+
       await loadAdapters();
-      setSelectedAdapters([]);
+      setSelectedAdapters(prev => prev.filter(id => failedAdapters.some(adapter => adapter.adapter_id === id)));
     };
 
     setConfirmationOptions({
@@ -616,13 +922,230 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     }
   };
 
+  const handleExportDialogOpenChange = useCallback((open: boolean) => {
+    setShowExportDialog(open);
+    if (!open) {
+      setExportDialogScope(selectedAdapters.length > 0 ? 'selected' : 'all');
+    }
+  }, [selectedAdapters]);
+
+  const handleExport = async (options: ExportOptions) => {
+    try {
+      let adapterIdsToExport: string[] = [];
+
+      if (options.scope === 'selected') {
+        adapterIdsToExport = selectedAdapters;
+      } else if (options.scope === 'all') {
+        adapterIdsToExport = adapters.map(a => a.adapter_id);
+      } else {
+        // filtered - for now, same as all
+        adapterIdsToExport = adapters.map(a => a.adapter_id);
+      }
+
+      if (adapterIdsToExport.length === 0) {
+        showStatus('No adapters to export.', 'warning');
+        handleExportDialogOpenChange(false);
+        return;
+      }
+
+      // Download all manifests
+      const manifests = [];
+      for (const adapterId of adapterIdsToExport) {
+        try {
+          const manifest = await apiClient.downloadAdapterManifest(adapterId);
+          manifests.push(manifest);
+        } catch (err) {
+          logger.error('Failed to download manifest for export', {
+            component: 'Adapters',
+            operation: 'export',
+            adapterId
+          }, toError(err));
+        }
+      }
+
+      // Create export file
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `adapters-export-${timestamp}`;
+
+      if (options.format === 'json') {
+        const blob = new Blob([JSON.stringify(manifests, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV export
+        if (manifests.length === 0) return;
+        
+        const headers = ['adapter_id', 'name', 'hash_b3', 'rank', 'tier', 'framework', 'category', 'scope', 'created_at', 'updated_at'];
+        const csvRows = manifests.map(m => 
+          headers.map(header => {
+            const value = (m as any)[header] || '';
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          }).join(',')
+        );
+        const csv = [headers.join(','), ...csvRows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      showStatus(`Exported ${manifests.length} adapter manifest(s).`, 'success');
+      handleExportDialogOpenChange(false);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to export adapters');
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error,
+          () => handleExport(options)
+        )
+      );
+    }
+  };
+
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [healthData, setHealthData] = useState<any | null>(null);
+  
+  // Filtering state
+  const [filterValues, setFilterValues] = useState<FilterValues>({});
+  
+  // Filter configurations for adapters
+  const adapterFilterConfigs: FilterConfig[] = [
+    {
+      id: 'search',
+      label: 'Search',
+      type: 'text',
+      placeholder: 'Search by name or adapter ID...',
+    },
+    {
+      id: 'category',
+      label: 'Category',
+      type: 'select',
+      options: [
+        { value: 'code', label: 'Code' },
+        { value: 'framework', label: 'Framework' },
+        { value: 'codebase', label: 'Codebase' },
+        { value: 'ephemeral', label: 'Ephemeral' },
+      ],
+    },
+    {
+      id: 'framework',
+      label: 'Framework',
+      type: 'select',
+      options: Array.from(new Set(adapters.map(a => a.framework).filter(Boolean)))
+        .map(f => ({ value: f!, label: f! })),
+    },
+    {
+      id: 'state',
+      label: 'State',
+      type: 'multiSelect',
+      options: [
+        { value: 'unloaded', label: 'Unloaded' },
+        { value: 'cold', label: 'Cold' },
+        { value: 'warm', label: 'Warm' },
+        { value: 'hot', label: 'Hot' },
+        { value: 'resident', label: 'Resident' },
+      ],
+    },
+    {
+      id: 'tier',
+      label: 'Tier',
+      type: 'multiSelect',
+      options: [
+        { value: '1', label: 'Tier 1' },
+        { value: '2', label: 'Tier 2' },
+        { value: '3', label: 'Tier 3' },
+        { value: '4', label: 'Tier 4' },
+      ],
+    },
+    {
+      id: 'scope',
+      label: 'Scope',
+      type: 'multiSelect',
+      options: [
+        { value: 'global', label: 'Global' },
+        { value: 'tenant', label: 'Tenant' },
+        { value: 'repo', label: 'Repo' },
+        { value: 'commit', label: 'Commit' },
+      ],
+    },
+    {
+      id: 'pinned',
+      label: 'Pinned Only',
+      type: 'toggle',
+    },
+  ];
+  
+  // Filter adapters based on filter values
+  const filteredAdapters = adapters.filter(adapter => {
+    // Search filter
+    if (filterValues.search) {
+      const searchLower = String(filterValues.search).toLowerCase();
+      if (
+        !adapter.name.toLowerCase().includes(searchLower) &&
+        !adapter.adapter_id.toLowerCase().includes(searchLower) &&
+        !(adapter.framework?.toLowerCase().includes(searchLower))
+      ) {
+        return false;
+      }
+    }
+    
+    // Category filter
+    if (filterValues.category && adapter.category !== filterValues.category) {
+      return false;
+    }
+    
+    // Framework filter
+    if (filterValues.framework && adapter.framework !== filterValues.framework) {
+      return false;
+    }
+    
+    // State filter (multi-select)
+    if (filterValues.state && Array.isArray(filterValues.state) && filterValues.state.length > 0) {
+      if (!filterValues.state.includes(adapter.current_state)) {
+        return false;
+      }
+    }
+    
+    // Tier filter (multi-select)
+    if (filterValues.tier && Array.isArray(filterValues.tier) && filterValues.tier.length > 0) {
+      if (!filterValues.tier.includes(String(adapter.tier))) {
+        return false;
+      }
+    }
+    
+    // Scope filter (multi-select)
+    if (filterValues.scope && Array.isArray(filterValues.scope) && filterValues.scope.length > 0) {
+      if (!filterValues.scope.includes(adapter.scope)) {
+        return false;
+      }
+    }
+    
+    // Pinned filter
+    if (filterValues.pinned === true && !adapter.pinned) {
+      return false;
+    }
+    
+    return true;
+  });
 
   const handleViewHealth = async (adapterId: string) => {
     try {
       const health = await apiClient.getAdapterHealth(adapterId);
       setHealthData(health);
+      const adapter = adapters.find(a => a.adapter_id === adapterId);
+      if (adapter) {
+        setSelectedAdapterForHealth(adapter);
+      }
       setShowHealthModal(true);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to fetch adapter health');
@@ -668,7 +1191,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   };
 
   if (loading) {
-    return <div className="text-center p-8">Loading adapters...</div>;
+    return (
+      <LoadingState
+        title="Loading adapters"
+        description="Fetching the latest adapter registry and training jobs"
+        skeletonLines={3}
+        size="md"
+        className="my-12"
+      />
+    );
   }
 
   const hierarchyClasses = getVisualHierarchyClasses({ level: 'primary', emphasis: 'high' });
@@ -720,7 +1251,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       <ContentSection
         title="Adapter Management"
-        subtitle="Train, manage, and monitor LoRA adapters for your models"
+        subtitle="Train, manage, and monitor adapters for your models"
         level="primary"
         variant="default"
         actions={
@@ -736,6 +1267,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
             <Button onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Register Adapter
+            </Button>
+            <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import Adapter
             </Button>
             <Button variant="outline" onClick={() => setUpsertOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
@@ -767,174 +1302,219 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsList>
 
         {/* Registry Tab */}
-        <TabsContent value="registry" className="form-field">
-          <Card className="card-standard">
+        <TabsContent value="registry" className="mb-4">
+          <AdvancedFilter
+            configs={adapterFilterConfigs}
+            values={filterValues}
+            onChange={setFilterValues}
+            className="mb-4"
+            title="Filter Adapters"
+          />
+          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
             <CardHeader>
-              <CardTitle className="flex-center">
-                <Code className="icon-large mr-2" />
-                Registered Adapters
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center justify-center">
+                  <Code className="h-6 w-6 mr-2" />
+                  Registered Adapters
+                  {filteredAdapters.length !== adapters.length && (
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">
+                      ({filteredAdapters.length} of {adapters.length})
+                    </span>
+                  )}
+                </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setExportDialogScope(selectedAdapters.length > 0 ? 'selected' : 'all');
+                    setShowExportDialog(true);
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <Table className="table-standard">
+              <div className="max-h-[600px] overflow-auto" data-virtual-container>
+              <Table className="border-collapse w-full" role="table" aria-label="Registered adapters">
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="table-cell-standard w-12">
+                  <TableRow role="row">
+                    <TableHead className="p-4 border-b border-border w-12" role="columnheader" scope="col">
                       <Checkbox
                         checked={
-                          adapters.length === 0
+                          filteredAdapters.length === 0
                             ? false
-                            : selectedAdapters.length === adapters.length
+                            : selectedAdapters.length === filteredAdapters.length && filteredAdapters.length > 0
                               ? true
-                              : selectedAdapters.length > 0
+                              : selectedAdapters.length > 0 && selectedAdapters.some(id => filteredAdapters.some(a => a.adapter_id === id))
                                 ? 'indeterminate'
                                 : false
-                        }
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedAdapters(adapters.map(a => a.adapter_id));
-                          } else {
-                            setSelectedAdapters([]);
                           }
-                        }}
-                        aria-label="Select all adapters"
-                      />
-                    </TableHead>
-                    <TableHead className="table-cell-standard">Name</TableHead>
-                    <TableHead className="table-cell-standard">Category</TableHead>
-                    <TableHead className="table-cell-standard">State</TableHead>
-                    <TableHead className="table-cell-standard">Memory</TableHead>
-                    <TableHead className="table-cell-standard">Activations</TableHead>
-                    <TableHead className="table-cell-standard">Last Used</TableHead>
-                    <TableHead className="table-cell-standard">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {adapters.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="h-32">
-                        <EmptyState
-                          icon={Code}
-                          title="No Adapters Registered"
-                          description="Get started by registering your first adapter or training a new one from your codebase. Use the Register or Train buttons above to begin."
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    adapters.map((adapter) => (
-                      <TableRow key={adapter.id}>
-                      <TableCell className="table-cell-standard">
-                        <Checkbox
-                          checked={selectedAdapters.includes(adapter.adapter_id)}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setSelectedAdapters(prev => [...prev, adapter.adapter_id]);
+                              setSelectedAdapters(filteredAdapters.map(a => a.adapter_id));
                             } else {
-                              setSelectedAdapters(prev => prev.filter(id => id !== adapter.adapter_id));
+                              setSelectedAdapters([]);
                             }
                           }}
-                          aria-label={`Select ${adapter.name}`}
+                          aria-label="Select all adapters"
                         />
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          {getCategoryIcon(adapter.category)}
-                          <div>
-                            <div className="font-medium">{adapter.name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              Tier {adapter.tier} • Rank {adapter.rank}
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="status-indicator status-neutral flex-center">
-                          {getCategoryIcon(adapter.category)}
-                          <span>{adapter.category}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          {getStateIcon(adapter.current_state)}
-                          <div className={`status-indicator ${
-                            adapter.current_state === 'hot' ? 'status-error' :
-                            adapter.current_state === 'warm' ? 'status-warning' :
-                            adapter.current_state === 'cold' ? 'status-info' :
-                            adapter.current_state === 'resident' ? 'status-success' :
-                            'status-neutral'
-                          }`}>
-                            {adapter.current_state}
-                          </div>
-                          {adapter.pinned && (
-                            <Pin className="icon-standard text-purple-500" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          <MemoryStick className="icon-standard" />
-                          <span>{Math.round(adapter.memory_bytes / 1024 / 1024)} MB</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          <Target className="icon-standard" />
-                          <span>{adapter.activation_count}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          <Clock className="icon-standard" />
-                          <span>{adapter.last_activated ? new Date(adapter.last_activated).toLocaleString() : 'Never'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {adapter.current_state === 'warm' || adapter.current_state === 'hot' || adapter.current_state === 'resident' ? (
-                              <DropdownMenuItem onClick={() => handleUnloadAdapter(adapter.adapter_id)}>
-                                <Pause className="mr-2 h-4 w-4" />
-                                Unload
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem onClick={() => handleLoadAdapter(adapter.adapter_id)}>
-                                <Play className="mr-2 h-4 w-4" />
-                                Load
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => handlePinToggle(adapter)}>
-                              <Pin className="mr-2 h-4 w-4" />
-                              {adapter.pinned ? 'Unpin' : 'Pin'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handlePromoteState(adapter.adapter_id)}>
-                              <ArrowUp className="mr-2 h-4 w-4" />
-                              Promote State
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleViewHealth(adapter.adapter_id)}>
-                              <Activity className="mr-2 h-4 w-4" />
-                              View Health
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadManifest(adapter.adapter_id)}>
-                              <Download className="mr-2 h-4 w-4" />
-                              Download Manifest
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setDeleteConfirmId(adapter.adapter_id)}>
-                              <Trash2 className="mr-2 h-4 w-4 text-red-600" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                      </TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Name</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Category</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">State</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Memory</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Activations</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Used</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
                     </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAdapters.length === 0 ? (
+                      <TableRow role="row">
+                        <TableCell colSpan={8} className="h-32" role="gridcell" aria-live="polite">
+                          <EmptyState
+                            icon={Code}
+                            title={adapters.length === 0 ? "No Adapters Registered" : "No Adapters Match Filters"}
+                            description={adapters.length === 0
+                              ? "Get started by registering your first adapter or training a new one from your codebase. Use the Register or Train buttons above to begin."
+                              : "Try adjusting your filters to see more results."}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      <VirtualizedTableRows items={filteredAdapters} estimateSize={60}>
+                        {(adapter) => {
+                          const adapterTyped = adapter as typeof adapters[0];
+                          return (
+                                    <TableRow key={adapterTyped.id} role="row">
+                              <TableCell className="p-4 border-b border-border" role="gridcell">
+                                <Checkbox
+                                  checked={selectedAdapters.includes(adapterTyped.adapter_id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setSelectedAdapters(prev => [...prev, adapterTyped.adapter_id]);
+                                    } else {
+                                      setSelectedAdapters(prev => prev.filter(id => id !== adapterTyped.adapter_id));
+                                    }
+                                  }}
+                                  aria-label={`Select ${adapterTyped.name}`}
+                                />
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <div className="flex items-center justify-center">
+                                  {getCategoryIcon(adapterTyped.category)}
+                                  <div>
+                                    <div className="font-medium">{adapterTyped.name}</div>
+                                    <div className="text-sm text-muted-foreground">
+                                      Tier {adapterTyped.tier} • Rank {adapterTyped.rank}
+                                    </div>
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border" role="gridcell">
+                                <div className="status-indicator status-neutral flex items-center justify-center">
+                                  {getCategoryIcon(adapterTyped.category)}
+                                  <span>{adapterTyped.category}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <div className="flex items-center justify-center">
+                                  {getStateIcon(adapterTyped.current_state)}
+                                  <div className={`status-indicator ${
+                                    adapterTyped.current_state === 'hot' ? 'status-error' :
+                                    adapterTyped.current_state === 'warm' ? 'status-warning' :
+                                    adapterTyped.current_state === 'cold' ? 'status-info' :
+                                    adapterTyped.current_state === 'resident' ? 'status-success' :
+                                    'status-neutral'
+                                  }`}>
+                                    {adapterTyped.current_state}
+                                  </div>
+                                  {adapterTyped.pinned && (
+                                    <Pin className="h-4 w-4 text-purple-500" />
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <div className="flex items-center justify-center">
+                                  <MemoryStick className="h-4 w-4" />
+                                  <span>{Math.round(adapterTyped.memory_bytes / 1024 / 1024)} MB</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <div className="flex items-center justify-center">
+                                  <Target className="h-4 w-4" />
+                                  <span>{adapterTyped.activation_count}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <div className="flex items-center justify-center">
+                                  <Clock className="h-4 w-4" />
+                                  <span>{adapterTyped.last_activated ? new Date(adapterTyped.last_activated).toLocaleString() : 'Never'}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <div className="flex items-center gap-1">
+                                  <BookmarkButton
+                                    type="adapter"
+                                    title={adapterTyped.name}
+                                    url={`/adapters?adapter=${encodeURIComponent(adapterTyped.adapter_id)}`}
+                                    entityId={adapterTyped.adapter_id}
+                                    description={`${adapterTyped.framework || 'Unknown'} • ${adapterTyped.category || 'Unknown category'}`}
+                                    variant="ghost"
+                                    size="icon"
+                                  />
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" aria-label={`Actions for ${adapterTyped.name}`}>
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                    {adapterTyped.current_state === 'warm' || adapterTyped.current_state === 'hot' || adapterTyped.current_state === 'resident' ? (
+                                      <DropdownMenuItem onClick={() => handleUnloadAdapter(adapterTyped.adapter_id)}>
+                                        <Pause className="mr-2 h-4 w-4" />
+                                        Unload
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem onClick={() => handleLoadAdapter(adapterTyped.adapter_id)}>
+                                        <Play className="mr-2 h-4 w-4" />
+                                        Load
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem onClick={() => handlePinToggle(adapterTyped)}>
+                                      <Pin className="mr-2 h-4 w-4" />
+                                      {adapterTyped.pinned ? 'Unpin' : 'Pin'}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handlePromoteState(adapterTyped.adapter_id)}>
+                                      <ArrowUp className="mr-2 h-4 w-4" />
+                                      Promote State
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleViewHealth(adapterTyped.adapter_id)}>
+                                      <Activity className="mr-2 h-4 w-4" />
+                                      View Health
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleDownloadManifest(adapterTyped.adapter_id)}>
+                                      <Download className="mr-2 h-4 w-4" />
+                                      Download Manifest
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setDeleteConfirmId(adapterTyped.adapter_id)}>
+                                      <Trash2 className="mr-2 h-4 w-4 text-red-600" />
+                                      Delete
+                                    </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }}
+                  </VirtualizedTableRows>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -942,20 +1522,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         {/* Training Tab */}
         <TabsContent value="training" className="space-y-4">
           <TrainingStreamPage selectedTenant={selectedTenant} />
-        </TabsContent>
 
-        {/* Router Config Tab */}
-        <TabsContent value="router" className="space-y-4">
-          <RouterConfigPage selectedTenant={selectedTenant} />
-        </TabsContent>
-
-        {/* Code Intelligence Tab */}
-        <TabsContent value="code-intel" className="space-y-4">
-          <CodeIntelligence user={user} selectedTenant={selectedTenant} />
-        </TabsContent>
-
-
-        <TabsContent value="training" className="space-y-4">
           {selectedTrainingJob ? (
             <TrainingMonitor 
               jobId={selectedTrainingJob} 
@@ -998,7 +1565,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                             </Button>
                           </div>
                         </div>
-                        
                         <div className="space-y-3">
                           <div className="flex items-center space-x-4">
                             <div className="flex-1">
@@ -1037,22 +1603,33 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                             )}
                           </div>
 
-                          <div className="bg-gray-50 p-3 rounded-md">
-                            <div className="text-sm font-medium mb-2">Recent Logs</div>
-                            <div className="space-y-1 text-xs font-mono">
-                              {job.logs.slice(-3).map((log, idx) => (
-                                <div key={idx} className="text-muted-foreground">{log}</div>
-                              ))}
-                            </div>
+                          <div className="text-xs text-muted-foreground">
+                            Metrics and artifacts download coming soon.
                           </div>
                         </div>
                       </CardContent>
                     </Card>
                   ))}
+
+                  {trainingJobs.length === 0 && (
+                    <div className="text-center text-muted-foreground py-12">
+                      No training jobs in progress. Launch a new job to get started.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Router Config Tab */}
+        <TabsContent value="router" className="space-y-4">
+          <RouterConfigPage selectedTenant={selectedTenant} />
+        </TabsContent>
+
+        {/* Code Intelligence Tab */}
+        <TabsContent value="code-intel" className="space-y-4">
+          <CodeIntelligence user={user} selectedTenant={selectedTenant} />
         </TabsContent>
 
       </Tabs>
@@ -1088,7 +1665,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       {/* Register Adapter Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="modal-large">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Register Adapter</DialogTitle>
           </DialogHeader>
@@ -1098,81 +1675,24 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <TabsTrigger value="path">From Server Path</TabsTrigger>
             </TabsList>
             <TabsContent value="upload" className="space-y-4">
-              <div className="space-y-4">
-                <div
-                  className="border-2 border-dashed rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
-                  onClick={() => document.getElementById('adapter-file-input')?.click()}
-                >
-                  <input
-                    id="adapter-file-input"
-                    type="file"
-                    accept=".aos,.safetensors"
-                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                    className="hidden"
-                  />
-                  <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-lg font-medium mb-2">
-                    {uploadFile ? uploadFile.name : 'Click to select adapter file'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Supports .aos and .safetensors files (max 100MB)
-                  </p>
-                </div>
-
-                {uploadFile && (
-                  <div className="bg-accent p-4 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium">File Selected</span>
-                      <Badge>{(uploadFile.size / 1024 / 1024).toFixed(2)} MB</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{uploadFile.name}</p>
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={async () => {
-                      if (!uploadFile) {
-                        showStatus('Please select a file before uploading.', 'warning');
-                        return;
-                      }
-
-                      setIsUploading(true);
-                      try {
-                        const adapter = await apiClient.importAdapter(uploadFile, true);
-                        setSuccessFeedback(
-                          SuccessTemplates.adapterCreated(
-                            adapter.name,
-                            () => transitionTo('/inference?adapter=' + adapter.adapter_id),
-                            () => setActiveTab('registry')
-                          )
-                        );
-                        setIsCreateDialogOpen(false);
-                        setUploadFile(null);
-                        await loadAdapters();
-                      } catch (err) {
-                        setErrorRecovery(
-                          ErrorRecoveryTemplates.genericError(
-                            err instanceof Error ? err : new Error(String(err)),
-                            () => {
-                              // Retry logic could be added here
-                              setErrorRecovery(null);
-                            }
-                          )
-                        );
-                      } finally {
-                        setIsUploading(false);
-                      }
-                    }}
-                    disabled={!uploadFile || isUploading}
-                  >
-                    {isUploading ? 'Uploading...' : 'Upload & Load'}
-              </Button>
-            </div>
-          </div>
+              <AdapterImportWizard
+                onComplete={async (adapter) => {
+                  setSuccessFeedback(
+                    SuccessTemplates.adapterCreated(
+                      adapter.name,
+                      () => transitionTo('/inference?adapter=' + adapter.adapter_id),
+                      () => setActiveTab('registry')
+                    )
+                  );
+                  setIsCreateDialogOpen(false);
+                  setUploadFile(null);
+                  await loadAdapters();
+                }}
+                onCancel={() => {
+                  setIsCreateDialogOpen(false);
+                  setUploadFile(null);
+                }}
+              />
             </TabsContent>
             <TabsContent value="path" className="space-y-4">
               <div className="space-y-3">
@@ -1247,15 +1767,15 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="form-label">Tenant</label>
+              <label className="font-medium text-sm mb-1">Tenant</label>
               <Input value={selectedTenant} readOnly />
             </div>
             <div>
-              <label className="form-label">Root (absolute)</label>
+              <label className="font-medium text-sm mb-1">Root (absolute)</label>
               <Input value={upsertRoot} onChange={(e) => setUpsertRoot(e.target.value)} placeholder="/abs/root" />
             </div>
             <div>
-              <label className="form-label">Path (relative)</label>
+              <label className="font-medium text-sm mb-1">Path (relative)</label>
               <Input value={upsertPath} onChange={(e) => setUpsertPath(e.target.value)} placeholder="src/" />
             </div>
             <div className="flex items-center gap-2">
@@ -1307,7 +1827,20 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       <Dialog open={showHealthModal} onOpenChange={setShowHealthModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Adapter Health</DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle>Adapter Health</DialogTitle>
+              {healthData && selectedAdapterForHealth && (
+                <BookmarkButton
+                  type="adapter"
+                  title={selectedAdapterForHealth.name}
+                  url={`/adapters?adapter=${encodeURIComponent(selectedAdapterForHealth.adapter_id)}`}
+                  entityId={selectedAdapterForHealth.adapter_id}
+                  description={`${selectedAdapterForHealth.framework || 'Unknown'} • Health View`}
+                  variant="ghost"
+                  size="icon"
+                />
+              )}
+            </div>
           </DialogHeader>
           {healthData && (
             <div className="space-y-4">
@@ -1370,6 +1903,38 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         }}
       />
 
+      {/* Export Dialog */}
+      <ExportDialog
+        key={`adapter-export-${exportDialogScope}-${selectedAdapters.length}`}
+        open={showExportDialog}
+        onOpenChange={handleExportDialogOpenChange}
+        onExport={handleExport}
+        itemName="adapters"
+        hasSelected={selectedAdapters.length > 0}
+        hasFilters={false}
+        defaultFormat="json"
+        defaultScope={exportDialogScope}
+      />
+
+      {/* Undo/Redo Bar */}
+
+      {/* Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Adapter</DialogTitle>
+          </DialogHeader>
+          <AdapterImportWizard
+            onComplete={(adapter) => {
+              setShowImportDialog(false);
+              loadAdapters();
+              showStatus(`Adapter "${adapter.name}" imported successfully.`, 'success');
+            }}
+            onCancel={() => setShowImportDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
@@ -1390,17 +1955,17 @@ function DeleteConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="modal-standard">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Confirm Delete</DialogTitle>
         </DialogHeader>
         <Alert variant="destructive">
-          <AlertTriangle className="icon-standard" />
+          <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             Are you sure you want to delete adapter <code className="font-mono">{adapterId}</code>? This action cannot be undone.
           </AlertDescription>
         </Alert>
-        <div className="flex-standard justify-end">
+        <div className="flex items-center justify-end">
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>

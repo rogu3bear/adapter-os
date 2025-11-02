@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { MetricsChart } from '../MetricsChart';
+import { Skeleton } from '../ui/skeleton';
 import apiClient from '../../api/client';
-import { logger, toError } from '../../utils/logger';
+import { logger } from '../../utils/logger';
+import { usePolling } from '../../hooks/usePolling';
 
 interface MetricsSnapshot {
   timestamp: number;
@@ -11,49 +13,72 @@ interface MetricsSnapshot {
   histograms: Record<string, any>;
 }
 
+interface MetricsData {
+  snapshot: MetricsSnapshot;
+  timeSeries: any[];
+}
+
 export function MetricsGrid() {
-  const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
-  const [timeSeries, setTimeSeries] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedMetric, setSelectedMetric] = useState<string>('');
 
-  useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        // Fetch current snapshot
-        const data = await apiClient.getMetricsSnapshot();
-        const transformedSnapshot: MetricsSnapshot = {
-          timestamp: data.timestamp,
-          counters: data.counters,
-          gauges: data.gauges,
-          histograms: data.histograms,
-        };
-        setSnapshot(transformedSnapshot);
-
-        // Fetch time series data for the last hour
-        const endTime = new Date();
-        const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // 1 hour ago
-
-        const seriesData = await apiClient.getMetricsSeries({
-          start_ms: startTime.getTime(),
-          end_ms: endTime.getTime(),
-        });
-
-        setTimeSeries(seriesData);
-      } catch (err) {
-        logger.error('Failed to fetch metrics', { component: 'MetricsGrid', operation: 'fetchMetrics' }, toError(err));
-      } finally {
-        setLoading(false);
-      }
+  const fetchMetrics = async (): Promise<MetricsData> => {
+    // Fetch current snapshot
+    const data = await apiClient.getMetricsSnapshot();
+    const transformedSnapshot: MetricsSnapshot = {
+      timestamp: data.timestamp,
+      counters: data.counters,
+      gauges: data.gauges,
+      histograms: data.histograms,
     };
 
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 5000); // Update every 5 seconds
-    return () => clearInterval(interval);
-  }, []);
+    // Fetch time series data for the last hour
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // 1 hour ago
+
+    const seriesData = await apiClient.getMetricsSeries({
+      start_ms: startTime.getTime(),
+      end_ms: endTime.getTime(),
+    });
+
+    return { snapshot: transformedSnapshot, timeSeries: seriesData };
+  };
+
+  const { data, isLoading: loading, error } = usePolling(
+    fetchMetrics,
+    'fast',
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        logger.error('Failed to fetch metrics', { component: 'MetricsGrid', operation: 'fetchMetrics' }, err);
+      }
+    }
+  );
+
+  const snapshot = data?.snapshot ?? null;
+  const timeSeries = data?.timeSeries ?? [];
+
+  // Major error: metrics loading failure
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <div className="text-red-600 mb-2">Failed to load metrics</div>
+        <div className="text-sm text-muted-foreground">Please refresh the page or try again later.</div>
+      </div>
+    );
+  }
 
   if (loading) {
-    return <div className="text-center py-8">Loading metrics...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
   }
 
   if (!snapshot) {

@@ -4,29 +4,48 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { Lock, Shield, AlertTriangle, XCircle } from 'lucide-react';
+import { Lock, Shield, AlertTriangle, XCircle, Zap } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
+import { apiClient } from '../api/client';
 
 interface LoginFormProps {
   onLogin: (credentials: { email: string; password: string }) => Promise<void>;
+  onDevBypass?: () => Promise<void>;
   error?: string | null;
 }
 
-export function LoginForm({ onLogin, error }: LoginFormProps) {
+export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDevBypassLoading, setIsDevBypassLoading] = useState(false);
+  const isDev = import.meta.env.DEV;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
+
     try {
-      await onLogin({ email, password });
+      await onLogin({ email: email.trim(), password: password.trim() });
     } catch (err) {
       // Error is handled by parent component
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDevBypass = async () => {
+    setIsDevBypassLoading(true);
+    try {
+      await apiClient.devBypass();
+      // Call onDevBypass callback to update auth state
+      if (onDevBypass) {
+        await onDevBypass();
+      }
+    } catch (err) {
+      // Error will be shown via error prop
+    } finally {
+      setIsDevBypassLoading(false);
     }
   };
 
@@ -78,8 +97,8 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
-              <div className="form-field">
-                <Label htmlFor="email" className="form-label">Email</Label>
+              <div className="mb-4">
+                <Label htmlFor="email" className="font-medium text-sm mb-1">Email</Label>
                 <Input
                   id="email"
                   type="email"
@@ -90,8 +109,8 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
                 />
               </div>
               
-              <div className="form-field">
-                <Label htmlFor="password" className="form-label">Password</Label>
+              <div className="mb-4">
+                <Label htmlFor="password" className="font-medium text-sm mb-1">Password</Label>
                 <Input
                   id="password"
                   type="password"
@@ -102,13 +121,31 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
                 />
               </div>
               
-              <Button 
-                type="submit" 
-                className="w-full" 
-                disabled={isLoading || !email || !password}
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading || !email.trim() || !password.trim()}
               >
                 {isLoading ? 'Authenticating...' : 'Secure Login'}
               </Button>
+
+              {isDev && (
+                <div className="pt-2 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleDevBypass}
+                    disabled={isDevBypassLoading || isLoading}
+                  >
+                    <Zap className="h-4 w-4 mr-2" />
+                    {isDevBypassLoading ? 'Activating...' : 'Dev Bypass (No Auth Required)'}
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    Development mode only - bypasses authentication
+                  </p>
+                </div>
+              )}
             </form>
           </CardContent>
         </Card>
@@ -121,7 +158,7 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
               <div className="space-y-2 text-xs">
                 <div>
                   <p className="font-medium">Admin User:</p>
-                  <p className="font-mono text-muted-foreground">admin@example.com / password</p>
+                  <p className="font-mono text-muted-foreground">admin@aos.local / password</p>
                 </div>
               </div>
             </div>

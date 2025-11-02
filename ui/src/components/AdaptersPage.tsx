@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -8,8 +8,11 @@ import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
 import apiClient from '../api/client';
 import { Adapter } from '../api/types';
 import { toast } from 'sonner';
-import { logger, toError } from '../utils/logger';
-import { Link } from 'react-router-dom';
+import { logger } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
+import { ErrorRecovery } from './ui/error-recovery';
+import { EmptyState } from './ui/empty-state';
+import { LoadingState } from './ui/loading-state';
 import { Code, MemoryStick, Activity, Clock, Pin, ArrowUp, Trash2, MoreHorizontal } from 'lucide-react';
 import {
   DropdownMenu,
@@ -17,31 +20,76 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { useProgressiveHints } from '../hooks/useProgressiveHints';
+import { getPageHints } from '../data/page-hints';
+import { ProgressiveHint } from './ui/progressive-hint';
+
+interface AdaptersData {
+  adapters: Adapter[];
+  totalMemory: number;
+}
 
 export function AdaptersPage() {
-  const [adapters, setAdapters] = useState<Adapter[]>([]);
-  const [totalMemory, setTotalMemory] = useState(0); // Fetch or set total memory
-  const [loading, setLoading] = useState(true);
+  const fetchAdaptersData = async (): Promise<AdaptersData> => {
+    const adaptersData = await apiClient.listAdapters();
+    const metrics = await apiClient.getSystemMetrics();
+    const totalMemory = metrics.memory_total_gb * 1024 * 1024 * 1024; // Convert GB to bytes
+    return { adapters: adaptersData, totalMemory };
+  };
+
+  const { data, isLoading: loading, error } = usePolling(
+    fetchAdaptersData,
+    'normal',
+    {
+      showLoadingIndicator: false,
+      onError: (err) => {
+        logger.error('Failed to fetch adapters', { component: 'AdaptersPage' }, err);
+      }
+    }
+  );
+
+  const adapters = data?.adapters ?? [];
+  const totalMemory = data?.totalMemory ?? 0;
+
+  // Progressive hints
+  const hints = getPageHints('adapters').map(hint => ({
+    ...hint,
+    condition: hint.id === 'empty-adapters' 
+      ? () => adapters.length === 0 && !loading
+      : hint.condition
+  }));
+  const { visibleHints, dismissHint, getVisibleHint } = useProgressiveHints({
+    pageKey: 'adapters',
+    hints
+  });
+  const visibleHint = getVisibleHint();
 
   useEffect(() => {
-    const fetchAdapters = async () => {
-      try {
-        const adaptersData = await apiClient.listAdapters();
-        setAdapters(adaptersData);
-        // Fetch total memory, e.g., from system metrics
-        const metrics = await apiClient.getSystemMetrics();
-        setTotalMemory(metrics.memory_total_gb * 1024 * 1024 * 1024); // Convert GB to bytes
-      } catch (err) {
-        logger.error('Failed to fetch adapters', { component: 'AdaptersPage' }, toError(err));
-        toast.error('Failed to load adapters');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAdapters();
-    const interval = setInterval(fetchAdapters, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (loading) {
+      logger.debug('Adapters: showing loading state', { component: 'AdaptersPage' });
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    if (!loading && adapters.length === 0) {
+      logger.info('Adapters: empty state displayed', { component: 'AdaptersPage' });
+    }
+  }, [adapters.length, loading]);
+
+  // Show ErrorRecovery for major data loading failures
+  if (error) {
+    return (
+      <ErrorRecovery
+        title="Failed to Load Adapters"
+        message="Unable to load adapter data. This may be due to a network issue or server problem."
+        error={error}
+        recoveryActions={[
+          { label: 'Retry', action: () => window.location.reload(), primary: true },
+          { label: 'Go to Dashboard', action: () => { window.location.href = '/dashboard'; } }
+        ]}
+      />
+    );
+  }
 
   const handleEvict = (adapterId: string) => {
     // Implement evict logic
@@ -77,18 +125,14 @@ export function AdaptersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Adapter Management</h1>
-          <p className="text-muted-foreground">Manage adapter lifecycles and deployment</p>
-        </div>
-        <Link to="/training">
-          <Button>
-            <Code className="mr-2 h-4 w-4" />
-            Train New Adapter
-          </Button>
-        </Link>
-      </div>
+      {visibleHint && (
+        <ProgressiveHint
+          title={visibleHint.hint.title}
+          content={visibleHint.hint.content}
+          onDismiss={() => dismissHint(visibleHint.hint.id)}
+          placement={visibleHint.hint.placement}
+        />
+      )}
 
       {/* Visualizations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -122,9 +166,18 @@ export function AdaptersPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8">Loading adapters...</div>
+            <LoadingState
+              title="Loading adapters"
+              description="Fetching adapter fleet status and usage metrics."
+              skeletonLines={4}
+              size="sm"
+            />
           ) : adapters.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">No adapters deployed</div>
+            <EmptyState
+              icon={Code}
+              title="No adapters deployed"
+              description="Train or import an adapter to get started. Your fleet will appear here once deployed."
+            />
           ) : (
             <Table>
               <TableHeader>

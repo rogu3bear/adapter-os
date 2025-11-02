@@ -36,12 +36,11 @@ export function LogStream() {
   const { data: streamData } = useSSE<LogEvent>('/api/logs/stream');
 
   useEffect(() => {
-    if (streamData) {
-      setLogs((prev) => {
-        const updated = [streamData, ...prev].slice(0, filters.limit);
-        return updated;
-      });
-    }
+    if (!streamData) return;
+    setLogs((prev) => {
+      const updated = [streamData, ...prev].slice(0, filters.limit);
+      return updated;
+    });
   }, [streamData, filters.limit]);
 
   useEffect(() => {

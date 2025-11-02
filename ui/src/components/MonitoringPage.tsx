@@ -4,11 +4,18 @@ import { MonitoringDashboard } from './MonitoringDashboard';
 import { ResourceMonitor } from './ResourceMonitor';
 import { RealtimeMetrics } from './RealtimeMetrics';
 import { AlertsPage } from './AlertsPage';
+import { DensityControls } from './ui/density-controls';
+import { useDensity } from '../contexts/DensityContext';
 
 export function MonitoringPage() {
+  const { density, setDensity } = useDensity();
+  
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">System Monitoring</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">System Monitoring</h1>
+        <DensityControls density={density} onDensityChange={setDensity} />
+      </div>
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
