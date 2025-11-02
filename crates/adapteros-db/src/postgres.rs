@@ -1458,20 +1458,20 @@ impl PostgresDb {
         let description_ref = description.as_deref();
         let created_by_ref = created_by.as_deref();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_monitoring_dashboards (
                 id, name, description, tenant_id, dashboard_config, is_shared, created_by
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-            "#,
-            id,
-            name,
-            description_ref,
-            tenant_id,
-            dashboard_config,
-            is_shared,
-            created_by_ref
+            "#
         )
+        .bind(&id)
+        .bind(&name)
+        .bind(description_ref)
+        .bind(&tenant_id)
+        .bind(&dashboard_config)
+        .bind(is_shared)
+        .bind(created_by_ref)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create dashboard: {}", e)))?;
@@ -1540,24 +1540,24 @@ impl PostgresDb {
         let file_path_ref = file_path.as_deref();
         let created_by_ref = created_by.as_deref();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_monitoring_reports (
                 id, name, description, tenant_id, report_type, report_config,
                 report_data, file_path, file_size_bytes, created_by
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#,
-            id,
-            name,
-            description_ref,
-            tenant_id,
-            report_type,
-            report_config,
-            report_data,
-            file_path_ref,
-            file_size_bytes,
-            created_by_ref
+            "#
         )
+        .bind(&id)
+        .bind(&name)
+        .bind(description_ref)
+        .bind(&tenant_id)
+        .bind(&report_type)
+        .bind(&report_config)
+        .bind(&report_data)
+        .bind(file_path_ref)
+        .bind(file_size_bytes)
+        .bind(created_by_ref)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create report: {}", e)))?;
@@ -1682,6 +1682,160 @@ impl PostgresDb {
         // For now, return default policies
         // TODO: Implement database storage and retrieval of tenant-specific policies
         Ok(crate::policies::TenantPolicies::default())
+    }
+
+    // Policy hash methods (compatibility with Db interface)
+    pub async fn insert_policy_hash(
+        &self,
+        policy_pack_id: &str,
+        baseline_hash: &adapteros_core::B3Hash,
+        cpid: Option<&str>,
+        signer_pubkey: Option<&str>,
+    ) -> Result<()> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| AosError::Database(format!("System time error: {}", e)))?
+            .as_secs() as i64;
+
+        let cpid_str = cpid.unwrap_or("global");
+        let hash_hex = baseline_hash.to_hex();
+
+        sqlx::query(
+            "INSERT INTO policy_hashes (policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT(policy_pack_id, cpid) DO UPDATE SET
+                baseline_hash = excluded.baseline_hash,
+                signer_pubkey = excluded.signer_pubkey,
+                updated_at = excluded.updated_at"
+        )
+        .bind(policy_pack_id)
+        .bind(&hash_hex)
+        .bind(cpid_str)
+        .bind(signer_pubkey)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert policy hash: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn get_policy_hash(
+        &self,
+        policy_pack_id: &str,
+        cpid: Option<&str>,
+    ) -> Result<Option<crate::policy_hash::PolicyHashRecord>> {
+        let cpid_str = cpid.unwrap_or("global");
+
+        let row = sqlx::query(
+            "SELECT policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at
+             FROM policy_hashes
+             WHERE policy_pack_id = $1 AND cpid = $2",
+        )
+        .bind(policy_pack_id)
+        .bind(cpid_str)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get policy hash: {}", e)))?;
+
+        if let Some(row) = row {
+            let hash_hex: String = row.try_get("baseline_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get hash: {}", e)))?;
+            let baseline_hash = adapteros_core::B3Hash::from_hex(&hash_hex)
+                .map_err(|e| AosError::Database(format!("Invalid hash in database: {}", e)))?;
+
+            let cpid_value: String = row.try_get("cpid")
+                .map_err(|e| AosError::Database(format!("Failed to get cpid: {}", e)))?;
+            let cpid = if cpid_value == "global" {
+                None
+            } else {
+                Some(cpid_value)
+            };
+
+            Ok(Some(crate::policy_hash::PolicyHashRecord {
+                policy_pack_id: row.try_get("policy_pack_id")
+                    .map_err(|e| AosError::Database(format!("Failed to get policy_pack_id: {}", e)))?,
+                baseline_hash,
+                cpid,
+                signer_pubkey: row.try_get("signer_pubkey")
+                    .map_err(|e| AosError::Database(format!("Failed to get signer_pubkey: {}", e)))?,
+                created_at: row.try_get::<i64, _>("created_at")
+                    .map_err(|e| AosError::Database(format!("Failed to get created_at: {}", e)))?
+                    as u64,
+                updated_at: row.try_get::<i64, _>("updated_at")
+                    .map_err(|e| AosError::Database(format!("Failed to get updated_at: {}", e)))?
+                    as u64,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn list_policy_hashes(
+        &self,
+        cpid: Option<&str>,
+    ) -> Result<Vec<crate::policy_hash::PolicyHashRecord>> {
+        let rows = if let Some(cpid_val) = cpid {
+            let cpid_str = if cpid_val.is_empty() {
+                "global"
+            } else {
+                cpid_val
+            };
+            sqlx::query(
+                "SELECT policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at
+                 FROM policy_hashes
+                 WHERE cpid = $1
+                 ORDER BY policy_pack_id",
+            )
+            .bind(cpid_str)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list policy hashes: {}", e)))?
+        } else {
+            sqlx::query(
+                "SELECT policy_pack_id, baseline_hash, cpid, signer_pubkey, created_at, updated_at
+                 FROM policy_hashes
+                 ORDER BY cpid, policy_pack_id",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list policy hashes: {}", e)))?
+        };
+
+        let mut result = Vec::new();
+        for row in rows {
+            let hash_hex: String = row.try_get("baseline_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get hash: {}", e)))?;
+            let baseline_hash = adapteros_core::B3Hash::from_hex(&hash_hex)
+                .map_err(|e| AosError::Database(format!("Invalid hash in database: {}", e)))?;
+
+            let cpid_value: String = row.try_get("cpid")
+                .map_err(|e| AosError::Database(format!("Failed to get cpid: {}", e)))?;
+            let cpid = if cpid_value == "global" {
+                None
+            } else {
+                Some(cpid_value)
+            };
+
+            result.push(crate::policy_hash::PolicyHashRecord {
+                policy_pack_id: row.try_get("policy_pack_id")
+                    .map_err(|e| AosError::Database(format!("Failed to get policy_pack_id: {}", e)))?,
+                baseline_hash,
+                cpid,
+                signer_pubkey: row.try_get("signer_pubkey")
+                    .map_err(|e| AosError::Database(format!("Failed to get signer_pubkey: {}", e)))?,
+                created_at: row.try_get::<i64, _>("created_at")
+                    .map_err(|e| AosError::Database(format!("Failed to get created_at: {}", e)))?
+                    as u64,
+                updated_at: row.try_get::<i64, _>("updated_at")
+                    .map_err(|e| AosError::Database(format!("Failed to get updated_at: {}", e)))?
+                    as u64,
+            });
+        }
+
+        Ok(result)
     }
 }
 

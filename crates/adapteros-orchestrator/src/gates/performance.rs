@@ -32,7 +32,7 @@ impl Gate for PerformanceGate {
         let db = Db::connect(&config.db_path).await?;
 
         // Get latest audit for this CPID (query directly)
-        let audit = sqlx::query_as::<_, adapteros_db::Audit>(
+        let audit = sqlx::query_as::<_, adapteros_db::audits::Audit>(
             "SELECT id, tenant_id, cpid, suite_name, bundle_id, result_json, status, created_at 
              FROM audits 
              WHERE cpid = ? 

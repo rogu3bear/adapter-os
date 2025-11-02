@@ -187,7 +187,7 @@ impl Calibrator {
         let mut best_score = 0.0;
 
         // Define grid ranges (coarse to fine)
-        let ranges = vec![
+        let ranges = [
             vec![0.1, 0.2, 0.3, 0.4, 0.5],    // language
             vec![0.1, 0.2, 0.25, 0.3, 0.4],   // framework
             vec![0.05, 0.1, 0.15, 0.2, 0.25], // symbols
@@ -341,7 +341,7 @@ impl Calibrator {
         }
 
         let mut sampler = DeterministicSampler::new(feature_score, ground_truth);
-        let prediction_budget = self.k.max(1).min(MAX_PREDICTED_ADAPTERS);
+        let prediction_budget = self.k.clamp(1, MAX_PREDICTED_ADAPTERS);
         let mut predicted = Vec::with_capacity(prediction_budget);
 
         while predicted.len() < prediction_budget {

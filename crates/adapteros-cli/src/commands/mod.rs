@@ -7,6 +7,7 @@ pub mod audit;
 pub mod audit_determinism;
 pub mod baseline;
 pub mod bootstrap;
+pub mod bootstrap_admin;
 pub mod build_plan;
 pub mod cdp_list;
 pub mod code;

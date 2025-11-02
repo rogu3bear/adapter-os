@@ -10,7 +10,7 @@
 //! - Incident Ruleset (#17): Quarantine on chain breaks
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::Db;
+use adapteros_db::Database;
 use adapteros_federation::FederationManager;
 use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
@@ -70,7 +70,7 @@ pub struct FederationDaemon {
     /// Configuration
     config: FederationDaemonConfig,
     /// Database handle
-    db: Arc<Db>,
+    db: Arc<Database>,
 }
 
 impl FederationDaemon {
@@ -79,7 +79,7 @@ impl FederationDaemon {
         federation: Arc<FederationManager>,
         policy_watcher: Arc<PolicyHashWatcher>,
         telemetry: Arc<TelemetryWriter>,
-        db: Arc<Db>,
+        db: Arc<Database>,
         config: FederationDaemonConfig,
     ) -> Self {
         Self {
@@ -189,18 +189,27 @@ impl FederationDaemon {
 
     /// Get all unique host IDs from federation signatures
     async fn get_all_host_ids(&self) -> Result<Vec<String>> {
-        let pool = self.db.pool();
-
-        let rows = sqlx::query_scalar::<_, String>(
-            r#"
-            SELECT DISTINCT host_id
-            FROM federation_bundle_signatures
-            ORDER BY host_id ASC
-            "#,
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch host IDs: {}", e)))?;
+        use adapteros_db::DatabaseBackend;
+        
+        let rows = match self.db.backend() {
+            DatabaseBackend::Sqlite(db) => {
+                sqlx::query_scalar::<_, String>(
+                    r#"
+                    SELECT DISTINCT host_id
+                    FROM federation_bundle_signatures
+                    ORDER BY host_id ASC
+                    "#,
+                )
+                .fetch_all(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to fetch host IDs: {}", e)))?
+            }
+            DatabaseBackend::Postgres(_) => {
+                return Err(AosError::Database(
+                    "Federation daemon requires SQLite backend. PostgreSQL support not yet implemented.".to_string()
+                ));
+            }
+        };
 
         Ok(rows)
     }
@@ -251,19 +260,27 @@ impl FederationDaemon {
 
     /// Trigger policy quarantine
     async fn trigger_policy_quarantine(&self, reason: &str) -> Result<()> {
-        // Insert into policy_quarantine table
-        let pool = self.db.pool();
-
-        sqlx::query(
-            r#"
-            INSERT INTO policy_quarantine (reason, created_at, released)
-            VALUES (?, CURRENT_TIMESTAMP, FALSE)
-            "#,
-        )
-        .bind(reason)
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
+        use adapteros_db::DatabaseBackend;
+        
+        match self.db.backend() {
+            DatabaseBackend::Sqlite(db) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO policy_quarantine (reason, created_at, released)
+                    VALUES (?, CURRENT_TIMESTAMP, FALSE)
+                    "#,
+                )
+                .bind(reason)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
+            }
+            DatabaseBackend::Postgres(_) => {
+                return Err(AosError::Database(
+                    "Federation daemon requires SQLite backend. PostgreSQL support not yet implemented.".to_string()
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -357,6 +374,7 @@ impl FederationDaemon {
 mod tests {
     use super::*;
     use adapteros_crypto::Keypair;
+    use adapteros_db::Db;
     use tempfile::TempDir;
 
     async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
@@ -364,16 +382,21 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db_url = format!("sqlite://{}", db_path.display());
 
-        let db = Db::connect(&db_url).await.unwrap();
+        // Use Database wrapper for consistency
+        let db = Database::connect(&db_url).await.unwrap();
         db.migrate().await.unwrap();
 
+        // FederationManager needs Db, so extract from Database wrapper
+        // This is safe because we're using SQLite in tests
+        let db_inner: Db = db.inner().clone();
         let keypair = Keypair::generate();
-        let federation = FederationManager::new(db.clone(), keypair).unwrap();
+        let federation = FederationManager::new(db_inner, keypair).unwrap();
 
         let telemetry_dir = temp_dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();
         let telemetry = TelemetryWriter::new(&telemetry_dir, 1000, 1024 * 1024).unwrap();
 
+        // PolicyHashWatcher expects Arc<Database>
         let policy_watcher = PolicyHashWatcher::new(
             Arc::new(db.clone()),
             Arc::new(telemetry.clone()),
@@ -386,6 +409,7 @@ mod tests {
             enable_quarantine: true,
         };
 
+        // FederationDaemon now expects Arc<Database>
         let daemon = FederationDaemon::new(
             Arc::new(federation),
             Arc::new(policy_watcher),

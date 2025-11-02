@@ -3,6 +3,7 @@
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::str::FromStr;
 
 /// Tensor data type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -39,24 +40,6 @@ impl DataType {
         }
     }
 
-    /// Convert from string representation
-    pub fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "float32" | "f32" => Ok(DataType::Float32),
-            "float16" | "f16" => Ok(DataType::Float16),
-            "int8" | "i8" => Ok(DataType::Int8),
-            "int16" | "i16" => Ok(DataType::Int16),
-            "int32" | "i32" => Ok(DataType::Int32),
-            "int64" | "i64" => Ok(DataType::Int64),
-            "uint8" | "u8" => Ok(DataType::UInt8),
-            "uint16" | "u16" => Ok(DataType::UInt16),
-            "uint32" | "u32" => Ok(DataType::UInt32),
-            "uint64" | "u64" => Ok(DataType::UInt64),
-            "bool" => Ok(DataType::Bool),
-            _ => Err(AosError::Validation(format!("Unknown data type: {}", s))),
-        }
-    }
-
     /// Convert to string representation
     pub fn to_str(&self) -> &'static str {
         match self {
@@ -71,6 +54,27 @@ impl DataType {
             DataType::UInt32 => "uint32",
             DataType::UInt64 => "uint64",
             DataType::Bool => "bool",
+        }
+    }
+}
+
+impl FromStr for DataType {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "float32" | "f32" => Ok(DataType::Float32),
+            "float16" | "f16" => Ok(DataType::Float16),
+            "int8" | "i8" => Ok(DataType::Int8),
+            "int16" | "i16" => Ok(DataType::Int16),
+            "int32" | "i32" => Ok(DataType::Int32),
+            "int64" | "i64" => Ok(DataType::Int64),
+            "uint8" | "u8" => Ok(DataType::UInt8),
+            "uint16" | "u16" => Ok(DataType::UInt16),
+            "uint32" | "u32" => Ok(DataType::UInt32),
+            "uint64" | "u64" => Ok(DataType::UInt64),
+            "bool" => Ok(DataType::Bool),
+            _ => Err(AosError::Validation(format!("Unknown data type: {}", s))),
         }
     }
 }
@@ -199,6 +203,7 @@ impl Tensor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test_data_type_size() {

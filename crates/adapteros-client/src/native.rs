@@ -1,4 +1,5 @@
 use crate::*;
+use adapteros_api_types::telemetry::TelemetryBundleResponse;
 use anyhow::{Context, Result};
 
 pub struct NativeClient {

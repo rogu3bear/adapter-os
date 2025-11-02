@@ -1,8 +1,7 @@
 use crate::Db;
 use adapteros_api_types::{
-    CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
-    DomainAdapterResponse, EpsilonStatsResponse, TestDomainAdapterRequest,
-    TestDomainAdapterResponse,
+    DomainAdapterExecutionResponse, DomainAdapterManifestResponse, DomainAdapterResponse,
+    EpsilonStatsResponse, TestDomainAdapterResponse,
 };
 use anyhow::{anyhow, Result};
 use chrono::Utc;

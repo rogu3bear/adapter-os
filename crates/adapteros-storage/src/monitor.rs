@@ -5,7 +5,7 @@
 use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use adapteros_telemetry::TelemetryWriter;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
@@ -32,12 +32,12 @@ pub enum AlertLevel {
 
 impl StorageMonitor {
     /// Create a new storage monitor
-    pub fn new(config: &StorageConfig, root_path: &PathBuf) -> Result<Self> {
+    pub fn new(config: &StorageConfig, root_path: &Path) -> Result<Self> {
         let telemetry = TelemetryWriter::new("storage_monitor", 1000, 1024 * 1024)?;
 
         Ok(Self {
             config: config.clone(),
-            root_path: root_path.clone(),
+            root_path: root_path.to_path_buf(),
             telemetry,
             monitoring_task: None,
             shutdown_tx: None,
@@ -109,7 +109,7 @@ impl StorageMonitor {
     /// Check storage usage and send alerts if needed
     async fn check_storage_usage(
         config: &StorageConfig,
-        root_path: &PathBuf,
+        root_path: &Path,
         telemetry: &TelemetryWriter,
         last_alert_level: &RwLock<Option<AlertLevel>>,
     ) -> Result<()> {
@@ -207,7 +207,7 @@ impl StorageMonitor {
     /// Calculate storage usage for a given config and path
     async fn calculate_usage_internal(
         config: &StorageConfig,
-        root_path: &PathBuf,
+        root_path: &Path,
     ) -> Result<StorageUsage> {
         let mut used_bytes = 0u64;
         let mut file_count = 0u32;
@@ -237,11 +237,7 @@ impl StorageMonitor {
     }
 
     /// Walk directory tree to calculate usage
-    async fn walk_directory(
-        path: &PathBuf,
-        used_bytes: &mut u64,
-        file_count: &mut u32,
-    ) -> Result<()> {
+    async fn walk_directory(path: &Path, used_bytes: &mut u64, file_count: &mut u32) -> Result<()> {
         Box::pin(async move {
             let mut entries = tokio::fs::read_dir(path).await.map_err(|e| {
                 AosError::Storage(format!(
@@ -270,7 +266,7 @@ impl StorageMonitor {
                     *used_bytes += metadata.len();
                     *file_count += 1;
                 } else if entry_path.is_dir() {
-                    Self::walk_directory(&entry_path, used_bytes, file_count).await?;
+                    Self::walk_directory(entry_path.as_path(), used_bytes, file_count).await?;
                 }
             }
 
@@ -317,7 +313,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut monitor = StorageMonitor::new(&config, &temp_dir.path().to_path_buf())?;
+        let monitor = StorageMonitor::new(&config, &temp_dir.path())?;
 
         // Create test files
         let test_file1 = temp_dir.path().join("test1.txt");

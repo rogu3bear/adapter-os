@@ -31,6 +31,9 @@ use tracing::info; // Add import
 // Note: sysinfo is used indirectly through the SystemMetricsProvider trait
 
 /// Trait for collecting system metrics
+///
+/// All implementations must be Send + Sync to ensure they can be safely
+/// awaited on the Tokio runtime without blocking.
 #[async_trait::async_trait]
 pub trait SystemMetricsProvider: Send + Sync + std::fmt::Debug {
     async fn collect_system_metrics(&self) -> SystemMetricsSnapshot;
@@ -682,28 +685,25 @@ impl MetricsCollector {
         let (memory_usage_mb, cpu_usage_percent, disk_metrics, network_metrics) =
             if let Some(provider) = &self.system_metrics_provider {
                 // Use async provider to get real metrics
-                match tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(provider.collect_system_metrics())
-                }) {
-                    SystemMetricsSnapshot {
-                        cpu_usage_percent,
-                        memory_usage_mb,
-                        disk_io_utilization,
-                        network_bandwidth_mbps,
-                        gpu_utilization: _,
-                        gpu_memory_used_mb: _,
-                        gpu_temperature: _,
-                    } => (
-                        memory_usage_mb,
-                        cpu_usage_percent,
-                        DiskMetrics {
-                            io_utilization: disk_io_utilization,
-                        },
-                        NetworkMetrics {
-                            bandwidth_utilization: network_bandwidth_mbps,
-                        },
-                    ),
-                }
+                let SystemMetricsSnapshot {
+                    cpu_usage_percent,
+                    memory_usage_mb,
+                    disk_io_utilization,
+                    network_bandwidth_mbps,
+                    gpu_utilization: _,
+                    gpu_memory_used_mb: _,
+                    gpu_temperature: _,
+                } = provider.collect_system_metrics().await;
+                (
+                    memory_usage_mb,
+                    cpu_usage_percent,
+                    DiskMetrics {
+                        io_utilization: disk_io_utilization,
+                    },
+                    NetworkMetrics {
+                        bandwidth_utilization: network_bandwidth_mbps,
+                    },
+                )
             } else {
                 // Fallback to Prometheus metrics
                 let memory_mb = self

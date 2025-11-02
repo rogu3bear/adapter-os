@@ -38,6 +38,12 @@ impl ZipEntryInfo {
     }
 }
 
+type WeightCacheRefs<'a> = (
+    &'a Option<ZipEntryInfo>,
+    &'a Mutex<Option<Arc<Vec<u8>>>>,
+    &'a str,
+);
+
 fn get_entry_info<R: std::io::Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
     name: &'static str,
@@ -185,24 +191,23 @@ impl MmapAdapter {
     }
 
     pub fn get_weights_slice(&self, kind: WeightsKind) -> Result<Arc<Vec<u8>>> {
-        let (info_opt, cache, name): (&Option<ZipEntryInfo>, &Mutex<Option<Arc<Vec<u8>>>>, &str) =
-            match kind {
-                WeightsKind::Positive => (
-                    &self.weights_pos,
-                    &self.pos_cache,
-                    "weights_positive.safetensors",
-                ),
-                WeightsKind::Negative => (
-                    &self.weights_neg,
-                    &self.neg_cache,
-                    "weights_negative.safetensors",
-                ),
-                WeightsKind::Combined => (
-                    &self.weights_comb,
-                    &self.comb_cache,
-                    "weights_combined.safetensors",
-                ),
-            };
+        let (info_opt, cache, name): WeightCacheRefs<'_> = match kind {
+            WeightsKind::Positive => (
+                &self.weights_pos,
+                &self.pos_cache,
+                "weights_positive.safetensors",
+            ),
+            WeightsKind::Negative => (
+                &self.weights_neg,
+                &self.neg_cache,
+                "weights_negative.safetensors",
+            ),
+            WeightsKind::Combined => (
+                &self.weights_comb,
+                &self.comb_cache,
+                "weights_combined.safetensors",
+            ),
+        };
 
         let info = info_opt
             .as_ref()

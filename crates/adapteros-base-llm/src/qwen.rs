@@ -7,7 +7,6 @@ use super::{BaseLLM, BaseLLMMetadata, ModelState};
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_trace::{Event, LogicalTimestamp};
-// use serde::{Deserialize, Serialize}; // Not used in current implementation
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -30,7 +29,6 @@ pub struct QwenBaseLLM {
 #[derive(Debug)]
 struct QwenState {
     initialized: bool,
-    executor: Option<DeterministicExecutor>,
     model_loaded: bool,
     current_sequence: Vec<u32>,
     checkpoint_counter: u64,
@@ -41,7 +39,6 @@ impl QwenBaseLLM {
     pub fn new(metadata: BaseLLMMetadata) -> Result<Self> {
         let state = Arc::new(RwLock::new(QwenState {
             initialized: false,
-            executor: None,
             model_loaded: false,
             current_sequence: Vec::new(),
             checkpoint_counter: 0,

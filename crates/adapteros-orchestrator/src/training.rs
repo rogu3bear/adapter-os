@@ -3,16 +3,13 @@
 //! Handles scheduling, executing, and monitoring adapter training jobs.
 //! Integrates with MLX backend for actual training operations.
 
-use adapteros_api_types::training::{
-    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
-};
 use adapteros_core::AosError;
+use adapteros_core::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
 };
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

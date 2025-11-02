@@ -78,7 +78,8 @@ impl ConfigLoader {
         builder = builder.with_manifest_path(path.to_string());
 
         // Flatten nested TOML structure
-        let flattened = self.flatten_toml_value(&manifest, String::new());
+        let mut flattened = HashMap::new();
+        Self::flatten_toml_value(&manifest, "", &mut flattened);
         let count = flattened.len();
         for (key, value) in flattened {
             builder = builder.add_value(
@@ -168,9 +169,7 @@ impl ConfigLoader {
     }
 
     /// Flatten nested TOML value into dot-notation keys
-    fn flatten_toml_value(&self, value: &Value, prefix: String) -> HashMap<String, String> {
-        let mut result = HashMap::new();
-
+    fn flatten_toml_value(value: &Value, prefix: &str, result: &mut HashMap<String, String>) {
         match value {
             Value::Object(map) => {
                 for (key, val) in map {
@@ -180,18 +179,17 @@ impl ConfigLoader {
                         format!("{}.{}", prefix, key)
                     };
 
-                    let flattened = self.flatten_toml_value(val, new_prefix);
-                    result.extend(flattened);
+                    Self::flatten_toml_value(val, &new_prefix, result);
                 }
             }
             Value::String(s) => {
-                result.insert(prefix, s.clone());
+                result.insert(prefix.to_string(), s.clone());
             }
             Value::Number(n) => {
-                result.insert(prefix, n.to_string());
+                result.insert(prefix.to_string(), n.to_string());
             }
             Value::Bool(b) => {
-                result.insert(prefix, b.to_string());
+                result.insert(prefix.to_string(), b.to_string());
             }
             Value::Array(arr) => {
                 // Convert array to comma-separated string
@@ -204,14 +202,12 @@ impl ConfigLoader {
                         _ => format!("{:?}", v),
                     })
                     .collect();
-                result.insert(prefix, values.join(","));
+                result.insert(prefix.to_string(), values.join(","));
             }
             Value::Null => {
-                result.insert(prefix, "null".to_string());
+                result.insert(prefix.to_string(), "null".to_string());
             }
         }
-
-        result
     }
 
     /// Validate configuration file format

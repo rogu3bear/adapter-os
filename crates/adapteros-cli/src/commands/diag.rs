@@ -1,6 +1,6 @@
 //! System diagnostics command
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -42,7 +42,6 @@ struct DiagResult {
 }
 
 struct DiagnosticRunner {
-    profile: DiagProfile,
     tenant_id: Option<String>,
     results: Vec<DiagResult>,
     has_warnings: bool,
@@ -50,9 +49,8 @@ struct DiagnosticRunner {
 }
 
 impl DiagnosticRunner {
-    fn new(profile: DiagProfile, tenant_id: Option<String>) -> Self {
+    fn new(_profile: DiagProfile, tenant_id: Option<String>) -> Self {
         Self {
-            profile,
             tenant_id,
             results: Vec::new(),
             has_warnings: false,
@@ -345,9 +343,6 @@ impl DiagnosticRunner {
         }
 
         // Try to connect
-        let db_path_str = db_path
-            .to_str()
-            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
         match adapteros_db::Database::connect_env().await {
             Ok(_db) => {
                 self.check(
@@ -449,23 +444,12 @@ impl DiagnosticRunner {
             return Ok(());
         }
 
-        let db_path_str = db_path
-            .to_str()
-            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
         match adapteros_db::Database::connect_env().await {
             Ok(db) => {
-                // Check if tenant exists - use appropriate query syntax
-                let result = if db.as_sqlite().is_some() {
-                    sqlx::query("SELECT uid, gid FROM tenants WHERE id = ?")
-                        .bind(tenant_id)
-                        .fetch_optional(db.pool())
-                        .await
-                } else {
-                    sqlx::query("SELECT uid, gid FROM tenants WHERE id = $1")
-                        .bind(tenant_id)
-                        .fetch_optional(db.postgres_pool())
-                        .await
-                };
+                let result = sqlx::query("SELECT uid, gid FROM tenants WHERE id = ?")
+                    .bind(tenant_id)
+                    .fetch_optional(db.pool())
+                    .await;
                 match result {
                     Ok(Some(row)) => {
                         let uid: i64 = row.try_get("uid").unwrap_or(0);

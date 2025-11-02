@@ -519,6 +519,9 @@ impl MetricsPersistenceService {
             None, // No tenant filter for now
         )
         .await
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to aggregate metrics: {}", e))
+        })
     }
 
     /// Get recent metrics for a worker
@@ -537,7 +540,11 @@ impl MetricsPersistenceService {
             limit,
         };
 
-        ProcessHealthMetric::query(self.db.pool(), filters).await
+        ProcessHealthMetric::query(self.db.pool(), filters)
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to query metrics: {}", e))
+            })
     }
 }
 

@@ -45,6 +45,7 @@ pub use monitoring_types::{
 };
 pub use notifications::{NotificationConfig, NotificationSenderImpl, NotificationService};
 pub use persistence::{MetricsPersistenceService, PersistenceConfig};
+pub use telemetry::SystemMetricsTelemetry;
 
 // Re-export types for backward compatibility (already exported above)
 

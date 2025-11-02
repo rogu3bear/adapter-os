@@ -1,9 +1,14 @@
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+
 //! MLX FFI integration for AdapterOS
 //!
 //! This crate provides C FFI bindings for MLX's C++ API, avoiding PyO3 dependency issues.
 //! It implements the same interface as the PyO3-based MLX crate but uses direct C++ calls.
 
 use adapteros_core::{AosError, Result};
+use std::collections::HashMap;
 use std::path::Path;
 
 // Include the generated bindings
@@ -21,6 +26,8 @@ pub use backend::MLXFFIBackend;
 pub use lora::{LoRAAdapter, LoRAConfig};
 pub use routing::apply_multi_lora;
 pub use tensor::MLXFFITensor;
+
+type HiddenStateMap = HashMap<String, Vec<f32>>;
 
 /// Return true if the C++ wrapper was compiled against a real MLX C++ API
 pub fn ffi_is_real() -> bool {
@@ -145,14 +152,14 @@ impl MLXFFIModel {
             ^ ((vocab as u64) << 32)
             ^ (hidden as u64)
             ^ 0xA5A5_5A5A_D3C1_4E55u64;
-        for i in 0..(vocab * hidden) {
+        for value in w.iter_mut() {
             // LCG
             seed = seed
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             // Map to small magnitude to avoid blowing up logits
             let v = ((seed >> 32) as u32) as f32 / (u32::MAX as f32);
-            w[i] = (v - 0.5) * 0.02; // ~[-0.01, 0.01]
+            *value = (v - 0.5) * 0.02; // ~[-0.01, 0.01]
         }
         Ok(w)
     }
@@ -292,7 +299,7 @@ impl MLXFFIModel {
     pub fn forward_with_hidden_states(
         &self,
         token_ids: &[u32],
-    ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
+    ) -> Result<(Vec<f32>, HiddenStateMap)> {
         // Convert token_ids to C array
         let token_ints: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
 
@@ -336,7 +343,7 @@ impl MLXFFIModel {
         }
 
         // Extract hidden states
-        let mut hidden_states = std::collections::HashMap::new();
+        let mut hidden_states: HiddenStateMap = HashMap::new();
         if !hidden_ptr.is_null() && num_hidden > 0 {
             let modules = ["q_proj", "k_proj", "v_proj", "o_proj"];
             let total = unsafe { mlx_array_size(hidden_ptr) } as usize;

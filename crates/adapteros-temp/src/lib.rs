@@ -130,7 +130,7 @@ impl TempManager {
     }
 
     /// Create a temporary file with guaranteed cleanup
-    pub async fn create_temp_file(&self, prefix: &str, suffix: &str) -> Result<TempFileGuard> {
+    pub async fn create_temp_file(&self, prefix: &str, suffix: &str) -> Result<TempFileGuard<'_>> {
         let file_id = format!(
             "{}_{}_{}",
             prefix,
@@ -181,7 +181,7 @@ impl TempManager {
     }
 
     /// Create a temporary directory with guaranteed cleanup
-    pub async fn create_temp_dir(&self, prefix: &str) -> Result<TempDirGuard> {
+    pub async fn create_temp_dir(&self, prefix: &str) -> Result<TempDirGuard<'_>> {
         let dir_id = format!(
             "{}_{}_{}",
             prefix,

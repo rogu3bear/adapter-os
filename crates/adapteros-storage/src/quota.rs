@@ -6,7 +6,7 @@ use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
@@ -38,10 +38,10 @@ pub struct SpaceReservation {
 
 impl QuotaManager {
     /// Create a new quota manager
-    pub fn new(config: &StorageConfig, root_path: &PathBuf) -> Result<Self> {
+    pub fn new(config: &StorageConfig, root_path: &Path) -> Result<Self> {
         Ok(Self {
             config: config.clone(),
-            root_path: root_path.clone(),
+            root_path: root_path.to_path_buf(),
             reservations: Arc::new(RwLock::new(HashMap::new())),
             usage_cache: Arc::new(Mutex::new(None)),
             cache_ttl: Duration::from_secs(60), // 1 minute cache
@@ -149,7 +149,7 @@ impl QuotaManager {
         }
 
         // Walk directory tree
-        self.walk_directory(&self.root_path, &mut used_bytes, &mut file_count)?;
+        Self::walk_directory(self.root_path.as_path(), &mut used_bytes, &mut file_count)?;
 
         let usage_pct = (used_bytes as f32 / self.config.max_disk_space_bytes as f32) * 100.0;
 
@@ -163,12 +163,7 @@ impl QuotaManager {
     }
 
     /// Walk directory tree to calculate usage
-    fn walk_directory(
-        &self,
-        path: &PathBuf,
-        used_bytes: &mut u64,
-        file_count: &mut u32,
-    ) -> Result<()> {
+    fn walk_directory(path: &Path, used_bytes: &mut u64, file_count: &mut u32) -> Result<()> {
         let entries = std::fs::read_dir(path).map_err(|e| {
             AosError::Storage(format!(
                 "Failed to read directory {}: {}",
@@ -194,7 +189,7 @@ impl QuotaManager {
                 *used_bytes += metadata.len();
                 *file_count += 1;
             } else if entry_path.is_dir() {
-                self.walk_directory(&entry_path, used_bytes, file_count)?;
+                Self::walk_directory(entry_path.as_path(), used_bytes, file_count)?;
             }
         }
 
@@ -254,7 +249,7 @@ mod tests {
             ..Default::default()
         };
 
-        let quota_manager = QuotaManager::new(&config, &temp_dir.path().to_path_buf())?;
+        let quota_manager = QuotaManager::new(&config, &temp_dir.path())?;
 
         // Test space reservation
         let reservation = quota_manager.reserve_space(500).await?;
@@ -285,7 +280,7 @@ mod tests {
             ..Default::default()
         };
 
-        let quota_manager = QuotaManager::new(&config, &temp_dir.path().to_path_buf())?;
+        let quota_manager = QuotaManager::new(&config, &temp_dir.path())?;
 
         // Create test files
         let test_file1 = temp_dir.path().join("test1.txt");

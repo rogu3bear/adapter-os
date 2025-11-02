@@ -185,8 +185,6 @@ impl SingleFileAdapter {
     }
 }
 
-/// Serialize weight group to safetensors format
-
 /// Single-file adapter packager
 pub struct SingleFileAdapterPackager;
 

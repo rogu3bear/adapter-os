@@ -87,6 +87,7 @@ pub fn apply_multi_lora(
 }
 
 /// Apply LoRA transformation to input
+#[allow(dead_code)]
 fn apply_lora_transform(
     input: &[f32],
     lora_a: &[Vec<f32>],
@@ -151,24 +152,28 @@ fn apply_lora_transform_flat(
 
     // First: intermediate[r] = sum_h input[h] * A[r,h]
     let mut intermediate = vec![0.0f32; rank];
-    for r in 0..rank {
-        let base = r * hidden_dim;
-        let mut acc = 0.0f32;
-        for h in 0..len {
-            acc += input[h] * a_row_major[base + h];
-        }
-        intermediate[r] = acc;
+    for (chunk, intermediate_val) in a_row_major
+        .chunks_exact(hidden_dim)
+        .zip(intermediate.iter_mut())
+    {
+        let acc = input
+            .iter()
+            .take(len)
+            .zip(chunk.iter())
+            .map(|(input_val, weight)| input_val * weight)
+            .sum::<f32>();
+        *intermediate_val = acc;
     }
 
     // Second: output[h] = sum_r intermediate[r] * B[h,r]
     let mut output = vec![0.0f32; hidden_dim];
-    for h in 0..hidden_dim {
-        let base = h * rank;
-        let mut acc = 0.0f32;
-        for r in 0..rank {
-            acc += intermediate[r] * b_row_major[base + r];
-        }
-        output[h] = acc;
+    for (chunk, out) in b_row_major.chunks_exact(rank).zip(output.iter_mut()) {
+        let acc = intermediate
+            .iter()
+            .zip(chunk.iter())
+            .map(|(inter_val, weight)| inter_val * weight)
+            .sum::<f32>();
+        *out = acc;
     }
 
     // Apply alpha scaling

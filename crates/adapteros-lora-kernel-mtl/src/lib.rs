@@ -856,10 +856,10 @@ impl MetalKernels {
         for r in 0..effective_rank {
             let dst_start = dst_offset + r * expected_cols;
             let dst_row = &mut dst_slice[dst_start..dst_start + expected_cols];
-            for col in 0..copy_cols {
+            for (col, value) in dst_row.iter_mut().take(copy_cols).enumerate() {
                 let src_index = col * rank_padded + r;
-                if src_index < src_slice.len() {
-                    dst_row[col] = src_slice[src_index];
+                if let Some(src_val) = src_slice.get(src_index) {
+                    *value = *src_val;
                 }
             }
         }

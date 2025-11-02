@@ -24,8 +24,12 @@ impl Registry {
             .map_err(|e| AosError::Registry(format!("Failed to open database: {}", e)))?;
 
         // Enable WAL mode for better concurrency
-        conn.execute("PRAGMA journal_mode=WAL", [])
-            .map_err(|e| AosError::Registry(format!("Failed to set WAL mode: {}", e)))?;
+        // PRAGMA returns results, so use query instead of execute
+        conn.query_row("PRAGMA journal_mode=WAL", [], |row| {
+            let mode: String = row.get(0)?;
+            Ok(mode)
+        })
+        .map_err(|e| AosError::Registry(format!("Failed to set WAL mode: {}", e)))?;
 
         let registry = Self {
             conn: Arc::new(Mutex::new(conn)),

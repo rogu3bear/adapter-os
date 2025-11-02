@@ -2,7 +2,6 @@
 //!
 //! Implements validation mechanisms for files and directories.
 
-use crate::ErrorRecoveryConfig;
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -11,7 +10,6 @@ use tracing::{debug, warn};
 
 /// Validation engine
 pub struct ValidationEngine {
-    config: ErrorRecoveryConfig,
     validation_cache: std::collections::HashMap<PathBuf, ValidationResult>,
 }
 
@@ -77,9 +75,8 @@ pub enum ValidationSeverity {
 
 impl ValidationEngine {
     /// Create a new validation engine
-    pub fn new(config: &ErrorRecoveryConfig) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
-            config: config.clone(),
             validation_cache: std::collections::HashMap::new(),
         })
     }
@@ -332,7 +329,7 @@ impl ValidationEngine {
             .map_err(|e| AosError::Validation(format!("Failed to get file metadata: {}", e)))?;
 
         // Check if file is readable
-        if let Err(_) = fs::read(path).await {
+        if fs::read(path).await.is_err() {
             return Err(AosError::Validation("File is not readable".to_string()));
         }
 
@@ -369,18 +366,9 @@ impl ValidationEngine {
         }
 
         // Check for null bytes in text files
-        if let Some(extension) = path.extension() {
-            if let Some(ext_str) = extension.to_str() {
-                match ext_str {
-                    "txt" | "json" | "toml" | "yaml" | "md" => {
-                        if content.contains(&0) {
-                            return Err(AosError::Validation(
-                                "File contains null bytes".to_string(),
-                            ));
-                        }
-                    }
-                    _ => {}
-                }
+        if let Some(ext_str) = path.extension().and_then(|ext| ext.to_str()) {
+            if matches!(ext_str, "txt" | "json" | "toml" | "yaml" | "md") && content.contains(&0) {
+                return Err(AosError::Validation("File contains null bytes".to_string()));
             }
         }
 
@@ -389,30 +377,28 @@ impl ValidationEngine {
 
     /// Validate file format
     async fn validate_file_format(&self, path: &Path) -> Result<()> {
-        if let Some(extension) = path.extension() {
-            if let Some(ext_str) = extension.to_str() {
-                match ext_str {
-                    "json" => {
-                        let content = fs::read_to_string(path).await.map_err(|e| {
-                            AosError::Validation(format!("Failed to read JSON file: {}", e))
-                        })?;
+        if let Some(ext_str) = path.extension().and_then(|ext| ext.to_str()) {
+            match ext_str {
+                "json" => {
+                    let content = fs::read_to_string(path).await.map_err(|e| {
+                        AosError::Validation(format!("Failed to read JSON file: {}", e))
+                    })?;
 
-                        // Validate JSON format
-                        serde_json::from_str::<serde_json::Value>(&content)
-                            .map_err(|_| AosError::Validation("Invalid JSON format".to_string()))?;
-                    }
-                    "toml" => {
-                        let content = fs::read_to_string(path).await.map_err(|e| {
-                            AosError::Validation(format!("Failed to read TOML file: {}", e))
-                        })?;
+                    // Validate JSON format
+                    serde_json::from_str::<serde_json::Value>(&content)
+                        .map_err(|_| AosError::Validation("Invalid JSON format".to_string()))?;
+                }
+                "toml" => {
+                    let content = fs::read_to_string(path).await.map_err(|e| {
+                        AosError::Validation(format!("Failed to read TOML file: {}", e))
+                    })?;
 
-                        // Validate TOML format
-                        toml::from_str::<toml::Value>(&content)
-                            .map_err(|_| AosError::Validation("Invalid TOML format".to_string()))?;
-                    }
-                    _ => {
-                        // Other formats not validated
-                    }
+                    // Validate TOML format
+                    toml::from_str::<toml::Value>(&content)
+                        .map_err(|_| AosError::Validation("Invalid TOML format".to_string()))?;
+                }
+                _ => {
+                    // Other formats not validated
                 }
             }
         }
@@ -427,7 +413,7 @@ impl ValidationEngine {
         })?;
 
         // Check if directory is readable
-        if let Err(_) = fs::read_dir(path).await {
+        if fs::read_dir(path).await.is_err() {
             return Err(AosError::Validation(
                 "Directory is not readable".to_string(),
             ));
@@ -525,8 +511,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validation_engine() -> Result<()> {
-        let config = ErrorRecoveryConfig::default();
-        let mut engine = ValidationEngine::new(&config)?;
+        let mut engine = ValidationEngine::new()?;
 
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
@@ -545,8 +530,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_validation() -> Result<()> {
-        let config = ErrorRecoveryConfig::default();
-        let mut engine = ValidationEngine::new(&config)?;
+        let mut engine = ValidationEngine::new()?;
 
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.json");
@@ -566,8 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_directory_validation() -> Result<()> {
-        let config = ErrorRecoveryConfig::default();
-        let engine = ValidationEngine::new(&config)?;
+        let engine = ValidationEngine::new()?;
 
         let temp_dir = TempDir::new()?;
         let test_dir = temp_dir.path().join("test_dir");
@@ -586,8 +569,7 @@ mod tests {
 
     #[test]
     fn test_validation_statistics() {
-        let config = ErrorRecoveryConfig::default();
-        let engine = ValidationEngine::new(&config).unwrap();
+        let engine = ValidationEngine::new().unwrap();
 
         let stats = engine.get_validation_statistics();
         assert_eq!(stats.total_validations, 0);

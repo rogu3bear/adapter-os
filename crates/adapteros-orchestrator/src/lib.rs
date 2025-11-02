@@ -24,9 +24,7 @@ pub use federation_daemon::{
 };
 pub use gates::*;
 pub use report::{GateReport, GateResult, ReportFormat};
-pub use training::{
-    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
-};
+pub use training::TrainingService;
 
 /// Gate runner configuration
 #[derive(Debug, Clone)]

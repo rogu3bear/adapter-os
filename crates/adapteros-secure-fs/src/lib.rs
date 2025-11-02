@@ -44,23 +44,15 @@ pub struct SecureFsConfig {
 pub struct SecureFsManager {
     config: SecureFsConfig,
     root_dir: Option<Dir>,
-    capabilities: Option<caps::Capabilities>,
     key_provider: Option<Box<dyn adapteros_crypto::KeyProvider + Send + Sync>>,
 }
 
 impl SecureFsManager {
     /// Create a new secure filesystem manager
     pub fn new(config: SecureFsConfig) -> Result<Self> {
-        let capabilities = if config.enable_caps {
-            Some(caps::Capabilities::new()?)
-        } else {
-            None
-        };
-
         Ok(Self {
             config,
             root_dir: None,
-            capabilities,
             key_provider: None,
         })
     }

@@ -10,6 +10,7 @@
 //! - crates/adapteros-lora-worker/src/uds_server.rs (server counterpart)
 
 use crate::{types::*, AdapterOSClient};
+use adapteros_api_types::telemetry::TelemetryBundleResponse;
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json::Value;
@@ -42,6 +43,7 @@ pub enum UdsClientError {
 struct HttpResponse {
     status_code: u16,
     reason: String,
+    #[allow(dead_code)]
     headers: HashMap<String, String>,
     body: Vec<u8>,
 }
@@ -51,6 +53,7 @@ impl HttpResponse {
         (200..300).contains(&self.status_code)
     }
 
+    #[allow(dead_code)]
     fn header(&self, name: &str) -> Option<&str> {
         let key = name.to_ascii_lowercase();
         self.headers.get(&key).map(|s| s.as_str())

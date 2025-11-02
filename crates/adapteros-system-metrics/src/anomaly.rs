@@ -537,7 +537,11 @@ impl AnomalyDetector {
             limit: Some(1000), // Get last 1000 metrics
         };
 
-        ProcessHealthMetric::query(self.db.pool(), filters).await
+        ProcessHealthMetric::query(self.db.pool(), filters)
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to query metrics: {}", e))
+            })
     }
 
     /// Get recent metric values for rate of change calculation

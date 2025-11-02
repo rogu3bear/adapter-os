@@ -218,7 +218,7 @@ impl ConflictResolver {
         };
 
         // Record conflict resolution
-        self.record_conflict_resolution(&conflict.path, &resolution)
+        self.record_conflict_resolution(conflict.path.as_path(), &resolution)
             .await?;
 
         debug!(
@@ -380,7 +380,7 @@ impl ConflictResolver {
     /// Record conflict resolution
     async fn record_conflict_resolution(
         &self,
-        path: &PathBuf,
+        path: &Path,
         resolution: &ConflictResolution,
     ) -> Result<()> {
         let record = ConflictRecord {

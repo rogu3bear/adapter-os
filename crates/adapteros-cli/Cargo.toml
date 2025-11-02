@@ -40,6 +40,7 @@ adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-cdp = { path = "../adapteros-cdp" }
 # adapteros-codegraph = { path = "../adapteros-codegraph" }  # Temporarily disabled due to SQLite conflict
+argon2 = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 clap = { workspace = true }
 clap_complete = "4.4"
@@ -71,6 +72,7 @@ once_cell = "1.19"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 safetensors = { workspace = true }
 bytemuck = { workspace = true }
+rand = { workspace = true }
 half = "2.0"
 
 [features]

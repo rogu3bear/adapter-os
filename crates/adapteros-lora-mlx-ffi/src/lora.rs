@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+type FlattenedModuleWeights = (Arc<Vec<f32>>, Arc<Vec<f32>>);
+type FlattenCache = Arc<RwLock<HashMap<String, FlattenedModuleWeights>>>;
+type ModuleWeightRefs<'a> = (&'a Vec<Vec<f32>>, &'a Vec<Vec<f32>>);
+
 /// LoRA adapter configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoRAConfig {
@@ -50,7 +54,7 @@ pub struct LoRAAdapter {
     /// Adapter hash for integrity checking
     pub hash: B3Hash,
     /// Cached flattened weights (row-major) per module to avoid repeated allocations
-    flatten_cache: Arc<RwLock<HashMap<String, (Arc<Vec<f32>>, Arc<Vec<f32>>)>>>,
+    flatten_cache: FlattenCache,
 }
 
 impl LoRAAdapter {
@@ -94,10 +98,7 @@ impl LoRAAdapter {
     }
 
     /// Get LoRA weights for a module
-    pub fn get_module_weights(
-        &self,
-        module_name: &str,
-    ) -> Option<(&Vec<Vec<f32>>, &Vec<Vec<f32>>)> {
+    pub fn get_module_weights(&self, module_name: &str) -> Option<ModuleWeightRefs<'_>> {
         let lora_a = self.lora_a.get(module_name)?;
         let lora_b = self.lora_b.get(module_name)?;
         Some((lora_a, lora_b))
@@ -271,10 +272,7 @@ impl LoRAAdapter {
 
     /// Cached contiguous row-major views using Arc to avoid reallocations.
     /// Returns (A_row_major, B_row_major) as Arc<Vec<_>> if the module exists.
-    pub fn flatten_module_weights_cached(
-        &self,
-        module: &str,
-    ) -> Option<(Arc<Vec<f32>>, Arc<Vec<f32>>)> {
+    pub fn flatten_module_weights_cached(&self, module: &str) -> Option<FlattenedModuleWeights> {
         // First try cache
         if let Ok(cache) = self.flatten_cache.read() {
             if let Some((a, b)) = cache.get(module) {

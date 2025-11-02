@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! OS Keychain provider implementation
 //!
 //! Provides cryptographic key operations using OS-native key storage:
@@ -105,6 +107,7 @@ impl KeyProvider for KeychainProvider {
         self.keyring.sign(key_id, msg).await
     }
 
+    #[allow(deprecated)]
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         debug!(key_id = %key_id, plaintext_len = plaintext.len(), "Sealing data");
 
@@ -273,6 +276,7 @@ impl KeyringImpl for MacKeychain {
         Ok(result)
     }
 
+    #[allow(deprecated)]
     async fn unseal(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
         // TODO: Implement actual macOS Keychain decryption integration
         // For now, use the existing AES-GCM implementation

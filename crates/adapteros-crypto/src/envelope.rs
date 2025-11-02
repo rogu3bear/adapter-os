@@ -12,6 +12,7 @@ const NONCE_SIZE: usize = 12;
 /// Encrypt data with AES-256-GCM
 ///
 /// Returns (ciphertext, nonce) tuple
+#[allow(deprecated)]
 pub fn encrypt_envelope(key: &[u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, [u8; NONCE_SIZE])> {
     let cipher = Aes256Gcm::new(key.into());
 
@@ -29,6 +30,7 @@ pub fn encrypt_envelope(key: &[u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, [u
 }
 
 /// Decrypt data with AES-256-GCM
+#[allow(deprecated)]
 pub fn decrypt_envelope(
     key: &[u8; 32],
     ciphertext: &[u8],
