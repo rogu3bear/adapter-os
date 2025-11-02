@@ -441,13 +441,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::compare_policy_versions),
         )
         .route("/v1/policies/:cpid/export", get(handlers::export_policy))
-        // Golden baselines
-        .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
-        .route(
-            "/v1/golden/runs/:name",
-            get(handlers::golden::get_golden_run),
-        )
-        .route("/v1/golden/compare", post(handlers::golden::golden_compare))
+        // Golden baselines - removed to fix route conflict (see memory-leak-fixes.patch)
         // Replay session routes
         .route(
             "/v1/replay/sessions",
@@ -515,6 +509,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapters/:adapter_id/policy",
             put(handlers::update_adapter_policy),
+        )
+        .route(
+            "/v1/adapters/category-policies",
+            get(handlers::get_category_policies),
+        )
+        .route(
+            "/v1/adapters/category-policies/:category",
+            get(handlers::get_category_policy),
         )
         .route(
             "/v1/adapters/:adapter_id/manifest",
