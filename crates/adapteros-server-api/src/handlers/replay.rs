@@ -12,10 +12,11 @@ use axum::{
 };
 use chrono;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::state::AppState;
-use crate::types::{ErrorResponse, ReplayDivergence, ReplayVerificationResponse};
+use crate::types::{ErrorResponse, ReplayVerificationResponse};
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReplaySessionsParams {
@@ -70,7 +71,7 @@ pub struct CreateReplaySessionRequest {
 pub async fn list_replay_sessions(
     State(state): State<AppState>,
     Query(params): Query<ListReplaySessionsParams>,
-) -> Result<Json<Vec<ReplaySessionResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<ReplaySessionResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let sessions = state
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
@@ -78,13 +79,19 @@ pub async fn list_replay_sessions(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to list replay sessions: {}", e),
+                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
             )
         })?;
 
     let responses: Vec<ReplaySessionResponse> = sessions
         .into_iter()
-        .filter_map(|session| session_to_response(session).ok())
+        .filter_map(|session| match session_to_response(session) {
+            Ok(response) => Some(response),
+            Err(e) => {
+                warn!("Failed to serialize replay session: {:?}", e);
+                None
+            }
+        })
         .collect();
 
     Ok(Json(responses))
@@ -102,7 +109,7 @@ pub async fn list_replay_sessions(
 pub async fn get_replay_session(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
-) -> Result<Json<ReplaySessionResponse>, (StatusCode, String)> {
+) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
     let session = state
         .db
         .get_replay_session(&session_id)
@@ -110,18 +117,18 @@ pub async fn get_replay_session(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get replay session: {}", e),
+                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
             )
         })?
         .ok_or((
             StatusCode::NOT_FOUND,
-            "Replay session not found".to_string(),
+            Json(ErrorResponse::new("replay session not found").with_code("NOT_FOUND")),
         ))?;
 
     let response = session_to_response(session).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to serialize response: {}", e),
+            Json(ErrorResponse::new("serialization error").with_code("SERIALIZE_ERROR")),
         )
     })?;
 
@@ -141,7 +148,7 @@ pub async fn get_replay_session(
 pub async fn create_replay_session(
     State(state): State<AppState>,
     Json(req): Json<CreateReplaySessionRequest>,
-) -> Result<Json<ReplaySessionResponse>, (StatusCode, String)> {
+) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Generate session ID
     let session_id = uuid::Uuid::new_v4().to_string();
 
@@ -176,10 +183,20 @@ pub async fn create_replay_session(
         manifest_hash_b3: "b3:placeholder".to_string(),
         policy_hash_b3: "b3:placeholder".to_string(),
         kernel_hash_b3: None,
-        telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
-        adapter_state_json: serde_json::to_string(&adapter_state)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+        telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("serialization error").with_code("SERIALIZE_ERROR")),
+                )
+            },
+        )?,
+        adapter_state_json: serde_json::to_string(&adapter_state).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("serialization error").with_code("SERIALIZE_ERROR")),
+            )
+        })?,
         routing_decisions_json: "[]".to_string(),
         inference_traces_json: None,
         signature: hex::encode(signature.to_bytes()),
@@ -193,12 +210,16 @@ pub async fn create_replay_session(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create replay session: {}", e),
+                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
             )
         })?;
 
-    let response = session_to_response(session)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let response = session_to_response(session).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("serialization error").with_code("SERIALIZE_ERROR")),
+        )
+    })?;
 
     Ok(Json(response))
 }
@@ -240,11 +261,7 @@ pub async fn verify_replay_session(
             tracing::error!("Failed to verify replay session: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to verify replay session")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e),
-                ),
+                format!("Failed to verify replay session: {}", e),
             )
         })?;
 
@@ -255,16 +272,41 @@ pub async fn verify_replay_session(
 }
 
 // Helper function to convert database model to API response
-fn session_to_response(session: ReplaySession) -> Result<ReplaySessionResponse, anyhow::Error> {
+fn session_to_response(
+    session: ReplaySession,
+) -> Result<ReplaySessionResponse, (StatusCode, String)> {
     let telemetry_bundle_ids: Vec<String> =
-        serde_json::from_str(&session.telemetry_bundle_ids_json)?;
-    let adapter_state: AdapterStateSnapshot = serde_json::from_str(&session.adapter_state_json)?;
+        serde_json::from_str(&session.telemetry_bundle_ids_json).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to parse telemetry_bundle_ids: {}", e),
+            )
+        })?;
+    let adapter_state: AdapterStateSnapshot = serde_json::from_str(&session.adapter_state_json)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to parse adapter_state: {}", e),
+            )
+        })?;
     let routing_decisions: Vec<serde_json::Value> =
-        serde_json::from_str(&session.routing_decisions_json)?;
+        serde_json::from_str(&session.routing_decisions_json).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to parse routing_decisions: {}", e),
+            )
+        })?;
     let inference_traces = session
         .inference_traces_json
-        .map(|json| serde_json::from_str(&json))
-        .transpose()?;
+        .as_ref()
+        .map(|json| serde_json::from_str(json))
+        .transpose()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to parse inference_traces: {}", e),
+            )
+        })?;
 
     Ok(ReplaySessionResponse {
         id: session.id,

@@ -4,6 +4,7 @@
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
 use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
+use adapteros_api_types::training::TrainingConfigRequest;
 use adapteros_core::error::AosError;
 use adapteros_db::users::Role;
 use adapteros_git::GitSubsystem;
@@ -110,18 +111,7 @@ pub struct EvidenceSpan {
 #[derive(Debug, Deserialize)]
 pub struct TrainRepositoryRequest {
     pub repo_id: String,
-    pub config: TrainingConfig,
-}
-
-/// Training configuration
-#[derive(Debug, Deserialize)]
-pub struct TrainingConfig {
-    pub rank: usize,
-    pub alpha: usize,
-    pub epochs: usize,
-    pub learning_rate: f32,
-    pub batch_size: usize,
-    pub targets: Vec<String>,
+    pub config: TrainingConfigRequest,
 }
 
 /// Repository training response
@@ -153,6 +143,45 @@ pub async fn register_git_repository(
 
     // Evidence: docs/code-intelligence/code-policies.md:82-84
     // Policy: Path validation and security checks
+    let config = state.config.read().map_err(|e| {
+        tracing::error!("Failed to read config: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Configuration access failed")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details("Failed to read path policy configuration"),
+            ),
+        )
+    })?;
+    let path_policy = PathPolicy::from_config(&config.path_policy).map_err(|e| {
+        tracing::error!("Invalid path policy configuration: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Invalid path policy configuration")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(format!(
+                        "Failed to create path validation patterns: {}",
+                        e
+                    )),
+            ),
+        )
+    })?;
+
+    // Validate repository path
+    let path_validator = PathValidator::new(&path_policy);
+    if let Err(e) = path_validator.validate_repo_path(&request.path, &claims.tenant_id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Path validation failed")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(format!("Path validation error: {}", e)),
+            ),
+        ));
+    }
+
     // Check if path exists
     if !std::path::Path::new(&request.path).exists() {
         return Err((
@@ -412,20 +441,10 @@ pub async fn train_repository_adapter(
     // Evidence: docs/code-intelligence/code-implementation-roadmap.md:173-270
     // Pattern: Training pipeline with evidence-based adapter creation
     let training_id = Uuid::now_v7().to_string();
-    let estimated_duration = estimate_training_duration(&request.config, &analysis);
 
     // Start training job using TrainingService
-    let training_config = adapteros_orchestrator::TrainingConfig {
-        rank: request.config.rank as u32,
-        alpha: request.config.alpha as u32,
-        targets: request.config.targets.clone(),
-        epochs: request.config.epochs as u32,
-        learning_rate: request.config.learning_rate,
-        batch_size: request.config.batch_size as u32,
-        warmup_steps: None,
-        max_seq_length: None,
-        gradient_accumulation_steps: None,
-    };
+    let training_config = crate::types::training_config_from_request(request.config.clone());
+    let estimated_duration = estimate_training_duration(&training_config, &analysis);
 
     let training_params = adapteros_orchestrator::training::TrainingJobBuilder::new()
         .adapter_name(format!("repo-{}-adapter", repo_id))
@@ -631,7 +650,7 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>
     };
 
     // Get authors from commit history
-    let mut authors = std::collections::HashSet::new();
+    let mut authors = HashSet::new();
     let mut revwalk = repo.revwalk()?;
     revwalk.push_head()?;
 
@@ -826,11 +845,38 @@ pub struct PathPolicy {
     pub denylist: Vec<glob::Pattern>,
 }
 
+impl PathPolicy {
+    /// Create PathPolicy from config with proper error handling
+    pub fn from_config(
+        config: &crate::state::PathPolicyConfig,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let allowlist = config
+            .allowlist
+            .iter()
+            .map(|pattern| glob::Pattern::new(pattern))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let denylist = config
+            .denylist
+            .iter()
+            .map(|pattern| glob::Pattern::new(pattern))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            allowlist,
+            denylist,
+        })
+    }
+}
+
 /// Estimate training duration based on configuration and analysis
 ///
 /// Evidence: docs/code-intelligence/code-implementation-roadmap.md:173-270
 /// Pattern: Training duration estimation
-fn estimate_training_duration(config: &TrainingConfig, analysis: &RepositoryAnalysis) -> String {
+fn estimate_training_duration(
+    config: &adapteros_core::TrainingConfig,
+    analysis: &RepositoryAnalysis,
+) -> String {
     // Evidence: docs/code-intelligence/code-implementation-roadmap.md:173-270
     // Pattern: Training duration estimation based on evidence count
     let base_time = 5; // minutes

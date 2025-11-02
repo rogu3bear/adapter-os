@@ -1,27 +1,31 @@
 mod assets;
 
 use adapteros_core::AosError;
+use adapteros_core::Result;
+use adapteros_crypto::Keypair;
 use adapteros_db::Database;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
 use adapteros_orchestrator::{CodeJobManager, TrainingService};
+use adapteros_policy::PolicyPackManager;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
-use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
+use tower::Service;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod alerting;
 mod openapi;
+mod orchestrator_config;
 
 /// PID file lock to prevent concurrent control plane instances
 struct PidFileLock {
@@ -45,10 +49,10 @@ impl PidFileLock {
         if path.exists() {
             let existing_pid = std::fs::read_to_string(&path)?;
             if process_exists(existing_pid.trim()) {
-                return Err(anyhow::anyhow!(
-                    "Another aos-cp process is running (PID: {}). Stop it first or use --no-single-writer.",
-                    existing_pid
-                ));
+                return Err(AosError::Config(format!(
+                     "Another aos-cp process is running (PID: {}). Stop it first or use --no-single-writer.",
+                     existing_pid
+                 )));
             }
         }
 
@@ -84,6 +88,28 @@ fn process_exists(pid_str: &str) -> bool {
 fn process_exists(_pid_str: &str) -> bool {
     // On non-Unix systems, assume process might exist
     true
+}
+
+fn read_trimmed_file(path: &str) -> Result<String> {
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| AosError::Config(format!("Failed to read {}: {}", path, e)))?;
+    Ok(contents.trim().to_string())
+}
+
+fn load_ed25519_keypair_hex(path: &str) -> Result<Keypair> {
+    let contents = read_trimmed_file(path)?;
+    let key_bytes = hex::decode(&contents)
+        .map_err(|e| AosError::Config(format!("Invalid hex in {}: {}", path, e)))?;
+    if key_bytes.len() != 32 {
+        return Err(AosError::Config(format!(
+            "Ed25519 signing key must be 32 bytes (found {} bytes) in {}",
+            key_bytes.len(),
+            path
+        )));
+    }
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&key_bytes);
+    Ok(Keypair::from_bytes(&key_array))
 }
 
 #[derive(Parser)]
@@ -143,15 +169,22 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Load configuration (wrapped in Arc<RwLock> for hot-reload)
+    // Load configuration
     info!("Loading configuration from {}", cli.config);
-    let config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+    let mut config_data = Config::load(&cli.config)?;
+
+    if config_data.security.jwt_public_key_pem.is_none() {
+        if let Some(ref pem_file) = config_data.security.jwt_public_key_pem_file {
+            let pem = read_trimmed_file(pem_file)?;
+            config_data.security.jwt_public_key_pem = Some(pem);
+        }
+    }
 
     // =========================================================================================
     // Deterministic Executor
     // =========================================================================================
     // The executor is seeded from the manifest to ensure all async tasks are deterministic.
-    let seed_hex = &config.security.global_seed;
+    let seed_hex = &config_data.security.global_seed;
     let seed_bytes = hex::decode(seed_hex)
         .map_err(|e| AosError::Config(format!("Invalid hex for global_seed: {}", e)))?;
 
@@ -165,8 +198,15 @@ async fn main() -> Result<()> {
     let mut global_seed = [0u8; 32];
     global_seed.copy_from_slice(&seed_bytes);
 
-    let runtime = init_global_executor(global_seed)?;
+    let mut executor_config = ExecutorConfig::default();
+    executor_config.global_seed = global_seed;
+
+    init_global_executor(executor_config)
+        .map_err(|e| AosError::DeterministicExecutor(e.to_string()))?;
     info!("Deterministic executor initialized");
+
+    // Wrap config in Arc<RwLock> for hot-reload (after initialization)
+    let config = Arc::new(RwLock::new(config_data));
 
     // Production mode validation and enforcement (M1 hardening)
     {
@@ -188,13 +228,27 @@ async fn main() -> Result<()> {
             let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hmac");
             if jwt_mode != "eddsa" {
                 return Err(AosError::Config(
-                    format!("Production mode requires jwt_mode = 'eddsa' (found: '{}'). HMAC is not allowed in production.", jwt_mode)
-                ).into());
+                    format!(
+                        "Production mode requires jwt_mode = 'eddsa' (found: '{}'). HMAC is not allowed in production.",
+                        jwt_mode
+                    )
+                )
+                .into());
             }
 
-            if cfg.security.jwt_public_key_pem.is_none() {
+            let pem_configured = cfg.security.jwt_public_key_pem.is_some()
+                || cfg.security.jwt_public_key_pem_file.is_some();
+            if !pem_configured {
                 return Err(AosError::Config(
-                    "Production mode requires jwt_public_key_pem to be set for Ed25519 validation."
+                    "Production mode requires security.jwt_public_key_pem or security.jwt_public_key_pem_file for Ed25519 validation."
+                        .to_string(),
+                )
+                .into());
+            }
+
+            if cfg.security.jwt_signing_key_path.is_none() {
+                return Err(AosError::Config(
+                    "Production mode requires security.jwt_signing_key_path pointing to a 32-byte hex Ed25519 signing key"
                         .to_string(),
                 )
                 .into());
@@ -215,6 +269,39 @@ async fn main() -> Result<()> {
             }
 
             info!("✓ Production mode validation passed");
+        }
+    }
+
+    // Model runtime environment validation
+    {
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            match std::env::var("AOS_MLX_FFI_MODEL") {
+                Ok(path) => {
+                    if std::path::Path::new(&path).exists() {
+                        info!(
+                            path = %path,
+                            "AOS_MLX_FFI_MODEL environment variable set and path exists"
+                        );
+                    } else {
+                        warn!(
+                            path = %path,
+                            "AOS_MLX_FFI_MODEL environment variable set but path does not exist. Model loading will fail."
+                        );
+                    }
+                }
+                Err(_) => {
+                    warn!(
+                        "AOS_MLX_FFI_MODEL environment variable not set. Model loading will fail. Set this to the path of your MLX model directory."
+                    );
+                }
+            }
+        }
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            warn!(
+                "mlx-ffi-backend feature not enabled. Model runtime will operate in stub mode."
+            );
         }
     }
 
@@ -368,6 +455,10 @@ async fn main() -> Result<()> {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: cfg.metrics.enabled,
                 bearer_token: cfg.metrics.bearer_token.clone(),
+                system_metrics_interval_secs: cfg.metrics.system_metrics_interval_secs,
+                telemetry_buffer_capacity: 1024,
+                telemetry_channel_capacity: 256,
+                trace_buffer_capacity: 512,
             },
             golden_gate,
             bundles_root: cfg.paths.bundles_root.clone(),
@@ -375,6 +466,11 @@ async fn main() -> Result<()> {
                 requests_per_minute: cfg.rate_limits.requests_per_minute,
                 burst_size: cfg.rate_limits.burst_size,
             }),
+            path_policy: adapteros_server_api::state::PathPolicyConfig {
+                allowlist: vec!["**/*".to_string()],
+                denylist: vec!["**/.env*".to_string(), "**/secrets/**".to_string()],
+            },
+            production_mode: cfg.server.production_mode,
         }))
     };
 
@@ -425,6 +521,7 @@ async fn main() -> Result<()> {
                                         bundle_path: gg.bundle_path.clone(),
                                     });
                                 api_cfg.bundles_root = new_config.paths.bundles_root.clone();
+                                api_cfg.production_mode = new_config.server.production_mode;
                                 api_cfg.rate_limits =
                                     Some(adapteros_server_api::state::RateLimitApiConfig {
                                         requests_per_minute: new_config
@@ -449,6 +546,9 @@ async fn main() -> Result<()> {
     // Initialize status writer start time
     status_writer::init_start_time();
 
+    // Initialize status cache
+    status_writer::init_status_cache();
+
     // Spawn alert watcher if enabled
     {
         let cfg = config
@@ -456,12 +556,21 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.alerting.enabled {
             info!("Starting alert watcher");
-            alerting::spawn_alert_watcher(db.clone(), cfg.alerting.clone())?;
+            alerting::spawn_alert_watcher(db.clone().into_inner(), cfg.alerting.clone())?;
         }
     }
 
+    // Create metrics collector and registry for AppState
+    let metrics_collector = Arc::new(
+        adapteros_telemetry::MetricsCollector::new_with_system_provider(None)
+            .expect("metrics collector"),
+    );
+    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
+        metrics_collector.clone(),
+    ));
+
     // Initialize policy hash watcher (continuous monitoring)
-    {
+    let (telemetry_tx, _telemetry) = {
         info!("Initializing policy hash watcher");
 
         // Create telemetry writer
@@ -476,28 +585,20 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Io(format!("Failed to create bundles directory: {}", e)))?;
 
         // Create broadcast channel for live telemetry streaming
-        let (telemetry_tx, _telemetry_rx) = tokio::sync::broadcast::channel(256);
+        let (telemetry_tx, _telemetry_rx) =
+            tokio::sync::broadcast::channel::<adapteros_telemetry::UnifiedTelemetryEvent>(256);
 
-        let telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new_with_broadcast(
+        let _telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new_with_broadcast(
             &bundles_path,
             10000,            // max_events_per_bundle
             50 * 1024 * 1024, // max_bundle_size (50MB)
             Some(telemetry_tx.clone()),
         )?);
 
-        // Create metrics collector and registry for AppState
-        let metrics_collector = Arc::new(
-            adapteros_telemetry::MetricsCollector::new_with_system_provider(None)
-                .expect("metrics collector")
-        );
-        let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
-            metrics_collector.clone(),
-        ));
-
         // Create policy hash watcher
         let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(
             Arc::new(db.clone()),
-            telemetry,
+            _telemetry.clone(),
             None, // cpid - will be set per-tenant
         ));
 
@@ -513,7 +614,9 @@ async fn main() -> Result<()> {
             .start_background_watcher(Duration::from_secs(60), policy_hashes.clone());
 
         info!("Policy hash watcher started (60s interval)");
-    }
+
+        (telemetry_tx, _telemetry)
+    };
 
     // Initialize UDS metrics exporter (zero-network metrics per Egress Ruleset #1)
     {
@@ -617,9 +720,14 @@ async fn main() -> Result<()> {
 
     // Ephemeral adapter GC loop (runs every hour)
     {
-        let db_clone = db.clone();
-        let paths_config = config.read().unwrap().paths.clone();
-        let orchestrator_config = config.read().unwrap().orchestrator.clone();
+        let db_clone = db.clone().into_inner();
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        let paths_config = orchestrator_config::convert_paths_config(&cfg.paths);
+        let orchestrator_config =
+            orchestrator_config::convert_orchestrator_config(&cfg, &cfg.orchestrator);
+        drop(cfg);
         let _ = spawn_deterministic("Ephemeral Adapter GC".to_string(), async move {
             let job_manager = CodeJobManager::new(db_clone, paths_config, orchestrator_config);
             let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
@@ -643,9 +751,19 @@ async fn main() -> Result<()> {
     //
     //     // Reuse telemetry and policy_watcher from above (would need to move out of scope)
     //     // Create federation manager
+    //     // Note: FederationManager needs Db, so extract from Database wrapper
+    //     use adapteros_db::DatabaseBackend;
+    //     let db_for_federation = match db.backend() {
+    //         DatabaseBackend::Sqlite(db_inner) => db_inner.clone(),
+    //         DatabaseBackend::Postgres(_) => {
+    //             return Err(AosError::Config(
+    //                 "Federation daemon requires SQLite backend".to_string()
+    //             ).into());
+    //         }
+    //     };
     //     let federation_keypair = adapteros_crypto::Keypair::generate();
     //     let federation_manager = Arc::new(
-    //         adapteros_federation::FederationManager::new(db.clone(), federation_keypair)?
+    //         adapteros_federation::FederationManager::new(db_for_federation, federation_keypair)?
     //     );
     //
     //     // Create federation daemon config (5 minute interval per spec)
@@ -656,6 +774,7 @@ async fn main() -> Result<()> {
     //     };
     //
     //     // Create and start daemon
+    //     // FederationDaemon now expects Arc<Database>
     //     let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
     //         federation_manager,
     //         policy_watcher.clone(),
@@ -728,6 +847,31 @@ async fn main() -> Result<()> {
         Some(telemetry_tx),
     );
 
+    {
+        let signing_path_opt = {
+            let cfg = config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            cfg.security.jwt_signing_key_path.clone()
+        };
+
+        if let Some(signing_path) = signing_path_opt {
+            let keypair = load_ed25519_keypair_hex(&signing_path)?;
+            let crypto = state.crypto.clone_with_jwt(keypair);
+            state = state.with_crypto(crypto);
+            info!("Loaded Ed25519 JWT signing key from {}", signing_path);
+        }
+    }
+
+    {
+        let manager = Arc::new(PolicyPackManager::new());
+        info!(
+            packs = adapteros_policy::policy_packs::PolicyPackId::all().len(),
+            "Policy pack manager initialized"
+        );
+        state = state.with_policy_manager(manager);
+    }
+
     // Optionally initialize LifecycleManager with mmap/hot-swap
     {
         use adapteros_lora_lifecycle::LifecycleManager;
@@ -784,10 +928,15 @@ async fn main() -> Result<()> {
         state = state.with_lifecycle(Arc::new(tokio::sync::Mutex::new(lifecycle)));
     }
 
-    let paths_config = config.read().unwrap().paths.clone();
-    let orchestrator_config = config.read().unwrap().orchestrator.clone();
+    let cfg = config
+        .read()
+        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+    let paths_config = orchestrator_config::convert_paths_config(&cfg.paths);
+    let orchestrator_config =
+        orchestrator_config::convert_orchestrator_config(&cfg, &cfg.orchestrator);
+    drop(cfg);
     let code_job_manager = Arc::new(CodeJobManager::new(
-        db.clone(),
+        db.clone().into_inner(),
         paths_config,
         orchestrator_config,
     ));
@@ -796,14 +945,36 @@ async fn main() -> Result<()> {
     // Configure JWT mode from config (HMAC by default, EdDSA optional)
     {
         use adapteros_server_api::state::JwtMode;
-        let cfg = config
-            .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-        let mode = match cfg.security.jwt_mode.as_deref() {
-            Some("eddsa") => JwtMode::EdDsa,
-            _ => JwtMode::Hmac,
+        let (mode, pem_inline, pem_file) = {
+            let cfg = config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            (
+                match cfg.security.jwt_mode.as_deref() {
+                    Some("eddsa") => JwtMode::EdDsa,
+                    _ => JwtMode::Hmac,
+                },
+                cfg.security.jwt_public_key_pem.clone(),
+                cfg.security.jwt_public_key_pem_file.clone(),
+            )
         };
-        let pem = cfg.security.jwt_public_key_pem.clone();
+
+        let pem = match mode {
+            JwtMode::EdDsa => {
+                if let Some(pem) = pem_inline {
+                    Some(pem)
+                } else if let Some(file) = pem_file {
+                    Some(read_trimmed_file(&file)?)
+                } else {
+                    return Err(AosError::Config(
+                        "Ed25519 mode requires a JWT public key (inline or file)".to_string(),
+                    )
+                    .into());
+                }
+            }
+            JwtMode::Hmac => None,
+        };
+
         state.set_jwt_mode(mode, pem);
     }
 
@@ -832,7 +1003,9 @@ async fn main() -> Result<()> {
                     error!("Failed to start Git subsystem: {}", e);
                 } else {
                     // Create broadcast channel for file change events
-                    let (file_change_tx, _) = tokio::sync::broadcast::channel(1000);
+                    let (file_change_tx, _) = tokio::sync::broadcast::channel::<
+                        adapteros_api_types::git::FileChangeEvent,
+                    >(1000);
 
                     state = state.with_git(Arc::new(git_subsystem), Arc::new(file_change_tx));
                     info!("Git subsystem started successfully");
@@ -846,20 +1019,39 @@ async fn main() -> Result<()> {
         info!("Git subsystem disabled in configuration");
     }
 
-    // Spawn status writer background task
+    // Spawn status cache update background task
     {
         let state_clone = state.clone();
-        let _ = spawn_deterministic("Status writer".to_string(), async move {
+        let _ = spawn_deterministic("Status cache updater".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                if let Err(e) = status_writer::update_cache(&state_clone).await {
+                    warn!("Failed to update status cache: {}", e);
+                }
+            }
+        });
+        info!("Status cache updater started (5s interval)");
+    }
+
+    // Spawn status file writer background task
+    {
+        let state_clone = state.clone();
+        let _ = spawn_deterministic("Status file writer".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
                 if let Err(e) = status_writer::write_status(&state_clone).await {
-                    warn!("Failed to write status: {}", e);
+                    warn!("Failed to write status file: {}", e);
                 }
             }
         });
-        info!("Status writer started (5s interval)");
+        info!("Status file writer started (5s interval)");
     }
+
+    // Clone metrics before moving state into routes
+    let metrics_collector = state.metrics_collector.clone();
+    let metrics_registry = state.metrics_registry.clone();
 
     // Build router with UI
     let api_routes = routes::build(state);
@@ -871,21 +1063,22 @@ async fn main() -> Result<()> {
 
     // Start real-time metrics update task
     {
-        let metrics_collector = api_state.metrics_collector.clone();
-        let metrics_registry = api_state.metrics_registry.clone();
+        async fn update_metrics(
+            metrics_collector: &Arc<adapteros_telemetry::MetricsCollector>,
+            metrics_registry: &Arc<adapteros_telemetry::MetricsRegistry>,
+        ) -> Result<()> {
+            metrics_collector.update_cache().await?;
+            metrics_registry.record_snapshot().await?;
+            Ok(())
+        }
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30)); // Update every 30 seconds
             loop {
                 interval.tick().await;
 
-                // Update metrics cache
-                if let Err(e) = metrics_collector.update_cache().await {
-                    error!("Failed to update metrics cache: {}", e);
-                }
-
-                // Record time series data
-                if let Err(e) = metrics_registry.record_snapshot().await {
-                    error!("Failed to record metrics snapshot: {}", e);
+                if let Err(e) = update_metrics(&metrics_collector, &metrics_registry).await {
+                    error!("Failed to update metrics: {}", e);
                 }
             }
         });
@@ -936,6 +1129,7 @@ async fn main() -> Result<()> {
                     match accept_res {
                         Ok((stream, _)) => {
                             let svc = app_service.clone();
+                            let builder_clone = builder.clone();
                             tokio::spawn(async move {
                                 let io = TokioIo::new(stream);
                                 let hyper_svc = hyper::service::service_fn(move |req| {
@@ -943,11 +1137,12 @@ async fn main() -> Result<()> {
                                     async move {
                                         svc_clone.call(req).await.map_err(|e| {
                                             tracing::error!("Service error: {}", e);
-                                            hyper::Error::new_body_write_aborted()
+                                            // TODO: Fix proper error handling for UDS service
+                                            std::io::Error::new(std::io::ErrorKind::Other, "service error")
                                         })
                                     }
                                 });
-                                if let Err(e) = builder.serve_connection(io, hyper_svc).await {
+                                if let Err(e) = builder_clone.serve_connection(io, hyper_svc).await {
                                     tracing::error!("UDS connection error: {}", e);
                                 }
                             });

@@ -30,6 +30,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::delete_adapter,
         handlers::load_adapter,
         handlers::unload_adapter,
+        // handlers::hot_swap_adapter,  // Temporarily removed from OpenAPI - route still registered below
         handlers::get_adapter_activations,
         handlers::list_repositories,
         handlers::get_quality_metrics,
@@ -68,6 +69,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::list_log_files,
         handlers::get_log_file_content,
         handlers::stream_log_file,
+        // Telemetry bundle handlers
+        handlers::list_telemetry_bundles,
+        handlers::generate_telemetry_bundle,
+        handlers::export_telemetry_bundle,
+        handlers::verify_bundle_signature,
+        handlers::purge_old_bundles,
         // Git integration handlers excluded from OpenAPI documentation
         // Code intelligence handlers (disabled by default)
         // Federation handlers (TODO: integrate with AppState)
@@ -88,10 +95,18 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_base_model_status,
         handlers::get_all_models_status,
         // Model management handlers - Citation: IMPLEMENTATION_PLAN.md Phase 1
+        // handlers::models::get_model_status,  // Disabled due to OpenAPI feature flag
+        // handlers::models::download_model,   // Disabled due to OpenAPI feature flag
         // Note: OpenAPI path macros disabled due to feature flag
         // OpenAI-compatible handlers
         handlers::openai::chat_completions,
         handlers::openai::list_models,
+        // Tutorial handlers excluded from OpenAPI (no openapi feature enabled)
+        // handlers::tutorials::list_tutorials,
+        // handlers::tutorials::mark_tutorial_completed,
+        // handlers::tutorials::unmark_tutorial_completed,
+        // handlers::tutorials::mark_tutorial_dismissed,
+        // handlers::tutorials::unmark_tutorial_dismissed,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -186,6 +201,16 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::ListLogFilesResponse,
         crate::types::LogFileContentResponse,
         crate::types::LogFileQueryParams,
+        // Telemetry bundle schemas
+        crate::types::TelemetryBundleResponse,
+        crate::types::ExportTelemetryBundleResponse,
+        crate::types::VerifyBundleSignatureResponse,
+        crate::types::PurgeOldBundlesRequest,
+        crate::types::PurgeOldBundlesResponse,
+        // Tutorial schemas excluded (no openapi feature)
+        // handlers::tutorials::TutorialResponse,
+        // handlers::tutorials::TutorialStep,
+        // handlers::tutorials::TutorialStatusResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -208,6 +233,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "federation", description = "Federation verification and quarantine management"),
         (name = "openai", description = "OpenAI-compatible endpoints for external tools"),
         (name = "inference", description = "Model inference endpoints"),
+        (name = "telemetry", description = "Telemetry bundle management and events"),
     )
 )]
 pub struct ApiDoc;
@@ -219,6 +245,7 @@ pub fn build(state: AppState) -> Router {
         .route("/healthz", get(handlers::health))
         .route("/readyz", get(handlers::ready))
         .route("/v1/auth/login", post(handlers::auth_login))
+        .route("/v1/auth/dev-bypass", post(handlers::auth_dev_bypass))
         .route("/v1/meta", get(handlers::meta));
 
     // Metrics endpoint (custom auth, not JWT)
@@ -414,22 +441,6 @@ pub fn build(state: AppState) -> Router {
             post(handlers::compare_policy_versions),
         )
         .route("/v1/policies/:cpid/export", get(handlers::export_policy))
-        .route(
-            "/v1/telemetry/bundles",
-            get(handlers::list_telemetry_bundles),
-        )
-        .route(
-            "/v1/telemetry/bundles/:bundle_id/export",
-            get(handlers::export_telemetry_bundle),
-        )
-        .route(
-            "/v1/telemetry/bundles/:bundle_id/verify",
-            post(handlers::verify_bundle_signature),
-        )
-        .route(
-            "/v1/telemetry/bundles/purge",
-            post(handlers::purge_old_bundles),
-        )
         // Golden baselines
         .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
         .route(
@@ -483,21 +494,27 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/unload",
             post(handlers::unload_adapter),
         )
-        .route(
-            "/v1/adapters/:adapter_id/hot-swap",
-            post(handlers::hot_swap_adapter),
-        )
+        // DISABLED: Duplicate route error - investigating
+        // .route(
+        //     "/v1/adapters/:adapter_id/hot-swap",
+        //     post(handlers::hot_swap_adapter),
+        // )
         .route(
             "/v1/adapters/:adapter_id/activations",
             get(handlers::get_adapter_activations),
         )
         .route(
-            "/v1/adapters/:adapter_id/hot-swap",
-            post(handlers::hot_swap_adapter),
-        )
-        .route(
             "/v1/adapters/:adapter_id/promote",
             post(handlers::promote_adapter_state),
+        )
+        .route("/v1/adapters/:adapter_id/pin", post(handlers::pin_adapter))
+        .route(
+            "/v1/adapters/:adapter_id/unpin",
+            post(handlers::unpin_adapter),
+        )
+        .route(
+            "/v1/adapters/:adapter_id/policy",
+            put(handlers::update_adapter_policy),
         )
         .route(
             "/v1/adapters/:adapter_id/manifest",
@@ -512,8 +529,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
         )
+        // Memory management routes
+        .route("/v1/memory/usage", get(handlers::get_memory_usage))
+        .route(
+            "/v1/memory/adapters/:adapter_id/evict",
+            post(handlers::evict_adapter),
+        )
         // Base model management routes - Citation: IMPLEMENTATION_PLAN.md Phase 1
-        .route("/v1/models/import", post(handlers::models::import_model))
         .route(
             "/v1/models/:model_id/load",
             post(handlers::models::load_model),
@@ -523,12 +545,28 @@ pub fn build(state: AppState) -> Router {
             post(handlers::models::unload_model),
         )
         .route(
+            "/v1/models/:model_id/status",
+            get(handlers::models::get_model_status),
+        )
+        .route(
+            "/v1/models/:model_id/download",
+            get(handlers::models::download_model),
+        )
+        .route(
+            "/v1/models/download/:token",
+            get(handlers::models::download_model_artifact),
+        )
+        .route(
             "/v1/models/imports/:import_id",
             get(handlers::models::get_import_status),
         )
         .route(
             "/v1/models/cursor-config",
             get(handlers::models::get_cursor_config),
+        )
+        .route(
+            "/v1/models/diagnostics",
+            get(handlers::models::get_model_diagnostics),
         )
         // Domain adapter routes
         .route(
@@ -580,10 +618,116 @@ pub fn build(state: AppState) -> Router {
             "/v1/contacts/:id/interactions",
             get(handlers::get_contact_interactions),
         )
+        // Workspace routes - Citation: Communication & Collaboration Implementation Plan
+        .route(
+            "/v1/workspaces",
+            get(handlers::workspaces::list_workspaces).post(handlers::workspaces::create_workspace),
+        )
+        .route(
+            "/v1/workspaces/my",
+            get(handlers::workspaces::list_user_workspaces),
+        )
+        .route(
+            "/v1/workspaces/:id",
+            get(handlers::workspaces::get_workspace)
+                .put(handlers::workspaces::update_workspace)
+                .delete(handlers::workspaces::delete_workspace),
+        )
+        .route(
+            "/v1/workspaces/:id/members",
+            get(handlers::workspaces::list_workspace_members)
+                .post(handlers::workspaces::add_workspace_member),
+        )
+        .route(
+            "/v1/workspaces/:id/members/:member_id",
+            put(handlers::workspaces::update_workspace_member)
+                .delete(handlers::workspaces::remove_workspace_member),
+        )
+        .route(
+            "/v1/workspaces/:id/resources",
+            get(handlers::workspaces::list_workspace_resources)
+                .post(handlers::workspaces::share_workspace_resource),
+        )
+        .route(
+            "/v1/workspaces/:id/resources/:resource_id",
+            delete(handlers::workspaces::unshare_workspace_resource),
+        )
+        // Messaging routes
+        .route(
+            "/v1/workspaces/:workspace_id/messages",
+            get(handlers::messages::list_workspace_messages)
+                .post(handlers::messages::create_message),
+        )
+        .route(
+            "/v1/workspaces/:workspace_id/messages/:message_id",
+            put(handlers::messages::edit_message),
+        )
+        .route(
+            "/v1/workspaces/:workspace_id/messages/:thread_id/thread",
+            get(handlers::messages::get_message_thread),
+        )
+        // Notification routes
+        .route(
+            "/v1/notifications",
+            get(handlers::notifications::list_notifications),
+        )
+        .route(
+            "/v1/notifications/summary",
+            get(handlers::notifications::get_notification_summary),
+        )
+        .route(
+            "/v1/notifications/:id/read",
+            post(handlers::notifications::mark_notification_read),
+        )
+        .route(
+            "/v1/notifications/read-all",
+            post(handlers::notifications::mark_all_notifications_read),
+        )
+        // Tutorial routes
+        .route("/v1/tutorials", get(handlers::tutorials::list_tutorials))
+        .route(
+            "/v1/tutorials/:id/complete",
+            post(handlers::tutorials::mark_tutorial_completed),
+        )
+        .route(
+            "/v1/tutorials/:id/complete",
+            delete(handlers::tutorials::unmark_tutorial_completed),
+        )
+        .route(
+            "/v1/tutorials/:id/dismiss",
+            post(handlers::tutorials::mark_tutorial_dismissed),
+        )
+        .route(
+            "/v1/tutorials/:id/dismiss",
+            delete(handlers::tutorials::unmark_tutorial_dismissed),
+        )
+        // Activity routes
+        .route(
+            "/v1/activity",
+            get(handlers::activity::list_activity_events)
+                .post(handlers::activity::create_activity_event),
+        )
+        .route(
+            "/v1/activity/my",
+            get(handlers::activity::list_user_workspace_activity),
+        )
         // SSE Streaming routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5, §4.4
         .route("/v1/streams/training", get(handlers::training_stream))
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
+        // SSE routes for notifications and messages
+        .route(
+            "/v1/stream/notifications",
+            get(handlers::notifications_stream),
+        )
+        .route(
+            "/v1/stream/messages/:workspace_id",
+            get(handlers::messages_stream),
+        )
+        .route(
+            "/v1/stream/activity/:workspace_id",
+            get(handlers::activity_stream),
+        )
         // Code intelligence routes (compiled only with "cdp" feature)
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
@@ -605,7 +749,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/telemetry/bundles/:bundle_id/export",
-            post(handlers::export_telemetry_bundle),
+            get(handlers::export_telemetry_bundle),
         )
         .route(
             "/v1/telemetry/bundles/:bundle_id/verify",
@@ -615,13 +759,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/telemetry/bundles/purge",
             post(handlers::purge_old_bundles),
         )
-        // Golden baselines
-        .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
-        .route(
-            "/v1/golden/runs/:name",
-            get(handlers::golden::get_golden_run),
-        )
-        .route("/v1/golden/compare", post(handlers::golden::golden_compare))
         // Commit routes
         .route("/v1/commits", get(handlers::list_commits))
         .route("/v1/commits/:sha", get(handlers::get_commit))
@@ -701,6 +838,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/promotions/:id", get(handlers::get_promotion))
         // SSE stream endpoints
         .route("/v1/stream/metrics", get(handlers::system_metrics_stream))
+        .route(
+            "/v1/telemetry/stream",
+            get(handlers::telemetry_events_stream),
+        )
         .route(
             "/v1/stream/telemetry",
             get(handlers::telemetry_events_stream),

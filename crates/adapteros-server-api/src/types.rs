@@ -4,7 +4,11 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 // Re-export shared API types
+pub use adapteros_api_types::telemetry::{
+    MetricDataPointResponse, MetricsSeriesResponse, MetricsSnapshotResponse,
+};
 pub use adapteros_api_types::*;
+use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
 
 /// Replay verification response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -898,7 +902,7 @@ pub struct ListAdaptersQuery {
 }
 
 /// Telemetry bundle response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TelemetryBundleResponse {
     pub id: String,
     pub cpid: String,
@@ -1527,10 +1531,8 @@ pub struct TrainingControlResponse {
 // ============================================================================
 
 /// Convert TrainingConfigRequest to orchestrator TrainingConfig
-pub fn training_config_from_request(
-    req: TrainingConfigRequest,
-) -> adapteros_orchestrator::TrainingConfig {
-    adapteros_orchestrator::TrainingConfig {
+pub fn training_config_from_request(req: TrainingConfigRequest) -> TrainingConfig {
+    TrainingConfig {
         rank: req.rank,
         alpha: req.alpha,
         targets: req.targets,
@@ -1544,7 +1546,7 @@ pub fn training_config_from_request(
 }
 
 /// Convert orchestrator TrainingJob to TrainingJobResponse
-pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> TrainingJobResponse {
+pub fn training_job_to_response(job: TrainingJob) -> TrainingJobResponse {
     TrainingJobResponse {
         id: job.id,
         adapter_name: job.adapter_name,
@@ -1569,9 +1571,7 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
 }
 
 /// Convert orchestrator TrainingTemplate to TrainingTemplateResponse
-pub fn training_template_to_response(
-    template: adapteros_orchestrator::TrainingTemplate,
-) -> TrainingTemplateResponse {
+pub fn training_template_to_response(template: TrainingTemplate) -> TrainingTemplateResponse {
     TrainingTemplateResponse {
         id: template.id,
         name: template.name,
@@ -1896,9 +1896,72 @@ pub struct LogFileContentResponse {
 }
 
 /// Query parameters for log file content
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct LogFileQueryParams {
     pub max_size: Option<usize>,
     pub tail: Option<bool>,
     pub lines: Option<usize>,
+}
+
+// ===== Adapter Lifecycle & Memory Management Types =====
+
+/// Update adapter policy request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateAdapterPolicyRequest {
+    /// Optional category to update
+    pub category: Option<String>,
+}
+
+/// Update adapter policy response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateAdapterPolicyResponse {
+    pub adapter_id: String,
+    pub category: Option<String>,
+    pub message: String,
+}
+
+/// Memory usage adapter entry
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MemoryUsageAdapter {
+    pub id: String,
+    pub name: String,
+    pub memory_usage_mb: f64,
+    pub state: String,
+    pub pinned: bool,
+    pub category: String,
+}
+
+/// Memory usage response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MemoryUsageResponse {
+    pub adapters: Vec<MemoryUsageAdapter>,
+    pub total_memory_mb: f64,
+    pub available_memory_mb: f64,
+    pub memory_pressure_level: String, // 'low' | 'medium' | 'high' | 'critical'
+}
+
+/// Evict adapter response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EvictAdapterResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Model diagnostics response for troubleshooting model loading issues
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelDiagnosticsResponse {
+    /// Whether mlx-ffi-backend feature is enabled
+    pub mlx_ffi_backend_enabled: bool,
+    /// AOS_MLX_FFI_MODEL environment variable status
+    pub aos_mlx_ffi_model_env: Option<String>,
+    /// Whether the AOS_MLX_FFI_MODEL path exists (if set)
+    pub aos_mlx_ffi_model_path_exists: Option<bool>,
+    /// Whether model runtime is available
+    pub model_runtime_available: bool,
+    /// Number of models in database for this tenant
+    pub database_models_count: i64,
+    /// List of model IDs in database for this tenant
+    pub database_model_ids: Vec<String>,
+    /// Summary message
+    pub summary: String,
 }

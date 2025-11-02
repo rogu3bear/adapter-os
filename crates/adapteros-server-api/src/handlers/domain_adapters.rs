@@ -1,10 +1,10 @@
 use crate::state::AppState;
 use crate::types::{
     CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
-    DomainAdapterResponse, EpsilonStatsResponse, ErrorResponse, LoadDomainAdapterRequest,
-    TestDomainAdapterRequest, TestDomainAdapterResponse,
+    DomainAdapterResponse, ErrorResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
+    TestDomainAdapterResponse,
 };
-use adapteros_db::DomainAdapterCreateBuilder;
+use adapteros_db::domain_adapters::DomainAdapterCreateBuilder;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -487,7 +487,7 @@ pub async fn test_domain_adapter(
         })?;
 
     let test_result = TestDomainAdapterResponse {
-        test_id,
+        test_id: test_id.clone(),
         adapter_id: adapter_id.clone(),
         input_data: req.input_data,
         actual_output,
@@ -499,7 +499,7 @@ pub async fn test_domain_adapter(
         executed_at: Utc::now().to_rfc3339(),
     };
 
-    info!("Domain adapter test completed: {}", test_id);
+    info!("Domain adapter test completed: {}", test_id.clone());
     Ok(Json(test_result))
 }
 
@@ -655,7 +655,7 @@ pub async fn execute_domain_adapter(
         })?;
 
     let execution = DomainAdapterExecutionResponse {
-        execution_id,
+        execution_id: execution_id.clone(),
         adapter_id: adapter_id.clone(),
         input_hash,
         output_hash,
@@ -665,7 +665,10 @@ pub async fn execute_domain_adapter(
         executed_at: Utc::now().to_rfc3339(),
     };
 
-    info!("Domain adapter execution completed: {}", execution_id);
+    info!(
+        "Domain adapter execution completed: {}",
+        execution_id.clone()
+    );
     Ok(Json(execution))
 }
 

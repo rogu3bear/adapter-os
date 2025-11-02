@@ -303,7 +303,10 @@ fn parse_log_level(level: &str) -> Option<LogLevel> {
     }
 }
 
-pub fn event_matches_filters(event: &UnifiedTelemetryEvent, filters: &NormalizedLogFilters) -> bool {
+pub fn event_matches_filters(
+    event: &UnifiedTelemetryEvent,
+    filters: &NormalizedLogFilters,
+) -> bool {
     if let Some(ref tenant) = filters.tenant_id {
         if event.tenant_id.as_ref() != Some(tenant) {
             return false;

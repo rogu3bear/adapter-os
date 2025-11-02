@@ -9,12 +9,12 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 use std::time::SystemTime;
 use tracing::{debug, warn};
 
 /// Status reported to menu bar app
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterOSStatus {
     /// Schema version for forward/backward compatibility
     pub schema_version: String,
@@ -57,9 +57,43 @@ struct BaseModelInfo {
 /// Tracks when the control plane started (thread-safe)
 static START_TIME: OnceLock<SystemTime> = OnceLock::new();
 
+/// Cached status snapshot for request handlers (thread-safe)
+static STATUS_CACHE: OnceLock<RwLock<Option<AdapterOSStatus>>> = OnceLock::new();
+
 /// Initialize the start time (call once at startup)
 pub fn init_start_time() {
     let _ = START_TIME.set(SystemTime::now());
+}
+
+/// Initialize the status cache (call once at startup)
+pub fn init_status_cache() {
+    let _ = STATUS_CACHE.set(RwLock::new(None));
+}
+
+/// Update the cached status snapshot
+pub async fn update_cache(state: &AppState) -> Result<()> {
+    let status = collect_status(state).await?;
+    if let Some(cache) = STATUS_CACHE.get() {
+        let mut cache_write = cache
+            .write()
+            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {}", e))?;
+        *cache_write = Some(status);
+    } else {
+        return Err(anyhow::anyhow!("Status cache not initialized"));
+    }
+    Ok(())
+}
+
+/// Get the current cached status snapshot
+pub fn get_cached_status() -> Result<Option<AdapterOSStatus>> {
+    if let Some(cache) = STATUS_CACHE.get() {
+        let cache_read = cache
+            .read()
+            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {}", e))?;
+        Ok(cache_read.clone())
+    } else {
+        Err(anyhow::anyhow!("Status cache not initialized"))
+    }
 }
 
 /// Get uptime in seconds since init_start_time was called
@@ -71,9 +105,10 @@ fn get_uptime_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Write current status to JSON file
-pub async fn write_status(state: &AppState) -> Result<()> {
-    let status = collect_status(state).await?;
+/// Write current status to JSON file (reads from cache)
+pub async fn write_status(_state: &AppState) -> Result<()> {
+    let status =
+        get_cached_status()?.ok_or_else(|| anyhow::anyhow!("No cached status available"))?;
     write_status_file(&status)?;
     Ok(())
 }
@@ -149,16 +184,11 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
 async fn query_adapter_count(db: &Database) -> Result<usize> {
     let query = "SELECT COUNT(*) FROM adapters WHERE status = 'active'";
 
-    let count = match db {
-        Database::Sqlite(sqlite) => adapteros_db::sqlx::query_scalar::<_, i64>(query)
-            .fetch_one(sqlite.pool())
-            .await
-            .context("Failed to query adapter count")?,
-        Database::Postgres(pg) => adapteros_db::sqlx::query_scalar::<_, i64>(query)
-            .fetch_one(pg.pool())
-            .await
-            .context("Failed to query adapter count")?,
-    };
+    let pool = db.pool();
+    let count = adapteros_db::sqlx::query_scalar::<_, i64>(query)
+        .fetch_one(pool)
+        .await
+        .context("Failed to query adapter count")?;
 
     Ok(count as usize)
 }
@@ -167,18 +197,10 @@ async fn query_adapter_count(db: &Database) -> Result<usize> {
 async fn query_worker_count(db: &Database) -> Result<usize> {
     let query = "SELECT COUNT(*) FROM workers WHERE status IN ('active','starting')";
 
-    let res = match db {
-        Database::Sqlite(sqlite) => {
-            adapteros_db::sqlx::query_scalar::<_, i64>(query)
-                .fetch_one(sqlite.pool())
-                .await
-        }
-        Database::Postgres(pg) => {
-            adapteros_db::sqlx::query_scalar::<_, i64>(query)
-                .fetch_one(pg.pool())
-                .await
-        }
-    };
+    let pool = db.pool();
+    let res = adapteros_db::sqlx::query_scalar::<_, i64>(query)
+        .fetch_one(pool)
+        .await;
 
     match res {
         Ok(n) => Ok(n as usize),
@@ -425,6 +447,72 @@ mod tests {
     }
 
     #[test]
+    fn test_status_cache_operations() {
+        // Test cache initialization and operations
+        init_status_cache();
+
+        // Initially no cached status
+        let cached = get_cached_status().unwrap();
+        assert!(cached.is_none());
+
+        // Create a test status
+        let test_status = AdapterOSStatus {
+            schema_version: "1.0".to_string(),
+            status: "ok".to_string(),
+            uptime_secs: 100,
+            adapters_loaded: 2,
+            deterministic: true,
+            kernel_hash: "test123".to_string(),
+            telemetry_mode: "local".to_string(),
+            worker_count: 1,
+            base_model_loaded: true,
+            base_model_id: Some("test-model".to_string()),
+            base_model_name: Some("Test Model".to_string()),
+            base_model_status: "ready".to_string(),
+            base_model_memory_mb: Some(1024),
+        };
+
+        // Manually set cache (simulating what update_cache would do)
+        if let Some(cache) = STATUS_CACHE.get() {
+            let mut cache_write = cache.write().unwrap();
+            *cache_write = Some(test_status.clone());
+        }
+
+        // Now should have cached status
+        let cached = get_cached_status().unwrap();
+        assert!(cached.is_some());
+        let cached_status = cached.unwrap();
+        assert_eq!(cached_status.status, "ok");
+        assert_eq!(cached_status.adapters_loaded, 2);
+        assert_eq!(cached_status.worker_count, 1);
+
+        // Reset cache for other tests
+        if let Some(cache) = STATUS_CACHE.get() {
+            let mut cache_write = cache.write().unwrap();
+            *cache_write = None;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_cache_populates_cache() {
+        init_status_cache();
+        let state = create_mock_app_state().await;
+
+        update_cache(&state)
+            .await
+            .expect("update_cache should populate status cache");
+
+        let cached = get_cached_status().expect("cache read should succeed");
+        assert!(cached.is_some(), "cache should contain status after update");
+
+        // Cleanup cache contents so other tests start clean
+        if let Some(cache) = STATUS_CACHE.get() {
+            let mut cache_write = cache.write().unwrap();
+            *cache_write = None;
+        }
+    }
+
+    #[test]
     fn test_status_file_operations() {
         // Test writing and reading status file
         let status = AdapterOSStatus {
@@ -527,10 +615,15 @@ mod tests {
                 enabled: false,
                 bearer_token: String::new(),
                 system_metrics_interval_secs: 0,
+                telemetry_buffer_capacity: 1024,
+                telemetry_channel_capacity: 256,
+                trace_buffer_capacity: 512,
             },
             golden_gate: None,
             bundles_root: "var/bundles".to_string(),
+            production_mode: false,
             rate_limits: None,
+            path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
         }));
 
         let metrics_exporter =

@@ -14,7 +14,7 @@ use std::str::FromStr;
 use url::form_urlencoded;
 use uuid::Uuid;
 
-/// Extract and validate JWT from Authorization header
+/// Extract and validate JWT from Authorization header, cookies, or query parameters
 pub async fn auth_middleware(
     State(state): State<AppState>,
     mut req: Request<axum::body::Body>,
@@ -33,7 +33,50 @@ pub async fn auth_middleware(
             .map(|(_, value)| value.into_owned())
     });
 
-    if let Some(token) = bearer_token.or(query_token) {
+    let cookie_token = req
+        .headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';').find_map(|cookie| {
+                let cookie = cookie.trim();
+                if cookie.starts_with("auth_token=") {
+                    Some(cookie.strip_prefix("auth_token=")?.to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
+    if let Some(token) = bearer_token.or(cookie_token).or(query_token) {
+        // Check for dev bypass token when not in production mode
+        let is_production = {
+            let config = state.config.read().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("config lock poisoned").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            config.production_mode
+        };
+
+        if !is_production && token == "adapteros-local" {
+            tracing::info!("Dev bypass token accepted (non-production mode)");
+            let now = Utc::now();
+            let claims = Claims {
+                sub: "dev-bypass-user".to_string(),
+                email: "dev@adapteros.local".to_string(),
+                role: "Admin".to_string(), // Admin role for full dev access
+                tenant_id: "default".to_string(),
+                exp: (now + Duration::hours(24)).timestamp(),
+                iat: now.timestamp(),
+                jti: Uuid::new_v4().to_string(),
+                nbf: now.timestamp(),
+            };
+            req.extensions_mut().insert(claims);
+            return Ok(next.run(req).await);
+        }
+
         // Choose validation based on configured JWT mode
         let claims_res = match state.jwt_mode {
             crate::state::JwtMode::Hmac => validate_token(&token, &state.jwt_secret),
@@ -73,7 +116,7 @@ pub async fn auth_middleware(
     ))
 }
 
-/// Extract and validate API key OR JWT from Authorization header
+/// Extract and validate API key OR JWT from Authorization header, cookies, or query parameters
 pub async fn dual_auth_middleware(
     State(state): State<AppState>,
     mut req: Request<axum::body::Body>,
@@ -92,7 +135,22 @@ pub async fn dual_auth_middleware(
             .map(|(_, value)| value.into_owned())
     });
 
-    if let Some(token) = bearer_token.or(query_token) {
+    let cookie_token = req
+        .headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';').find_map(|cookie| {
+                let cookie = cookie.trim();
+                if cookie.starts_with("auth_token=") {
+                    Some(cookie.strip_prefix("auth_token=")?.to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
+    if let Some(token) = bearer_token.or(cookie_token).or(query_token) {
         if token == "adapteros-local" {
             let now = Utc::now();
             let claims = Claims {

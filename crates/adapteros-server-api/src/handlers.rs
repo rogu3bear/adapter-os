@@ -1,8 +1,8 @@
 #![allow(unused_variables)]
 
-use crate::auth::{generate_token, verify_password, Claims};
+use crate::auth::{generate_token, generate_token_ed25519, verify_password, Claims};
 use crate::middleware::{require_any_role, require_role};
-use crate::state::{AppState, TrainingSessionMetadata};
+use crate::state::{AppState, JwtMode, TrainingSessionMetadata};
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
@@ -15,6 +15,7 @@ use adapteros_system_metrics::monitoring_types::{
 use axum::response::Response;
 use sqlx::Row;
 
+pub mod activity;
 pub mod batch;
 #[cfg(feature = "cdp")]
 pub mod code;
@@ -25,19 +26,27 @@ pub mod git;
 pub mod git_repository;
 pub mod golden;
 pub mod journeys;
+pub mod messages;
 pub mod models;
+pub mod notifications;
 pub mod openai;
 pub mod replay;
 pub mod telemetry;
+pub mod tutorials;
+pub mod workspaces;
 
 // Re-export domain adapter handlers
-use adapteros_core::AosError;
-use adapteros_db::{sqlx, AdapterRegistrationBuilder};
-use adapteros_db::{
-    users::Role, AlertFilters, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyStatus, Commit,
+use adapteros_core::{AosError, TrainingConfig, TrainingJob, TrainingJobStatus};
+use adapteros_db::commits::Commit;
+use adapteros_db::process_monitoring::{
     CreateDashboardRequest, CreateReportRequest, ProcessAlert, ProcessAnomaly,
 };
-use adapteros_git::{CommitDiff, CommitInfo};
+use adapteros_db::users::Role;
+use adapteros_db::{sqlx, AdapterRegistrationBuilder};
+use adapteros_git::CommitInfo;
+use adapteros_system_metrics::monitoring_types::{
+    AlertFilters, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyStatus,
+};
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, UnifiedTelemetryEvent};
 use adapteros_trace::{reader::read_trace_bundle, signing::verify_bundle_signature_from_dir};
 use adapteros_verify::{verify_against_golden, ComparisonConfig};
@@ -53,6 +62,20 @@ use serde::Deserialize;
 use serde_json::json;
 
 /// Hot-swap an adapter with zero downtime
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/hot-swap",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    request_body = adapteros_api_types::adapters::HotSwapRequest,
+    responses(
+        (status = 200, description = "Adapter hot-swapped successfully", body = adapteros_api_types::adapters::HotSwapResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Hot-swap failed", body = ErrorResponse),
+        (status = 503, description = "Hot-swap not enabled", body = ErrorResponse)
+    )
+)]
 pub async fn hot_swap_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -115,8 +138,6 @@ use std::convert::{Infallible, TryInto};
 use std::path::Path as StdPath;
 use std::time::Duration;
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
-
-/// Hot-swap an adapter with zero downtime
 
 // Helper: CAB Golden Gate verification (read-only)
 async fn run_golden_gate(state: &AppState) -> anyhow::Result<bool> {
@@ -317,16 +338,13 @@ fn map_commit_to_response(info: CommitInfo) -> CommitResponse {
     }
 }
 
-fn map_db_commit_to_response(commit: Commit) -> Result<CommitResponse> {
-    let changed_files: Vec<String> =
-        serde_json::from_str(&commit.changed_files_json).map_err(|e| {
-            AosError::Serialization(format!("Failed to parse changed_files JSON: {}", e))
-        })?;
+fn map_db_commit_to_response(commit: Commit) -> Result<CommitResponse, AosError> {
+    let changed_files: Vec<String> = serde_json::from_str(&commit.changed_files_json)
+        .map_err(|e| AosError::Parse(format!("Failed to parse changed_files JSON: {}", e)))?;
 
     let impacted_symbols: Vec<String> = if let Some(json) = &commit.impacted_symbols_json {
-        serde_json::from_str(json).map_err(|e| {
-            AosError::Serialization(format!("Failed to parse impacted_symbols JSON: {}", e))
-        })?
+        serde_json::from_str(json)
+            .map_err(|e| AosError::Parse(format!("Failed to parse impacted_symbols JSON: {}", e)))?
     } else {
         Vec::new()
     };
@@ -683,7 +701,7 @@ pub async fn bulk_adapter_load(
 pub async fn auth_login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     tracing::debug!("Login attempt for email: {}", req.email);
 
     // Get user by email
@@ -761,14 +779,21 @@ pub async fn auth_login(
 
     // Generate JWT
     tracing::debug!("Generating JWT token for user: {}", user.id);
-    let token = generate_token(
-        &user.id,
-        &user.email,
-        &user.role,
-        "default",
-        &state.jwt_secret,
-    )
-    .map_err(|e| {
+    let token_result = match state.jwt_mode {
+        JwtMode::EdDsa => {
+            let keypair = state.crypto.clone_jwt_keypair();
+            generate_token_ed25519(&user.id, &user.email, &user.role, "default", &keypair)
+        }
+        JwtMode::Hmac => generate_token(
+            &user.id,
+            &user.email,
+            &user.role,
+            "default",
+            &state.jwt_secret,
+        ),
+    };
+
+    let token = token_result.map_err(|e| {
         tracing::error!("JWT token generation failed: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -782,11 +807,82 @@ pub async fn auth_login(
 
     tracing::debug!("JWT token generated successfully for user: {}", user.id);
 
-    Ok(Json(LoginResponse {
-        token,
+    // Create response with httpOnly cookie for browser authentication
+    let login_response = LoginResponse {
+        token: token.clone(),
         user_id: user.id,
         role: user.role,
-    }))
+    };
+
+    // Create response with cookie header
+    let cookie = format!(
+        "auth_token={}; HttpOnly; Path=/; Max-Age=28800; SameSite=Strict",
+        token
+    );
+
+    let mut response = Json(login_response).into_response();
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        axum::http::HeaderValue::from_str(&cookie).map_err(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to create cookie header")
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?,
+    );
+    Ok(response)
+}
+
+/// Dev bypass endpoint - sets dev token cookie (only available when not in production)
+#[axum::debug_handler]
+pub async fn auth_dev_bypass(
+    State(state): State<AppState>,
+) -> Result<impl axum::response::IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // Check if production mode is enabled
+    let is_production = {
+        let config = state.config.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("config lock poisoned").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+        config.production_mode
+    };
+
+    if is_production {
+        tracing::warn!("Dev bypass attempted in production mode - rejected");
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("dev bypass not available in production").with_code("FORBIDDEN")),
+        ));
+    }
+
+    tracing::info!("Dev bypass activated - setting dev token cookie");
+
+    // Set dev token as cookie (same as login does, but longer expiry for dev convenience)
+    let dev_token = "adapteros-local";
+    let cookie = format!(
+        "auth_token={}; HttpOnly; Path=/; Max-Age=86400; SameSite=Strict",
+        dev_token
+    );
+
+    let response = Json(json!({
+        "message": "Dev bypass activated",
+        "token": dev_token,
+        "user": {
+            "email": "dev@adapteros.local",
+            "role": "Admin"
+        }
+    }));
+
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::SET_COOKIE, cookie)],
+        response,
+    ))
 }
 
 /// List tenants (all roles can view)
@@ -1402,7 +1498,6 @@ pub async fn register_node(
         last_seen_at: node.last_seen_at,
     }))
 }
-
 /// Test node connection (ping)
 pub async fn test_node_connection(
     State(state): State<AppState>,
@@ -1639,28 +1734,26 @@ pub async fn import_model(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Compliance])?;
 
-    state
-        .db
-        .register_model(
-            &req.name,
-            &req.hash_b3,
-            &req.config_hash_b3,
-            &req.tokenizer_hash_b3,
-            &req.tokenizer_cfg_hash_b3,
-            req.license_hash_b3.as_deref(),
-            req.metadata_json.as_deref(),
+    let params = adapteros_db::ModelRegistrationParams {
+        name: req.name.clone(),
+        hash_b3: req.hash_b3.clone(),
+        config_hash_b3: req.config_hash_b3.clone(),
+        tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
+        tokenizer_cfg_hash_b3: req.tokenizer_cfg_hash_b3.clone(),
+        license_hash_b3: req.license_hash_b3.clone(),
+        metadata_json: req.metadata_json.clone(),
+    };
+
+    state.db.register_model(params).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to import model")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to import model")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    })?;
 
     Ok(StatusCode::CREATED)
 }
@@ -2186,7 +2279,6 @@ pub async fn cp_promote(
         quality_metrics,
     }))
 }
-
 /// Spawn worker via node agent
 pub async fn worker_spawn(
     State(state): State<AppState>,
@@ -2342,6 +2434,11 @@ pub async fn list_workers(
             .list_workers_by_tenant(&tenant_id)
             .await
             .map_err(|e| {
+                tracing::error!(
+                    error = %e,
+                    tenant_id = %tenant_id,
+                    "Failed to list workers by tenant"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
@@ -2353,6 +2450,10 @@ pub async fn list_workers(
             })?
     } else {
         state.db.list_all_workers().await.map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "Failed to list all workers"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -2379,6 +2480,11 @@ pub async fn list_workers(
         })
         .collect();
 
+    tracing::debug!(
+        worker_count = response.len(),
+        "Successfully listed workers"
+    );
+
     Ok(Json(response))
 }
 
@@ -2393,28 +2499,26 @@ pub async fn worker_register_local(
 
     // Insert worker with status 'serving'
     let worker_id = uuid::Uuid::now_v7().to_string();
-    state
-        .db
-        .insert_worker(
-            &worker_id,
-            &req.tenant_id,
-            &req.node_id,
-            &req.plan_id,
-            &req.uds_path,
-            req.pid,
-            "serving",
+    let params = adapteros_db::WorkerInsertParams {
+        id: worker_id.clone(),
+        tenant_id: req.tenant_id.clone(),
+        node_id: req.node_id.clone(),
+        plan_id: req.plan_id.clone(),
+        uds_path: req.uds_path.clone(),
+        pid: req.pid,
+        status: "serving".to_string(),
+    };
+
+    state.db.insert_worker(params).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to register worker")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to register worker")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    })?;
 
     let now = chrono::Utc::now().to_rfc3339();
     Ok(Json(WorkerResponse {
@@ -2454,26 +2558,38 @@ pub async fn worker_heartbeat(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Logout endpoint (stateless JWT - just return success)
+/// Logout user by clearing the auth cookie
 pub async fn auth_logout(
     Extension(_claims): Extension<Claims>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // With stateless JWT, logout is client-side (discard token)
-    // Server doesn't need to track anything
-    Ok(StatusCode::NO_CONTENT)
+) -> Result<impl axum::response::IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // Clear the auth cookie by setting it to expire immediately
+    let clear_cookie = "auth_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict";
+
+    Ok((
+        StatusCode::NO_CONTENT,
+        [(axum::http::header::SET_COOKIE, clear_cookie)],
+    ))
 }
 
 /// Get current user info
 pub async fn auth_me(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<UserInfoResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let iat_timestamp = chrono::DateTime::from_timestamp(claims.iat, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
     Ok(Json(UserInfoResponse {
         user_id: claims.sub,
-        email: claims.email,
-        role: claims.role,
-        created_at: chrono::DateTime::from_timestamp(claims.iat, 0)
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
+        email: claims.email.clone(),
+        role: claims.role.clone(),
+        display_name: None, // Can be derived from email on frontend
+        tenant_id: Some(claims.tenant_id.clone()),
+        permissions: None, // Not stored in JWT claims
+        last_login_at: Some(iat_timestamp.clone()), // Use iat as last login time
+        mfa_enabled: None,
+        token_last_rotated_at: None,
+        created_at: Some(iat_timestamp), // Keep for backwards compatibility
     }))
 }
 
@@ -2964,7 +3080,6 @@ pub async fn export_plan_manifest(
 
     Ok(Json(manifest))
 }
-
 /// Check promotion gates
 #[axum::debug_handler]
 pub async fn promotion_gates(
@@ -3234,6 +3349,15 @@ pub async fn export_policy(
 }
 
 /// List telemetry bundles (stub)
+#[utoipa::path(
+    get,
+    path = "/v1/telemetry/bundles",
+    responses(
+        (status = 200, description = "List of telemetry bundles", body = Vec<TelemetryBundleResponse>),
+        (status = 401, description = "Unauthorized", body = ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn list_telemetry_bundles(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -3272,6 +3396,18 @@ pub async fn list_telemetry_bundles(
 }
 
 /// Export telemetry bundle as NDJSON
+#[utoipa::path(
+    get,
+    path = "/v1/telemetry/bundles/{bundle_id}/export",
+    params(
+        ("bundle_id" = String, Path, description = "Bundle ID")
+    ),
+    responses(
+        (status = 200, description = "Export metadata", body = crate::types::ExportTelemetryBundleResponse),
+        (status = 404, description = "Bundle not found", body = crate::types::ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn export_telemetry_bundle(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -3288,8 +3424,17 @@ pub async fn export_telemetry_bundle(
 }
 
 /// Generate a telemetry bundle (M0 filesystem implementation)
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/bundles/generate",
+    responses(
+        (status = 200, description = "Bundle generated", body = crate::types::TelemetryBundleResponse),
+        (status = 500, description = "Generation failed", body = crate::types::ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn generate_telemetry_bundle(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> Result<Json<TelemetryBundleResponse>, (StatusCode, Json<ErrorResponse>)> {
     let id = uuid::Uuid::new_v4().to_string();
@@ -3331,16 +3476,35 @@ pub async fn generate_telemetry_bundle(
     let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
     let created_at = chrono::Utc::now().to_rfc3339();
 
-    Ok(Json(TelemetryBundleResponse {
-        id,
+    let bundle = TelemetryBundleResponse {
+        id: id.clone(),
         cpid: "global".to_string(),
         event_count: 2,
         size_bytes: size,
         created_at,
-    }))
+    };
+
+    // Broadcast bundle update to SSE subscribers
+    if let Err(e) = state.telemetry_bundles_tx.send(bundle.clone()) {
+        tracing::warn!("failed to broadcast bundle update: {}", e);
+    }
+
+    Ok(Json(bundle))
 }
 
 /// Verify telemetry bundle Ed25519 signature
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/bundles/{bundle_id}/verify",
+    params(
+        ("bundle_id" = String, Path, description = "Bundle ID")
+    ),
+    responses(
+        (status = 200, description = "Verification result", body = crate::types::VerifyBundleSignatureResponse),
+        (status = 404, description = "Bundle not found", body = crate::types::ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn verify_bundle_signature(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -3423,20 +3587,39 @@ pub async fn verify_bundle_signature(
 }
 
 /// Purge old telemetry bundles based on retention policy
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/bundles/purge",
+    request_body = crate::types::PurgeOldBundlesRequest,
+    responses(
+        (status = 200, description = "Purge completed", body = crate::types::PurgeOldBundlesResponse),
+        (status = 401, description = "Unauthorized", body = crate::types::ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn purge_old_bundles(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(_req): Json<PurgeOldBundlesRequest>,
 ) -> Result<Json<PurgeOldBundlesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Stub - would apply retention policy and delete old bundles
-    Ok(Json(PurgeOldBundlesResponse {
+    let response = PurgeOldBundlesResponse {
         purged_count: 15,
         retained_count: 12,
         freed_bytes: 45_000_000,
         purged_cpids: vec!["cp_001".to_string(), "cp_002".to_string()],
-    }))
+    };
+
+    // Broadcast bundle list refresh signal by fetching current list
+    // When purge is fully implemented, this will trigger SSE subscribers to refetch
+    let _ = tokio::spawn(async move {
+        // In a real implementation, we'd broadcast the remaining bundles list
+        // For now, SSE subscribers will refresh via polling on their next fetch
+    });
+
+    Ok(Json(response))
 }
 /// Rollback CP to previous plan
 pub async fn cp_rollback(
@@ -3456,7 +3639,7 @@ pub async fn cp_rollback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to get current CP pointer")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -3504,7 +3687,7 @@ pub async fn cp_rollback(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to query previous CP")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -3530,7 +3713,7 @@ pub async fn cp_rollback(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to start transaction")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -3546,7 +3729,7 @@ pub async fn cp_rollback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to deactivate CP pointers")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -3562,7 +3745,7 @@ pub async fn cp_rollback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to activate previous CP pointer")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -3574,7 +3757,7 @@ pub async fn cp_rollback(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to commit transaction")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -3865,6 +4048,7 @@ pub async fn infer(
         std::path::PathBuf::from(fallback)
     };
     let uds_path = uds_path_buf.as_path();
+    let uds_path_str = uds_path.to_string_lossy().to_string();
 
     // Create UDS client and send request
     let uds_client = UdsClient::new(std::time::Duration::from_secs(30));
@@ -4218,7 +4402,7 @@ pub async fn create_process_monitoring_rule(
         id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
         name: req.name,
         description: req.description,
-        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
+        tenant_id: claims.tenant_id.clone(),
         rule_type: req.rule_type,
         metric_name: req.metric_name,
         threshold_value: req.threshold_value,
@@ -4349,17 +4533,15 @@ pub async fn acknowledge_process_alert(
 ) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    if let Some(request_id) = req.alert_id.as_ref() {
-        if request_id != &alert_id {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("alert_id mismatch")
-                        .with_code("BAD_REQUEST")
-                        .with_string_details("Path alert_id does not match payload alert_id"),
-                ),
-            ));
-        }
+    if Some(&req.alert_id) != Some(&alert_id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("alert_id mismatch")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("Path alert_id does not match payload alert_id"),
+            ),
+        ));
     }
 
     if let Some(note) = req.acknowledgment_note.as_ref() {
@@ -6005,7 +6187,6 @@ pub async fn get_adapter_activations(
 
     Ok(Json(responses))
 }
-
 /// Promote adapter state (cold→warm, warm→hot)
 pub async fn promote_adapter_state(
     State(state): State<AppState>,
@@ -6088,6 +6269,411 @@ pub async fn promote_adapter_state(
     }))
 }
 
+/// Pin adapter to prevent eviction
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/pin",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter pinned successfully"),
+        (status = 404, description = "Adapter not found"),
+        (status = 403, description = "Forbidden")
+    )
+)]
+pub async fn pin_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Verify adapter exists
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Update pinned status in adapters table
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    sqlx::query!(
+        "UPDATE adapters SET pinned = 1, updated_at = ? WHERE adapter_id = ?",
+        timestamp,
+        adapter_id
+    )
+    .execute(state.db.pool())
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to pin adapter")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    tracing::info!("Adapter {} pinned by {}", adapter_id, claims.email);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Adapter pinned successfully"
+    })))
+}
+
+/// Unpin adapter to allow eviction
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/unpin",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter unpinned successfully"),
+        (status = 404, description = "Adapter not found"),
+        (status = 403, description = "Forbidden")
+    )
+)]
+pub async fn unpin_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Verify adapter exists
+    state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Update pinned status in adapters table
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    sqlx::query!(
+        "UPDATE adapters SET pinned = 0, updated_at = ? WHERE adapter_id = ?",
+        timestamp,
+        adapter_id
+    )
+    .execute(state.db.pool())
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to unpin adapter")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    tracing::info!("Adapter {} unpinned by {}", adapter_id, claims.email);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Adapter unpinned successfully"
+    })))
+}
+
+/// Update adapter policy (category)
+#[utoipa::path(
+    put,
+    path = "/v1/adapters/{adapter_id}/policy",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    request_body = UpdateAdapterPolicyRequest,
+    responses(
+        (status = 200, description = "Policy updated successfully", body = UpdateAdapterPolicyResponse),
+        (status = 400, description = "Invalid category"),
+        (status = 404, description = "Adapter not found"),
+        (status = 403, description = "Forbidden")
+    )
+)]
+pub async fn update_adapter_policy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<crate::types::UpdateAdapterPolicyRequest>,
+) -> Result<Json<crate::types::UpdateAdapterPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Verify adapter exists
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Update category if provided
+    if let Some(category) = &req.category {
+        // Validate category
+        if !["code", "framework", "codebase", "ephemeral"].contains(&category.as_str()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Invalid category")
+                        .with_code("INVALID_CATEGORY")
+                        .with_string_details(format!(
+                            "Category must be one of: code, framework, codebase, ephemeral"
+                        )),
+                ),
+            ));
+        }
+
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        sqlx::query!(
+            "UPDATE adapters SET category = ?, updated_at = ? WHERE adapter_id = ?",
+            category,
+            timestamp,
+            adapter_id
+        )
+        .execute(state.db.pool())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter policy")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+        tracing::info!(
+            "Adapter {} policy updated (category: {}) by {}",
+            adapter_id,
+            category,
+            claims.email
+        );
+
+        Ok(Json(crate::types::UpdateAdapterPolicyResponse {
+            adapter_id,
+            category: Some(category.clone()),
+            message: format!("Adapter category updated to {}", category),
+        }))
+    } else {
+        Ok(Json(crate::types::UpdateAdapterPolicyResponse {
+            adapter_id,
+            category: Some(adapter.category),
+            message: "No changes requested".to_string(),
+        }))
+    }
+}
+/// Evict adapter from memory
+#[utoipa::path(
+    post,
+    path = "/v1/memory/adapters/{adapter_id}/evict",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter evicted successfully", body = EvictAdapterResponse),
+        (status = 404, description = "Adapter not found"),
+        (status = 409, description = "Adapter is pinned and cannot be evicted"),
+        (status = 403, description = "Forbidden")
+    )
+)]
+pub async fn evict_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<crate::types::EvictAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Get adapter
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Check if pinned
+    if adapter.pinned != 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("Adapter is pinned and cannot be evicted")
+                    .with_code("PINNED_ADAPTER")
+                    .with_string_details("Pinned adapters are protected from eviction"),
+            ),
+        ));
+    }
+
+    // Evict: set state to cold and clear memory
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    sqlx::query!(
+        "UPDATE adapters SET current_state = 'cold', memory_bytes = 0, updated_at = ? WHERE adapter_id = ?",
+        timestamp,
+        adapter_id
+    )
+    .execute(state.db.pool())
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to evict adapter")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    tracing::info!("Adapter {} evicted by {}", adapter_id, claims.email);
+
+    let memory_freed_mb = adapter.memory_bytes as f64 / 1024.0 / 1024.0;
+    Ok(Json(crate::types::EvictAdapterResponse {
+        success: true,
+        message: format!(
+            "Adapter evicted successfully. Freed {:.1} MB",
+            memory_freed_mb
+        ),
+    }))
+}
+
+/// Get memory usage statistics
+#[utoipa::path(
+    get,
+    path = "/v1/memory/usage",
+    responses(
+        (status = 200, description = "Memory usage statistics", body = MemoryUsageResponse)
+    )
+)]
+pub async fn get_memory_usage(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<crate::types::MemoryUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Get system total memory (refresh before reading to avoid 0 values)
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    let total_memory_kb = system.total_memory();
+    let total_memory_mb = total_memory_kb as f64 / 1024.0;
+
+    // Get all adapters with memory usage
+    let adapters = state.db.list_adapters().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to list adapters")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let mut total_used_mb = 0.0;
+    let adapter_entries: Vec<crate::types::MemoryUsageAdapter> = adapters
+        .into_iter()
+        .filter_map(|adapter| {
+            if adapter.memory_bytes > 0 {
+                let memory_mb = adapter.memory_bytes as f64 / 1024.0 / 1024.0;
+                total_used_mb += memory_mb;
+                Some(crate::types::MemoryUsageAdapter {
+                    id: adapter.adapter_id.clone(),
+                    name: adapter.name,
+                    memory_usage_mb: memory_mb,
+                    state: adapter.current_state,
+                    pinned: adapter.pinned != 0,
+                    category: adapter.category,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let available_memory_mb = (total_memory_mb - total_used_mb).max(0.0);
+    let usage_percent = if total_memory_mb > 0.0 {
+        (total_used_mb / total_memory_mb) * 100.0
+    } else {
+        0.0
+    };
+
+    // Determine pressure level (matching UI thresholds)
+    let pressure_level = if usage_percent >= 80.0 {
+        "critical"
+    } else if usage_percent >= 64.0 {
+        "high"
+    } else if usage_percent >= 48.0 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    Ok(Json(crate::types::MemoryUsageResponse {
+        adapters: adapter_entries,
+        total_memory_mb: total_memory_mb,
+        available_memory_mb,
+        memory_pressure_level: pressure_level.to_string(),
+    }))
+}
+
 /// Download adapter manifest as JSON
 pub async fn download_adapter_manifest(
     State(state): State<AppState>,
@@ -6136,7 +6722,6 @@ pub async fn download_adapter_manifest(
 
     Ok(Json(manifest))
 }
-
 /// Get adapter health (activation logs, memory usage, policy violations)
 pub async fn get_adapter_health(
     State(state): State<AppState>,
@@ -6414,6 +6999,51 @@ pub async fn get_system_metrics(
             load_15min: load_avg.2,
         },
         timestamp,
+        memory_usage_pct: metrics.memory_usage as f32,
+        adapter_count: {
+            // Count active adapters from database
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters WHERE load_state = 'warm'")
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap_or(0) as i32
+        },
+        active_sessions: {
+            // TODO: Implement active sessions count - no sessions table exists in schema
+            // For now return 0, this needs proper implementation
+            0
+        },
+        tokens_per_second: {
+            // TODO: Implement tokens per second calculation from telemetry bundles
+            // No telemetry_metrics table exists, this needs proper implementation
+            0.0
+        },
+        latency_p95_ms: {
+            // Calculate P95 latency from recent requests
+            sqlx::query_scalar::<_, Option<f64>>(
+                "SELECT latency_ms FROM request_log WHERE timestamp > datetime('now', '-5 minutes') ORDER BY latency_ms LIMIT 1 OFFSET (SELECT COUNT(*) * 95 / 100 FROM request_log WHERE timestamp > datetime('now', '-5 minutes'))"
+            )
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap_or(None)
+            .unwrap_or(0.0) as f32
+        },
+        cpu_usage_percent: Some(metrics.cpu_usage as f32),
+        memory_usage_percent: Some(metrics.memory_usage as f32),
+        disk_usage_percent: Some(metrics.disk_io.usage_percent),
+        network_rx_bytes: Some(metrics.network_io.rx_bytes as i64),
+        network_tx_bytes: Some(metrics.network_io.tx_bytes as i64),
+        network_rx_packets: Some(metrics.network_io.rx_packets as i64),
+        network_tx_packets: Some(metrics.network_io.tx_packets as i64),
+        network_bandwidth_mbps: Some(metrics.network_io.bandwidth_mbps),
+        gpu_utilization_percent: metrics.gpu_metrics.utilization.map(|v| v as f32),
+        gpu_memory_used_gb: metrics
+            .gpu_metrics
+            .memory_used
+            .map(|v| v as f32 / 1024.0 / 1024.0 / 1024.0),
+        gpu_memory_total_gb: metrics
+            .gpu_metrics
+            .memory_total
+            .map(|v| v as f32 / 1024.0 / 1024.0 / 1024.0),
     }))
 }
 
@@ -6458,7 +7088,7 @@ pub async fn list_commits(
         match map_db_commit_to_response(commit) {
             Ok(response) => responses.push(response),
             Err(e) => {
-                error!("Failed to map commit to response: {}", e);
+                tracing::error!("Failed to map commit to response: {}", e);
                 // Skip malformed commits but continue processing others
                 continue;
             }
@@ -6808,7 +7438,7 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
     // Update worker metrics from database
     if let Err(e) = state
         .metrics_exporter
-        .update_worker_metrics(state.db.sqlite())
+        .update_worker_metrics(state.db.as_ref())
         .await
     {
         tracing::warn!("Failed to update worker metrics: {}", e);
@@ -6884,7 +7514,6 @@ pub async fn system_metrics_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 /// SSE stream for telemetry events
 /// Streams new telemetry bundles as they're created
 pub async fn telemetry_events_stream(
@@ -6895,6 +7524,7 @@ pub async fn telemetry_events_stream(
     filters.limit = Some(50);
     let backlog = state.telemetry_buffer.query(&filters);
 
+    // Telemetry events backlog
     let backlog_stream = stream::iter(backlog.into_iter().filter_map(|event| {
         match serde_json::to_string(&activity_event_from_unified_event(&event)) {
             Ok(json) => Some(Ok(Event::default().event("telemetry").data(json))),
@@ -6905,6 +7535,7 @@ pub async fn telemetry_events_stream(
         }
     }));
 
+    // Telemetry events realtime
     let rx = state.telemetry_tx.subscribe();
     let realtime_stream = BroadcastStream::new(rx).filter_map(|res| async move {
         match res {
@@ -6919,7 +7550,101 @@ pub async fn telemetry_events_stream(
         }
     });
 
-    let stream = backlog_stream.chain(realtime_stream);
+    // Bundles backlog: fetch latest 50 bundles (non-blocking)
+    let bundles_backlog: Vec<crate::types::TelemetryBundleResponse> = {
+        let root = std::path::Path::new("var/bundles");
+        let mut results = Vec::new();
+        if root.exists() {
+            // Use spawn_blocking for filesystem I/O to avoid blocking async runtime
+            let root_path = root.to_path_buf();
+            match tokio::task::spawn_blocking(
+                move || -> Vec<crate::types::TelemetryBundleResponse> {
+                    let mut local_results = Vec::new();
+                    if let Ok(entries) = std::fs::read_dir(&root_path) {
+                        for entry in entries.flatten() {
+                            if let Some(Some(id)) = entry
+                                .file_name()
+                                .to_str()
+                                .map(|n| n.strip_suffix(".ndjson").map(|s| s.to_string()))
+                            {
+                                let path = entry.path();
+                                let meta = std::fs::metadata(&path).ok();
+                                let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                                let event_count = std::fs::read_to_string(&path)
+                                    .map(|s| s.lines().count() as u64)
+                                    .unwrap_or(0);
+                                let created_at = meta
+                                    .and_then(|m| m.modified().ok())
+                                    .and_then(|t| {
+                                        chrono::DateTime::<chrono::Utc>::from_timestamp(
+                                            t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()
+                                                as i64,
+                                            0,
+                                        )
+                                    })
+                                    .map(|dt| dt.to_rfc3339())
+                                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                                local_results.push(crate::types::TelemetryBundleResponse {
+                                    id,
+                                    cpid: "global".to_string(),
+                                    event_count,
+                                    size_bytes: size,
+                                    created_at,
+                                });
+                            }
+                        }
+                    }
+                    // Sort by created_at descending and limit to 50
+                    local_results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                    local_results.truncate(50);
+                    local_results
+                },
+            )
+            .await
+            {
+                Ok(results_from_blocking) => results = results_from_blocking,
+                Err(e) => {
+                    tracing::warn!("failed to fetch bundles backlog for SSE: {}", e);
+                    // Continue with empty backlog - realtime updates will still work
+                }
+            }
+        }
+        results
+    };
+
+    let bundles_backlog_stream =
+        stream::iter(
+            bundles_backlog
+                .into_iter()
+                .filter_map(|bundle| match serde_json::to_string(&bundle) {
+                    Ok(json) => Some(Ok(Event::default().event("bundles").data(json))),
+                    Err(e) => {
+                        tracing::warn!("failed to serialize backlog bundle: {}", e);
+                        None
+                    }
+                }),
+        );
+
+    // Bundles realtime updates
+    let bundles_rx = state.telemetry_bundles_tx.subscribe();
+    let bundles_realtime_stream = BroadcastStream::new(bundles_rx).filter_map(|res| async move {
+        match res {
+            Ok(bundle) => match serde_json::to_string(&bundle) {
+                Ok(json) => Some(Ok(Event::default().event("bundles").data(json))),
+                Err(e) => {
+                    tracing::warn!("failed to serialize bundle update: {}", e);
+                    None
+                }
+            },
+            Err(_) => None,
+        }
+    });
+
+    // Merge all streams: backlog first, then realtime updates interleaved
+    let stream = backlog_stream
+        .chain(realtime_stream)
+        .chain(bundles_backlog_stream)
+        .chain(bundles_realtime_stream);
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -6964,7 +7689,6 @@ pub async fn adapter_state_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 // Helper to extract system metrics logic
 async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsResponse, String> {
     use adapteros_system_metrics::SystemMetricsCollector;
@@ -7021,6 +7745,51 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
             load_15min: load_avg.2,
         },
         timestamp,
+        memory_usage_pct: metrics.memory_usage as f32,
+        adapter_count: {
+            // Count active adapters from database
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters WHERE load_state = 'warm'")
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap_or(0) as i32
+        },
+        active_sessions: {
+            // TODO: Implement active sessions count - no sessions table exists in schema
+            // For now return 0, this needs proper implementation
+            0
+        },
+        tokens_per_second: {
+            // TODO: Implement tokens per second calculation from telemetry bundles
+            // No telemetry_metrics table exists, this needs proper implementation
+            0.0
+        },
+        latency_p95_ms: {
+            // Calculate P95 latency from recent requests
+            sqlx::query_scalar::<_, Option<f64>>(
+                "SELECT latency_ms FROM request_log WHERE timestamp > datetime('now', '-5 minutes') ORDER BY latency_ms LIMIT 1 OFFSET (SELECT COUNT(*) * 95 / 100 FROM request_log WHERE timestamp > datetime('now', '-5 minutes'))"
+            )
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap_or(None)
+            .unwrap_or(0.0) as f32
+        },
+        cpu_usage_percent: Some(metrics.cpu_usage as f32),
+        memory_usage_percent: Some(metrics.memory_usage as f32),
+        disk_usage_percent: Some(metrics.disk_io.usage_percent),
+        network_rx_bytes: Some(metrics.network_io.rx_bytes as i64),
+        network_tx_bytes: Some(metrics.network_io.tx_bytes as i64),
+        network_rx_packets: Some(metrics.network_io.rx_packets as i64),
+        network_tx_packets: Some(metrics.network_io.tx_packets as i64),
+        network_bandwidth_mbps: Some(metrics.network_io.bandwidth_mbps),
+        gpu_utilization_percent: metrics.gpu_metrics.utilization.map(|v| v as f32),
+        gpu_memory_used_gb: metrics
+            .gpu_metrics
+            .memory_used
+            .map(|v| v as f32 / 1024.0 / 1024.0 / 1024.0),
+        gpu_memory_total_gb: metrics
+            .gpu_metrics
+            .memory_total
+            .map(|v| v as f32 / 1024.0 / 1024.0 / 1024.0),
     })
 }
 
@@ -7321,7 +8090,6 @@ pub async fn list_contacts(
 
     Ok(Json(ContactsResponse { contacts }))
 }
-
 /// Create or update a contact
 ///
 /// Creates a new contact or updates an existing one based on (tenant_id, name, category) uniqueness.
@@ -7559,13 +8327,13 @@ pub async fn get_contact_interactions(
 // ========== Training Handlers ==========
 
 #[derive(Debug, Deserialize)]
-struct TrainingSessionsQuery {
+pub struct TrainingSessionsQuery {
     #[serde(default)]
     tenant_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct TelemetryEventsQuery {
+pub struct TelemetryEventsQuery {
     #[serde(default)]
     limit: Option<usize>,
     #[serde(default)]
@@ -7604,17 +8372,15 @@ struct TrainingConfigPayload {
     gradient_accumulation_steps: Option<u32>,
 }
 
-fn training_config_from_value(
-    value: &serde_json::Value,
-) -> Result<adapteros_orchestrator::TrainingConfig, String> {
+fn training_config_from_value(value: &serde_json::Value) -> Result<TrainingConfig, String> {
     if value.is_null() {
-        return Ok(adapteros_orchestrator::TrainingConfig::default());
+        return Ok(TrainingConfig::default());
     }
 
     let payload: TrainingConfigPayload = serde_json::from_value(value.clone())
         .map_err(|e| format!("invalid training_config payload: {}", e))?;
 
-    let mut cfg = adapteros_orchestrator::TrainingConfig::default();
+    let mut cfg = TrainingConfig::default();
     if let Some(rank) = payload.rank {
         cfg.rank = rank;
     }
@@ -7642,7 +8408,7 @@ fn training_config_from_value(
 }
 
 fn training_session_response(
-    job: &adapteros_orchestrator::TrainingJob,
+    job: &TrainingJob,
     metadata: Option<&TrainingSessionMetadata>,
 ) -> TrainingSessionResponse {
     let status = format!("{:?}", job.status).to_lowercase();
@@ -7717,7 +8483,6 @@ fn emit_activity_event(
     state.telemetry_buffer.push(event.clone());
     let _ = state.telemetry_tx.send(event);
 }
-
 /// List all training jobs
 #[utoipa::path(
     get,
@@ -7894,10 +8659,7 @@ pub async fn start_training(
                 attempts += 1;
                 match training_service.get_job(&job_id_for_reg).await {
                     Ok(j) => {
-                        if matches!(
-                            j.status,
-                            adapteros_orchestrator::TrainingJobStatus::Completed
-                        ) {
+                        if matches!(j.status, TrainingJobStatus::Completed) {
                             if let (Some(adapter_id), Some(hash_b3)) =
                                 (j.adapter_id.clone(), j.weights_hash_b3.clone())
                             {
@@ -7925,8 +8687,7 @@ pub async fn start_training(
                             break;
                         } else if matches!(
                             j.status,
-                            adapteros_orchestrator::TrainingJobStatus::Failed
-                                | adapteros_orchestrator::TrainingJobStatus::Cancelled
+                            TrainingJobStatus::Failed | TrainingJobStatus::Cancelled
                         ) {
                             break;
                         }
@@ -8224,7 +8985,7 @@ pub async fn submit_client_logs(
                 .component
                 .unwrap_or_else(|| "unknown".to_string())
         ));
-        enriched_entry.tenant_id = claims.tenant_id.clone();
+        enriched_entry.tenant_id = Some(claims.tenant_id.clone());
 
         // Add to telemetry buffer
         state.telemetry_buffer.push(enriched_entry.clone());
@@ -8235,7 +8996,6 @@ pub async fn submit_client_logs(
 
     Ok(())
 }
-
 /// GET /v1/audits/export - Export audit logs for compliance
 /// Returns audit logs in CSV or JSON format based on query parameters
 pub async fn export_audit_logs(
@@ -8273,7 +9033,7 @@ pub async fn export_audit_logs(
 
             for event in events {
                 let row = format!(
-                    "{},{},{},{},{},{},{},{}\n",
+                    "{},{},{:?},{},{},{},{},{}\n",
                     event.timestamp.to_rfc3339(),
                     event.event_type,
                     event.level,
@@ -8293,7 +9053,7 @@ pub async fn export_audit_logs(
                     "content-disposition",
                     "attachment; filename=\"audit-logs.csv\"",
                 )
-                .body(csv)
+                .body(axum::body::Body::from(csv))
                 .map_err(|_| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -8316,7 +9076,7 @@ pub async fn export_audit_logs(
                     "content-disposition",
                     "attachment; filename=\"audit-logs.json\"",
                 )
-                .body(json)
+                .body(axum::body::Body::from(json))
                 .map_err(|_| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -8890,7 +9650,6 @@ pub async fn list_training_templates(
 
     Ok(Json(templates.into_iter().map(|t| t.into()).collect()))
 }
-
 /// Get a specific training template
 #[utoipa::path(
     get,
@@ -9035,7 +9794,6 @@ pub async fn create_monitoring_rule(
 
     Ok(Json(rule.into()))
 }
-
 /// Update monitoring rule
 #[utoipa::path(
     put,
@@ -9625,7 +10383,7 @@ pub async fn get_dashboard_config(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let dashboard_service = adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(
-        state.db.sqlite().clone(),
+        state.db.inner().clone(),
     ));
 
     let config = dashboard_service
@@ -9665,7 +10423,7 @@ pub async fn get_dashboard_data(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let dashboard_service = adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(
-        state.db.sqlite().clone(),
+        state.db.inner().clone(),
     ));
     let time_range = params.get("time_range").map(|s| s.as_str());
 
@@ -9685,7 +10443,6 @@ pub async fn get_dashboard_data(
 
     Ok(Json(data))
 }
-
 /// Export dashboard data
 #[utoipa::path(
     get,
@@ -9708,7 +10465,7 @@ pub async fn export_dashboard_data(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let dashboard_service = adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(
-        state.db.sqlite().clone(),
+        state.db.inner().clone(),
     ));
     let time_range = params.get("time_range").map(|s| s.as_str());
 
@@ -9808,7 +10565,6 @@ pub async fn alerts_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 /// SSE stream for anomalies
 /// Pushes real-time anomaly detections
 pub async fn anomalies_stream(
@@ -10052,7 +10808,6 @@ pub async fn dashboard_metrics_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 /// Enhanced system metrics stream with monitoring data
 /// Includes GPU metrics, inference latency, active alerts count, and recent anomalies
 pub async fn enhanced_system_metrics_stream(
@@ -10154,6 +10909,231 @@ pub async fn enhanced_system_metrics_stream(
             )),
             state,
         ))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// SSE stream for notifications
+/// Pushes real-time notifications as they are created or updated
+pub async fn notifications_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let user_id = claims.sub.clone();
+    let stream = stream::unfold(state, move |state| {
+        let user_id = user_id.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            // Fetch recent unread notifications
+            let notifications = match state
+                .db
+                .list_user_notifications(&user_id, None, None, true, Some(50), Some(0))
+                .await
+            {
+                Ok(notifs) => notifs,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch notifications for SSE: {}", e);
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        state,
+                    ));
+                }
+            };
+
+            let notification_data = serde_json::json!({
+                "notifications": notifications.iter().map(|n| serde_json::json!({
+                    "id": n.id,
+                    "workspace_id": n.workspace_id,
+                    "type": n.type_,
+                    "target_type": n.target_type,
+                    "target_id": n.target_id,
+                    "title": n.title,
+                    "content": n.content,
+                    "read_at": n.read_at,
+                    "created_at": n.created_at,
+                })).collect::<Vec<_>>(),
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "count": notifications.len()
+            });
+
+            Some((
+                Ok(Event::default().event("notifications").data(
+                    serde_json::to_string(&notification_data).unwrap_or_else(|_| "{}".to_string()),
+                )),
+                state,
+            ))
+        }
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// SSE stream for workspace messages
+/// Pushes real-time messages as they are sent in a workspace
+pub async fn messages_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(workspace_id): Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Verify workspace access
+    let user_id = claims.sub.clone();
+    let tenant_id = claims.tenant_id.clone();
+    let ws_id = workspace_id.clone();
+
+    let stream = stream::unfold(state, move |state| {
+        let workspace_id = ws_id.clone();
+        let user_id = user_id.clone();
+        let tenant_id = tenant_id.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            // Check workspace access
+            let has_access = match state
+                .db
+                .check_workspace_access(&workspace_id, &user_id, &tenant_id)
+                .await
+            {
+                Ok(role) => role.is_some(),
+                Err(_) => false,
+            };
+
+            if !has_access {
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data("{\"error\": \"Access denied\"}")),
+                    state,
+                ));
+            }
+
+            // Fetch recent messages
+            let messages = match state
+                .db
+                .get_recent_workspace_messages(&workspace_id, None)
+                .await
+            {
+                Ok(msgs) => msgs,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch messages for SSE: {}", e);
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        state,
+                    ));
+                }
+            };
+
+            let message_data = serde_json::json!({
+                "messages": messages.iter().map(|m| serde_json::json!({
+                    "id": m.id,
+                    "workspace_id": m.workspace_id,
+                    "from_user_id": m.from_user_id,
+                    "from_tenant_id": m.from_tenant_id,
+                    "content": m.content,
+                    "thread_id": m.thread_id,
+                    "created_at": m.created_at,
+                    "edited_at": m.edited_at,
+                })).collect::<Vec<_>>(),
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "count": messages.len()
+            });
+
+            Some((
+                Ok(Event::default().event("messages").data(
+                    serde_json::to_string(&message_data).unwrap_or_else(|_| "{}".to_string()),
+                )),
+                state,
+            ))
+        }
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// SSE stream for workspace activity
+/// Pushes real-time activity events for a workspace
+pub async fn activity_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(workspace_id): Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Verify workspace access
+    let user_id = claims.sub.clone();
+    let tenant_id = claims.tenant_id.clone();
+    let ws_id = workspace_id.clone();
+
+    let stream = stream::unfold(state, move |state| {
+        let workspace_id = ws_id.clone();
+        let user_id = user_id.clone();
+        let tenant_id = tenant_id.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            // Check workspace access
+            let has_access = match state
+                .db
+                .check_workspace_access(&workspace_id, &user_id, &tenant_id)
+                .await
+            {
+                Ok(role) => role.is_some(),
+                Err(_) => false,
+            };
+
+            if !has_access {
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data("{\"error\": \"Access denied\"}")),
+                    state,
+                ));
+            }
+
+            // Fetch recent activity events
+            let events = match state
+                .db
+                .list_activity_events(Some(&workspace_id), None, None, None, Some(50), Some(0))
+                .await
+            {
+                Ok(evts) => evts,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch activity events for SSE: {}", e);
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        state,
+                    ));
+                }
+            };
+
+            let activity_data = serde_json::json!({
+                "events": events.iter().map(|e| serde_json::json!({
+                    "id": e.id,
+                    "workspace_id": e.workspace_id,
+                    "user_id": e.user_id,
+                    "tenant_id": e.tenant_id,
+                    "event_type": e.event_type,
+                    "target_type": e.target_type,
+                    "target_id": e.target_id,
+                    "metadata_json": e.metadata_json,
+                    "created_at": e.created_at,
+                })).collect::<Vec<_>>(),
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "count": events.len()
+            });
+
+            Some((
+                Ok(Event::default().event("activity").data(
+                    serde_json::to_string(&activity_data).unwrap_or_else(|_| "{}".to_string()),
+                )),
+                state,
+            ))
+        }
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -10388,7 +11368,6 @@ pub async fn list_log_files(
 
     use chrono::{DateTime, Utc};
     use std::fs;
-    use std::path::Path;
 
     let mut files = Vec::new();
     let mut total_size = 0u64;
@@ -10451,10 +11430,11 @@ pub async fn list_log_files(
     // Sort by modification time (newest first)
     files.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
 
+    let count = files.len();
     Ok(Json(ListLogFilesResponse {
         files,
         total_size_bytes: total_size,
-        count: files.len(),
+        count,
     }))
 }
 
@@ -10619,7 +11599,6 @@ pub async fn get_log_file_content(
         max_size_bytes: max_size as u64,
     }))
 }
-
 /// Stream log file content
 #[utoipa::path(
     get,
@@ -10643,11 +11622,8 @@ pub async fn stream_log_file(
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
     use axum::response::sse::{Event, KeepAlive, Sse};
-    use futures_util::stream::Stream;
     use std::fs;
     use std::io::{BufRead, BufReader};
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
 
@@ -10688,7 +11664,7 @@ pub async fn stream_log_file(
         )
     })?;
 
-    let (tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(100);
 
     // Spawn a task to read the file and send lines
     tokio::spawn(async move {

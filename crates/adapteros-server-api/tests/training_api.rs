@@ -1,3 +1,4 @@
+use adapteros_core::TrainingConfig;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers;
 use adapteros_server_api::types::{StartTrainingRequest, TrainingConfigRequest};
@@ -13,7 +14,7 @@ async fn list_and_get_training_jobs() -> anyhow::Result<()> {
     let claims: Claims = test_admin_claims();
 
     // Seed orchestrator with jobs
-    let config = adapteros_orchestrator::TrainingConfig::default();
+    let config = TrainingConfig::default();
     let params1 = adapteros_orchestrator::training::TrainingJobBuilder::new()
         .adapter_name("adapter-a")
         .config(config)
@@ -21,7 +22,7 @@ async fn list_and_get_training_jobs() -> anyhow::Result<()> {
         .build()
         .unwrap();
     let j1 = state.training_service.start_training(params1).await?;
-    let config2 = adapteros_orchestrator::TrainingConfig::default();
+    let config2 = TrainingConfig::default();
     let params2 = adapteros_orchestrator::training::TrainingJobBuilder::new()
         .adapter_name("adapter-b")
         .config(config2)

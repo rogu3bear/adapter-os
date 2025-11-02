@@ -73,6 +73,12 @@ pub struct SecurityConfig {
     /// Optional Ed25519 public key in PEM for JWT validation when jwt_mode = "eddsa"
     #[serde(default)]
     pub jwt_public_key_pem: Option<String>,
+    /// Optional path to PEM file holding the Ed25519 public key when jwt_mode = "eddsa"
+    #[serde(default)]
+    pub jwt_public_key_pem_file: Option<String>,
+    /// Optional path to a 32-byte hex-encoded Ed25519 signing key for JWT issuance
+    #[serde(default)]
+    pub jwt_signing_key_path: Option<String>,
     /// The global seed for the deterministic executor (32-byte hex string)
     pub global_seed: String,
 }
