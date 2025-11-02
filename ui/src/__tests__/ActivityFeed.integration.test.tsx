@@ -11,6 +11,8 @@ vi.mock('@/api/client', () => ({
   __esModule: true,
   default: {
     getTelemetryEvents: vi.fn(),
+    listActivityEvents: vi.fn().mockResolvedValue([]),
+    subscribeToActivity: vi.fn(() => () => {}),
     getToken: vi.fn(() => null),
     setToken: vi.fn(),
     getCurrentUser: vi.fn().mockResolvedValue({ user_id: 'u1', email: 'user@test.dev', role: 'viewer' }),
@@ -38,6 +40,8 @@ const sampleEvents = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  apiClient.getTelemetryEvents.mockResolvedValue([]);
+  apiClient.listActivityEvents.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -47,6 +51,7 @@ afterEach(() => {
 describe('ActivityFeedWidget integration', () => {
   it('renders events from API', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue(sampleEvents);
+    apiClient.listActivityEvents.mockResolvedValue(sampleEvents);
 
     renderWidget();
 
@@ -58,6 +63,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('SSE subscription updates feed with newest events first', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue([]);
+    apiClient.listActivityEvents.mockResolvedValue([]);
     const now = Date.now();
     const EventSourceMock = vi.fn(() => ({
       addEventListener: vi.fn((type: string, listener: any) => {
@@ -89,6 +95,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('SSE disconnect triggers polling fallback', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue([]);
+    apiClient.listActivityEvents.mockResolvedValue([]);
     const intervalSpy = vi.spyOn(global, 'setInterval');
 
     vi.stubGlobal('EventSource', vi.fn(() => ({
@@ -109,6 +116,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('SSE auth error is logged and handled', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue([]);
+    apiClient.listActivityEvents.mockResolvedValue([]);
     const errorSpy = vi.spyOn(logger, 'error');
 
     vi.stubGlobal('EventSource', vi.fn(() => ({
@@ -131,6 +139,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('filters events by type', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue(sampleEvents);
+    apiClient.listActivityEvents.mockResolvedValue(sampleEvents);
 
     renderWidget();
     await screen.findByText('Policy updated');
@@ -149,6 +158,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('filters events by severity', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue(sampleEvents);
+    apiClient.listActivityEvents.mockResolvedValue(sampleEvents);
 
     renderWidget();
     await screen.findByText('Policy updated');
@@ -167,6 +177,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('shows empty state', async () => {
     apiClient.getTelemetryEvents.mockResolvedValue([]);
+    apiClient.listActivityEvents.mockResolvedValue([]);
 
     renderWidget();
 
@@ -176,6 +187,7 @@ describe('ActivityFeedWidget integration', () => {
   it('shows error state and logs error', async () => {
     const errorSpy = vi.spyOn(logger, 'error');
     apiClient.getTelemetryEvents.mockRejectedValue(new Error('Network error'));
+    apiClient.listActivityEvents.mockResolvedValue([]);
 
     renderWidget();
 

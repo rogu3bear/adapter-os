@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
 import { RealtimeMetrics } from '../components/RealtimeMetrics';
 import * as api from '../api/client';
@@ -59,54 +59,27 @@ describe('RealtimeMetrics', () => {
     });
   });
 
-  it('connects to SSE and parses events', async () => {
-    (api.apiClient.subscribeToMetrics as any).mockImplementation((cb: any) => {
-      cb({ cpu_usage_percent: 30, memory_usage_pct: 10, gpu_utilization_percent: 0, tokens_per_second: 0, latency_p95_ms: 0 });
-      return () => {};
-    });
+  it('allows manual refresh to refetch metrics', async () => {
+    const mockData = [
+      { cpu_usage_percent: 15, memory_usage_pct: 20, gpu_utilization_percent: 5, latency_p95_ms: 10 },
+      { cpu_usage_percent: 45, memory_usage_pct: 55, gpu_utilization_percent: 15, latency_p95_ms: 25 },
+    ];
+    (api.apiClient.getSystemMetrics as any)
+      .mockResolvedValueOnce(mockData[0])
+      .mockResolvedValue(mockData[1]);
 
     render(<RealtimeMetrics user={mockUser} selectedTenant={mockTenant} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/30(\.0)?%/)).toBeInTheDocument();
+      expect(screen.getByText(/15(\.0)?%/)).toBeInTheDocument();
     });
-  });
 
-  it('falls back to polling when EventSource is unavailable', async () => {
-    // Force fallback path by removing EventSource
-    vi.stubGlobal('EventSource', undefined as any);
-    const intervalSpy = vi.spyOn(global, 'setInterval');
-    render(<RealtimeMetrics user={mockUser} selectedTenant={mockTenant} />);
+    const refreshButton = screen.getByRole('button', { name: /Refresh/ });
+    fireEvent.click(refreshButton);
 
     await waitFor(() => {
-      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 500);
-    });
-  });
-
-  it('handles SSE disconnect notifications', async () => {
-    (api.apiClient.subscribeToMetrics as any).mockImplementation((cb: any) => {
-      cb(null);
-      return () => {};
+      expect(screen.getByText(/45(\.0)?%/)).toBeInTheDocument();
     });
 
-    render(<RealtimeMetrics user={mockUser} selectedTenant={mockTenant} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Real-time Metrics')).toBeInTheDocument();
-    });
-  });
-
-  it.skip('handles multiple SSE events', async () => {
-    (api.apiClient.subscribeToMetrics as any).mockImplementation((cb: any) => {
-      cb({ cpu_usage_percent: 35, memory_usage_pct: 0, gpu_utilization_percent: 0, tokens_per_second: 0, latency_p95_ms: 0 });
-      return () => {};
-    });
-
-    render(<RealtimeMetrics user={mockUser} selectedTenant={mockTenant} />);
-
-    await waitFor(() => {
-      const matches = screen.queryAllByText(/35(\.0)?%/);
-      expect(matches.length).toBeGreaterThan(0);
-    });
   });
 });

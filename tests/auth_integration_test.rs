@@ -432,20 +432,14 @@ async fn test_rate_limiting() {
 #[tokio::test]
 async fn test_account_lockout() {
     let state = create_test_app_state().await;
+    let shared_pool = state.db.pool().clone();
 
     // Simulate account lockout by marking the seeded user as disabled
-    match &state.db {
-        adapteros_db::Database::Sqlite(db) => {
-            sqlx::query("UPDATE users SET disabled = 1 WHERE email = ?")
-                .bind(DEFAULT_USER_EMAIL)
-                .execute(db.pool())
-                .await
-                .expect("should mark user as disabled");
-        }
-        adapteros_db::Database::Postgres(_) => {
-            panic!("test harness expected SQLite database");
-        }
-    }
+    sqlx::query("UPDATE users SET disabled = 1 WHERE email = ?")
+        .bind(DEFAULT_USER_EMAIL)
+        .execute(&shared_pool)
+        .await
+        .expect("should mark user as disabled");
 
     let app = routes::build(state);
 

@@ -107,47 +107,27 @@ WorkersTab.tsx, TrainingWizard.tsx, Telemetry.tsx, and 24 others
 
 **Status**: ⚠ **REQUIRES BACKEND CHANGES**
 
-**Issue**: UI now passes token as query parameter for SSE endpoints:
-```typescript
-const url = token ? `${baseUrl}${endpoint}?token=${encodeURIComponent(token)}` : `${baseUrl}${endpoint}`;
-```
+**SSE Authentication**: SSE endpoints use cookie-based session authentication.
 
-**Required Backend Changes**:
-All SSE streaming endpoints must:
-1. Extract token from query parameter: `?token=xxx`
-2. Validate JWT token
-3. Reject unauthenticated connections
+**Implementation Status**:
+- ✅ Cookie-based auth implemented - no token query parameters needed
+- ✅ Browser automatically sends session cookies with EventSource
+- ✅ Backend middleware validates session cookies via `Extension<Claims>`
+- ✅ UI components updated to use cookie-only authentication
 
-**Affected Endpoints**:
-- `/v1/stream/metrics`
-- `/v1/stream/telemetry`
-- `/v1/stream/adapters`
-- `/v1/streams/training`
-- `/v1/streams/discovery`
-- `/v1/streams/contacts`
-- `/v1/streams/file-changes`
+**Affected Endpoints** (all use cookie-based auth):
+- `/v1/stream/metrics` - System metrics updates
+- `/v1/stream/telemetry` - Telemetry events and bundle updates
+- `/v1/stream/adapters` - Adapter state transitions
+- `/v1/streams/training` - Training progress updates
+- `/v1/streams/discovery` - Discovery stream updates
+- `/v1/streams/contacts` - Contact updates
+- `/v1/streams/file-changes` - File change notifications
 
-**Example Rust Handler**:
-```rust
-use axum::extract::Query;
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-struct SseQuery {
-    token: Option<String>,
-}
-
-async fn system_metrics_stream(
-    Query(query): Query<SseQuery>,
-    State(state): State<AppState>,
-) -> Result<Sse<impl Stream<Item = Event>>, StatusCode> {
-    // Validate token from query parameter
-    let token = query.token.ok_or(StatusCode::UNAUTHORIZED)?;
-    let claims = verify_jwt(&token)?;
-
-    // Continue with SSE stream...
-}
-```
+**SSE Event Types**:
+The `/v1/stream/telemetry` endpoint emits:
+- `telemetry` - Activity events (backlog + realtime)
+- `bundles` - Telemetry bundle updates (backlog of latest 50 + realtime)
 
 ## Testing Recommendations
 

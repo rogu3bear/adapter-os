@@ -32,8 +32,23 @@ The server exposes offline-only endpoints:
 - `GET /api/logs/stream` - SSE stream of live logs
 - `GET /api/traces/search` - Search traces by criteria
 - `GET /api/traces/:trace_id` - Get specific trace details
+- `GET /v1/stream/telemetry` - SSE stream for telemetry events and bundle updates
 
 All endpoints are protected by authentication and serve data from in-memory buffers only.
+
+#### SSE Authentication
+
+SSE endpoints use cookie-based session authentication. No token query parameters are required—the browser automatically sends session cookies with the EventSource connection. The middleware validates the session cookie and provides `Extension<Claims>` to handlers.
+
+#### SSE Event Types
+
+The `/v1/stream/telemetry` endpoint emits multiple event types:
+
+- **`telemetry`**: Live telemetry events from the in-memory buffer (activity feed)
+- **`bundles`**: Telemetry bundle updates (creation/purge notifications)
+  - On connect: emits backlog of latest 50 bundles
+  - Realtime: emits individual bundle objects as they're created or updated
+  - Payload: single `TelemetryBundleResponse` object or array of bundles
 
 ### Dashboard UI
 

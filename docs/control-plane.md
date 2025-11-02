@@ -127,9 +127,100 @@ Six roles with different access levels:
 
 ### Telemetry & Audits
 - `GET /v1/telemetry/bundles` - List event bundles
-- `GET /v1/telemetry/stream` - SSE stream of events
+- `POST /v1/telemetry/bundles/generate` - Create a new telemetry bundle
+- `GET /v1/telemetry/bundles/{bundle_id}/export` - Get export metadata for a bundle
+- `POST /v1/telemetry/bundles/{bundle_id}/verify` - Verify bundle signature
+- `POST /v1/telemetry/bundles/purge` - Purge old bundles (body: `{ keep_bundles_per_cpid: number }`)
+- `GET /v1/telemetry/stream` - SSE stream of events (alias: `/v1/stream/telemetry`)
 - `POST /v1/audit/run` - Run audit suite
 - `GET /v1/audit/results` - Get audit results
+
+#### Telemetry Bundle Request/Response Shapes
+
+**Verify Signature Response:**
+```json
+{
+  "bundle_id": "string",
+  "valid": true,
+  "signature": "string",
+  "signed_by": "string",
+  "signed_at": "2024-01-15T12:00:00Z",
+  "verification_error": null
+}
+```
+
+**Export Bundle Response:**
+```json
+{
+  "bundle_id": "string",
+  "events_count": 0,
+  "size_bytes": 0,
+  "download_url": "/v1/telemetry/bundles/{id}/download",
+  "expires_at": "2024-01-15T12:00:00Z"
+}
+```
+
+**Purge Bundles Request:**
+```json
+{
+  "keep_bundles_per_cpid": 12
+}
+```
+
+**Purge Bundles Response:**
+```json
+{
+  "purged_count": 0,
+  "retained_count": 0,
+  "freed_bytes": 0,
+  "purged_cpids": ["string"]
+}
+```
+
+### Tutorials
+- `GET /v1/tutorials` - List all tutorials with completion/dismissal status for current user
+  - Returns: Array of Tutorial objects with `completed` and `dismissed` flags
+- `POST /v1/tutorials/{id}/complete` - Mark tutorial as completed
+- `DELETE /v1/tutorials/{id}/complete` - Unmark tutorial as completed
+- `POST /v1/tutorials/{id}/dismiss` - Mark tutorial as dismissed
+- `DELETE /v1/tutorials/{id}/dismiss` - Unmark tutorial as dismissed
+
+**Tutorial Response:**
+```json
+{
+  "id": "training-tutorial",
+  "title": "Training Adapters Tutorial",
+  "description": "Learn how to train adapters step by step",
+  "steps": [
+    {
+      "id": "intro",
+      "title": "Welcome to Training",
+      "content": "This tutorial will guide you...",
+      "target_selector": null,
+      "position": "center"
+    }
+  ],
+  "trigger": "manual",
+  "dismissible": true,
+  "completed": false,
+  "dismissed": false,
+  "completed_at": null,
+  "dismissed_at": null
+}
+```
+
+**Cross-Tab Synchronization:**
+Tutorial status changes are synchronized across browser tabs using localStorage StorageEvent:
+- Storage key: `aos_tutorials`
+- Format: `{ [tutorialId]: { completed, dismissed, completed_at, dismissed_at, ts } }`
+- Other tabs automatically refresh when storage event is received
+
+### Traces
+- `GET /api/traces/search` - Search traces by query parameters
+  - Query params: `span_name` (string), `status` (string: "ok"|"error"|"unset"), `start_time_ns` (number), `end_time_ns` (number)
+  - Returns: Array of trace IDs (strings)
+- `GET /api/traces/{trace_id}` - Get a specific trace by ID
+  - Returns: Trace object or null
 
 ### Security
 - `GET /v1/security/egress-preflight` - Check PF status
@@ -194,18 +285,13 @@ The control plane will:
 
 ### 5. Create Admin User
 
-Using the database directly (for initial bootstrap):
+Use the bootstrap helper to insert the first control-plane administrator. It generates a strong password, hashes it with Argon2, and refuses to run if any users already exist:
 
 ```bash
-sqlite3 var/aos-cp.sqlite3
+aosctl bootstrap-admin --email admin@example.com --display-name "Control Plane Admin"
 ```
 
-```sql
--- Generate a password hash first using aos-cp-api::auth::hash_password
--- Then insert:
-INSERT INTO users (id, email, display_name, pw_hash, role)
-VALUES ('admin-001', 'admin@example.com', 'Admin User', '$argon2id$...', 'admin');
-```
+Store the generated password securely and rotate it immediately after the first login.
 
 ### 6. Login
 

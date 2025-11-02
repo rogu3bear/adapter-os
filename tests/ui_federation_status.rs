@@ -6,7 +6,7 @@
 
 use adapteros_core::Result;
 use adapteros_crypto::Keypair;
-use adapteros_db::Db;
+use adapteros_db::{Database, Db};
 use adapteros_federation::FederationManager;
 use adapteros_orchestrator::{FederationDaemon, FederationDaemonConfig};
 use adapteros_policy::PolicyHashWatcher;
@@ -23,16 +23,21 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
     let db_path = temp_dir.path().join("test.db");
     let db_url = format!("sqlite://{}", db_path.display());
 
-    let db = Db::connect(&db_url).await.unwrap();
+    // Use Database wrapper for consistency
+    let db = Database::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
 
+    // FederationManager needs Db, so extract from Database wrapper
+    // This is safe because we're using SQLite in tests
+    let db_inner = db.inner().clone();
     let keypair = Keypair::generate();
-    let federation = FederationManager::new(db.clone(), keypair).unwrap();
+    let federation = FederationManager::new(db_inner, keypair).unwrap();
 
     let telemetry_dir = temp_dir.path().join("telemetry");
     std::fs::create_dir_all(&telemetry_dir).unwrap();
     let telemetry = TelemetryWriter::new(&telemetry_dir, 1000, 1024 * 1024).unwrap();
 
+    // PolicyHashWatcher expects Arc<Database>
     let policy_watcher = PolicyHashWatcher::new(
         Arc::new(db.clone()),
         Arc::new(telemetry.clone()),
@@ -45,6 +50,7 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
         enable_quarantine: true,
     };
 
+    // FederationDaemon now expects Arc<Database>
     let daemon = FederationDaemon::new(
         Arc::new(federation),
         Arc::new(policy_watcher),
@@ -53,9 +59,11 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
         config,
     );
 
+    // FederationApiState needs Arc<Db>, so extract from Database wrapper
+    let db_for_state = db.into_inner();
     let state = FederationApiState {
         daemon: Arc::new(daemon),
-        db: Arc::new(db),
+        db: Arc::new(db_for_state),
     };
 
     (Arc::new(state), temp_dir)
