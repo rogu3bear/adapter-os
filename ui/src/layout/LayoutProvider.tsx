@@ -1,259 +1,42 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import apiClient from '@/api/client';
-import { toast } from 'sonner';
-import type { Tenant, User, UserRole } from '@/api/types';
+/**
+ * LayoutProvider - Deprecated wrapper for backwards compatibility
+ * 
+ * This file now re-exports hooks from the new provider structure:
+ * - CoreProviders: Theme, Auth, Resize
+ * - FeatureProviders: Tenant
+ * 
+ * For new code, import directly from:
+ * - @/providers/CoreProviders (useTheme, useAuth, useResize, RequireAuth)
+ * - @/providers/FeatureProviders (useTenant)
+ */
 
-// Theme
-type Theme = 'light' | 'dark';
+// Re-export from new provider structure for backwards compatibility
+export {
+  useTheme,
+  useAuth,
+  useResize,
+  RequireAuth,
+} from '@/providers/CoreProviders';
 
-interface ThemeContextValue {
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-  toggleTheme: () => void;
-}
+export {
+  useTenant,
+} from '@/providers/FeatureProviders';
 
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+// Deprecated: LayoutProvider component - use AppProviders instead
+// Kept for backwards compatibility in tests
+import { CoreProviders } from '@/providers/CoreProviders';
+import { FeatureProviders } from '@/providers/FeatureProviders';
 
-function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('light');
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('aos_theme');
-      if (saved === 'light' || saved === 'dark') {
-        setThemeState(saved);
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    // Apply theme only on client to avoid SSR/layout thrash
-    const root = document.documentElement;
-    if (theme === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
-    try {
-      localStorage.setItem('aos_theme', theme);
-    } catch {}
-  }, [theme]);
-
-  const setTheme = useCallback((t: Theme) => setThemeState(t), []);
-  const toggleTheme = useCallback(() => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark')), []);
-
-  const value = useMemo(() => ({ theme, setTheme, toggleTheme }), [theme, setTheme, toggleTheme]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
-  return ctx;
-}
-
-// Auth
-interface AuthContextValue {
-  user: User | null;
-  isLoading: boolean;
-  login: (credentials: { email: string; password: string }) => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-
-function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const verifyAuth = useCallback(async () => {
-    try {
-      const currentUser = await apiClient.getCurrentUser();
-      setUser({
-        id: currentUser.user_id,
-        email: currentUser.email,
-        display_name: currentUser.email.split('@')[0],
-        role: currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1) as UserRole,
-        tenant_id: 'default',
-        permissions: [],
-      });
-    } catch (error: any) {
-      // If 401, try refresh if available
-      if (error.message?.includes('401')) {
-        try {
-          // Attempt refresh - assuming server supports /v1/auth/refresh
-          await apiClient.request('/v1/auth/refresh', { method: 'POST' });
-          // Retry getting user after refresh
-          const currentUser = await apiClient.getCurrentUser();
-          setUser({
-            id: currentUser.user_id,
-            email: currentUser.email,
-            display_name: currentUser.email.split('@')[0],
-            role: currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1) as UserRole,
-            tenant_id: 'default',
-            permissions: [],
-          });
-        } catch {
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void verifyAuth().finally(() => setIsLoading(false));
-  }, [verifyAuth]);
-
-  const login = useCallback(async (credentials: { email: string; password: string }) => {
-    const response = await apiClient.login(credentials);
-    setUser({
-      id: response.user_id,
-      email: credentials.email,
-      display_name: credentials.email.split('@')[0],
-      role: response.role.charAt(0).toUpperCase() + response.role.slice(1) as UserRole,
-      tenant_id: 'default',
-      permissions: [],
-    });
-  }, []);
-
-  const logout = useCallback(async () => {
-    try { await apiClient.logout(); } catch {}
-    setUser(null);
-  }, []);
-
-  const value = useMemo(() => ({ user, isLoading, login, logout }), [user, isLoading, login, logout]);
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
-}
-
-// Route guard component
-export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!isLoading && !user) {
-      navigate('/login', { replace: true });
-    }
-  }, [user, isLoading, navigate]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
-
-  return <>{children}</>;
-}
-
-// Tenant
-interface TenantContextValue {
-  selectedTenant: string;
-  setSelectedTenant: (tenantId: string) => void;
-  tenants: Tenant[];
-}
-
-const TenantContext = createContext<TenantContextValue | undefined>(undefined);
-
-function TenantProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const [selectedTenant, setSelectedTenantState] = useState<string>('default');
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('aos_selected_tenant');
-      if (saved) setSelectedTenantState(saved);
-    } catch {}
-  }, []);
-
-  const setSelectedTenant = useCallback((tenantId: string) => {
-    setSelectedTenantState(tenantId);
-    try { localStorage.setItem('aos_selected_tenant', tenantId); } catch {}
-    try {
-      const name = tenants.find(t => t.id === tenantId)?.name || tenantId;
-      toast.success(`Switched to tenant: ${name}`);
-    } catch {}
-  }, [tenants]);
-
-  useEffect(() => {
-    const loadTenants = async () => {
-      if (!user) { setTenants([]); return; }
-      try {
-        const list = await apiClient.listTenants();
-        setTenants(list);
-      } catch {
-        setTenants([]);
-      }
-    };
-    void loadTenants();
-  }, [user]);
-
-  const value = useMemo(() => ({ selectedTenant, setSelectedTenant, tenants }), [selectedTenant, setSelectedTenant, tenants]);
-  return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;
-}
-
-export function useTenant() {
-  const ctx = useContext(TenantContext);
-  if (!ctx) throw new Error('useTenant must be used within TenantProvider');
-  return ctx;
-}
-
-// Resize persistence
-interface ResizeContextValue {
-  getLayout: (key: string) => number[] | undefined;
-  setLayout: (key: string, layout: number[]) => void;
-}
-
-const ResizeContext = createContext<ResizeContextValue | undefined>(undefined);
-
-function ResizeProvider({ children }: { children: React.ReactNode }) {
-  const getLayout = useCallback((key: string) => {
-    try {
-      const raw = localStorage.getItem(`aos_layout_${key}`);
-      return raw ? (JSON.parse(raw) as number[]) : undefined;
-    } catch {
-      return undefined;
-    }
-  }, []);
-
-  const setLayout = useCallback((key: string, layout: number[]) => {
-    try { localStorage.setItem(`aos_layout_${key}`, JSON.stringify(layout)); } catch {}
-  }, []);
-
-  const value = useMemo(() => ({ getLayout, setLayout }), [getLayout, setLayout]);
-  return <ResizeContext.Provider value={value}>{children}</ResizeContext.Provider>;
-}
-
-export function useResize() {
-  const ctx = useContext(ResizeContext);
-  if (!ctx) throw new Error('useResize must be used within ResizeProvider');
-  return ctx;
-}
-
-// Combined LayoutProvider
+/**
+ * @deprecated Use AppProviders instead. This is kept for backwards compatibility.
+ */
 export function LayoutProvider({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <TenantProvider>
-          <ResizeProvider>
-            {children}
-          </ResizeProvider>
-        </TenantProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <CoreProviders>
+      <FeatureProviders>
+        {children}
+      </FeatureProviders>
+    </CoreProviders>
   );
 }
 
