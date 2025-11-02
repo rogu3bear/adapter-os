@@ -1,17 +1,18 @@
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import FeatureLayout from '@/layout/FeatureLayout';
-import { Tenants } from '@/components/Tenants';
+import { Promotion } from '@/components/Promotion';
 import { DensityProvider } from '@/contexts/DensityContext';
 
-export default function TenantsPage() {
+export default function PromotionPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
 
   return (
-    <DensityProvider pageKey="tenants">
-      <FeatureLayout title="Tenants" description="Manage tenant configurations and settings">
-        <Tenants user={user} selectedTenant={selectedTenant} />
+    <DensityProvider pageKey="promotion">
+      <FeatureLayout title="Promotion" description="Promotion gates and approvals">
+        <Promotion user={user} selectedTenant={selectedTenant} />
       </FeatureLayout>
     </DensityProvider>
   );
 }
+
