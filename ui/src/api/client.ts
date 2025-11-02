@@ -52,6 +52,19 @@ class ApiClient {
     return this.requestLog;
   }
 
+  public buildUrl(path: string): string {
+    if (/^https?:\/\//i.test(path)) {
+      return path;
+    }
+
+    const base = this.baseUrl.replace(/\/$/, '');
+    const relative = path.startsWith('/') ? path : `/${path}`;
+    if (!base || base === '') {
+      return relative;
+    }
+    return `${base}${relative}`;
+  }
+
   async request<T>(
     path: string,
     options: RequestInit = {}
@@ -72,11 +85,25 @@ class ApiClient {
     // Store in local audit buffer
     this.logRequest(requestId, method, path);
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      credentials: 'include', // Send httpOnly cookies
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: 'include', // Send httpOnly cookies
+      });
+    } catch (networkError) {
+      // Network error (connection failure, timeout, etc.)
+      const error = toError(networkError);
+      logger.error('API request network error', {
+        component: 'ApiClient',
+        operation: 'request',
+        method,
+        path,
+        requestId,
+      }, error);
+      throw error;
+    }
     
     // Validate returned request ID matches
     const returnedId = response.headers.get('X-Request-ID');
@@ -90,10 +117,34 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const error: types.ErrorResponse = await response.json().catch(() => ({
-        error: `HTTP ${response.status}: ${response.statusText}`,
-      }));
-      throw new Error(error.error || 'Unknown error');
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      let errorCode: string | undefined;
+      
+      try {
+        const error: types.ErrorResponse = await response.json();
+        errorMessage = error.error || errorMessage;
+        errorCode = error.code;
+      } catch {
+        // If JSON parsing fails, use status text
+      }
+      
+      const error = new Error(errorMessage);
+      (error as any).code = errorCode;
+      (error as any).status = response.status;
+      
+      // Log HTTP errors before throwing
+      logger.error('API request HTTP error', {
+        component: 'ApiClient',
+        operation: 'request',
+        method,
+        path,
+        requestId,
+        status: response.status,
+        statusText: response.statusText,
+        errorCode,
+      }, error);
+      
+      throw error;
     }
 
     // Handle 204 No Content
@@ -101,7 +152,21 @@ class ApiClient {
       return {} as T;
     }
 
-    return response.json();
+    try {
+      return await response.json();
+    } catch (parseError) {
+      // JSON parsing error
+      const error = toError(parseError);
+      logger.error('API response JSON parse error', {
+        component: 'ApiClient',
+        operation: 'request',
+        method,
+        path,
+        requestId,
+        status: response.status,
+      }, error);
+      throw error;
+    }
   }
 
   // Authentication
@@ -119,8 +184,60 @@ class ApiClient {
     // Cookie is cleared by server
   }
 
+  async devBypass(): Promise<{ message: string; token: string; user: { email: string; role: string } }> {
+    return this.request('/v1/auth/dev-bypass', { method: 'POST' });
+  }
+
   async getCurrentUser(): Promise<types.UserInfoResponse> {
     return this.request<types.UserInfoResponse>('/v1/auth/me');
+  }
+
+  async refreshSession(): Promise<types.UserInfoResponse> {
+    logger.info('Refreshing auth session', {
+      component: 'ApiClient',
+      operation: 'refreshSession',
+    });
+    await this.request('/v1/auth/refresh', { method: 'POST' });
+    return this.getCurrentUser();
+  }
+
+  async logoutAllSessions(): Promise<void> {
+    logger.info('Logging out all sessions', {
+      component: 'ApiClient',
+      operation: 'logoutAllSessions',
+    });
+    await this.request('/v1/auth/logout-all', { method: 'POST' });
+  }
+
+  async listSessions(): Promise<types.SessionInfo[]> {
+    return this.request<types.SessionInfo[]>('/v1/auth/sessions');
+  }
+
+  async revokeSession(sessionId: string): Promise<void> {
+    await this.request<void>(`/v1/auth/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async rotateApiToken(): Promise<types.RotateTokenResponse> {
+    logger.info('Rotating API token', {
+      component: 'ApiClient',
+      operation: 'rotateApiToken',
+    });
+    return this.request<types.RotateTokenResponse>('/v1/auth/token/rotate', {
+      method: 'POST',
+    });
+  }
+
+  async getTokenMetadata(): Promise<types.TokenMetadata> {
+    return this.request<types.TokenMetadata>('/v1/auth/token');
+  }
+
+  async updateUserProfile(data: types.UpdateProfileRequest): Promise<types.ProfileResponse> {
+    return this.request<types.ProfileResponse>('/v1/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // Health
@@ -176,6 +293,10 @@ class ApiClient {
     return this.request<void>(`/v1/adapters/${adapterId}/unload`, {
       method: 'POST',
     });
+  }
+
+  async getJourney(journeyType: string, journeyId: string): Promise<types.JourneyResponse> {
+    return this.request<types.JourneyResponse>(`/v1/journeys/${journeyType}/${journeyId}`);
   }
 
   async registerNode(data: types.RegisterNodeRequest): Promise<types.Node> {
@@ -505,6 +626,13 @@ class ApiClient {
     });
   }
 
+  async updateAdapterPolicy(adapterId: string, req: types.UpdateAdapterPolicyRequest): Promise<types.UpdateAdapterPolicyResponse> {
+    return this.request<types.UpdateAdapterPolicyResponse>(`/v1/adapters/${adapterId}/policy`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    });
+  }
+
   async downloadAdapterManifest(adapterId: string): Promise<types.AdapterManifest> {
     return this.request<types.AdapterManifest>(`/v1/adapters/${adapterId}/manifest`);
   }
@@ -608,6 +736,10 @@ class ApiClient {
 
   async getCursorConfig(): Promise<types.CursorConfigResponse> {
     return this.request<types.CursorConfigResponse>('/v1/models/cursor-config');
+  }
+
+  async downloadModel(modelId: string): Promise<types.ModelDownloadResponse> {
+    return this.request<types.ModelDownloadResponse>(`/v1/models/${modelId}/download`);
   }
 
   // Routing
@@ -957,6 +1089,26 @@ class ApiClient {
     return this.request(`/v1/training/sessions${queryString ? `?${queryString}` : ''}`);
   }
 
+  async pauseTrainingSession(sessionId: string): Promise<{
+    session_id: string;
+    status: 'paused';
+    message: string;
+  }> {
+    return this.request(`/v1/training/sessions/${sessionId}/pause`, {
+      method: 'POST',
+    });
+  }
+
+  async resumeTrainingSession(sessionId: string): Promise<{
+    session_id: string;
+    status: 'running';
+    message: string;
+  }> {
+    return this.request(`/v1/training/sessions/${sessionId}/resume`, {
+      method: 'POST',
+    });
+  }
+
   // Telemetry methods
   async getTelemetryEvents(filters?: {
     limit?: number;
@@ -1112,22 +1264,282 @@ class ApiClient {
     return this.request<types.RoutingDecision[]>(`/v1/routing/decisions${query}`);
   }
 
+  // Workspace methods
+  async listWorkspaces(): Promise<types.Workspace[]> {
+    return this.request<types.Workspace[]>('/v1/workspaces');
+  }
+
+  async listUserWorkspaces(): Promise<types.Workspace[]> {
+    return this.request<types.Workspace[]>('/v1/workspaces/my');
+  }
+
+  async createWorkspace(data: types.CreateWorkspaceRequest): Promise<types.Workspace> {
+    return this.request<types.Workspace>('/v1/workspaces', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getWorkspace(workspaceId: string): Promise<types.Workspace> {
+    return this.request<types.Workspace>(`/v1/workspaces/${workspaceId}`);
+  }
+
+  async updateWorkspace(workspaceId: string, data: { name?: string; description?: string }): Promise<types.Workspace> {
+    return this.request<types.Workspace>(`/v1/workspaces/${workspaceId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listWorkspaceMembers(workspaceId: string): Promise<types.WorkspaceMember[]> {
+    return this.request<types.WorkspaceMember[]>(`/v1/workspaces/${workspaceId}/members`);
+  }
+
+  async addWorkspaceMember(workspaceId: string, data: types.AddWorkspaceMemberRequest): Promise<{ id: string }> {
+    return this.request<{ id: string }>(`/v1/workspaces/${workspaceId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateWorkspaceMember(workspaceId: string, memberId: string, data: { role: string }): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeWorkspaceMember(workspaceId: string, memberId: string): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listWorkspaceResources(workspaceId: string): Promise<types.WorkspaceResource[]> {
+    return this.request<types.WorkspaceResource[]>(`/v1/workspaces/${workspaceId}/resources`);
+  }
+
+  async shareWorkspaceResource(workspaceId: string, data: { resource_type: string; resource_id: string }): Promise<{ id: string }> {
+    return this.request<{ id: string }>(`/v1/workspaces/${workspaceId}/resources`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async unshareWorkspaceResource(workspaceId: string, resourceId: string, resourceType: string): Promise<void> {
+    const params = new URLSearchParams({ resource_type: resourceType });
+    return this.request<void>(`/v1/workspaces/${workspaceId}/resources/${resourceId}?${params.toString()}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Messaging methods
+  async listWorkspaceMessages(workspaceId: string, params?: { limit?: number; offset?: number }): Promise<types.Message[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages${query}`);
+  }
+
+  async createMessage(workspaceId: string, data: types.CreateMessageRequest): Promise<types.Message> {
+    return this.request<types.Message>(`/v1/workspaces/${workspaceId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async editMessage(workspaceId: string, messageId: string, data: types.CreateMessageRequest): Promise<types.Message> {
+    return this.request<types.Message>(`/v1/workspaces/${workspaceId}/messages/${messageId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getMessageThread(workspaceId: string, threadId: string): Promise<types.Message[]> {
+    return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages/${threadId}/thread`);
+  }
+
+  // Notification methods
+  async listNotifications(params?: {
+    workspace_id?: string;
+    type?: string;
+    unread_only?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<types.Notification[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.workspace_id) queryParams.append('workspace_id', params.workspace_id);
+    if (params?.type) queryParams.append('type', params.type);
+    if (params?.unread_only !== undefined) queryParams.append('unread_only', params.unread_only.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.Notification[]>(`/v1/notifications${query}`);
+  }
+
+  async getNotificationSummary(workspaceId?: string): Promise<types.NotificationSummary> {
+    const queryParams = new URLSearchParams();
+    if (workspaceId) queryParams.append('workspace_id', workspaceId);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.NotificationSummary>(`/v1/notifications/summary${query}`);
+  }
+
+  async markNotificationRead(notificationId: string): Promise<void> {
+    return this.request<void>(`/v1/notifications/${notificationId}/read`, {
+      method: 'POST',
+    });
+  }
+
+  async markAllNotificationsRead(workspaceId?: string): Promise<{ count: number }> {
+    const queryParams = new URLSearchParams();
+    if (workspaceId) queryParams.append('workspace_id', workspaceId);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<{ count: number }>(`/v1/notifications/read-all${query}`, {
+      method: 'POST',
+    });
+  }
+
+  // Tutorial methods
+  async listTutorials(): Promise<types.Tutorial[]> {
+    return this.request<types.Tutorial[]>('/v1/tutorials');
+  }
+
+  async markTutorialCompleted(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/complete`, {
+      method: 'POST',
+    });
+  }
+
+  async unmarkTutorialCompleted(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/complete`, {
+      method: 'DELETE',
+    });
+  }
+
+  async markTutorialDismissed(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/dismiss`, {
+      method: 'POST',
+    });
+  }
+
+  async unmarkTutorialDismissed(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/dismiss`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Activity event methods
+  async listActivityEvents(params?: {
+    workspace_id?: string;
+    user_id?: string;
+    tenant_id?: string;
+    event_type?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<types.ActivityEvent[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.workspace_id) queryParams.append('workspace_id', params.workspace_id);
+    if (params?.user_id) queryParams.append('user_id', params.user_id);
+    if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
+    if (params?.event_type) queryParams.append('event_type', params.event_type);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.ActivityEvent[]>(`/v1/activity${query}`);
+  }
+
+  async createActivityEvent(data: types.CreateActivityEventRequest): Promise<types.ActivityEvent> {
+    return this.request<types.ActivityEvent>('/v1/activity', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listUserWorkspaceActivity(limit?: number): Promise<types.ActivityEvent[]> {
+    const queryParams = new URLSearchParams();
+    if (limit) queryParams.append('limit', limit.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.ActivityEvent[]>(`/v1/activity/my${query}`);
+  }
+
   subscribeToMetrics(callback: (metrics: SystemMetrics | null) => void): () => void {
     // With cookie-based auth, cookies are sent automatically with credentials: 'include'
     const sseUrl = import.meta.env.VITE_SSE_URL
       ? `ws://${import.meta.env.VITE_SSE_URL}/metrics`
       : `${import.meta.env.VITE_API_URL}/stream/metrics`;
 
-    const eventSource = new EventSource(sseUrl);
+    let eventSource: EventSource | null = null;
     let reconnectAttempts = 0;
     const maxReconnect = 5;
     const baseDelay = 1000;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
 
-    eventSource.addEventListener('metrics', (event) => {
+    const stopFallback = () => {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackInterval || disposed) {
+        return;
+      }
+      logger.warn('Falling back to polling for metrics', {
+        component: 'ApiClient',
+        operation: 'subscribeToMetrics',
+      });
+      fallbackInterval = setInterval(() => {
+        if (disposed) {
+          stopFallback();
+          return;
+        }
+        // Poll as fallback
+        this.getSystemMetrics().then(callback).catch(() => callback(null));
+      }, 5000);
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const cleanupEventSource = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      clearReconnectTimer();
+      const delay = Math.min(baseDelay * Math.pow(2, Math.max(0, reconnectAttempts - 1)), 30000);
+      reconnectTimer = setTimeout(() => {
+        if (disposed) return; // Check disposed before reconnecting
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const onMetrics = (event: MessageEvent) => {
+      if (disposed) return;
       try {
         const data: SystemMetrics = JSON.parse(event.data);
         callback(data);
         reconnectAttempts = 0; // Reset on success
+        stopFallback();
       } catch (error) {
         logger.error('Failed to parse metrics SSE payload', {
           component: 'ApiClient',
@@ -1135,47 +1547,525 @@ class ApiClient {
         }, toError(error));
         callback(null);
       }
-    });
+    };
 
-    eventSource.addEventListener('error', (event) => {
-      if (event.type === 'error') {
+    const connect = () => {
+      if (disposed) return;
+      cleanupEventSource();
+      stopFallback();
+
+      try {
+        eventSource = new EventSource(sseUrl);
+      } catch (error) {
+        logger.error('Failed to initialise metrics SSE', {
+          component: 'ApiClient',
+          operation: 'subscribeToMetrics',
+        }, toError(error));
+        callback(null);
         reconnectAttempts++;
         if (reconnectAttempts >= maxReconnect) {
-          logger.error('Max SSE reconnect threshold reached', {
-            component: 'ApiClient',
-            operation: 'subscribeToMetrics',
-            reconnectAttempts,
-            maxReconnect,
-          });
-          callback(null);
-          eventSource.close();
-          return;
+          startFallback();
         }
-
-        const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts - 1), 30000);
-        setTimeout(() => {
-          // Reconnect logic: Close and recreate
-          eventSource.close();
-          // Recursive reconnect (or use setInterval fallback)
-          const fallbackInterval = setInterval(() => {
-            // Poll as fallback
-            this.getSystemMetrics().then(callback).catch(() => callback(null));
-          }, 500);
-          // Note: In full impl, replace with new EventSource after delay
-        }, delay);
+        scheduleReconnect();
+        return;
       }
-    });
 
-    eventSource.addEventListener('open', () => {
-      logger.info('Metrics SSE connected', {
-        component: 'ApiClient',
-        operation: 'subscribeToMetrics',
+      eventSource.addEventListener('metrics', onMetrics);
+
+      eventSource.addEventListener('open', () => {
+        if (disposed) return;
+        logger.info('Metrics SSE connected', {
+          component: 'ApiClient',
+          operation: 'subscribeToMetrics',
+        });
+        reconnectAttempts = 0;
+        stopFallback();
       });
-      reconnectAttempts = 0;
-    });
+
+      eventSource.addEventListener('error', () => {
+        if (disposed) return;
+        callback(null);
+        reconnectAttempts++;
+        logger.warn('Metrics SSE error detected', {
+          component: 'ApiClient',
+          operation: 'subscribeToMetrics',
+          reconnectAttempts,
+        });
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+      });
+    };
+
+    connect();
 
     return () => {
-      eventSource.close();
+      disposed = true;
+      stopFallback();
+      clearReconnectTimer();
+      cleanupEventSource();
+    };
+  }
+
+  // Notification SSE subscription
+  subscribeToNotifications(callback: (notifications: { notifications: types.Notification[]; count: number; timestamp: string } | null) => void): () => void {
+    const sseUrl = import.meta.env.VITE_SSE_URL
+      ? `http://${import.meta.env.VITE_SSE_URL}/v1/stream/notifications`
+      : `${this.baseUrl}/v1/stream/notifications`;
+
+    let eventSource: EventSource | null = null;
+    let reconnectAttempts = 0;
+    const maxReconnect = 5;
+    const baseDelay = 1000;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
+
+    const stopFallback = () => {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackInterval) {
+        return;
+      }
+      logger.warn('Falling back to polling for notifications', {
+        component: 'ApiClient',
+        operation: 'subscribeToNotifications',
+      });
+      fallbackInterval = setInterval(async () => {
+        try {
+          const summary = await this.getNotificationSummary().catch(() => null);
+          if (!summary) {
+            callback(null);
+            return;
+          }
+          const notifications = await this.listNotifications({ unread_only: true }).catch(() => null);
+          if (!notifications) {
+            callback(null);
+            return;
+          }
+          callback({
+            notifications,
+            count: summary.unread_count,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (error) {
+          logger.error('Fallback polling for notifications failed', {
+            component: 'ApiClient',
+            operation: 'subscribeToNotifications',
+          }, toError(error));
+          callback(null);
+        }
+      }, 5000);
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const cleanupEventSource = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      clearReconnectTimer();
+      const delay = Math.min(baseDelay * Math.pow(2, Math.max(0, reconnectAttempts - 1)), 30000);
+      reconnectTimer = setTimeout(() => {
+        if (disposed) return; // Check disposed before reconnecting
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const onNotifications = (event: MessageEvent) => {
+      try {
+        const data: { notifications: types.Notification[]; count: number; timestamp: string } = JSON.parse(event.data);
+        callback(data);
+        reconnectAttempts = 0;
+        stopFallback();
+      } catch (error) {
+        logger.error('Failed to parse notifications SSE payload', {
+          component: 'ApiClient',
+          operation: 'subscribeToNotifications',
+        }, toError(error));
+        callback(null);
+      }
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      cleanupEventSource();
+      stopFallback();
+
+      try {
+        // EventSource doesn't support withCredentials option
+        // Cookies are sent automatically if they're httpOnly and origin matches
+        eventSource = new EventSource(sseUrl);
+      } catch (error) {
+        logger.error('Failed to initialise notifications SSE', {
+          component: 'ApiClient',
+          operation: 'subscribeToNotifications',
+        }, toError(error));
+        callback(null);
+        reconnectAttempts++;
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+        return;
+      }
+
+      eventSource.addEventListener('notifications', onNotifications);
+
+      eventSource.addEventListener('open', () => {
+        logger.info('Notifications SSE connected', {
+          component: 'ApiClient',
+          operation: 'subscribeToNotifications',
+        });
+        reconnectAttempts = 0;
+        stopFallback();
+      });
+
+      eventSource.addEventListener('error', () => {
+        callback(null);
+        reconnectAttempts++;
+        logger.warn('Notifications SSE error detected', {
+          component: 'ApiClient',
+          operation: 'subscribeToNotifications',
+          reconnectAttempts,
+        });
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+      });
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      stopFallback();
+      clearReconnectTimer();
+      cleanupEventSource();
+    };
+  }
+
+  // Messages SSE subscription for workspace
+  subscribeToMessages(workspaceId: string, callback: (messages: { messages: types.Message[]; count: number; timestamp: string } | null) => void): () => void {
+    // Similar SSE pattern to notifications
+    const sseUrl = import.meta.env.VITE_SSE_URL
+      ? `http://${import.meta.env.VITE_SSE_URL}/v1/stream/messages/${workspaceId}`
+      : `${this.baseUrl}/v1/stream/messages/${workspaceId}`;
+
+    let eventSource: EventSource | null = null;
+    let reconnectAttempts = 0;
+    const maxReconnect = 5;
+    const baseDelay = 1000;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
+
+    const stopFallback = () => {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackInterval || disposed) {
+        return;
+      }
+      logger.warn('Falling back to polling for messages', {
+        component: 'ApiClient',
+        operation: 'subscribeToMessages',
+        workspaceId,
+      });
+      fallbackInterval = setInterval(() => {
+        if (disposed) {
+          stopFallback();
+          return;
+        }
+        // Poll as fallback
+        this.listWorkspaceMessages(workspaceId).then(messages => {
+          if (!disposed) {
+            callback({ messages, count: messages.length, timestamp: new Date().toISOString() });
+          }
+        }).catch(() => {
+          if (!disposed) {
+            callback(null);
+          }
+        });
+      }, 5000);
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const cleanupEventSource = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      clearReconnectTimer();
+      const delay = Math.min(baseDelay * Math.pow(2, Math.max(0, reconnectAttempts - 1)), 30000);
+      reconnectTimer = setTimeout(() => {
+        if (disposed) return; // Check disposed before reconnecting
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const onMessages = (event: MessageEvent) => {
+      if (disposed) return;
+      try {
+        const data: { messages: types.Message[]; count: number; timestamp: string } = JSON.parse(event.data);
+        callback(data);
+        reconnectAttempts = 0; // Reset on success
+        stopFallback();
+      } catch (error) {
+        logger.error('Failed to parse messages SSE payload', {
+          component: 'ApiClient',
+          operation: 'subscribeToMessages',
+          workspaceId,
+        }, toError(error));
+        callback(null);
+      }
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      cleanupEventSource();
+      stopFallback();
+
+      try {
+        eventSource = new EventSource(sseUrl);
+      } catch (error) {
+        logger.error('Failed to initialise messages SSE', {
+          component: 'ApiClient',
+          operation: 'subscribeToMessages',
+          workspaceId,
+        }, toError(error));
+        callback(null);
+        reconnectAttempts++;
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+        return;
+      }
+
+      eventSource.addEventListener('messages', onMessages);
+
+      eventSource.addEventListener('open', () => {
+        if (disposed) return;
+        logger.info('Messages SSE connected', {
+          component: 'ApiClient',
+          operation: 'subscribeToMessages',
+          workspaceId,
+        });
+        reconnectAttempts = 0;
+        stopFallback();
+      });
+
+      eventSource.addEventListener('error', () => {
+        if (disposed) return;
+        callback(null);
+        reconnectAttempts++;
+        logger.warn('Messages SSE error detected', {
+          component: 'ApiClient',
+          operation: 'subscribeToMessages',
+          workspaceId,
+          reconnectAttempts,
+        });
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+      });
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      stopFallback();
+      clearReconnectTimer();
+      cleanupEventSource();
+    };
+  }
+
+  // Activity SSE subscription for workspace
+  subscribeToActivity(workspaceId: string, callback: (events: { events: types.ActivityEvent[]; count: number; timestamp: string } | null) => void): () => void {
+    // Similar SSE pattern to notifications
+    const sseUrl = import.meta.env.VITE_SSE_URL
+      ? `http://${import.meta.env.VITE_SSE_URL}/v1/stream/activity/${workspaceId}`
+      : `${this.baseUrl}/v1/stream/activity/${workspaceId}`;
+
+    let eventSource: EventSource | null = null;
+    let reconnectAttempts = 0;
+    const maxReconnect = 5;
+    const baseDelay = 1000;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
+
+    const stopFallback = () => {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackInterval || disposed) {
+        return;
+      }
+      logger.warn('Falling back to polling for activity', {
+        component: 'ApiClient',
+        operation: 'subscribeToActivity',
+        workspaceId,
+      });
+      fallbackInterval = setInterval(() => {
+        if (disposed) {
+          stopFallback();
+          return;
+        }
+        // Poll as fallback
+        this.listActivityEvents({ workspace_id: workspaceId }).then(events => {
+          if (!disposed) {
+            callback({ events, count: events.length, timestamp: new Date().toISOString() });
+          }
+        }).catch(() => {
+          if (!disposed) {
+            callback(null);
+          }
+        });
+      }, 5000);
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const cleanupEventSource = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      clearReconnectTimer();
+      const delay = Math.min(baseDelay * Math.pow(2, Math.max(0, reconnectAttempts - 1)), 30000);
+      reconnectTimer = setTimeout(() => {
+        if (disposed) return; // Check disposed before reconnecting
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const onActivity = (event: MessageEvent) => {
+      if (disposed) return;
+      try {
+        const data: { events: types.ActivityEvent[]; count: number; timestamp: string } = JSON.parse(event.data);
+        callback(data);
+        reconnectAttempts = 0; // Reset on success
+        stopFallback();
+      } catch (error) {
+        logger.error('Failed to parse activity SSE payload', {
+          component: 'ApiClient',
+          operation: 'subscribeToActivity',
+          workspaceId,
+        }, toError(error));
+        callback(null);
+      }
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      cleanupEventSource();
+      stopFallback();
+
+      try {
+        eventSource = new EventSource(sseUrl);
+      } catch (error) {
+        logger.error('Failed to initialise activity SSE', {
+          component: 'ApiClient',
+          operation: 'subscribeToActivity',
+          workspaceId,
+        }, toError(error));
+        callback(null);
+        reconnectAttempts++;
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+        return;
+      }
+
+      eventSource.addEventListener('activity', onActivity);
+
+      eventSource.addEventListener('open', () => {
+        if (disposed) return;
+        logger.info('Activity SSE connected', {
+          component: 'ApiClient',
+          operation: 'subscribeToActivity',
+          workspaceId,
+        });
+        reconnectAttempts = 0;
+        stopFallback();
+      });
+
+      eventSource.addEventListener('error', () => {
+        if (disposed) return;
+        callback(null);
+        reconnectAttempts++;
+        logger.warn('Activity SSE error detected', {
+          component: 'ApiClient',
+          operation: 'subscribeToActivity',
+          workspaceId,
+          reconnectAttempts,
+        });
+        if (reconnectAttempts >= maxReconnect) {
+          startFallback();
+        }
+        scheduleReconnect();
+      });
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      stopFallback();
+      clearReconnectTimer();
+      cleanupEventSource();
     };
   }
 }

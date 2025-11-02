@@ -10,12 +10,24 @@ export interface LoginResponse {
   token: string;
   user_id: string;
   role: string;
+  email?: string;
+  display_name?: string;
+  tenant_id?: string;
+  permissions?: string[];
+  last_login_at?: string;
+  token_last_rotated_at?: string;
 }
 
 export interface UserInfoResponse {
   user_id: string;
   email: string;
   role: string;
+  display_name?: string;
+  tenant_id?: string;
+  permissions?: string[];
+  last_login_at?: string;
+  mfa_enabled?: boolean;
+  token_last_rotated_at?: string;
 }
 
 export interface User {
@@ -26,9 +38,44 @@ export interface User {
   tenant_id: string;
   permissions: string[];
   roles?: string[];
+  last_login_at?: string;
+  mfa_enabled?: boolean;
+  token_last_rotated_at?: string;
 }
 
 export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Auditor' | 'Viewer';
+
+export interface SessionInfo {
+  id: string;
+  device?: string;
+  ip_address?: string;
+  user_agent?: string;
+  location?: string;
+  created_at: string;
+  last_seen_at: string;
+  is_current: boolean;
+}
+
+export interface RotateTokenResponse {
+  token: string;
+  created_at: string;
+  expires_at?: string;
+  last_rotated_at?: string;
+}
+
+export interface TokenMetadata {
+  created_at: string;
+  expires_at?: string;
+  last_rotated_at?: string;
+  last_used_at?: string;
+}
+
+export interface UpdateProfileRequest {
+  display_name?: string;
+  avatar_url?: string;
+}
+
+export interface ProfileResponse extends UserInfoResponse {}
 
 // Tenants
 export interface Tenant {
@@ -444,6 +491,17 @@ export interface AdapterHealthResponse {
   recent_activations: AdapterActivation[];
 }
 
+// Adapter Policy Management
+export interface UpdateAdapterPolicyRequest {
+  category?: AdapterCategory;
+}
+
+export interface UpdateAdapterPolicyResponse {
+  adapter_id: string;
+  category?: AdapterCategory;
+  message: string;
+}
+
 // Adapter Lifecycle Management
 export interface AdapterStateRecord {
   adapter_id: string;
@@ -685,6 +743,8 @@ export interface EvidenceSpan {
 // Error Response
 export interface ErrorResponse {
   error: string;
+  message?: string;
+  code?: string;
   details?: string;
 }
 
@@ -793,6 +853,29 @@ export interface TrainingTemplate {
   epochs: number;
   learning_rate: number;
   batch_size: number;
+}
+
+export interface TrainingSession {
+  session_id: string;
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed';
+  progress: number;
+  adapter_name: string;
+  repository_path: string;
+  created_at: string;
+  updated_at: string;
+  error_message?: string;
+}
+
+export interface PauseTrainingResponse {
+  session_id: string;
+  status: 'paused';
+  message: string;
+}
+
+export interface ResumeTrainingResponse {
+  session_id: string;
+  status: 'running';
+  message: string;
 }
 
 // Meta
@@ -1039,6 +1122,21 @@ export interface ModelStatusResponse {
   loaded_at?: string;
   memory_usage_mb?: number;
   is_loaded: boolean;
+}
+
+export interface ModelDownloadArtifact {
+  artifact: string;
+  filename: string;
+  content_type: string;
+  size_bytes?: number;
+  download_url: string;
+  expires_at: string;
+}
+
+export interface ModelDownloadResponse {
+  model_id: string;
+  model_name: string;
+  artifacts: ModelDownloadArtifact[];
 }
 
 // Multi-model status response
@@ -1723,7 +1821,13 @@ export interface Alert {
   metric_value?: number;
   threshold_value?: number;
   status: string;
+  acknowledged_by?: string;
+  acknowledged_at?: string;
+  resolved_at?: string;
+  suppression_reason?: string;
+  suppression_until?: string;
   escalation_level: number;
+  notification_sent: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1811,6 +1915,7 @@ export interface TelemetryEvent {
   component?: string;
   tenant_id?: string;
   user_id?: string;
+  trace_id?: string;
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -1858,4 +1963,136 @@ export interface Contact {
   discovered_at: string;
   interaction_count: number;
   last_interaction?: string;
+}
+
+// Workspaces
+export interface Workspace {
+  id: string;
+  name: string;
+  description?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWorkspaceRequest {
+  name: string;
+  description?: string;
+  tenant_id?: string;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  workspace_id: string;
+  tenant_id: string;
+  user_id?: string;
+  role: 'owner' | 'member' | 'viewer';
+  permissions_json?: string;
+  added_by: string;
+  added_at: string;
+}
+
+export interface WorkspaceResource {
+  id: string;
+  workspace_id: string;
+  resource_type: 'adapter' | 'node' | 'model';
+  resource_id: string;
+  shared_by: string;
+  shared_by_tenant_id: string;
+  shared_at: string;
+}
+
+export interface AddWorkspaceMemberRequest {
+  tenant_id: string;
+  user_id?: string;
+  role: string;
+  permissions_json?: string;
+}
+
+// Messages
+export interface Message {
+  id: string;
+  workspace_id: string;
+  from_user_id: string;
+  from_tenant_id: string;
+  from_user_display_name?: string;
+  content: string;
+  thread_id?: string;
+  created_at: string;
+  edited_at?: string;
+}
+
+export interface CreateMessageRequest {
+  content: string;
+  thread_id?: string;
+}
+
+// Notifications
+export interface Notification {
+  id: string;
+  user_id: string;
+  workspace_id?: string;
+  type: 'alert' | 'message' | 'mention' | 'activity' | 'system';
+  target_type?: string;
+  target_id?: string;
+  title: string;
+  content?: string;
+  read_at?: string;
+  created_at: string;
+}
+
+export interface NotificationSummary {
+  total_count: number;
+  unread_count: number;
+}
+
+// Activity Events
+export interface ActivityEvent {
+  id: string;
+  workspace_id?: string;
+  user_id: string;
+  tenant_id: string;
+  event_type: string;
+  target_type?: string;
+  target_id?: string;
+  metadata_json?: string;
+  created_at: string;
+}
+
+export interface CreateActivityEventRequest {
+  workspace_id?: string;
+  event_type: string;
+  target_type?: string;
+  target_id?: string;
+  metadata_json?: string;
+}
+
+// Tutorials
+export interface TutorialStep {
+  id: string;
+  title: string;
+  content: string;
+  target_selector?: string;
+  position?: string;
+}
+
+export interface Tutorial {
+  id: string;
+  title: string;
+  description: string;
+  steps: TutorialStep[];
+  trigger?: 'manual' | 'auto' | 'on-error';
+  dismissible: boolean;
+  completed: boolean;
+  dismissed: boolean;
+  completed_at?: string;
+  dismissed_at?: string;
+}
+
+export interface TutorialStatus {
+  tutorial_id: string;
+  completed: boolean;
+  dismissed: boolean;
+  completed_at?: string;
+  dismissed_at?: string;
 }
