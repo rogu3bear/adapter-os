@@ -158,21 +158,73 @@ pub async fn chat_completions(
 }
 
 /// OpenAI-compatible models list endpoint
+/// 
+/// Returns models from database if available, otherwise returns default hardcoded list.
 #[utoipa::path(
     get,
     path = "/v1/models",
     responses((status = 200, description = "Models list", body = ModelsListResponse)),
     tag = "openai"
 )]
-pub async fn list_models() -> Result<Json<ModelsListResponse>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn list_models(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<ModelsListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = &claims.tenant_id;
+
+    // Try to query database for models
+    let db_models = sqlx::query!(
+        "SELECT bms.model_id, m.name as model_name, bms.status, bms.loaded_at 
+         FROM base_model_status bms 
+         JOIN models m ON bms.model_id = m.id 
+         WHERE bms.tenant_id = ? 
+         ORDER BY bms.updated_at DESC",
+        tenant_id
+    )
+    .fetch_all(state.db.pool())
+    .await;
+
+    let mut model_list = Vec::new();
+
+    match db_models {
+        Ok(rows) if !rows.is_empty() => {
+            // Use database models
+            for row in rows {
+                let model_id = row.model_id;
+                let model_name = row.model_name;
+                // Format as OpenAI-compatible model ID
+                let openai_id = format!("adapteros-{}", model_name.to_lowercase().replace(' ', "-"));
+                
+                let created_timestamp = row.loaded_at
+                    .and_then(|dt_str| {
+                        chrono::DateTime::parse_from_rfc3339(&dt_str)
+                            .ok()
+                            .map(|dt| dt.timestamp() as u64)
+                    })
+                    .unwrap_or(1_704_067_200);
+                
+                model_list.push(ModelInfo {
+                    id: openai_id,
+                    object: "model".to_string(),
+                    created: created_timestamp,
+                    owned_by: "adapteros".to_string(),
+                });
+            }
+        }
+        _ => {
+            // Fallback to hardcoded default model for OpenAI compatibility
+            model_list.push(ModelInfo {
+                id: "adapteros-qwen2.5-7b".to_string(),
+                object: "model".to_string(),
+                created: 1_704_067_200,
+                owned_by: "adapteros".to_string(),
+            });
+        }
+    }
+
     let response = ModelsListResponse {
         object: "list".to_string(),
-        data: vec![ModelInfo {
-            id: "adapteros-qwen2.5-7b".to_string(),
-            object: "model".to_string(),
-            created: 1_704_067_200,
-            owned_by: "adapteros".to_string(),
-        }],
+        data: model_list,
     };
 
     Ok(Json(response))

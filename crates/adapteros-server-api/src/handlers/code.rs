@@ -157,7 +157,6 @@ pub async fn register_repo(
     // Check if repository already exists
     let existing = state
         .db
-        .sqlite()
         .get_repository_by_repo_id(&req.tenant_id, &req.repo_id)
         .await
         .map_err(|e| {
@@ -181,7 +180,6 @@ pub async fn register_repo(
     // Register repository
     let _repo = state
         .db
-        .sqlite()
         .register_repository(
             &req.tenant_id,
             &req.repo_id,
@@ -223,7 +221,6 @@ pub async fn scan_repo(
     // Get repository
     let repo = state
         .db
-        .sqlite()
         .get_repository_by_repo_id(&req.tenant_id, &req.repo_id)
         .await
         .map_err(|e| {
@@ -244,17 +241,12 @@ pub async fn scan_repo(
         })?;
 
     // Check for existing running scan
-    let existing_jobs = state
-        .db
-        .sqlite()
-        .list_scan_jobs(&repo.id, 10)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(e.to_string())),
-            )
-        })?;
+    let existing_jobs = state.db.list_scan_jobs(&repo.id, 10).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(e.to_string())),
+        )
+    })?;
 
     if existing_jobs
         .iter()
@@ -269,7 +261,6 @@ pub async fn scan_repo(
     // Create scan job
     let job_id = state
         .db
-        .sqlite()
         .create_scan_job(&repo.id, &req.commit)
         .await
         .map_err(|e| {
@@ -326,7 +317,6 @@ pub async fn get_scan_status(
 ) -> Result<Json<ScanJobStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     let job = state
         .db
-        .sqlite()
         .get_scan_job(&job_id)
         .await
         .map_err(|e| {
@@ -346,7 +336,6 @@ pub async fn get_scan_status(
     let result = if job.status == "completed" {
         state
             .db
-            .sqlite()
             .get_code_graph_metadata(&job.repo_id, &job.commit_sha)
             .await
             .ok()
@@ -413,17 +402,12 @@ pub async fn list_repositories(
             )
         })?;
 
-    let total = state
-        .db
-        .sqlite()
-        .count_repositories(tenant_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(e.to_string())),
-            )
-        })?;
+    let total = state.db.count_repositories(tenant_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(e.to_string())),
+        )
+    })?;
 
     let repo_infos: Vec<RepositoryInfo> = repos
         .into_iter()
@@ -473,7 +457,6 @@ pub async fn get_repository(
 
     let repo = state
         .db
-        .sqlite()
         .get_repository_by_repo_id(tenant_id, &repo_id)
         .await
         .map_err(|e| {
@@ -526,7 +509,6 @@ pub async fn create_commit_delta(
     // Verify repository exists
     let _repo = state
         .db
-        .sqlite()
         .get_repository_by_repo_id(&req.tenant_id, &req.repo_id)
         .await
         .map_err(|e| {

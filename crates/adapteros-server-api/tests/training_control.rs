@@ -1,3 +1,4 @@
+use adapteros_core::TrainingConfig;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers;
 use adapteros_server_api::types::StreamQuery;
@@ -13,7 +14,7 @@ async fn pause_resume_happy_path_and_idempotent() -> anyhow::Result<()> {
     let claims: Claims = test_admin_claims();
 
     // Create orchestrator job and mirror in DB as running
-    let config = adapteros_orchestrator::TrainingConfig {
+    let config = TrainingConfig {
         rank: 8,
         alpha: 16,
         targets: vec!["q_proj".to_string()],
@@ -150,31 +151,25 @@ async fn resume_validations_and_transitions() -> anyhow::Result<()> {
     let claims: Claims = test_admin_claims();
 
     // Orchestrator job exists
+    use adapteros_orchestrator::training::TrainingJobBuilder;
+    let params = TrainingJobBuilder::new()
+        .adapter_name("adapter-y")
+        .config(TrainingConfig {
+            rank: 8,
+            alpha: 16,
+            targets: vec!["q_proj".to_string()],
+            epochs: 1,
+            learning_rate: 0.001,
+            batch_size: 8,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+        })
+        .package(false)
+        .build()?;
     let job = state
         .training_service
-        .start_training(
-            "adapter-y".to_string(),
-            adapteros_orchestrator::TrainingConfig {
-                rank: 8,
-                alpha: 16,
-                targets: vec!["q_proj".to_string()],
-                epochs: 1,
-                learning_rate: 0.001,
-                batch_size: 8,
-                warmup_steps: None,
-                max_seq_length: None,
-                gradient_accumulation_steps: None,
-            },
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-        )
+        .start_training(params)
         .await?;
 
     // DB state paused -> resume -> running

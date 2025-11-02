@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 openapi = []
 # Enable native MLX FFI runtime wiring for models
-mlx-ffi-backend = ["adapteros-base-llm"]
+mlx-ffi-backend = ["adapteros-base-llm", "adapteros-lora-mlx-ffi"]
 # Optional subsystems for CDP and Federation handlers
 cdp = []
 federation = []
@@ -31,6 +31,7 @@ adapteros-trace = { path = "../adapteros-trace" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-base-llm = { path = "../adapteros-base-llm", optional = true }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 anyhow = "1.0"
 argon2 = "0.5"
 async-trait = "0.1"
@@ -56,6 +57,7 @@ thiserror = "1.0"
 tracing = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
 tower = "0.5"
 tower-http = { version = "0.5", features = ["trace", "cors", "limit"] }
 utoipa = { version = "4.2", features = ["axum_extras"] }

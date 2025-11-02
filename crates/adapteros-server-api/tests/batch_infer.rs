@@ -54,10 +54,15 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
             enabled: false,
             bearer_token: String::new(),
             system_metrics_interval_secs: 0,
+            telemetry_buffer_capacity: 1000,
+            telemetry_channel_capacity: 100,
+            trace_buffer_capacity: 100,
         },
         golden_gate: None,
         bundles_root: "var/bundles".to_string(),
+        production_mode: false,
         rate_limits: None,
+        path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
     };
 
     let metrics = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![

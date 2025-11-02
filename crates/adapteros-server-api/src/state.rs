@@ -1,77 +1,21 @@
-use crate::types::{ReplayDivergence, ReplayVerificationResponse};
+use crate::types::ReplayVerificationResponse;
 use adapteros_crypto::Keypair;
-use chrono;
-use adapteros_db::{self as db, Db, PostgresDb};
+use adapteros_db::{self as db, Db};
 use adapteros_lora_lifecycle::LifecycleManager;
 #[cfg(feature = "cdp")]
 use adapteros_orchestrator::CodeJobManager;
 use adapteros_orchestrator::TrainingService;
-use adapteros_telemetry::{
-    LogBuffer, MetricsCollector, MetricsRegistry, SystemMetricsProvider, SystemMetricsSnapshot,
-    UnifiedTelemetryEvent,
-};
+use adapteros_policy::PolicyPackManager;
+use adapteros_system_metrics::SystemMetricsCollector;
+use adapteros_telemetry::metrics::{MetricsCollector, MetricsRegistry};
+use adapteros_telemetry::{LogBuffer, UnifiedTelemetryEvent};
 use adapteros_trace::TraceBuffer;
 use adapteros_verify::StrictnessLevel;
+use chrono;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, Mutex, RwLock as AsyncRwLock};
-
-/// System metrics provider implementation
-struct SystemMetricsProviderImpl {
-    collector: std::sync::Mutex<adapteros_system_metrics::SystemMetricsCollector>,
-    telemetry_logger: Option<std::sync::Mutex<adapteros_system_metrics::SystemMetricsTelemetry>>,
-}
-
-impl SystemMetricsProviderImpl {
-    fn new() -> Self {
-        Self {
-            collector: std::sync::Mutex::new(
-                adapteros_system_metrics::SystemMetricsCollector::new(),
-            ),
-            telemetry_logger: None, // Will be set later if telemetry is available
-        }
-    }
-
-    fn with_telemetry_logger(
-        mut self,
-        logger: adapteros_system_metrics::SystemMetricsTelemetry,
-    ) -> Self {
-        self.telemetry_logger = Some(std::sync::Mutex::new(logger));
-        self
-    }
-}
-
-#[async_trait::async_trait]
-impl SystemMetricsProvider for SystemMetricsProviderImpl {
-    async fn collect_system_metrics(&self) -> SystemMetricsSnapshot {
-        let mut collector = self.collector.lock().unwrap();
-        let metrics = collector.collect_metrics();
-
-        // Calculate actual memory usage in MB from percentage and total memory
-        let total_memory_kb = sysinfo::System::new().total_memory();
-        let total_memory_mb = total_memory_kb as f64 / 1024.0;
-        let memory_mb = (metrics.memory_usage / 100.0) * total_memory_mb;
-
-        // Log telemetry events if logger is available
-        if let Some(logger) = &self.telemetry_logger {
-            let mut logger = logger.lock().unwrap();
-            if let Err(e) = logger.log_metrics(&metrics) {
-                tracing::warn!("Failed to log system metrics telemetry: {}", e);
-            }
-        }
-
-        SystemMetricsSnapshot {
-            cpu_usage_percent: metrics.cpu_usage,
-            memory_usage_mb,
-            disk_io_utilization: metrics.disk_io.usage_percent as f64,
-            network_bandwidth_mbps: metrics.network_io.bandwidth_mbps as f64,
-            gpu_utilization: metrics.gpu_metrics.utilization,
-            gpu_memory_used_mb: metrics.gpu_metrics.memory_used.map(|m| m as f64 / (1024.0 * 1024.0)),
-            gpu_temperature: metrics.gpu_metrics.temperature,
-        }
-    }
-}
 
 fn default_system_metrics_interval_secs() -> u64 {
     30
@@ -101,6 +45,16 @@ pub struct ApiConfig {
     /// Optional per-tenant rate limit configuration
     #[serde(default)]
     pub rate_limits: Option<RateLimitApiConfig>,
+    /// Path policy configuration for repository validation
+    #[serde(default)]
+    pub path_policy: PathPolicyConfig,
+    /// Production mode flag - when true, dev bypass is disabled
+    #[serde(default = "default_false")]
+    pub production_mode: bool,
+}
+
+fn default_false() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +94,24 @@ pub struct RateLimitApiConfig {
     pub burst_size: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PathPolicyConfig {
+    /// Glob patterns for allowed repository paths
+    #[serde(default = "default_path_allowlist")]
+    pub allowlist: Vec<String>,
+    /// Glob patterns for denied repository paths
+    #[serde(default = "default_path_denylist")]
+    pub denylist: Vec<String>,
+}
+
+fn default_path_allowlist() -> Vec<String> {
+    vec!["**/*".to_string()]
+}
+
+fn default_path_denylist() -> Vec<String> {
+    vec!["**/.env*".to_string(), "**/secrets/**".to_string()]
+}
+
 /// Cryptographic state for signing and verification
 pub struct CryptoState {
     pub signing_keypair: Keypair,
@@ -159,6 +131,19 @@ impl CryptoState {
             signing_keypair: signing,
             jwt_keypair: jwt,
         }
+    }
+
+    /// Clone the current crypto state but replace the JWT signing keypair
+    pub fn clone_with_jwt(&self, jwt: Keypair) -> Self {
+        let signing_bytes = self.signing_keypair.to_bytes();
+        let signing_clone = Keypair::from_bytes(&signing_bytes);
+        Self::from_keypairs(signing_clone, jwt)
+    }
+
+    /// Clone the JWT signing keypair for external use without exposing internal ownership
+    pub fn clone_jwt_keypair(&self) -> Keypair {
+        let bytes = self.jwt_keypair.to_bytes();
+        Keypair::from_bytes(&bytes)
     }
 
     /// Verify a replay session's cryptographic integrity
@@ -252,6 +237,8 @@ pub struct AppState {
     pub jwt_mode: JwtMode,
     /// Optional Ed25519 public key PEM for JWT validation
     pub jwt_public_key_pem: Option<String>,
+    /// Policy pack manager enforcing all production rules
+    pub policy_manager: Arc<PolicyPackManager>,
     /// Optional runtime for base model backends (e.g., MLX FFI)
     pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntime>>>,
     /// Training session metadata cache for UI features
@@ -260,6 +247,8 @@ pub struct AppState {
     pub telemetry_buffer: Arc<LogBuffer>,
     /// Broadcast channel for live telemetry streaming
     pub telemetry_tx: broadcast::Sender<UnifiedTelemetryEvent>,
+    /// Broadcast channel for telemetry bundle updates
+    pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
     /// In-memory trace buffer for recent traces
     pub trace_buffer: Arc<TraceBuffer>,
 }
@@ -296,9 +285,7 @@ impl AppState {
         metrics_collector: Arc<MetricsCollector>,
         metrics_registry: Arc<MetricsRegistry>,
         training_service: Arc<TrainingService>,
-        system_metrics_collector: Option<
-            Arc<std::sync::Mutex<adapteros_system_metrics::SystemMetricsCollector>>,
-        >,
+        _system_metrics_collector: Option<Arc<std::sync::Mutex<SystemMetricsCollector>>>,
         telemetry_tx: Option<tokio::sync::broadcast::Sender<UnifiedTelemetryEvent>>,
     ) -> Self {
         // Bounded buffer avoids unbounded telemetry growth while keeping recent history handy.
@@ -306,12 +293,17 @@ impl AppState {
         let telemetry_buffer = Arc::new(LogBuffer::new(telemetry_buffer_capacity));
         let telemetry_tx = telemetry_tx.unwrap_or_else(|| {
             // Limit broadcast backlog so slow subscribers can't leak memory.
-            let telemetry_channel_capacity = config.read().unwrap().metrics.telemetry_channel_capacity;
-            let (tx, _rx) = broadcast::channel(telemetry_channel_capacity);
+            let telemetry_channel_capacity =
+                config.read().unwrap().metrics.telemetry_channel_capacity;
+            let (tx, _rx) = broadcast::channel::<UnifiedTelemetryEvent>(telemetry_channel_capacity);
             tx
         });
         let trace_buffer_capacity = config.read().unwrap().metrics.trace_buffer_capacity;
         let trace_buffer = Arc::new(TraceBuffer::new(trace_buffer_capacity));
+
+        // Create broadcast channel for telemetry bundle updates
+        let (bundles_tx, _bundles_rx) =
+            broadcast::channel::<crate::types::TelemetryBundleResponse>(256);
 
         Self {
             db,
@@ -329,12 +321,14 @@ impl AppState {
             code_job_manager: None,
             jwt_mode: JwtMode::Hmac,
             jwt_public_key_pem: None,
+            policy_manager: Arc::new(PolicyPackManager::new()),
             model_runtime: Some(Arc::new(tokio::sync::Mutex::new(
                 crate::model_runtime::ModelRuntime::new(),
             ))),
             training_sessions: Arc::new(AsyncRwLock::new(HashMap::new())),
             telemetry_buffer,
             telemetry_tx,
+            telemetry_bundles_tx: bundles_tx,
             trace_buffer,
         }
     }
@@ -350,29 +344,7 @@ impl AppState {
         training_service: Arc<TrainingService>,
     ) -> Self {
         Self::new(
-            db::Database::Sqlite(db),
-            jwt_secret,
-            config,
-            metrics_exporter,
-            metrics_collector,
-            metrics_registry,
-            training_service,
-            None, // No telemetry_tx by default
-        )
-    }
-
-    /// Create AppState with PostgreSQL database (production)
-    pub fn with_postgres(
-        db: PostgresDb,
-        jwt_secret: Vec<u8>,
-        config: Arc<RwLock<ApiConfig>>,
-        metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
-        metrics_collector: Arc<MetricsCollector>,
-        metrics_registry: Arc<MetricsRegistry>,
-        training_service: Arc<TrainingService>,
-    ) -> Self {
-        Self::new(
-            db::Database::Postgres(db),
+            db.into(),
             jwt_secret,
             config,
             metrics_exporter,
@@ -385,6 +357,16 @@ impl AppState {
 
     pub fn with_lifecycle(mut self, lifecycle_manager: Arc<Mutex<LifecycleManager>>) -> Self {
         self.lifecycle_manager = Some(lifecycle_manager);
+        self
+    }
+
+    pub fn with_policy_manager(mut self, policy_manager: Arc<PolicyPackManager>) -> Self {
+        self.policy_manager = policy_manager;
+        self
+    }
+
+    pub fn with_crypto(mut self, crypto: CryptoState) -> Self {
+        self.crypto = Arc::new(crypto);
         self
     }
 
@@ -456,7 +438,12 @@ mod tests {
             },
             golden_gate: None,
             bundles_root: "/tmp".to_string(),
+            production_mode: false,
             rate_limits: None,
+            path_policy: PathPolicyConfig {
+                allowlist: default_path_allowlist(),
+                denylist: default_path_denylist(),
+            },
         };
         let config = Arc::new(RwLock::new(api_config));
 
@@ -466,14 +453,9 @@ mod tests {
                 .expect("metrics exporter"),
         );
 
-        let system_metrics_provider: Option<Box<dyn adapteros_telemetry::SystemMetricsProvider>> =
-            Some(Box::new(SystemMetricsProviderImpl::new()));
-
         let metrics_collector = Arc::new(
-            adapteros_telemetry::MetricsCollector::new_with_system_provider(
-                system_metrics_provider,
-            )
-            .expect("metrics collector"),
+            adapteros_telemetry::MetricsCollector::new_with_system_provider(None)
+                .expect("metrics collector"),
         );
         let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
             metrics_collector.clone(),
@@ -483,9 +465,10 @@ mod tests {
 
         // Create AppState with the tiny buffer capacity
         let app_state = AppState::new_with_system_collector(
-            db::Database::Sqlite(
-                adapteros_db::Db::connect(":memory:").await.expect("db connect")
-            ),
+            adapteros_db::Db::connect(":memory:")
+                .await
+                .expect("db connect")
+                .into(),
             b"test_secret".to_vec(),
             config,
             metrics_exporter,
@@ -498,11 +481,36 @@ mod tests {
 
         // Create and add 5 events (more than capacity of 3)
         let events = vec![
-            TelemetryEventBuilder::new(EventType::Info, LogLevel::Info, "Event 1".to_string()).build(),
-            TelemetryEventBuilder::new(EventType::Info, LogLevel::Info, "Event 2".to_string()).build(),
-            TelemetryEventBuilder::new(EventType::Info, LogLevel::Info, "Event 3".to_string()).build(),
-            TelemetryEventBuilder::new(EventType::Info, LogLevel::Info, "Event 4".to_string()).build(),
-            TelemetryEventBuilder::new(EventType::Info, LogLevel::Info, "Event 5".to_string()).build(),
+            TelemetryEventBuilder::new(
+                EventType::Custom("test.event".to_string()),
+                LogLevel::Info,
+                "Event 1".to_string(),
+            )
+            .build(),
+            TelemetryEventBuilder::new(
+                EventType::Custom("test.event".to_string()),
+                LogLevel::Info,
+                "Event 2".to_string(),
+            )
+            .build(),
+            TelemetryEventBuilder::new(
+                EventType::Custom("test.event".to_string()),
+                LogLevel::Info,
+                "Event 3".to_string(),
+            )
+            .build(),
+            TelemetryEventBuilder::new(
+                EventType::Custom("test.event".to_string()),
+                LogLevel::Info,
+                "Event 4".to_string(),
+            )
+            .build(),
+            TelemetryEventBuilder::new(
+                EventType::Custom("test.event".to_string()),
+                LogLevel::Info,
+                "Event 5".to_string(),
+            )
+            .build(),
         ];
 
         // Add all events to buffer
@@ -514,11 +522,13 @@ mod tests {
         let filters = adapteros_telemetry::TelemetryFilters {
             limit: Some(10), // Ask for more than capacity
             tenant_id: None,
+            user_id: None,
+            start_time: None,
+            end_time: None,
             event_type: None,
             level: None,
             component: None,
-            since: None,
-            until: None,
+            trace_id: None,
         };
 
         let recent_events = app_state.telemetry_buffer.query(&filters);
@@ -547,14 +557,9 @@ mod tests {
         );
 
         // Create system metrics provider for real data integration
-        let system_metrics_provider: Option<Box<dyn adapteros_telemetry::SystemMetricsProvider>> =
-            Some(Box::new(SystemMetricsProviderImpl::new()));
-
         let metrics_collector = Arc::new(
-            adapteros_telemetry::MetricsCollector::new_with_system_provider(
-                system_metrics_provider,
-            )
-            .expect("metrics collector"),
+            adapteros_telemetry::MetricsCollector::new_with_system_provider(None)
+                .expect("metrics collector"),
         );
         let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
             metrics_collector.clone(),
@@ -580,7 +585,12 @@ mod tests {
             },
             golden_gate: None,
             bundles_root: temp_dir.path().display().to_string(),
+            production_mode: false,
             rate_limits: None,
+            path_policy: PathPolicyConfig {
+                allowlist: default_path_allowlist(),
+                denylist: default_path_denylist(),
+            },
         };
         let config = Arc::new(RwLock::new(api_config));
 

@@ -2,18 +2,17 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use adapteros_server_api::handlers::telemetry::{
-    get_metrics_series, get_metrics_snapshot, get_trace, normalize_log_filters, query_logs,
-    search_traces, stream_logs, event_matches_filters, LogsQueryParams, NormalizedLogFilters,
-    ParsedLogFilters,
+    event_matches_filters, get_metrics_series, get_metrics_snapshot, get_trace,
+    normalize_log_filters, query_logs, search_traces, stream_logs, LogsQueryParams,
+    NormalizedLogFilters,
 };
 use adapteros_server_api::state::AppState;
 use adapteros_server_api::types::{ErrorResponse, MetricsSeriesResponse, MetricsSnapshotResponse};
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, UnifiedTelemetryEvent};
 use axum::body::{to_bytes, Body};
-use axum::extract::State;
+use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
 mod common;
@@ -150,7 +149,11 @@ async fn series_endpoint_filters_by_name_and_window() -> anyhow::Result<()> {
     );
 
     // Invalid window returns 400
-    let bad_url = format!("/api/metrics/series?start_ms={}&end_ms={}", max_ts + 1, max_ts);
+    let bad_url = format!(
+        "/api/metrics/series?start_ms={}&end_ms={}",
+        max_ts + 1,
+        max_ts
+    );
     let bad_response = router
         .clone()
         .oneshot(
@@ -306,19 +309,31 @@ async fn series_endpoint_returns_all_series_when_no_name_specified() -> anyhow::
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
 
     // Should return multiple series (we seeded several metrics)
-    assert!(!all_series.is_empty(), "Expected at least one series to be returned");
+    assert!(
+        !all_series.is_empty(),
+        "Expected at least one series to be returned"
+    );
 
     // Verify each series has the expected name and data points
-    let series_names: HashSet<String> =
-        all_series.iter().map(|s| s.series_name.clone()).collect();
+    let series_names: HashSet<String> = all_series.iter().map(|s| s.series_name.clone()).collect();
 
     // Check that we got expected series names from seeding
-    assert!(series_names.contains("tokens_per_second"), "Expected tokens_per_second series");
-    assert!(series_names.contains("queue_depth"), "Expected queue_depth series");
+    assert!(
+        series_names.contains("tokens_per_second"),
+        "Expected tokens_per_second series"
+    );
+    assert!(
+        series_names.contains("queue_depth"),
+        "Expected queue_depth series"
+    );
 
     // Verify each series has data points
     for series in &all_series {
-        assert!(!series.points.is_empty(), "Series {} should have data points", series.series_name);
+        assert!(
+            !series.points.is_empty(),
+            "Series {} should have data points",
+            series.series_name
+        );
     }
 
     Ok(())
@@ -330,9 +345,9 @@ async fn telemetry_stream_with_valid_token() -> anyhow::Result<()> {
     use adapteros_server_api::handlers;
     use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
     use axum::middleware;
-    
+
     let state = common::setup_state(None).await?;
-    
+
     // Seed some events into the telemetry buffer (backlog will be streamed)
     let event1 = TelemetryEventBuilder::new(
         EventType::SystemStart,
@@ -341,9 +356,9 @@ async fn telemetry_stream_with_valid_token() -> anyhow::Result<()> {
     )
     .tenant_id("tenant-1".to_string())
     .build();
-    
+
     state.telemetry_buffer.push(event1);
-    
+
     // Create valid token
     let token = generate_token(
         "test-user",
@@ -352,20 +367,23 @@ async fn telemetry_stream_with_valid_token() -> anyhow::Result<()> {
         "tenant-1",
         b"test-secret",
     )?;
-    
+
     // Test stream endpoint with token in query
     let router = Router::new()
-        .route("/v1/stream/telemetry", get(handlers::telemetry_events_stream))
+        .route(
+            "/v1/stream/telemetry",
+            get(handlers::telemetry_events_stream),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             adapteros_server_api::middleware::auth_middleware,
         ))
         .with_state(state);
-    
+
     use url::form_urlencoded;
     let encoded_token: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
     let uri = format!("/v1/stream/telemetry?token={}", encoded_token);
-    
+
     let response = router
         .oneshot(
             Request::builder()
@@ -374,18 +392,21 @@ async fn telemetry_stream_with_valid_token() -> anyhow::Result<()> {
                 .body(Body::empty())?,
         )
         .await?;
-    
+
     // Should succeed with valid token and establish SSE stream
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Verify SSE content-type header
     let content_type = response.headers().get("content-type");
     assert!(
-        content_type.map(|h| h.to_str().unwrap_or("")).unwrap_or("").contains("text/event-stream"),
+        content_type
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or("")
+            .contains("text/event-stream"),
         "Expected text/event-stream content-type, got {:?}",
         content_type
     );
-    
+
     Ok(())
 }
 
@@ -393,17 +414,20 @@ async fn telemetry_stream_with_valid_token() -> anyhow::Result<()> {
 async fn telemetry_stream_without_token_rejects() -> anyhow::Result<()> {
     use adapteros_server_api::handlers;
     use axum::middleware;
-    
+
     let state = common::setup_state(None).await?;
-    
+
     let router = Router::new()
-        .route("/v1/stream/telemetry", get(handlers::telemetry_events_stream))
+        .route(
+            "/v1/stream/telemetry",
+            get(handlers::telemetry_events_stream),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             adapteros_server_api::middleware::auth_middleware,
         ))
         .with_state(state);
-    
+
     let response = router
         .oneshot(
             Request::builder()
@@ -412,10 +436,10 @@ async fn telemetry_stream_without_token_rejects() -> anyhow::Result<()> {
                 .body(Body::empty())?,
         )
         .await?;
-    
+
     // Should reject without token
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    
+
     Ok(())
 }
 
@@ -423,17 +447,20 @@ async fn telemetry_stream_without_token_rejects() -> anyhow::Result<()> {
 async fn telemetry_stream_with_invalid_token_rejects() -> anyhow::Result<()> {
     use adapteros_server_api::handlers;
     use axum::middleware;
-    
+
     let state = common::setup_state(None).await?;
-    
+
     let router = Router::new()
-        .route("/v1/stream/telemetry", get(handlers::telemetry_events_stream))
+        .route(
+            "/v1/stream/telemetry",
+            get(handlers::telemetry_events_stream),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             adapteros_server_api::middleware::auth_middleware,
         ))
         .with_state(state);
-    
+
     let uri = "/v1/stream/telemetry?token=invalid-token";
     let response = router
         .oneshot(
@@ -443,7 +470,7 @@ async fn telemetry_stream_with_invalid_token_rejects() -> anyhow::Result<()> {
                 .body(Body::empty())?,
         )
         .await?;
-    
+
     // Should reject invalid token
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
@@ -483,7 +510,10 @@ async fn stream_logs_returns_sse_stream() -> anyhow::Result<()> {
     // Verify SSE content-type header
     let content_type = response.headers().get("content-type");
     assert!(
-        content_type.map(|h| h.to_str().unwrap_or("")).unwrap_or("").contains("text/event-stream"),
+        content_type
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or("")
+            .contains("text/event-stream"),
         "Expected text/event-stream content-type, got {:?}",
         content_type
     );
@@ -535,9 +565,10 @@ async fn stream_logs_filters_events_by_tenant() -> anyhow::Result<()> {
 
     // Verify content-type
     let content_type = response.headers().get("content-type");
-    assert!(
-        content_type.map(|h| h.to_str().unwrap_or("")).unwrap_or("").contains("text/event-stream")
-    );
+    assert!(content_type
+        .map(|h| h.to_str().unwrap_or(""))
+        .unwrap_or("")
+        .contains("text/event-stream"));
 
     // Test filtering by tenant-2
     let response = router
@@ -553,9 +584,10 @@ async fn stream_logs_filters_events_by_tenant() -> anyhow::Result<()> {
 
     // Verify content-type
     let content_type = response.headers().get("content-type");
-    assert!(
-        content_type.map(|h| h.to_str().unwrap_or("")).unwrap_or("").contains("text/event-stream")
-    );
+    assert!(content_type
+        .map(|h| h.to_str().unwrap_or(""))
+        .unwrap_or("")
+        .contains("text/event-stream"));
 
     Ok(())
 }
@@ -602,9 +634,10 @@ async fn stream_logs_filters_events_by_level() -> anyhow::Result<()> {
 
     // Verify content-type
     let content_type = response.headers().get("content-type");
-    assert!(
-        content_type.map(|h| h.to_str().unwrap_or("")).unwrap_or("").contains("text/event-stream")
-    );
+    assert!(content_type
+        .map(|h| h.to_str().unwrap_or(""))
+        .unwrap_or("")
+        .contains("text/event-stream"));
 
     // Test filtering by info level
     let response = router
@@ -620,9 +653,10 @@ async fn stream_logs_filters_events_by_level() -> anyhow::Result<()> {
 
     // Verify content-type
     let content_type = response.headers().get("content-type");
-    assert!(
-        content_type.map(|h| h.to_str().unwrap_or("")).unwrap_or("").contains("text/event-stream")
-    );
+    assert!(content_type
+        .map(|h| h.to_str().unwrap_or(""))
+        .unwrap_or("")
+        .contains("text/event-stream"));
 
     Ok(())
 }
@@ -990,8 +1024,14 @@ fn normalize_log_filters_trims_whitespace_and_handles_empty_strings() {
     let result = normalize_log_filters(&params);
     assert!(result.is_ok());
     let filters = result.unwrap();
-    assert_eq!(filters.telemetry.event_type, Some("system.start".to_string()));
-    assert_eq!(filters.realtime.event_type, Some("system.start".to_string()));
+    assert_eq!(
+        filters.telemetry.event_type,
+        Some("system.start".to_string())
+    );
+    assert_eq!(
+        filters.realtime.event_type,
+        Some("system.start".to_string())
+    );
 
     // Test component trimming
     let params = LogsQueryParams {
@@ -1005,7 +1045,10 @@ fn normalize_log_filters_trims_whitespace_and_handles_empty_strings() {
     let result = normalize_log_filters(&params);
     assert!(result.is_ok());
     let filters = result.unwrap();
-    assert_eq!(filters.telemetry.component, Some("my-component".to_string()));
+    assert_eq!(
+        filters.telemetry.component,
+        Some("my-component".to_string())
+    );
     assert_eq!(filters.realtime.component, Some("my-component".to_string()));
 
     // Test trace_id trimming
@@ -1132,14 +1175,23 @@ fn normalize_log_filters_handles_multiple_filters_with_trimming() {
     // Check telemetry filters
     assert_eq!(filters.telemetry.limit, Some(100));
     assert_eq!(filters.telemetry.tenant_id, Some("tenant-1".to_string()));
-    assert_eq!(filters.telemetry.event_type, Some("system.start".to_string()));
+    assert_eq!(
+        filters.telemetry.event_type,
+        Some("system.start".to_string())
+    );
     assert_eq!(filters.telemetry.level, Some(LogLevel::Info));
-    assert_eq!(filters.telemetry.component, Some("my-component".to_string()));
+    assert_eq!(
+        filters.telemetry.component,
+        Some("my-component".to_string())
+    );
     assert_eq!(filters.telemetry.trace_id, Some("trace-123".to_string()));
 
     // Check realtime filters
     assert_eq!(filters.realtime.tenant_id, Some("tenant-1".to_string()));
-    assert_eq!(filters.realtime.event_type, Some("system.start".to_string()));
+    assert_eq!(
+        filters.realtime.event_type,
+        Some("system.start".to_string())
+    );
     assert_eq!(filters.realtime.level, Some(LogLevel::Info));
     assert_eq!(filters.realtime.component, Some("my-component".to_string()));
     assert_eq!(filters.realtime.trace_id, Some("trace-123".to_string()));
