@@ -1,115 +1,45 @@
 [server]
-port = 8080
-bind_address = "0.0.0.0"
+production_mode = true
+uds_socket = "/var/run/adapteros/control-plane.sock"
+port = 0
+bind = "127.0.0.1"
 workers = 8
 enable_mmap_adapters = true
-mmap_cache_size_mb = 512
-enable_hot_swap = true
-# Enable memory-mapped adapter loading for improved performance
-enable_mmap_adapters = true
-# Cache size for mmap adapters (increase for more adapters)
 mmap_cache_size_mb = 2048
-# Enable hot-swap for zero-downtime adapter updates
 enable_hot_swap = true
 
 [db]
-url = "postgresql://adapteros:secure_password@postgres-primary:5432/adapteros_prod"
-pool_size = 30
-connection_timeout_secs = 10
+path = "postgresql://adapteros:secure_password@postgres-primary:5432/adapteros_prod"
 
 [security]
 require_pf_deny = true
-jwt_secret_path = "/etc/adapteros/jwt.secret"
-ed25519_keypair_path = "/etc/adapteros/signing.key"
+mtls_required = true
+jwt_mode = "eddsa"
+jwt_secret_file = "/etc/adapteros/hmac.secret"
+jwt_public_key_pem_file = "/etc/adapteros/jwt_public.pem"
+jwt_signing_key_path = "/etc/adapteros/jwt_signing.key"
+global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [paths]
-plan_dir = "/var/lib/adapteros/plans"
-artifact_dir = "/var/lib/adapteros/artifacts"
+artifacts_root = "/var/lib/adapteros/artifacts"
+bundles_root = "/var/lib/adapteros/bundles"
 adapters_root = "/var/lib/adapteros/adapters"
-telemetry_output = "/var/log/adapteros/telemetry.jsonl"
+plan_dir = "/var/lib/adapteros/plans"
 
-[router]
-k_sparse = 3
-entropy_floor = 0.02
-gate_quant = "q15"
-tau = 1.0
-sample_tokens_full = 128
-warmup = false
-algorithm = "weighted"
+[rate_limits]
+requests_per_minute = 600
+burst_size = 120
+inference_per_minute = 300
 
-[memory]
-min_headroom_pct = 15
-max_adapters_per_tenant = 50
-evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru", "framework_priority"]
-
-[eviction_policy]
-ephemeral_ttl_hours = 24
-cold_threshold_mins = 60
-warm_threshold_mins = 15
-
-[telemetry]
+[metrics]
 enabled = true
-json_output = "/var/log/adapteros/telemetry.jsonl"
-prometheus_port = 9090
-bundle_max_events = 500000
-bundle_max_bytes = 268435456
+bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+system_metrics_interval_secs = 30
 
-[rag]
-embed_dim = 3584
-index_type = "hnsw"
-ef_construction = 200
-ef_search = 100
-m = 16
-
-[federation]
-mode = "cluster"
-leader_election_enabled = true
-heartbeat_interval_secs = 10
-node_timeout_secs = 30
-
-# Enable all 22 policy packs for production
-[policies]
-egress = true
-determinism = true
-router = true
-evidence = true
-refusal = true
-numeric = true
-rag = true
-isolation = true
-telemetry = true
-retention = true
-performance = true
-memory = true
-artifacts = true
-secrets = true
-build_release = true
-compliance = true
-incident = true
-output = true
-adapters = true
-deterministic_io = true
-drift = true
-mplora = true
-
-[egress]
-# Zero network egress - Unix sockets only
-allowed_protocols = []
-unix_socket_only = true
-pf_rules_path = "/etc/pf.anchors/adapteros"
-
-[determinism]
-enforce_hkdf_seeding = true
-precompiled_kernels_only = true
-epsilon_tolerance = 1e-6
-
-[compliance]
-cmmc_level = 3
-itar_enabled = true
-audit_retention_days = 2555  # 7 years
-report_generation_enabled = true
-
-[performance]
-max_latency_p95_ms = 100
-min_throughput_tps = 30
-max_queue_depth = 1000
+[alerting]
+enabled = true
+alert_dir = "/var/log/adapteros/alerts"
+max_alerts_per_file = 10000
+rotate_size_mb = 50

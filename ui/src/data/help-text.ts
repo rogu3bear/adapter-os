@@ -16,7 +16,7 @@ export const helpTextDatabase: HelpTextItem[] = [
   {
     id: 'adapters',
     title: 'Adapters',
-    content: 'Manage LoRA adapters for specialized AI capabilities. Create, train, and deploy adapters for specific domains.',
+    content: 'Manage adapters for specialized AI capabilities. Create, train, and deploy adapters for specific domains.',
     category: 'navigation'
   },
   {

@@ -104,6 +104,28 @@
           target: 'http://localhost:8080',
           changeOrigin: true,
           secure: false,
+          cookieDomainRewrite: 'localhost',
+          ws: true, // Enable WebSocket/SSE support
+          configure: (proxy, _options) => {
+            proxy.on('error', (err, _req, res) => {
+              console.log('proxy error', err);
+            });
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              // Ensure cookies are forwarded
+              if (req.headers.cookie) {
+                proxyReq.setHeader('Cookie', req.headers.cookie);
+              }
+            });
+            // Handle SSE streams properly
+            proxy.on('proxyRes', (proxyRes, req, res) => {
+              // Set headers for SSE
+              if (req.url?.includes('/stream/')) {
+                proxyRes.headers['cache-control'] = 'no-cache';
+                proxyRes.headers['connection'] = 'keep-alive';
+                proxyRes.headers['x-accel-buffering'] = 'no';
+              }
+            });
+          },
         },
       },
       headers: {

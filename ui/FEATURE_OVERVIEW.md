@@ -391,13 +391,96 @@ All components follow AdapterOS guidelines:
 
 ---
 
+## 4. Tutorials and Cross-Tab Synchronization
+
+**Routes:** Contextual tutorials available on multiple pages  
+**Access:** All authenticated users  
+**Components:** `ContextualTutorial.tsx`, `useContextualTutorial.ts`
+
+### Features
+
+- **API-Backed Tutorial Status**
+  - Tutorial completion and dismissal persisted to backend database
+  - Cross-device synchronization via API
+  - In-memory cache for performance
+
+- **Contextual Tutorials**
+  - Page-specific tutorials (Training, Adapters, Policies, Dashboard)
+  - Step-by-step guided tours with element highlighting
+  - Dismissible and completable tutorials
+
+- **Cross-Tab Synchronization**
+  - Real-time sync across browser tabs using StorageEvent
+  - Immediate updates when tutorial status changes
+  - Storage key: `aos_tutorials`
+
+- **Notification Cross-Tab Sync**
+  - Unread count updates synchronized across tabs
+  - Storage key: `aos_notifications`
+  - Triggers automatic refresh in other tabs
+
+- **Command Palette Recent Commands**
+  - Recent commands synced across tabs
+  - Storage key: `aos_recent_commands`
+  - Maintains last 10 recent commands per user
+
+### API Endpoints
+
+- `GET /v1/tutorials` - List all tutorials with status
+- `POST /v1/tutorials/{id}/complete` - Mark tutorial as completed
+- `DELETE /v1/tutorials/{id}/complete` - Unmark tutorial as completed
+- `POST /v1/tutorials/{id}/dismiss` - Mark tutorial as dismissed
+- `DELETE /v1/tutorials/{id}/dismiss` - Unmark tutorial as dismissed
+
+### Usage
+
+```typescript
+import { useContextualTutorial } from '@/hooks/useContextualTutorial';
+
+function MyPage() {
+  const { activeTutorial, isOpen, startTutorial, closeTutorial, completeTutorial } = 
+    useContextualTutorial('/training');
+  
+  // Tutorial automatically starts if configured with trigger: 'auto'
+  // Status is synced via API and cross-tab storage events
+}
+```
+
+### Cross-Tab Synchronization Pattern
+
+All three features (tutorials, notifications, command palette) use the same StorageEvent pattern:
+
+```typescript
+// On state change:
+localStorage.setItem(storageKey, JSON.stringify(payload));
+window.dispatchEvent(new StorageEvent('storage', {
+  key: storageKey,
+  newValue: JSON.stringify(payload),
+}));
+
+// In other tabs:
+window.addEventListener('storage', (e) => {
+  if (e.key === storageKey && e.newValue) {
+    // Update local state and optionally refresh from API
+  }
+});
+```
+
+### Database Schema
+
+- `tutorial_statuses` table: `(user_id, tutorial_id, completed_at, dismissed_at)`
+- Unique constraint on `(user_id, tutorial_id)` for per-user status tracking
+
+---
+
 ## Summary
 
-These three features provide:
+These features provide:
 
 1. **For IT Admins**: Comprehensive system monitoring and management tools
 2. **For Users**: Clear visibility into their activity and system usage
 3. **For Everyone**: Easy, interactive way to train custom adapters from single files
+4. **Cross-Tab Sync**: Real-time synchronization of tutorials, notifications, and command palette across browser tabs
 
 All features are production-ready, fully integrated with the existing UI, and follow established patterns and conventions.
 
