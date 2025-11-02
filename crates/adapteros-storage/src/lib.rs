@@ -120,8 +120,6 @@ impl Default for AlertThresholds {
 /// Storage manager for a tenant
 pub struct StorageManager {
     config: StorageConfig,
-    tenant_id: String,
-    root_path: PathBuf,
     quota_manager: quota::QuotaManager,
     cleanup_manager: cleanup::CleanupManager,
     monitor: monitor::StorageMonitor,
@@ -130,15 +128,13 @@ pub struct StorageManager {
 
 impl StorageManager {
     /// Create a new storage manager
-    pub fn new(config: StorageConfig, tenant_id: String, root_path: PathBuf) -> Result<Self> {
+    pub fn new(config: StorageConfig, _tenant_id: String, root_path: PathBuf) -> Result<Self> {
         let quota_manager = quota::QuotaManager::new(&config, &root_path)?;
         let cleanup_manager = cleanup::CleanupManager::new(&config, &root_path)?;
         let monitor = monitor::StorageMonitor::new(&config, &root_path)?;
 
         Ok(Self {
             config,
-            tenant_id,
-            root_path,
             quota_manager,
             cleanup_manager,
             monitor,

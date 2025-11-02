@@ -170,9 +170,9 @@ mod tests {
         let constraints = OrthogonalConstraints::new(0.7, 0.1, 10);
         let activation = constraints.gates_to_activation_vector(&[0, 1], &[16383, 16383]);
 
+        assert_eq!(activation.len(), 2);
         assert_eq!(activation[0], 0.5); // 16383 / 32767 ≈ 0.5
         assert_eq!(activation[1], 0.5);
-        assert_eq!(activation[2], 0.0);
     }
 
     #[test]

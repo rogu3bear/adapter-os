@@ -2,7 +2,6 @@
 //!
 //! Implements corruption detection mechanisms for files and directories.
 
-use crate::ErrorRecoveryConfig;
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -11,7 +10,6 @@ use tracing::{debug, warn};
 
 /// Corruption detector
 pub struct CorruptionDetector {
-    config: ErrorRecoveryConfig,
     checksum_cache: std::collections::HashMap<PathBuf, String>,
 }
 
@@ -49,9 +47,8 @@ pub struct CorruptionResult {
 
 impl CorruptionDetector {
     /// Create a new corruption detector
-    pub fn new(config: &ErrorRecoveryConfig) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
-            config: config.clone(),
             checksum_cache: std::collections::HashMap::new(),
         })
     }
@@ -328,16 +325,9 @@ impl CorruptionDetector {
         }
 
         // Check for null bytes in text files
-        if let Some(extension) = path.extension() {
-            if let Some(ext_str) = extension.to_str() {
-                match ext_str {
-                    "txt" | "json" | "toml" | "yaml" | "md" => {
-                        if content.contains(&0) {
-                            return Err(AosError::Recovery("File contains null bytes".to_string()));
-                        }
-                    }
-                    _ => {}
-                }
+        if let Some(ext_str) = path.extension().and_then(|ext| ext.to_str()) {
+            if matches!(ext_str, "txt" | "json" | "toml" | "yaml" | "md") && content.contains(&0) {
+                return Err(AosError::Recovery("File contains null bytes".to_string()));
             }
         }
 
@@ -433,8 +423,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_corruption_detector() -> Result<()> {
-        let config = ErrorRecoveryConfig::default();
-        let detector = CorruptionDetector::new(&config)?;
+        let detector = CorruptionDetector::new()?;
 
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
@@ -453,8 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_corruption_detection() -> Result<()> {
-        let config = ErrorRecoveryConfig::default();
-        let detector = CorruptionDetector::new(&config)?;
+        let detector = CorruptionDetector::new()?;
 
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.txt");
@@ -470,8 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_directory_corruption_detection() -> Result<()> {
-        let config = ErrorRecoveryConfig::default();
-        let detector = CorruptionDetector::new(&config)?;
+        let detector = CorruptionDetector::new()?;
 
         let temp_dir = TempDir::new()?;
         let test_dir = temp_dir.path().join("test_dir");

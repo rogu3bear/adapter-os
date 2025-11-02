@@ -54,6 +54,19 @@ pub struct RouterWeights {
     pub similarity_penalty: f32,
 }
 
+/// Parameters for constructing MPLoRA weight distributions
+#[derive(Debug, Clone, Copy)]
+pub struct MploraWeightParams {
+    pub language: f32,
+    pub framework: f32,
+    pub symbols: f32,
+    pub paths: f32,
+    pub verb: f32,
+    pub orthogonal: f32,
+    pub diversity: f32,
+    pub similarity: f32,
+}
+
 impl Default for RouterWeights {
     fn default() -> Self {
         Self {
@@ -85,25 +98,16 @@ impl RouterWeights {
     }
 
     /// Create custom weights with MPLoRA parameters
-    pub fn new_with_mplora(
-        language: f32,
-        framework: f32,
-        symbols: f32,
-        paths: f32,
-        verb: f32,
-        orthogonal: f32,
-        diversity: f32,
-        similarity: f32,
-    ) -> Self {
+    pub fn new_with_mplora(params: MploraWeightParams) -> Self {
         Self {
-            language_weight: language,
-            framework_weight: framework,
-            symbol_hits_weight: symbols,
-            path_tokens_weight: paths,
-            prompt_verb_weight: verb,
-            orthogonal_weight: orthogonal,
-            diversity_weight: diversity,
-            similarity_penalty: similarity,
+            language_weight: params.language,
+            framework_weight: params.framework,
+            symbol_hits_weight: params.symbols,
+            path_tokens_weight: params.paths,
+            prompt_verb_weight: params.verb,
+            orthogonal_weight: params.orthogonal,
+            diversity_weight: params.diversity,
+            similarity_penalty: params.similarity,
         }
     }
 
@@ -645,7 +649,7 @@ impl Router {
 
     /// Adjust the router's K (top-k) at runtime
     pub fn set_k(&mut self, k: usize) {
-        self.k = k.max(1).min(8);
+        self.k = k.clamp(1, 8);
     }
 
     /// Get current K

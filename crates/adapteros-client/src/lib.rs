@@ -9,6 +9,7 @@ pub mod uds;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
+use adapteros_api_types::telemetry::TelemetryBundleResponse;
 use anyhow::Result;
 pub use types::*;
 

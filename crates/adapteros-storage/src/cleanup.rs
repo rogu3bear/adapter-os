@@ -5,7 +5,7 @@
 use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use glob::glob;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tokio::time::interval;
@@ -21,10 +21,10 @@ pub struct CleanupManager {
 
 impl CleanupManager {
     /// Create a new cleanup manager
-    pub fn new(config: &StorageConfig, root_path: &PathBuf) -> Result<Self> {
+    pub fn new(config: &StorageConfig, root_path: &Path) -> Result<Self> {
         Ok(Self {
             config: config.clone(),
-            root_path: root_path.clone(),
+            root_path: root_path.to_path_buf(),
             cleanup_task: None,
             shutdown_tx: None,
         })
@@ -105,7 +105,7 @@ impl CleanupManager {
     }
 
     /// Run cleanup based on policy
-    async fn run_cleanup(config: &StorageConfig, root_path: &PathBuf) -> Result<()> {
+    async fn run_cleanup(config: &StorageConfig, root_path: &Path) -> Result<()> {
         let mut cleaned_bytes = 0u64;
         let mut cleaned_files = 0u32;
 
@@ -174,7 +174,7 @@ impl CleanupManager {
     /// Clean up old .aos files
     async fn cleanup_old_aos_files(
         config: &StorageConfig,
-        root_path: &PathBuf,
+        root_path: &Path,
         cleaned_bytes: &mut u64,
         cleaned_files: &mut u32,
     ) -> Result<()> {
@@ -336,7 +336,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut cleanup_manager = CleanupManager::new(&config, &temp_dir.path().to_path_buf())?;
+        let cleanup_manager = CleanupManager::new(&config, &temp_dir.path().to_path_buf())?;
 
         // Create test files
         let test_file1 = temp_dir.path().join("test1.tmp");

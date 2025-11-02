@@ -875,6 +875,27 @@ pub enum Commands {
         output: PathBuf,
     },
 
+    // ============================================================
+    // Access Management
+    // ============================================================
+    /// Create the initial control plane admin user with a generated password
+    #[command(after_help = r#"Examples:
+  # Create bootstrap admin user
+  aosctl bootstrap-admin --email admin@example.com
+
+  # Create with explicit display name
+  aosctl bootstrap-admin --email admin@example.com --display-name "Site Administrator"
+"#)]
+    BootstrapAdmin {
+        /// Email for the admin user
+        #[arg(long)]
+        email: String,
+
+        /// Optional display name (defaults to email prefix)
+        #[arg(long)]
+        display_name: Option<String>,
+    },
+
     /// Bootstrap AdapterOS installation
     #[command(after_help = r#"Examples:
   # Full installation
@@ -1591,6 +1612,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         } => {
             report::run(bundle, output_path, output).await?;
         }
+        Commands::BootstrapAdmin {
+            email,
+            display_name,
+        } => {
+            commands::bootstrap_admin::run(email, display_name.as_deref(), output).await?;
+        }
         Commands::Bootstrap {
             mode,
             air_gapped,
@@ -1741,6 +1768,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Router(_) => "router",
         Commands::RegistrySync { .. } => "registry-sync",
         Commands::Report { .. } => "report",
+        Commands::BootstrapAdmin { .. } => "bootstrap-admin",
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
         Commands::Diag { .. } => "diag",

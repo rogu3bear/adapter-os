@@ -50,6 +50,7 @@ impl EnclaveManager {
     }
 
     /// Seal arbitrary data with a Secure Enclave–derived key identified by label
+    #[allow(deprecated)]
     pub fn seal_with_label(&mut self, label: &str, data: &[u8]) -> Result<Vec<u8>> {
         let key_bytes = self.get_or_create_encryption_key(label)?;
         let key = Key::from_slice(&key_bytes);
@@ -77,6 +78,7 @@ impl EnclaveManager {
     }
 
     /// Unseal data that was encrypted with `seal_with_label`
+    #[allow(deprecated)]
     pub fn unseal_with_label(&mut self, label: &str, sealed: &[u8]) -> Result<Vec<u8>> {
         if sealed.len() < 12 {
             return Err(EnclaveError::InvalidData(format!(

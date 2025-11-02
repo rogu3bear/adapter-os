@@ -267,8 +267,15 @@ mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input) {
         auto mdl = reinterpret_cast<StubModel*>(model);
         auto inp = reinterpret_cast<StubArray*>(input);
         
-        // Stub forward pass - return dummy output
-        std::vector<float> output(inp->data.size(), 0.5f);
+        // Stub forward pass - blend input with model weights for deterministic output
+        std::vector<float> output;
+        output.reserve(inp->data.size());
+        for (size_t i = 0; i < inp->data.size(); ++i) {
+            float weight = mdl->weights.empty()
+                ? 0.5f
+                : mdl->weights[i % mdl->weights.size()];
+            output.push_back(inp->data[i] * weight);
+        }
         auto result = new StubArray(output);
         return reinterpret_cast<mlx_array_t*>(result);
     } catch (const std::exception& e) {
@@ -284,8 +291,15 @@ mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_
         auto inp = reinterpret_cast<StubArray*>(input);
 
         // Stub forward pass with hidden states
-        // Produce logits sized to input length as placeholder
-        std::vector<float> output(inp->data.size(), 0.5f);
+        // Produce logits sized to input length using model weights as placeholder
+        std::vector<float> output;
+        output.reserve(inp->data.size());
+        for (size_t i = 0; i < inp->data.size(); ++i) {
+            float weight = mdl->weights.empty()
+                ? 0.5f
+                : mdl->weights[i % mdl->weights.size()];
+            output.push_back(inp->data[i] * weight);
+        }
         auto result = new StubArray(output);
 
         // Produce a concatenated hidden states buffer for Q/K/V/O projections
@@ -411,10 +425,13 @@ mlx_array_t* mlx_matmul(mlx_array_t* a, mlx_array_t* b) {
         auto arr_a = reinterpret_cast<StubArray*>(a);
         auto arr_b = reinterpret_cast<StubArray*>(b);
         
-        // Simple matrix multiplication stub
-        std::vector<float> result(arr_a->data.size(), 0.0f);
+        // Simple matrix multiplication stub using both operands for deterministic output
+        std::vector<float> result;
+        result.reserve(arr_a->data.size());
+        size_t b_len = arr_b->data.size();
         for (size_t i = 0; i < arr_a->data.size(); ++i) {
-            result[i] = arr_a->data[i] * 0.5f; // Dummy matmul
+            float rhs = b_len == 0 ? 0.5f : arr_b->data[i % b_len];
+            result.push_back(arr_a->data[i] * rhs);
         }
         
         auto result_array = new StubArray(result);
@@ -523,10 +540,17 @@ mlx_array_t* mlx_lora_forward(mlx_array_t* input, mlx_array_t* lora_a, mlx_array
         auto a = reinterpret_cast<StubArray*>(lora_a);
         auto b = reinterpret_cast<StubArray*>(lora_b);
         
-        // Simple LoRA forward pass stub
-        std::vector<float> result(inp->data.size(), 0.0f);
+        // Simple LoRA forward pass stub combining input and adaptation matrices
+        std::vector<float> result;
+        result.reserve(inp->data.size());
+        size_t a_len = a->data.size();
+        size_t b_len = b->data.size();
+        float safe_rank = (rank == 0.0f) ? 1.0f : rank;
         for (size_t i = 0; i < inp->data.size(); ++i) {
-            result[i] = inp->data[i] * (alpha / rank) * 0.1f; // Dummy LoRA
+            float a_val = a_len == 0 ? 0.0f : a->data[i % a_len];
+            float b_val = b_len == 0 ? 0.0f : b->data[i % b_len];
+            float lora_term = (alpha / safe_rank) * a_val * b_val;
+            result.push_back(inp->data[i] + lora_term);
         }
         
         auto result_array = new StubArray(result);

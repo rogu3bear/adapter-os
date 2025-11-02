@@ -38,7 +38,7 @@ impl AdapterScorer {
         };
 
         // Quality component (higher is better, already normalized)
-        let quality_score = metrics.quality_delta.max(0.0).min(1.0);
+        let quality_score = metrics.quality_delta.clamp(0.0, 1.0);
 
         // Weighted sum
         activation_score * self.activation_weight

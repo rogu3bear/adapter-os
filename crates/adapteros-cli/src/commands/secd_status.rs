@@ -77,7 +77,7 @@ pub async fn run(
     }
 
     // Check database and query stats
-    if let Some(db_path) = db_path {
+    if db_path.is_some() {
         // Calculate current time once for all age calculations
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

@@ -584,26 +584,14 @@ pub struct PerformanceMetrics {
 
 /// Unified testing framework implementation
 pub struct UnifiedTestingFramework {
-    /// Test configuration
-    config: TestConfig,
-
-    /// Test environments
-    environments: HashMap<String, TestEnvironment>,
-
-    /// Test results history
-    test_results_history: Vec<TestResult>,
-
     /// Performance metrics
     performance_metrics: PerformanceMetrics,
 }
 
 impl UnifiedTestingFramework {
     /// Create a new unified testing framework
-    pub fn new(config: TestConfig) -> Self {
+    pub fn new(_config: TestConfig) -> Self {
         Self {
-            config,
-            environments: HashMap::new(),
-            test_results_history: Vec::new(),
             performance_metrics: PerformanceMetrics {
                 total_execution_time_ms: 0,
                 average_test_execution_time_ms: 0.0,
@@ -835,7 +823,6 @@ impl UnifiedTestingFramework {
     pub fn update_performance_metrics(&mut self, test_result: &TestResult) {
         #[allow(unused_variables)]
         let _ = test_result; // Stub for now; implement tracking if needed
-                             // e.g., self.config.performance.total_execution_time_ms += test_result.execution_time_ms;
     }
 }
 
@@ -1135,7 +1122,14 @@ mod tests {
         };
 
         let framework = UnifiedTestingFramework::new(config);
-        assert!(framework.environments.is_empty());
+
+        // Verify performance metrics are properly initialized
+        let metrics = framework.get_performance_metrics().await.unwrap();
+        assert_eq!(metrics.total_execution_time_ms, 0);
+        assert_eq!(metrics.average_test_execution_time_ms, 0.0);
+        assert_eq!(metrics.memory_usage_bytes, 0);
+        assert_eq!(metrics.cpu_usage_percentage, 0.0);
+        assert_eq!(metrics.test_throughput, 0.0);
     }
 
     #[tokio::test]
@@ -1151,8 +1145,8 @@ mod tests {
             additional_config: HashMap::new(),
         };
 
-        let framework = UnifiedTestingFramework::new(config);
-        let env = framework.setup(&framework.config).await.unwrap();
+        let framework = UnifiedTestingFramework::new(config.clone());
+        let env = framework.setup(&config).await.unwrap();
         assert_eq!(env.state, EnvironmentState::Initializing);
     }
 }

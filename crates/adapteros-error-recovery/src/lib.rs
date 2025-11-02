@@ -127,10 +127,10 @@ pub enum RecoveryResult {
 impl ErrorRecoveryManager {
     /// Create a new error recovery manager
     pub fn new(config: ErrorRecoveryConfig) -> Result<Self> {
-        let corruption_detector = corruption::CorruptionDetector::new(&config)?;
+        let corruption_detector = corruption::CorruptionDetector::new()?;
         let recovery_engine = recovery::RecoveryEngine::new(&config)?;
         let retry_manager = retry::RetryManager::new(&config)?;
-        let validation_engine = validation::ValidationEngine::new(&config)?;
+        let validation_engine = validation::ValidationEngine::new()?;
 
         Ok(Self {
             config,

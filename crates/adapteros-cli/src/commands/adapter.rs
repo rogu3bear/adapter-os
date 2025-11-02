@@ -522,6 +522,7 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
 }
 
 /// Display adapters in the requested format
+#[allow(dead_code)]
 fn display_adapters(
     adapters: &[adapteros_client::AdapterResponse],
     json: bool,
@@ -1330,25 +1331,71 @@ mod tests {
 
     #[test]
     fn test_adapter_state_serialization() {
-        let state = AdapterState {
-            id: "test-adapter".to_string(),
-            hash: "b3:abc123".to_string(),
-            vram_mb: 16,
-            active: true,
-            tier: "persistent".to_string(),
-            rank: 16,
-            activation_pct: 45.2,
-            quality_delta: 0.68,
-            last_activation: Some(1234567890),
-            pinned: false,
-        };
+        let json = r#"{
+            "id": "python-general",
+            "name": "Python General",
+            "hash_b3": "b3:abc123",
+            "rank": 16,
+            "tier": 2,
+            "languages": ["python", "rust"],
+            "framework": "pytorch",
+            "created_at": "2024-01-01T00:00:00Z",
+            "stats": { "state": "hot", "uptime_s": 600 },
+            "activation_pct": 45.2,
+            "quality_delta": 0.68,
+            "memory_mb": 16,
+            "pinned": true,
+            "last_activation": "2024-05-01T12:00:00Z"
+        }"#;
 
-        let json = serde_json::to_string(&state).unwrap();
-        let deserialized: AdapterState = serde_json::from_str(&json).unwrap();
-        assert_eq!(state.id, deserialized.id);
-        assert_eq!(state.hash, deserialized.hash);
-        assert_eq!(state.vram_mb, deserialized.vram_mb);
-        assert_eq!(state.active, deserialized.active);
+        let state: AdapterState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.adapter_id, "python-general");
+        assert_eq!(state.name.as_deref(), Some("Python General"));
+        assert_eq!(state.hash_b3.as_deref(), Some("b3:abc123"));
+        assert_eq!(state.rank, Some(16));
+        assert_eq!(state.tier.as_deref(), Some("2"));
+        assert_eq!(state.languages, Some(vec!["python".into(), "rust".into()]));
+        assert_eq!(state.framework.as_deref(), Some("pytorch"));
+        assert_eq!(state.created_at.as_deref(), Some("2024-01-01T00:00:00Z"));
+        assert_eq!(
+            state
+                .stats
+                .as_ref()
+                .and_then(|stats| stats.get("state"))
+                .and_then(|value| value.as_str()),
+            Some("hot")
+        );
+        assert_eq!(state.activation_pct, Some(45.2));
+        assert_eq!(state.quality_delta, Some(0.68));
+        assert_eq!(state.memory_mb, Some(16));
+        assert_eq!(state.pinned, Some(true));
+        assert_eq!(
+            state.last_activation.as_deref(),
+            Some("2024-05-01T12:00:00Z")
+        );
+
+        let serialized = serde_json::to_value(&state).unwrap();
+        assert_eq!(
+            serialized
+                .get("adapter_id")
+                .and_then(|value| value.as_str()),
+            Some("python-general")
+        );
+        assert!(serialized.get("id").is_none());
+
+        let minimal_json = r#"{"adapter_id": "only-required"}"#;
+        let minimal: AdapterState = serde_json::from_str(minimal_json).unwrap();
+        assert_eq!(minimal.adapter_id, "only-required");
+        assert!(minimal.tier.is_none());
+        assert!(minimal.languages.is_none());
+        assert!(minimal.framework.is_none());
+        assert!(minimal.created_at.is_none());
+        assert!(minimal.stats.is_none());
+        assert!(minimal.activation_pct.is_none());
+        assert!(minimal.quality_delta.is_none());
+        assert!(minimal.memory_mb.is_none());
+        assert!(minimal.pinned.is_none());
+        assert!(minimal.last_activation.is_none());
     }
 
     #[test]

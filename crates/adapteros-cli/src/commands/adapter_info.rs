@@ -1,6 +1,7 @@
 //! Adapter info command - show provenance and signer information
 
 use anyhow::Result;
+use std::ops::Deref;
 
 /// Show adapter information including signer and provenance
 pub async fn run(adapter_id: &str) -> Result<()> {
@@ -77,14 +78,8 @@ async fn get_provenance(
     db: &adapteros_db::Database,
     adapter_id: &str,
 ) -> Result<Option<ProvenanceInfo>> {
-    match db {
-        adapteros_db::Database::Sqlite(sqlite) => {
-            get_provenance_sqlite(sqlite.pool(), adapter_id).await
-        }
-        adapteros_db::Database::Postgres(pg) => {
-            get_provenance_postgres(pg.pool(), adapter_id).await
-        }
-    }
+    let pool = db.deref().pool();
+    get_provenance_sqlite(pool, adapter_id).await
 }
 
 async fn get_provenance_sqlite(
@@ -96,39 +91,6 @@ async fn get_provenance_sqlite(
         SELECT signer_key, registered_by, registered_uid, registered_at, bundle_b3
         FROM adapter_provenance
         WHERE adapter_id = ?
-        "#,
-        adapter_id
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|row| {
-        let key_name = extract_key_name(&row.signer_key);
-        ProvenanceInfo {
-            signer_key: row.signer_key,
-            key_name,
-            registered_by: row.registered_by,
-            registered_uid: row.registered_uid.map(|u| u as u32),
-            registered_at: row.registered_at,
-            bundle_b3: row.bundle_b3,
-        }
-    }))
-}
-
-async fn get_provenance_postgres(
-    pool: &sqlx::postgres::PgPool,
-    adapter_id: &str,
-) -> Result<Option<ProvenanceInfo>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT 
-            signer_key,
-            registered_by,
-            registered_uid,
-            registered_at::text AS registered_at,
-            bundle_b3
-        FROM adapter_provenance
-        WHERE adapter_id = $1
         "#,
         adapter_id
     )

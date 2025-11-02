@@ -120,7 +120,7 @@ impl Capabilities {
     }
 
     /// Revoke file capability
-    pub fn revoke_file_capability(&mut self, path: &PathBuf) -> Result<()> {
+    pub fn revoke_file_capability(&mut self, path: &StdPath) -> Result<()> {
         if self.file_caps.remove(path).is_some() {
             debug!("Revoked file capability for: {}", path.display());
         }
@@ -128,7 +128,7 @@ impl Capabilities {
     }
 
     /// Check if operation is allowed
-    pub fn is_operation_allowed(&self, operation: &Operation, path: &PathBuf) -> Result<bool> {
+    pub fn is_operation_allowed(&self, operation: &Operation, path: &StdPath) -> Result<bool> {
         // Check denied operations first
         if self.acl.denied_operations.contains(operation) {
             return Ok(false);
@@ -170,12 +170,12 @@ impl Capabilities {
     }
 
     /// Get directory capability
-    pub fn get_dir_capability(&self, path: &PathBuf) -> Option<&Dir> {
+    pub fn get_dir_capability(&self, path: &StdPath) -> Option<&Dir> {
         self.dir_caps.get(path)
     }
 
     /// Get file capability
-    pub fn get_file_capability(&self, path: &PathBuf) -> Option<&File> {
+    pub fn get_file_capability(&self, path: &StdPath) -> Option<&File> {
         self.file_caps.get(path)
     }
 
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_capabilities() -> Result<()> {
-        let mut caps = Capabilities::new()?;
+        let caps = Capabilities::new()?;
 
         // Test operation checking
         assert!(caps.is_operation_allowed(&Operation::Read, &PathBuf::from("test.txt"))?);

@@ -21,7 +21,6 @@ pub struct TempFileInfo {
 pub struct TempFileManager {
     temp_dir: PathBuf,
     active_files: RwLock<HashMap<String, TempFileInfo>>,
-    cleanup_interval: Duration,
 }
 
 impl TempFileManager {
@@ -30,7 +29,6 @@ impl TempFileManager {
         Ok(Self {
             temp_dir,
             active_files: RwLock::new(HashMap::new()),
-            cleanup_interval: Duration::from_secs(3600), // 1 hour
         })
     }
 

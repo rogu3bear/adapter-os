@@ -90,6 +90,18 @@ pub enum LogLevel {
     Critical,
 }
 
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLevel::Debug => write!(f, "debug"),
+            LogLevel::Info => write!(f, "info"),
+            LogLevel::Warn => write!(f, "warn"),
+            LogLevel::Error => write!(f, "error"),
+            LogLevel::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 /// Unified event types across the system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EventType {

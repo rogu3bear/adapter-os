@@ -63,6 +63,7 @@ async fn connect_and_fetch_profiling_snapshot(
 }
 
 /// Fallback mock snapshot data for backwards compatibility
+#[allow(dead_code)]
 fn get_mock_profiling_snapshot() -> ProfilingSnapshot {
     ProfilingSnapshot {
         window_size: 1000,

@@ -1,5 +1,7 @@
 use crate::OrchestratorConfig;
 ///! Code intelligence job orchestration
+///
+/// Type conversions for server config compatibility
 ///!
 ///! Handles:
 ///! - Repository scanning and CodeGraph construction

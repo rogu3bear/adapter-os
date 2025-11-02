@@ -5,7 +5,7 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::{git_repositories::GitRepository, Database};
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use git2::{BranchType, DiffFormat, Oid};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -72,7 +72,8 @@ impl std::fmt::Debug for GitSubsystem {
 impl GitSubsystem {
     /// Construct a new Git subsystem from config and a database handle.
     pub async fn new(cfg: GitConfig, db: Database) -> Result<Self> {
-        let branch_manager = BranchManager::new(db.clone(), BranchManagerConfig::default()).await?;
+        let branch_manager =
+            BranchManager::new(db.clone().into_inner(), BranchManagerConfig::default()).await?;
 
         Ok(Self {
             enabled: cfg.enabled,

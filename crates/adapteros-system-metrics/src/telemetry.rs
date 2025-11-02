@@ -64,7 +64,7 @@ impl SystemMetricsTelemetry {
         if metrics.cpu_usage > 90.0 {
             self.log_threshold_violation(&ThresholdViolationEvent::new(
                 "cpu_usage".to_string(),
-                metrics.cpu_usage,
+                metrics.cpu_usage as f32,
                 90.0,
                 "critical".to_string(),
             ))?;
@@ -73,7 +73,7 @@ impl SystemMetricsTelemetry {
         if metrics.memory_usage > 85.0 {
             self.log_threshold_violation(&ThresholdViolationEvent::new(
                 "memory_usage".to_string(),
-                metrics.memory_usage,
+                metrics.memory_usage as f32,
                 85.0,
                 "warning".to_string(),
             ))?;

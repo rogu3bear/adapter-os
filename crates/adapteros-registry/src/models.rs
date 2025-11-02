@@ -19,27 +19,31 @@ pub struct ModelRecord {
     pub created_at: i64,
 }
 
+/// Parameters required to construct a model record
+#[derive(Debug, Clone)]
+pub struct ModelRecordInput {
+    pub name: String,
+    pub config_hash: B3Hash,
+    pub tokenizer_hash: B3Hash,
+    pub tokenizer_cfg_hash: B3Hash,
+    pub weights_hash: B3Hash,
+    pub license_hash: B3Hash,
+    pub license_text: String,
+    pub model_card_hash: Option<B3Hash>,
+}
+
 impl ModelRecord {
     /// Create from individual components
-    pub fn new(
-        name: String,
-        config_hash: B3Hash,
-        tokenizer_hash: B3Hash,
-        tokenizer_cfg_hash: B3Hash,
-        weights_hash: B3Hash,
-        license_hash: B3Hash,
-        license_text: String,
-        model_card_hash: Option<B3Hash>,
-    ) -> Self {
+    pub fn from_input(input: ModelRecordInput) -> Self {
         Self {
-            name,
-            config_hash,
-            tokenizer_hash,
-            tokenizer_cfg_hash,
-            weights_hash,
-            license_hash,
-            license_text,
-            model_card_hash,
+            name: input.name,
+            config_hash: input.config_hash,
+            tokenizer_hash: input.tokenizer_hash,
+            tokenizer_cfg_hash: input.tokenizer_cfg_hash,
+            weights_hash: input.weights_hash,
+            license_hash: input.license_hash,
+            license_text: input.license_text,
+            model_card_hash: input.model_card_hash,
             created_at: chrono::Utc::now().timestamp(),
         }
     }
@@ -256,16 +260,16 @@ mod tests {
 
         let registry = ModelRegistry::new(conn);
 
-        let model = ModelRecord::new(
-            "test-model".to_string(),
-            B3Hash::hash(b"config"),
-            B3Hash::hash(b"tokenizer"),
-            B3Hash::hash(b"tokenizer_cfg"),
-            B3Hash::hash(b"weights"),
-            B3Hash::hash(b"license"),
-            "MIT License".to_string(),
-            Some(B3Hash::hash(b"model_card")),
-        );
+        let model = ModelRecord::from_input(ModelRecordInput {
+            name: "test-model".to_string(),
+            config_hash: B3Hash::hash(b"config"),
+            tokenizer_hash: B3Hash::hash(b"tokenizer"),
+            tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg"),
+            weights_hash: B3Hash::hash(b"weights"),
+            license_hash: B3Hash::hash(b"license"),
+            license_text: "MIT License".to_string(),
+            model_card_hash: Some(B3Hash::hash(b"model_card")),
+        });
 
         // Register model
         registry
@@ -304,27 +308,27 @@ mod tests {
         crate::migrations::run_migrations(&mut conn).expect("Database migrations should succeed");
         let registry = ModelRegistry::new(conn);
 
-        let model1 = ModelRecord::new(
-            "model1".to_string(),
-            B3Hash::hash(b"config"),
-            B3Hash::hash(b"tokenizer1"),
-            B3Hash::hash(b"tokenizer_cfg1"),
-            B3Hash::hash(b"weights1"),
-            B3Hash::hash(b"license1"),
-            "MIT".to_string(),
-            None,
-        );
+        let model1 = ModelRecord::from_input(ModelRecordInput {
+            name: "model1".to_string(),
+            config_hash: B3Hash::hash(b"config"),
+            tokenizer_hash: B3Hash::hash(b"tokenizer1"),
+            tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg1"),
+            weights_hash: B3Hash::hash(b"weights1"),
+            license_hash: B3Hash::hash(b"license1"),
+            license_text: "MIT".to_string(),
+            model_card_hash: None,
+        });
 
-        let model2 = ModelRecord::new(
-            "model2".to_string(),
-            B3Hash::hash(b"config"), // Same config hash
-            B3Hash::hash(b"tokenizer2"),
-            B3Hash::hash(b"tokenizer_cfg2"),
-            B3Hash::hash(b"weights2"),
-            B3Hash::hash(b"license2"),
-            "Apache".to_string(),
-            None,
-        );
+        let model2 = ModelRecord::from_input(ModelRecordInput {
+            name: "model2".to_string(),
+            config_hash: B3Hash::hash(b"config"), // Same config hash
+            tokenizer_hash: B3Hash::hash(b"tokenizer2"),
+            tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg2"),
+            weights_hash: B3Hash::hash(b"weights2"),
+            license_hash: B3Hash::hash(b"license2"),
+            license_text: "Apache".to_string(),
+            model_card_hash: None,
+        });
 
         // Register first model
         registry

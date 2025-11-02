@@ -370,7 +370,7 @@ async fn signals_handler<K: FusedKernels>(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Signal {
+pub struct Signal {
     #[serde(rename = "type")]
     signal_type: String,
     timestamp: u128,

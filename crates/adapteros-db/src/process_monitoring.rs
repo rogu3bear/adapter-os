@@ -13,6 +13,7 @@ use adapteros_core::{AosError, Result};
 use chrono;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+use uuid;
 
 // ===== Type Definitions =====
 
@@ -193,7 +194,7 @@ pub enum ThresholdOperator {
     Lte,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AlertSeverity {
     Info,
@@ -808,6 +809,63 @@ impl ProcessAlert {
 
         Ok(())
     }
+
+    /// Get a specific alert by ID
+    pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ProcessAlert>> {
+        let row = sqlx::query(
+            r#"
+            SELECT * FROM process_alerts WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get alert: {}", e)))?;
+
+        if let Some(row) = row {
+            Ok(Some(ProcessAlert {
+                id: row.get("id"),
+                rule_id: row.get("rule_id"),
+                worker_id: row.get("worker_id"),
+                tenant_id: row.get("tenant_id"),
+                alert_type: row.get("alert_type"),
+                severity: AlertSeverity::from_string(row.get("severity")),
+                title: row.get("title"),
+                message: row.get("message"),
+                metric_value: row.get("metric_value"),
+                threshold_value: row.get("threshold_value"),
+                status: AlertStatus::from_string(row.get("status")),
+                acknowledged_by: row.get("acknowledged_by"),
+                acknowledged_at: row
+                    .get::<Option<String>, _>("acknowledged_at")
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                resolved_at: row
+                    .get::<Option<String>, _>("resolved_at")
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                suppression_reason: row.get("suppression_reason"),
+                suppression_until: row
+                    .get::<Option<String>, _>("suppression_until")
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                escalation_level: row.get("escalation_level"),
+                notification_sent: row.get("notification_sent"),
+                created_at: chrono::DateTime::parse_from_rfc3339(
+                    &row.get::<String, _>("created_at"),
+                )
+                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
+                .with_timezone(&chrono::Utc),
+                updated_at: chrono::DateTime::parse_from_rfc3339(
+                    &row.get::<String, _>("updated_at"),
+                )
+                .map_err(|e| AosError::Database(format!("Invalid updated_at: {}", e)))?
+                .with_timezone(&chrono::Utc),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl ProcessAnomaly {
@@ -961,6 +1019,51 @@ impl ProcessAnomaly {
             .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Get a specific anomaly by ID
+    pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ProcessAnomaly>> {
+        let row = sqlx::query(
+            r#"
+            SELECT * FROM process_anomalies WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get anomaly: {}", e)))?;
+
+        if let Some(row) = row {
+            Ok(Some(ProcessAnomaly {
+                id: row.get("id"),
+                worker_id: row.get("worker_id"),
+                tenant_id: row.get("tenant_id"),
+                anomaly_type: row.get("anomaly_type"),
+                metric_name: row.get("metric_name"),
+                detected_value: row.get("detected_value"),
+                expected_range_min: row.get("expected_range_min"),
+                expected_range_max: row.get("expected_range_max"),
+                confidence_score: row.get("confidence_score"),
+                severity: AlertSeverity::from_string(row.get("severity")),
+                description: row.get("description"),
+                detection_method: row.get("detection_method"),
+                model_version: row.get("model_version"),
+                status: AnomalyStatus::from_string(row.get("status")),
+                investigated_by: row.get("investigated_by"),
+                investigation_notes: row.get("investigation_notes"),
+                resolved_at: row
+                    .get::<Option<String>, _>("resolved_at")
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
+                created_at: chrono::DateTime::parse_from_rfc3339(
+                    &row.get::<String, _>("created_at"),
+                )
+                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
+                .with_timezone(&chrono::Utc),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1158,7 +1261,7 @@ impl MonitoringDashboard {
     pub async fn create(pool: &SqlitePool, req: CreateDashboardRequest) -> Result<String> {
         let id = uuid::Uuid::now_v7().to_string();
         let config_json = serde_json::to_string(&req.dashboard_config)
-            .map_err(|e| AosError::Config(e.to_string()))?;
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         sqlx::query!(
             r#"
@@ -1247,13 +1350,13 @@ impl ProcessMonitoringReport {
     pub async fn create(pool: &SqlitePool, req: CreateReportRequest) -> Result<String> {
         let id = uuid::Uuid::now_v7().to_string();
         let config_json = serde_json::to_string(&req.report_config)
-            .map_err(|e| AosError::Config(e.to_string()))?;
+            .map_err(|e| AosError::Database(e.to_string()))?;
         let data_json = req
             .report_data
             .as_ref()
             .map(|v| serde_json::to_string(v))
             .transpose()
-            .map_err(|e| AosError::Config(e.to_string()))?;
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         sqlx::query!(
             r#"
@@ -1534,5 +1637,76 @@ impl std::fmt::Display for NotificationStatus {
             NotificationStatus::Failed => write!(f, "failed"),
             NotificationStatus::Delivered => write!(f, "delivered"),
         }
+    }
+}
+
+// ===== Database Interface =====
+
+use crate::Db;
+
+impl Db {
+    /// List process alerts with optional filters
+    pub async fn list_process_alerts(&self, filters: AlertFilters) -> Result<Vec<ProcessAlert>> {
+        ProcessAlert::list(self.pool(), filters).await
+    }
+
+    /// Update process alert status
+    pub async fn update_process_alert_status(
+        &self,
+        id: &str,
+        status: AlertStatus,
+        user: Option<&str>,
+    ) -> Result<()> {
+        ProcessAlert::update_status(self.pool(), id, status, user).await
+    }
+
+    /// Get a specific process alert by ID
+    pub async fn get_process_alert(&self, id: &str) -> Result<Option<ProcessAlert>> {
+        ProcessAlert::get_by_id(self.pool(), id).await
+    }
+
+    /// List process anomalies with optional filters
+    pub async fn list_process_anomalies(
+        &self,
+        filters: AnomalyFilters,
+    ) -> Result<Vec<ProcessAnomaly>> {
+        ProcessAnomaly::list(self.pool(), filters).await
+    }
+
+    /// Update process anomaly status
+    pub async fn update_process_anomaly_status(
+        &self,
+        id: &str,
+        status: AnomalyStatus,
+        investigated_by: Option<&str>,
+        investigation_notes: Option<&str>,
+    ) -> Result<()> {
+        ProcessAnomaly::update_status(
+            self.pool(),
+            id,
+            status,
+            investigated_by,
+            investigation_notes,
+        )
+        .await
+    }
+
+    /// Get a specific process anomaly by ID
+    pub async fn get_process_anomaly(&self, id: &str) -> Result<Option<ProcessAnomaly>> {
+        ProcessAnomaly::get_by_id(self.pool(), id).await
+    }
+
+    /// List monitoring dashboards
+    pub async fn list_monitoring_dashboards(
+        &self,
+        tenant_id: Option<&str>,
+        is_shared: Option<bool>,
+    ) -> Result<Vec<MonitoringDashboard>> {
+        MonitoringDashboard::list(self.pool(), tenant_id, is_shared).await
+    }
+
+    /// Create a monitoring dashboard
+    pub async fn create_monitoring_dashboard(&self, req: CreateDashboardRequest) -> Result<String> {
+        MonitoringDashboard::create(self.pool(), req).await
     }
 }

@@ -74,9 +74,11 @@ fn reason_phrase(status: u16) -> &'static str {
 
 /// Stub Unix Domain Socket server for exercising CLI networking code.
 pub struct StubUdsServer {
+    #[allow(dead_code)]
     tempdir: TempDir,
     socket_path: PathBuf,
     requests: Arc<Mutex<Vec<CapturedRequest>>>,
+    #[allow(dead_code)]
     responses: Arc<Mutex<VecDeque<StubHttpResponse>>>,
     shutdown: Option<oneshot::Sender<()>>,
     accept_loop: Option<tokio::task::JoinHandle<()>>,
@@ -138,12 +140,6 @@ impl StubUdsServer {
     /// Returns socket path for client connections.
     pub fn socket_path(&self) -> &Path {
         &self.socket_path
-    }
-
-    /// Append additional responses to the server queue.
-    pub async fn push_response(&self, response: StubHttpResponse) {
-        let mut guard = self.responses.lock().await;
-        guard.push_back(response);
     }
 
     /// Retrieve captured requests (clone) for assertions.

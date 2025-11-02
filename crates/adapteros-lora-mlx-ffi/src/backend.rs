@@ -93,6 +93,7 @@ impl MLXFFIBackend {
     }
 
     /// Apply LoRA adapters based on router decisions
+    #[allow(dead_code)]
     fn apply_loras(
         &self,
         ring: &RouterRing,
@@ -297,11 +298,6 @@ impl MLXFFIBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lora::{LoRAAdapter, LoRAConfig};
-
-    fn create_dummy_adapter(id: &str) -> LoRAAdapter {
-        LoRAAdapter::new(id.to_string(), LoRAConfig::default())
-    }
 
     #[test]
     #[ignore] // Requires MLX model

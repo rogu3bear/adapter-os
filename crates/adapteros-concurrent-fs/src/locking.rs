@@ -36,6 +36,13 @@ pub struct FileLockInfo {
     write_locked: Mutex<bool>,
 }
 
+impl FileLockInfo {
+    /// Get the lock type
+    pub fn lock_type(&self) -> &LockType {
+        &self.lock_type
+    }
+}
+
 /// Lock type
 #[derive(Debug, Clone, PartialEq)]
 pub enum LockType {
@@ -173,9 +180,10 @@ impl LockManager {
         *read_count += 1;
 
         debug!(
-            "Acquired read lock on {} (count: {})",
+            "Acquired read lock on {} (count: {}, type: {:?})",
             path.display(),
-            *read_count
+            *read_count,
+            LockType::Read
         );
 
         Ok(FileLock {
@@ -221,7 +229,11 @@ impl LockManager {
         let mut write_locked = lock_info.write_locked.lock().await;
         *write_locked = true;
 
-        debug!("Acquired write lock on {}", path.display());
+        debug!(
+            "Acquired write lock on {} (type: {:?})",
+            path.display(),
+            LockType::Write
+        );
 
         Ok(FileLock {
             info: lock_info.clone(),

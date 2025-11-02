@@ -615,7 +615,11 @@ impl BaselineService {
             limit: Some(10000), // Get up to 10k recent metrics
         };
 
-        ProcessHealthMetric::query(self.db.pool(), filters).await
+        ProcessHealthMetric::query(self.db.pool(), filters)
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to query metrics: {}", e))
+            })
     }
 
     /// Get active tenants
