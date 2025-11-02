@@ -641,6 +641,15 @@ class ApiClient {
     return this.request<types.AdapterHealthResponse>(`/v1/adapters/${adapterId}/health`);
   }
 
+  // Category Policies
+  async getCategoryPolicies(): Promise<Record<types.AdapterCategory, types.CategoryPolicy>> {
+    return this.request<Record<types.AdapterCategory, types.CategoryPolicy>>('/v1/adapters/category-policies');
+  }
+
+  async getCategoryPolicy(category: types.AdapterCategory): Promise<types.CategoryPolicy> {
+    return this.request<types.CategoryPolicy>(`/v1/adapters/category-policies/${category}`);
+  }
+
   // Repositories
   async listRepositories(): Promise<types.Repository[]> {
     return this.request<types.Repository[]>('/v1/repositories');
@@ -736,6 +745,10 @@ class ApiClient {
 
   async getCursorConfig(): Promise<types.CursorConfigResponse> {
     return this.request<types.CursorConfigResponse>('/v1/models/cursor-config');
+  }
+
+  async validateModel(modelId: string): Promise<types.ModelValidationResponse> {
+    return this.request<types.ModelValidationResponse>(`/v1/models/${modelId}/validate`);
   }
 
   async downloadModel(modelId: string): Promise<types.ModelDownloadResponse> {
@@ -866,18 +879,8 @@ class ApiClient {
   }
 
   // Git Repository API
-  async registerGitRepository(request: {
-    repo_id: string;
-    path: string;
-    branch?: string;
-    description?: string;
-  }): Promise<{
-    repo_id: string;
-    status: string;
-    analysis: any;
-    evidence_count: number;
-  }> {
-    return this.request(`/v1/git/repositories`, {
+  async registerGitRepository(request: types.RegisterGitRepositoryRequest): Promise<types.RegisterGitRepositoryResponse> {
+    return this.request<types.RegisterGitRepositoryResponse>(`/v1/git/repositories`, {
       method: 'POST',
       body: JSON.stringify(request),
     });
@@ -1222,6 +1225,12 @@ class ApiClient {
     }
 
     return response.blob();
+  }
+
+  // Compliance audit API method
+  // Returns compliance controls and policy violations from policy_quarantine table
+  async getComplianceAudit(): Promise<types.ComplianceAuditResponse> {
+    return this.request<types.ComplianceAuditResponse>('/v1/audit/compliance');
   }
 
   // Process debugging methods
