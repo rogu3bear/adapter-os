@@ -8,7 +8,7 @@
 //! - Policy Pack #8 (Isolation): Per-tenant operations with UID/GID checks
 //! - Handler pattern from handlers.rs L4567-4597
 
-use crate::{auth::Claims, state::AppState, types::ErrorResponse};
+use crate::{auth::Claims, state::AppState, types::{ErrorResponse, ModelValidationResponse}};
 use axum::{
     body::Body,
     extract::{Extension, Path, State},
@@ -1183,6 +1183,108 @@ pub async fn get_model_diagnostics(
         database_models_count,
         database_model_ids,
         summary,
+    }))
+}
+
+/// Validate if a model can be loaded without actually loading it
+#[cfg_attr(feature = "openapi", utoipa::path(
+    get,
+    path = "/v1/models/{model_id}/validate",
+    params(
+        ("model_id" = String, Path, description = "Model ID to validate")
+    ),
+    responses(
+        (status = 200, description = "Model validation result", body = ModelValidationResponse),
+        (status = 404, description = "Model not found"),
+        (status = 500, description = "Validation failed")
+    ),
+    tag = "models"
+))]
+pub async fn validate_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<Json<ModelValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = &claims.tenant_id;
+
+    // Check if model exists in database
+    let model_check = sqlx::query!(
+        "SELECT bms.model_id, m.name as model_name FROM base_model_status bms
+         JOIN models m ON bms.model_id = m.id
+         WHERE bms.model_id = ? AND bms.tenant_id = ?",
+        model_id,
+        tenant_id
+    )
+    .fetch_optional(state.db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to check model: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+        )
+    })?;
+
+    let (model_name, can_load, reason, download_commands) = if let Some(row) = model_check {
+        // Model exists in database, now check if it can be loaded
+        // Check if model runtime is available
+        let (can_load, reason, download_commands) = if state.model_runtime.is_none() {
+            (false, Some("Model runtime not available".to_string()), Some(vec![
+                "cargo build --release --features mlx-ffi-backend".to_string(),
+                "export AOS_MLX_FFI_MODEL=/path/to/your/model".to_string(),
+            ]))
+        } else {
+            // Check if MLX model path exists
+            #[cfg(feature = "mlx-ffi-backend")]
+            {
+                match std::env::var("AOS_MLX_FFI_MODEL") {
+                    Ok(model_path) => {
+                        if !std::path::Path::new(&model_path).exists() {
+                            (false, Some(format!("Model path does not exist: {}", model_path)), Some(vec![
+                                format!("mkdir -p {}", std::path::Path::new(&model_path).parent().unwrap_or(std::path::Path::new("/tmp")).display()),
+                                format!("# Download your model to: {}", model_path),
+                                "# For example, using huggingface-hub:".to_string(),
+                                format!("huggingface-cli download {} --local-dir {}", row.model_name, model_path),
+                                "# Or using git-lfs for large models:".to_string(),
+                                format!("git lfs clone https://huggingface.co/{} {}", row.model_name, model_path),
+                            ]))
+                        } else {
+                            (true, None, None)
+                        }
+                    }
+                    Err(_) => {
+                        (false, Some("AOS_MLX_FFI_MODEL environment variable not set".to_string()), Some(vec![
+                            "export AOS_MLX_FFI_MODEL=/path/to/your/model/directory".to_string(),
+                            "# Example: export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b".to_string(),
+                        ]))
+                    }
+                }
+            }
+            #[cfg(not(feature = "mlx-ffi-backend"))]
+            {
+                (false, Some("mlx-ffi-backend feature not enabled".to_string()), Some(vec![
+                    "cargo build --release --features mlx-ffi-backend".to_string(),
+                ]))
+            }
+        };
+
+        (row.model_name, can_load, reason, download_commands)
+    } else {
+        // Model doesn't exist in database
+        (format!("unknown-model-{}", model_id), false, Some(format!("Model '{}' not found in database for tenant '{}'", model_id, tenant_id)), Some(vec![
+            format!("# Import the model first using the web UI or API"),
+            format!("POST /v1/models/import with model_name: {}", model_id),
+            "# Or use the command line:".to_string(),
+            format!("curl -X POST http://localhost:8080/api/v1/models/import -H 'Content-Type: application/json' -d '{{\"model_name\":\"{}\"}}'", model_id),
+        ]))
+    };
+
+    Ok(Json(ModelValidationResponse {
+        model_id: model_id.clone(),
+        model_name,
+        can_load,
+        reason,
+        download_commands,
     }))
 }
 

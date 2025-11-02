@@ -43,7 +43,7 @@ export interface User {
   token_last_rotated_at?: string;
 }
 
-export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Auditor' | 'Viewer';
+export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
 
 export interface SessionInfo {
   id: string;
@@ -582,6 +582,73 @@ export interface ScanStatusResponse {
   status: string;
   commits_processed: number;
   last_commit?: string;
+}
+
+// Git Repository API Types
+export interface RegisterGitRepositoryRequest {
+  repo_id: string;
+  path: string;
+  branch?: string;
+  description?: string;
+}
+
+export interface GitInfo {
+  branch: string;
+  commit_count: number;
+  last_commit: string; // Commit message/summary, not timestamp
+  authors: string[];
+}
+
+export interface LanguageInfo {
+  name: string;
+  files: number;
+  lines: number;
+  percentage: number;
+}
+
+export interface FrameworkInfo {
+  name: string;
+  version?: string;
+  confidence: number;
+  files: string[];
+}
+
+export interface SecurityViolation {
+  file_path: string;
+  pattern: string;
+  line_number?: number;
+  severity: string;
+}
+
+export interface SecurityScanResult {
+  violations: SecurityViolation[];
+  scan_timestamp: string;
+  status: string;
+}
+
+export interface EvidenceSpan {
+  span_id: string;
+  evidence_type: string;
+  file_path: string;
+  line_range: [number, number];
+  relevance_score: number;
+  content: string;
+}
+
+export interface RepositoryAnalysis {
+  repo_id: string;
+  languages: LanguageInfo[];
+  frameworks: FrameworkInfo[];
+  security_scan: SecurityScanResult;
+  git_info: GitInfo;
+  evidence_spans: EvidenceSpan[];
+}
+
+export interface RegisterGitRepositoryResponse {
+  repo_id: string;
+  status: string;
+  analysis: RepositoryAnalysis;
+  evidence_count: number;
 }
 
 // Commits
@@ -1144,6 +1211,15 @@ export interface AllModelsStatusResponse {
   models: BaseModelStatus[];
   total_memory_mb: number;
   active_model_count: number;
+}
+
+// Model validation response for checking if a model can be loaded
+export interface ModelValidationResponse {
+  model_id: string;
+  model_name: string;
+  can_load: boolean;
+  reason?: string;
+  download_commands?: string[];
 }
 
 // OpenAI-compatible models list (used by ModelSelector)
@@ -2095,4 +2171,34 @@ export interface TutorialStatus {
   dismissed: boolean;
   completed_at?: string;
   dismissed_at?: string;
+}
+
+// Compliance Audit Types
+export interface ComplianceAuditResponse {
+  compliance_rate: number;
+  total_controls: number;
+  compliant_controls: number;
+  active_violations: number;
+  controls: ComplianceControl[];
+  violations: PolicyViolationRecord[];
+  timestamp: string;
+}
+
+export interface ComplianceControl {
+  control_id: string;
+  control_name: string;
+  status: string;
+  last_checked: string;
+  evidence: string[];
+  findings: string[];
+}
+
+export interface PolicyViolationRecord {
+  id: string;
+  reason: string;
+  violation_type: string | null;
+  created_at: string;
+  released: boolean;
+  cpid: string | null;
+  metadata: string | null;
 }

@@ -282,6 +282,16 @@ pub struct AllModelsStatusResponse {
     pub active_model_count: i32,
 }
 
+/// Model validation response for checking if a model can be loaded
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelValidationResponse {
+    pub model_id: String,
+    pub model_name: String,
+    pub can_load: bool,
+    pub reason: Option<String>,
+    pub download_commands: Option<Vec<String>>,
+}
+
 // BuildPlanRequest is now imported from adapteros-api-types
 
 /// Promote CP request
@@ -1006,6 +1016,108 @@ pub struct WorkerInferRequest {
     pub prompt: String,
     pub max_tokens: usize,
     pub require_evidence: bool,
+    /// Optional: Pre-selected adapter IDs (from API-level routing)
+    #[serde(default)]
+    pub adapter_hints: Option<Vec<String>>,
+    /// Optional: Router feature scores for telemetry
+    #[serde(default)]
+    pub router_features: Option<RouterFeatureScores>,
+}
+
+/// Router feature scores for telemetry and debugging
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RouterFeatureScores {
+    pub language_score: f32,
+    pub framework_score: f32,
+    pub symbol_hits_score: f32,
+    pub path_tokens_score: f32,
+    pub prompt_verb_score: f32,
+    pub total_score: f32,
+}
+
+// ===== PROMPT ORCHESTRATION TYPES =====
+
+/// Prompt orchestration configuration
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PromptOrchestrationConfig {
+    /// Whether prompt orchestration is enabled
+    pub enabled: bool,
+    /// Minimum complexity score to consider using adapters (0.0-1.0)
+    pub base_model_threshold: f64,
+    /// Minimum score for individual adapters to qualify (0.0-1.0)
+    pub adapter_threshold: f64,
+    /// Maximum time allowed for prompt analysis (ms)
+    pub analysis_timeout: i32,
+    /// Whether to cache analysis results
+    pub cache_enabled: bool,
+    /// Cache TTL in seconds
+    pub cache_ttl: i32,
+    /// Whether to enable telemetry collection
+    pub enable_telemetry: bool,
+    /// Fallback strategy when analysis fails
+    pub fallback_strategy: String,
+}
+
+/// Prompt analysis request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PromptAnalysisRequest {
+    /// The prompt text to analyze
+    pub prompt: String,
+}
+
+/// Prompt analysis response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PromptAnalysisResponse {
+    /// Original prompt text
+    pub prompt: String,
+    /// Complexity score (0.0-1.0)
+    pub complexity_score: f64,
+    /// Recommended orchestration strategy
+    pub recommended_strategy: String,
+    /// Time taken for analysis (ms)
+    pub analysis_time_ms: i32,
+    /// Extracted prompt features
+    pub features: PromptFeatures,
+    /// When the analysis was performed
+    pub timestamp: String,
+}
+
+/// Extracted prompt features
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PromptFeatures {
+    /// Detected programming language
+    pub language: Option<String>,
+    /// Detected frameworks/libraries
+    pub frameworks: Vec<String>,
+    /// Number of symbols detected
+    pub symbols: i32,
+    /// Number of tokens in prompt
+    pub tokens: i32,
+    /// Detected prompt verb/action
+    pub verb: String,
+}
+
+/// Prompt orchestration metrics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PromptOrchestrationMetrics {
+    /// Total requests processed
+    pub total_requests: i64,
+    /// Requests that used base model only
+    pub base_model_only: i64,
+    /// Requests that used adapters
+    pub adapter_used: i64,
+    /// Requests that used mixed mode
+    pub mixed_mode: i64,
+    /// Average analysis time (ms)
+    pub analysis_time_ms: f64,
+    /// Cache hits
+    pub cache_hits: i64,
+    /// Cache misses
+    pub cache_misses: i64,
+    /// Number of analysis errors
+    pub error_count: i64,
+    /// When metrics were last updated
+    pub last_updated: String,
 }
 
 /// Worker inference response (from worker via UDS)
@@ -1945,6 +2057,19 @@ pub struct MemoryUsageResponse {
 pub struct EvictAdapterResponse {
     pub success: bool,
     pub message: String,
+}
+
+/// Category policy response matching UI types
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryPolicyResponse {
+    pub promotion_threshold_ms: u64,
+    pub demotion_threshold_ms: u64,
+    pub memory_limit: usize,
+    pub eviction_priority: String, // "never" | "low" | "normal" | "high" | "critical"
+    pub auto_promote: bool,
+    pub auto_demote: bool,
+    pub max_in_memory: Option<usize>,
+    pub routing_priority: f32,
 }
 
 /// Model diagnostics response for troubleshooting model loading issues

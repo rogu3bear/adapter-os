@@ -43,6 +43,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_commit_diff,
         handlers::debug_routing,
         handlers::get_routing_history,
+        handlers::routing_decisions,
+        handlers::get_prompt_orchestration_config,
+        handlers::update_prompt_orchestration_config,
+        handlers::analyze_prompt,
+        handlers::get_prompt_orchestration_metrics,
         // Contacts and Streams handlers - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         handlers::list_contacts,
         handlers::create_contact,
@@ -551,6 +556,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::models::get_model_status),
         )
         .route(
+            "/v1/models/:model_id/validate",
+            get(handlers::models::validate_model),
+        )
+        .route(
             "/v1/models/:model_id/download",
             get(handlers::models::download_model),
         )
@@ -769,6 +778,11 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/routing/debug", post(handlers::debug_routing))
         .route("/v1/routing/history", get(handlers::get_routing_history))
         .route("/v1/routing/decisions", get(handlers::routing_decisions))
+        // Prompt orchestration routes
+        .route("/v1/prompt-orchestration/config", get(handlers::get_prompt_orchestration_config))
+        .route("/v1/prompt-orchestration/config", put(handlers::update_prompt_orchestration_config))
+        .route("/v1/prompt-orchestration/analyze", post(handlers::analyze_prompt))
+        .route("/v1/prompt-orchestration/metrics", get(handlers::get_prompt_orchestration_metrics))
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
