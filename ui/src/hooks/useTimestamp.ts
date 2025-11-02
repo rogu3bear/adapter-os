@@ -5,6 +5,12 @@
  * for deterministic UI rendering.
  */
 
+/**
+ * Formats a timestamp string to ISO-8601 UTC format.
+ *
+ * @param timestamp - ISO timestamp string or undefined
+ * @returns ISO-8601 formatted string (e.g., "2025-01-13T14:32:01.234Z") or "—" if invalid/missing
+ */
 export function useTimestamp(timestamp?: string): string {
   if (!timestamp) return '—';
   
@@ -15,6 +21,12 @@ export function useTimestamp(timestamp?: string): string {
   return date.toISOString(); // e.g., "2025-01-13T14:32:01.234Z"
 }
 
+/**
+ * Formats a timestamp string to relative time format.
+ *
+ * @param timestamp - ISO timestamp string or undefined
+ * @returns Relative time string (e.g., "5s ago", "2m ago", "3h ago", "2d ago") or "—" if invalid/missing
+ */
 export function useRelativeTime(timestamp?: string): string {
   if (!timestamp) return '—';
   

@@ -12,6 +12,13 @@ export interface ToastAction {
   dismiss: (id: string) => void;
 }
 
+/**
+ * Hook for managing toast notifications.
+ *
+ * Provides toast creation and dismissal functionality with auto-dismiss after 5 seconds.
+ *
+ * @returns Object with toast creation and dismissal functions
+ */
 export function useToast(): ToastAction {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
