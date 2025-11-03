@@ -573,7 +573,7 @@ impl CodeQualityVerifier {
             score -= inputs.dead_code.percentage * 0.5;
         }
 
-        score.max(0.0).min(100.0)
+        score.clamp(0.0, 100.0)
     }
 
     /// Generate recommendations based on results

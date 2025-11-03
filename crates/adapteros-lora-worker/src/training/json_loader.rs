@@ -6,15 +6,15 @@
 use super::dataset::TrainingExample;
 use tokenizers::Tokenizer;
 use adapteros_core::{AosError, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use std::path::Path;
+use tracing::{info, warn};
 
 /// JSON training dataset structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct JsonTrainingDataset {
     pub name: String,
     #[serde(default)]
@@ -27,7 +27,7 @@ pub struct JsonTrainingDataset {
 }
 
 /// Individual JSON training example
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct JsonTrainingExample {
     /// Example ID (optional)
     #[serde(default)]
@@ -53,7 +53,7 @@ pub struct JsonTrainingExample {
 }
 
 /// Flexible input format for JSON training
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum JsonInput {
     /// Simple text input
@@ -67,7 +67,7 @@ pub enum JsonInput {
 }
 
 /// Flexible target format for JSON training
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum JsonTarget {
     /// Simple text output
@@ -81,7 +81,7 @@ pub enum JsonTarget {
 }
 
 /// JSON dataset loader configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JsonLoaderConfig {
     /// Tokenizer to use for text encoding
     pub tokenizer: Option<Tokenizer>,
@@ -91,8 +91,6 @@ pub struct JsonLoaderConfig {
     pub max_target_length: usize,
     /// Whether to separate positive/negative examples
     pub separate_weights: bool,
-    /// Custom encoding function for non-text inputs
-    pub custom_encoder: Option<Box<dyn Fn(&JsonInput) -> Result<Vec<u32>> + Send + Sync>>,
 }
 
 impl Default for JsonLoaderConfig {
@@ -102,7 +100,6 @@ impl Default for JsonLoaderConfig {
             max_input_length: 2048,
             max_target_length: 512,
             separate_weights: true,
-            custom_encoder: None,
         }
     }
 }
@@ -201,7 +198,10 @@ fn encode_input(input: &JsonInput, config: &JsonLoaderConfig) -> Result<Vec<u32>
     match input {
         JsonInput::Text(text) => {
             if let Some(ref tokenizer) = config.tokenizer {
-                tokenizer.encode(text)
+                let encoding = tokenizer
+                    .encode(text.as_str(), false)
+                    .map_err(|e| AosError::Training(format!("Encoding failed: {}", e)))?;
+                Ok(encoding.get_ids().to_vec())
             } else {
                 // Fallback to character-level encoding
                 Ok(text.chars().map(|c| c as u32).collect())
@@ -233,7 +233,10 @@ fn encode_target(target: &JsonTarget, config: &JsonLoaderConfig) -> Result<Vec<u
     match target {
         JsonTarget::Text(text) => {
             if let Some(ref tokenizer) = config.tokenizer {
-                tokenizer.encode(text)
+                let encoding = tokenizer
+                    .encode(text.as_str(), false)
+                    .map_err(|e| AosError::Training(format!("Encoding failed: {}", e)))?;
+                Ok(encoding.get_ids().to_vec())
             } else {
                 // Fallback to character-level encoding
                 Ok(text.chars().map(|c| c as u32).collect())
@@ -306,22 +309,6 @@ pub fn load_json_dataset_with_tokenizer<P: AsRef<Path>>(
     load_json_dataset(path, config)
 }
 
-/// Load JSON dataset with custom encoder
-pub fn load_json_dataset_with_encoder<P, F>(
-    path: P,
-    encoder: F,
-) -> Result<Vec<TrainingExample>>
-where
-    P: AsRef<Path>,
-    F: Fn(&JsonInput) -> Result<Vec<u32>> + Send + Sync + 'static,
-{
-    let config = JsonLoaderConfig {
-        custom_encoder: Some(Box::new(encoder)),
-        ..Default::default()
-    };
-    
-    load_json_dataset(path, config)
-}
 
 #[cfg(test)]
 mod tests {

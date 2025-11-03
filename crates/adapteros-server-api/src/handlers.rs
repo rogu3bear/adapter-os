@@ -6456,7 +6456,7 @@ pub async fn load_adapter(
         "unloading" => {
             return Err((
                 StatusCode::CONFLICT,
-                Json(ErrorResponse::new("OPERATION_IN_PROGRESS", &format!("Adapter '{}' is currently being unloaded. Please wait for the operation to complete.", adapter_id))),
+                Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
             ));
         }
         _ => {
@@ -6469,7 +6469,7 @@ pub async fn load_adapter(
         if let Err(conflict) = operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
             return Err((
                 StatusCode::CONFLICT,
-                Json(ErrorResponse::new("OPERATION_IN_PROGRESS", &conflict.to_string())),
+                Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
             ));
         }
     }
@@ -6864,7 +6864,7 @@ pub async fn unload_adapter(
                 }
 
                 // Complete operation tracking
-                state.operation_tracker.complete_operation(&adapter_id, &tenant_id, ModelOperationType::Unload, true).await;
+                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload, true).await;
             }
             Err(e) => {
                 // Complete operation tracking with failure

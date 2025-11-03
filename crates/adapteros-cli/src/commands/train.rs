@@ -3,12 +3,14 @@
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::packager::AdapterPackager;
 use adapteros_lora_worker::training::{
-    LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
+    load_json_dataset_with_tokenizer, LoRAQuantizer, MicroLoRATrainer, TrainingConfig,
+    TrainingExample,
 };
 use clap::Args;
 use serde_json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tokenizers::Tokenizer;
 use tracing::{info, warn};
 
 /// Train a LoRA adapter
@@ -89,6 +91,10 @@ pub struct TrainArgs {
     /// Registration rank; defaults to training rank
     #[arg(long)]
     reg_rank: Option<u32>,
+
+    /// Tokenizer path for text-based training data (defaults to models/qwen2.5-7b-mlx/tokenizer.json)
+    #[arg(long)]
+    tokenizer: Option<PathBuf>,
 }
 
 /// Training data format
@@ -243,47 +249,101 @@ impl TrainArgs {
         }
     }
 
-    /// Load training data
+    /// Load training data with auto-detection of format (text-based vs pre-tokenized)
     fn load_training_data(&self) -> Result<Vec<TrainingExample>> {
         let data_str = std::fs::read_to_string(&self.data)
             .map_err(|e| AosError::Io(format!("Failed to read training data: {}", e)))?;
 
-        let training_data: TrainingData = serde_json::from_str(&data_str)
-            .map_err(|e| AosError::Parse(format!("Failed to parse training data: {}", e)))?;
+        // Try to detect format by parsing JSON structure
+        let json_value: serde_json::Value = serde_json::from_str(&data_str)
+            .map_err(|e| AosError::Parse(format!("Failed to parse training data JSON: {}", e)))?;
 
-        self.validate_training_dataset(&training_data)?;
-
-        let examples: Vec<TrainingExample> = training_data
-            .examples
-            .into_iter()
-            .map(|ex| {
-                let metadata = ex
-                    .metadata
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|(k, v)| {
-                        let k = k.clone();
-                        v.as_str()
-                            .map(|value| (k.clone(), value.to_string()))
-                            .ok_or_else(|| {
-                                AosError::Validation(format!(
-                                    "Metadata value for key '{}' must be a string",
-                                    k
-                                ))
-                            })
+        // Check if this is a text-based format (has "name" field and examples with object/string inputs)
+        let is_text_format = json_value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .is_some()
+            && json_value
+                .get("examples")
+                .and_then(|v| v.as_array())
+                .map(|exs| {
+                    // Check if at least one example has input as object or string (text format)
+                    exs.iter().any(|ex| {
+                        ex.get("input").map_or(false, |input| {
+                            input.is_object() || input.is_string()
+                        })
                     })
-                    .collect::<Result<HashMap<_, _>>>()?;
-
-                Ok(TrainingExample {
-                    input: ex.input,
-                    target: ex.target,
-                    metadata,
-                    weight: 1.0,
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
+                .unwrap_or(false);
 
-        Ok(examples)
+        if is_text_format {
+            // Use JSON loader for text-based format
+            info!("Detected text-based training data format, using JSON loader with tokenization");
+
+            let tokenizer_path = self
+                .tokenizer
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json"));
+
+            if !tokenizer_path.exists() {
+                return Err(AosError::Io(format!(
+                    "Tokenizer file not found: {}. Please specify --tokenizer or ensure default path exists",
+                    tokenizer_path.display()
+                )));
+            }
+
+            let tokenizer = Tokenizer::from_file(&tokenizer_path)
+                .map_err(|e| AosError::Io(format!("Failed to load tokenizer from {}: {}", tokenizer_path.display(), e)))?;
+
+            info!("Loaded tokenizer from: {}", tokenizer_path.display());
+
+            let examples = load_json_dataset_with_tokenizer(&self.data, &tokenizer)
+                .map_err(|e| AosError::Training(format!("Failed to load text-based dataset: {}", e)))?;
+
+            info!("Successfully loaded {} examples from text-based dataset", examples.len());
+            Ok(examples)
+        } else {
+            // Use existing pre-tokenized loader
+            info!("Detected pre-tokenized training data format, using legacy loader");
+
+            let training_data: TrainingData = serde_json::from_value(json_value)
+                .map_err(|e| AosError::Parse(format!("Failed to parse pre-tokenized training data: {}", e)))?;
+
+            self.validate_training_dataset(&training_data)?;
+
+            let examples: Vec<TrainingExample> = training_data
+                .examples
+                .into_iter()
+                .map(|ex| {
+                    let metadata = ex
+                        .metadata
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(k, v)| {
+                            let k = k.clone();
+                            v.as_str()
+                                .map(|value| (k.clone(), value.to_string()))
+                                .ok_or_else(|| {
+                                    AosError::Validation(format!(
+                                        "Metadata value for key '{}' must be a string",
+                                        k
+                                    ))
+                                })
+                        })
+                        .collect::<Result<HashMap<_, _>>>()?;
+
+                    Ok(TrainingExample {
+                        input: ex.input,
+                        target: ex.target,
+                        metadata,
+                        weight: 1.0,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            info!("Successfully loaded {} examples from pre-tokenized dataset", examples.len());
+            Ok(examples)
+        }
     }
 
     fn validate_training_config(&self, config: &TrainingConfig) -> Result<()> {

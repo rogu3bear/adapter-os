@@ -8,6 +8,7 @@
 
 use memmap2::Mmap;
 use adapteros_core::{AosError, Result};
+use adapteros_secure_fs::{traversal::normalize_path, content::validate_and_parse_json};
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -113,7 +114,11 @@ impl ModelLoader {
     fn load_config(&self) -> Result<ModelConfig> {
         let config_path = self.model_path.join("config.json");
 
-        if !config_path.exists() {
+        // Canonicalize path for security validation
+        let canonical_config_path = normalize_path(&config_path)
+            .map_err(|e| AosError::Worker(format!("Path security validation failed for config.json: {}", e)))?;
+
+        if !canonical_config_path.exists() {
             // Return default config for Qwen2.5-7B
             return Ok(ModelConfig {
                 vocab_size: 32000,
@@ -127,11 +132,11 @@ impl ModelLoader {
             });
         }
 
-        let config_content = std::fs::read_to_string(&config_path)
+        let config_content = std::fs::read_to_string(&canonical_config_path)
             .map_err(|e| AosError::Worker(format!("Failed to read config: {}", e)))?;
 
-        let config: ModelConfig = serde_json::from_str(&config_content)
-            .map_err(|e| AosError::Worker(format!("Failed to parse config: {}", e)))?;
+        let config: ModelConfig = validate_and_parse_json(&config_content, "config.json")
+            .map_err(|e| AosError::Worker(format!("Config validation failed: {}", e)))?;
 
         Ok(config)
     }

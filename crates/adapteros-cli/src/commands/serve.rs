@@ -44,6 +44,9 @@ fn get_tenant_credentials(tenant: &str) -> Result<(u32, u32)> {
 use crate::output::OutputWriter;
 use crate::BackendType;
 
+#[cfg(feature = "serve-with-config")]
+use adapteros_server::config::Config;
+
 pub async fn run(
     tenant: &str,
     plan: &str,
@@ -88,6 +91,51 @@ pub async fn run(
     let manifest: adapteros_manifest::ManifestV3 = serde_json::from_str(&manifest_content)?;
 
     output.success("Manifest loaded");
+
+    // Load configuration for MLX settings (if feature enabled)
+    #[cfg(feature = "serve-with-config")]
+    let mlx_model_path = {
+        let config_path = "configs/cp.toml";
+        if std::path::Path::new(config_path).exists() {
+            match Config::load(config_path) {
+                Ok(config) => {
+                    output.verbose(format!("Configuration loaded from {}", config_path));
+
+                    // Apply MLX configuration if present
+                    if let Some(mlx_config) = &config.mlx {
+                        if mlx_config.enabled {
+                            // Check for early feature validation
+                            #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
+                            {
+                                output.warning("MLX backend is enabled in config but --features mlx-ffi-backend not enabled");
+                                output.warning("MLX backend will fail at runtime. Rebuild with: cargo build --features mlx-ffi-backend");
+                            }
+
+                            mlx_config.model_path.clone()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    output.warning(format!("Could not load configuration from {}: {}", config_path, e));
+                    output.warning("MLX configuration will be unavailable");
+                    None
+                }
+            }
+        } else {
+            output.verbose("No configuration file found, using defaults");
+            None
+        }
+    };
+
+    #[cfg(not(feature = "serve-with-config"))]
+    let mlx_model_path = {
+        output.verbose("Config loading not available, using environment variables only");
+        None
+    };
 
     // After manifest load, re-evaluate default socket path using policy uds_root
     if socket.as_os_str() == "/var/run/aos/aos.sock" {
@@ -221,15 +269,35 @@ pub async fn run(
 
     output.info("Initializing worker...");
 
-    // 1. Load model paths
-    let model_path = format!("./models/{}", manifest.base.model_id);
+    // 1. Load model paths with MLX precedence
+    let model_path = if matches!(backend, BackendType::Mlx) {
+        // For MLX backend: env var > config > manifest-based
+        if let Ok(env_path) = std::env::var("AOS_MLX_FFI_MODEL") {
+            output.verbose(format!("Using MLX model path from AOS_MLX_FFI_MODEL: {}", env_path));
+            env_path
+        } else if let Some(config_path) = mlx_model_path {
+            output.verbose(format!("Using MLX model path from config: {}", config_path));
+            config_path
+        } else {
+            let default_path = format!("./models/{}", manifest.base.model_id);
+            output.verbose(format!("Using default MLX model path from manifest: {}", default_path));
+            default_path
+        }
+    } else {
+        // For other backends: use manifest-based path
+        format!("./models/{}", manifest.base.model_id)
+    };
+
     let tokenizer_path = format!("{}/tokenizer.json", model_path);
 
-    if !std::path::Path::new(&model_path).exists() {
+    // Validate model path (MLX validation happens in backend selection)
+    if !matches!(backend, BackendType::Mlx) && !std::path::Path::new(&model_path).exists() {
         return Err(anyhow::anyhow!("Model directory not found: {}", model_path));
     }
 
-    output.success(format!("Model directory found: {}", model_path));
+    if !matches!(backend, BackendType::Mlx) {
+        output.success(format!("Model directory found: {}", model_path));
+    }
 
     // Validate tokenizer exists early to fail fast with actionable error
     if !std::path::Path::new(&tokenizer_path).exists() {
@@ -370,16 +438,24 @@ pub async fn run(
         BackendType::Mlx => {
             output.verbose("Using MLX backend (C++ FFI)");
 
-            #[cfg(not(feature = "experimental-backends"))]
+            // Validate that we have a model path for MLX
+            if !std::path::Path::new(&model_path).exists() {
+                output.error(format!("MLX model directory not found: {}", model_path));
+                output.info("Set AOS_MLX_FFI_MODEL environment variable or configure in configs/cp.toml");
+                output.info("Or ensure the model directory exists at the expected path");
+                return Err(anyhow::anyhow!("MLX model directory not found: {}", model_path));
+            }
+
+            #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
             {
-                output.error("MLX backend requires --features experimental-backends");
-                output.info("Rebuild with: cargo build --features experimental-backends");
+                output.error("MLX backend requires --features mlx-ffi-backend");
+                output.info("Rebuild with: cargo build --features mlx-ffi-backend");
                 return Err(anyhow::anyhow!(
                     "MLX backend not available in deterministic-only build"
                 ));
             }
 
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(any(feature = "mlx-ffi-backend", feature = "experimental-backends"))]
             {
                 adapteros_lora_worker::BackendChoice::Mlx {
                     model_path: std::path::PathBuf::from(&model_path),

@@ -915,7 +915,7 @@ impl MetalKernels {
             params.rank * params.intermediate_size,
         );
         self.copy_lora_matrix_a(
-            &params.weights,
+            params.weights,
             "gate_proj",
             &params.buffers.gate_lora_a,
             adapter_offset_hidden,
@@ -923,7 +923,7 @@ impl MetalKernels {
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            &params.weights,
+            params.weights,
             "gate_proj",
             &params.buffers.gate_lora_b,
             adapter_offset_intermediate_rank,
@@ -943,7 +943,7 @@ impl MetalKernels {
             params.rank * params.intermediate_size,
         );
         self.copy_lora_matrix_a(
-            &params.weights,
+            params.weights,
             "up_proj",
             &params.buffers.up_lora_a,
             adapter_offset_hidden,
@@ -951,7 +951,7 @@ impl MetalKernels {
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            &params.weights,
+            params.weights,
             "up_proj",
             &params.buffers.up_lora_b,
             adapter_offset_intermediate_rank,
@@ -971,7 +971,7 @@ impl MetalKernels {
             params.rank * params.hidden_size,
         );
         self.copy_lora_matrix_a(
-            &params.weights,
+            params.weights,
             "down_proj",
             &params.buffers.down_lora_a,
             adapter_offset_intermediate,
@@ -979,7 +979,7 @@ impl MetalKernels {
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            &params.weights,
+            params.weights,
             "down_proj",
             &params.buffers.down_lora_b,
             adapter_offset_hidden_rank,
@@ -999,7 +999,7 @@ impl MetalKernels {
             params.rank * params.hidden_size,
         );
         self.copy_lora_matrix_a(
-            &params.weights,
+            params.weights,
             "q_proj",
             &params.buffers.q_lora_a,
             adapter_offset_hidden,
@@ -1007,7 +1007,7 @@ impl MetalKernels {
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            &params.weights,
+            params.weights,
             "q_proj",
             &params.buffers.q_lora_b,
             adapter_offset_hidden_rank,
@@ -1027,7 +1027,7 @@ impl MetalKernels {
             params.rank * params.kv_width,
         );
         self.copy_lora_matrix_a(
-            &params.weights,
+            params.weights,
             "k_proj",
             &params.buffers.k_lora_a,
             adapter_offset_hidden,
@@ -1035,7 +1035,7 @@ impl MetalKernels {
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            &params.weights,
+            params.weights,
             "k_proj",
             &params.buffers.k_lora_b,
             adapter_offset_kv_rank,
@@ -1055,7 +1055,7 @@ impl MetalKernels {
             params.rank * params.kv_width,
         );
         self.copy_lora_matrix_a(
-            &params.weights,
+            params.weights,
             "v_proj",
             &params.buffers.v_lora_a,
             adapter_offset_hidden,
@@ -1063,7 +1063,7 @@ impl MetalKernels {
             copy_rank,
         )?;
         self.copy_lora_matrix_b_transpose(
-            &params.weights,
+            params.weights,
             "v_proj",
             &params.buffers.v_lora_b,
             adapter_offset_kv_rank,

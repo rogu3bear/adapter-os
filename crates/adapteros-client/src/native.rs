@@ -40,6 +40,118 @@ impl NativeClient {
         resp.json().await.context("Failed to parse user info")
     }
 
+    // Extended Auth Methods
+    async fn refresh_token(&self, token: &str) -> Result<String> {
+        let url = format!("{}/v1/auth/refresh", self.base_url);
+        let resp = self.client
+            .post(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        let json: serde_json::Value = resp.json().await.context("Failed to parse refresh response")?;
+        json["message"].as_str()
+            .context("Missing message in refresh response")
+            .map(|s| s.to_string())
+    }
+
+    async fn list_sessions(&self, token: &str) -> Result<Vec<adapteros_api_types::auth::SessionInfo>> {
+        let url = format!("{}/v1/auth/sessions", self.base_url);
+        let resp = self.client
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse sessions response")
+    }
+
+    async fn revoke_session(&self, token: &str, session_id: &str) -> Result<String> {
+        let url = format!("{}/v1/auth/sessions/{}", self.base_url, session_id);
+        let resp = self.client
+            .delete(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        let json: serde_json::Value = resp.json().await.context("Failed to parse revoke response")?;
+        json["message"].as_str()
+            .context("Missing message in revoke response")
+            .map(|s| s.to_string())
+    }
+
+    async fn logout_all(&self, token: &str) -> Result<String> {
+        let url = format!("{}/v1/auth/logout-all", self.base_url);
+        let resp = self.client
+            .post(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        let json: serde_json::Value = resp.json().await.context("Failed to parse logout all response")?;
+        json["message"].as_str()
+            .context("Missing message in logout all response")
+            .map(|s| s.to_string())
+    }
+
+    async fn rotate_token(&self, token: &str) -> Result<adapteros_api_types::auth::RotateTokenResponse> {
+        let url = format!("{}/v1/auth/token/rotate", self.base_url);
+        let resp = self.client
+            .post(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse rotate token response")
+    }
+
+    async fn get_token_metadata(&self, token: &str) -> Result<adapteros_api_types::auth::TokenMetadata> {
+        let url = format!("{}/v1/auth/token", self.base_url);
+        let resp = self.client
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse token metadata response")
+    }
+
+    async fn update_profile(&self, token: &str, req: adapteros_api_types::auth::UpdateProfileRequest) -> Result<adapteros_api_types::auth::ProfileResponse> {
+        let url = format!("{}/v1/auth/profile", self.base_url);
+        let resp = self.client
+            .put(&url)
+            .bearer_auth(token)
+            .json(&req)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse profile update response")
+    }
+
+    async fn get_auth_config(&self, token: &str) -> Result<adapteros_api_types::auth::AuthConfigResponse> {
+        let url = format!("{}/v1/auth/config", self.base_url);
+        let resp = self.client
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse auth config response")
+    }
+
+    async fn update_auth_config(&self, token: &str, req: adapteros_api_types::auth::UpdateAuthConfigRequest) -> Result<adapteros_api_types::auth::AuthConfigResponse> {
+        let url = format!("{}/v1/auth/config", self.base_url);
+        let resp = self.client
+            .put(&url)
+            .bearer_auth(token)
+            .json(&req)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse auth config update response")
+    }
+
+    async fn get_user_info(&self, token: &str) -> Result<UserInfoResponse> {
+        let url = format!("{}/v1/auth/me", self.base_url);
+        let resp = self.client
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        resp.json().await.context("Failed to parse user info")
+    }
+
     // Tenants
     async fn list_tenants(&self) -> Result<Vec<TenantResponse>> {
         let url = format!("{}/v1/tenants", self.base_url);
@@ -417,6 +529,16 @@ impl AdapterOSClient for NativeClient {
         login(req: LoginRequest) -> LoginResponse,
         logout() -> (),
         me() -> UserInfoResponse,
+        refresh_token(token: &str) -> String,
+        list_sessions(token: &str) -> Vec<adapteros_api_types::auth::SessionInfo>,
+        revoke_session(token: &str, session_id: &str) -> String,
+        logout_all(token: &str) -> String,
+        rotate_token(token: &str) -> adapteros_api_types::auth::RotateTokenResponse,
+        get_token_metadata(token: &str) -> adapteros_api_types::auth::TokenMetadata,
+        update_profile(token: &str, req: adapteros_api_types::auth::UpdateProfileRequest) -> adapteros_api_types::auth::ProfileResponse,
+        get_auth_config(token: &str) -> adapteros_api_types::auth::AuthConfigResponse,
+        update_auth_config(token: &str, req: adapteros_api_types::auth::UpdateAuthConfigRequest) -> adapteros_api_types::auth::AuthConfigResponse,
+        get_user_info(token: &str) -> UserInfoResponse,
         list_tenants() -> Vec<TenantResponse>,
         create_tenant(req: CreateTenantRequest) -> TenantResponse,
         list_adapters() -> Vec<AdapterResponse>,

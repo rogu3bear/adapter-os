@@ -26,6 +26,7 @@ import { AdapterImportWizard } from './AdapterImportWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
 import { useViewTransition } from '../hooks/useViewTransition';
 import { useUndoRedoContext } from '../contexts/UndoRedoContext';
+import { useProgressOperation } from '../hooks/useProgressOperation';
 import { 
   Plus, 
   Code, 
@@ -196,6 +197,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [upsertActivate, setUpsertActivate] = useState(true);
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
   const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
+
+  // Progress tracking for long operations
+  const { operation: activeProgressOperation, start: startProgressOperation, cancel: cancelProgressOperation } = useProgressOperation();
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
   const [selectedAdapterForHealth, setSelectedAdapterForHealth] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
@@ -441,7 +445,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     try {
       const adapter = adapters.find(a => a.adapter_id === adapterId);
       const previousState = adapter?.current_state;
-      
+
+      // Start progress tracking
+      const operationId = startProgressOperation('adapter_load', adapterId, selectedTenant);
+
       showStatus('Loading adapter...', 'info');
       await apiClient.loadAdapter(adapterId);
       

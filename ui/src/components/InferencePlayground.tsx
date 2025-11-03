@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCancellableOperation } from '../hooks/useCancellableOperation';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -24,7 +25,8 @@ import {
   FileText,
   AlertTriangle,
   CheckCircle,
-  Code
+  Code,
+  Square
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
@@ -58,6 +60,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('');
   const [inferenceError, setInferenceError] = useState<Error | null>(null);
   const [adaptersLoadError, setAdaptersLoadError] = useState<Error | null>(null);
+
+  // Cancellation support for inference operations
+  const { state: inferenceState, start: startInference, cancel: cancelInference } = useCancellableOperation();
 
   // Graceful degradation: Monitor adapter availability
   const adapterAvailability = useFeatureDegradation({
@@ -205,25 +210,29 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     setResponse(null);
 
     try {
-      // Include adapters array if selected
-      const inferenceRequest: InferRequest = {
-        ...config,
-        adapters: selectedAdapterId ? [selectedAdapterId] : undefined,
-      };
-      const response = await apiClient.infer(inferenceRequest);
-      setResponse(response);
-      saveSession(config, response);
-      // Success - no need for toast
+      await startInference(async (signal) => {
+        // Include adapters array if selected
+        const inferenceRequest: InferRequest = {
+          ...config,
+          adapters: selectedAdapterId ? [selectedAdapterId] : undefined,
+        };
+        const response = await apiClient.infer(inferenceRequest, {}, false, signal);
+        setResponse(response);
+        saveSession(config, response);
+        return response;
+      }, `inference-${config.id}`);
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Inference failed');
-      setInferenceError(error);
-      logger.error('Inference request failed', {
-        component: 'InferencePlayground',
-        operation: 'infer',
-        configId: config.id,
-        tenantId: selectedTenant,
-        adapterId: selectedAdapterId,
-      }, toError(err));
+      if (err) { // Only set error if it's not a cancellation
+        const error = err instanceof Error ? err : new Error('Inference failed');
+        setInferenceError(error);
+        logger.error('Inference request failed', {
+          component: 'InferencePlayground',
+          operation: 'infer',
+          configId: config.id,
+          tenantId: selectedTenant,
+          adapterId: selectedAdapterId,
+        }, toError(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -542,15 +551,26 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
                 {renderAdvancedOptions(configA, setConfigA)}
 
-                <Button
-                  className="w-full"
-                  onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                  disabled={isLoadingA}
-                  aria-label="Run inference with current configuration"
-                >
-                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                  {isLoadingA ? 'Generating...' : 'Generate'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
+                    disabled={isLoadingA}
+                    aria-label="Run inference with current configuration"
+                  >
+                    <Play className="h-4 w-4 mr-2" aria-hidden="true" />
+                    {isLoadingA ? 'Generating...' : 'Generate'}
+                  </Button>
+                  {inferenceState.isRunning && (
+                    <Button
+                      variant="outline"
+                      onClick={cancelInference}
+                      aria-label="Cancel inference"
+                    >
+                      <Square className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
 
                 {responseA && (
                   <Button
@@ -641,14 +661,25 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               </CardHeader>
               <CardContent className="space-y-4">
                 {renderAdvancedOptions(configA, setConfigA)}
-                <Button
-                  className="w-full"
-                  onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                  disabled={isLoadingA || !prompt.trim()}
-                >
-                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                  Generate A
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
+                    disabled={isLoadingA || !prompt.trim()}
+                  >
+                    <Play className="h-4 w-4 mr-2" aria-hidden="true" />
+                    Generate A
+                  </Button>
+                  {inferenceState.isRunning && (
+                    <Button
+                      variant="outline"
+                      onClick={cancelInference}
+                      aria-label="Cancel inference A"
+                    >
+                      <Square className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
                 {renderResponse(responseA, isLoadingA)}
               </CardContent>
             </Card>
@@ -663,14 +694,25 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               </CardHeader>
               <CardContent className="space-y-4">
                 {renderAdvancedOptions(configB, setConfigB)}
-                <Button
-                  className="w-full"
-                  onClick={() => handleInfer(configB, setResponseB, setIsLoadingB)}
-                  disabled={isLoadingB || !prompt.trim()}
-                >
-                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                  Generate B
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    onClick={() => handleInfer(configB, setResponseB, setIsLoadingB)}
+                    disabled={isLoadingB || !prompt.trim()}
+                  >
+                    <Play className="h-4 w-4 mr-2" aria-hidden="true" />
+                    Generate B
+                  </Button>
+                  {inferenceState.isRunning && (
+                    <Button
+                      variant="outline"
+                      onClick={cancelInference}
+                      aria-label="Cancel inference B"
+                    >
+                      <Square className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
                 {renderResponse(responseB, isLoadingB)}
               </CardContent>
             </Card>

@@ -76,6 +76,17 @@ impl ErrorResponse {
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
+    /// Model runtime health information
+    pub models: Option<ModelRuntimeHealth>,
+}
+
+/// Model runtime health summary
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ModelRuntimeHealth {
+    pub total_models: i32,
+    pub loaded_count: i32,
+    pub healthy: bool,
+    pub inconsistencies_count: usize,
 }
 
 /// Pagination parameters

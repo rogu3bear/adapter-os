@@ -16,8 +16,10 @@ pub mod diag;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
 pub mod drift_check;
 pub mod explain;
-// pub mod export_callgraph;  // Temporarily disabled due to mplora-codegraph dependency
+pub mod export_callgraph;
+pub mod codegraph_stats;
 pub mod adapters;
+pub mod aos;
 pub mod golden;
 pub mod import;
 pub mod import_model;
@@ -45,6 +47,7 @@ pub mod serve;
 pub mod sync_registry;
 pub mod trace_validate;
 pub mod train;
+pub mod train_base_adapter;
 pub mod tutorial;
 pub mod verify;
 pub mod verify_adapter;

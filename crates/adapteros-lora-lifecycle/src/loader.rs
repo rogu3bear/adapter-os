@@ -1,6 +1,10 @@
 //! Hot-swap adapter loading and unloading
 
 use adapteros_core::{AosError, Result};
+use adapteros_secure_fs::traversal::{
+    check_path_traversal, join_paths_safe, normalize_path,
+    PathValidationConfig, validate_file_path_comprehensive, safe_file_exists, safe_file_metadata
+};
 use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -21,6 +25,8 @@ pub struct AdapterLoader {
     hot_swap_enabled: bool,
     /// Optional mmap loader for .aos files
     mmap_loader: Option<Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>>,
+    /// Maximum adapter file size in bytes (default: 500MB)
+    max_adapter_size_bytes: u64,
 }
 
 impl AdapterLoader {
@@ -33,7 +39,13 @@ impl AdapterLoader {
             mmap_cache_size_mb: 512,
             hot_swap_enabled: false,
             mmap_loader: None,
+            max_adapter_size_bytes: 500 * 1024 * 1024, // Default 500MB
         }
+    }
+
+    /// Set maximum adapter file size in bytes
+    pub fn set_max_size(&mut self, max_bytes: u64) {
+        self.max_adapter_size_bytes = max_bytes;
     }
 
     /// Enable memory-mapped adapter loading
@@ -72,12 +84,37 @@ impl AdapterLoader {
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
     pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
-        let adapter_path = self.resolve_path(adapter_name);
+        let adapter_path = self.resolve_path(adapter_name)?;
 
-        if !adapter_path.exists() {
+        // Configure path validation for adapter loading
+        let path_config = PathValidationConfig {
+            allowed_bases: vec![self.base_path.clone()],
+            max_path_length: 4096,
+            max_file_size_bytes: self.max_adapter_size_bytes,
+        };
+
+        // Validate adapter path with enhanced security
+        validate_file_path_comprehensive(&adapter_path, &path_config)
+            .map_err(|e| AosError::Lifecycle(format!("Invalid adapter path: {}", e)))?;
+
+        let path_exists = safe_file_exists(&adapter_path, &path_config.allowed_bases)
+            .map_err(|e| AosError::Lifecycle(format!("Cannot access adapter file: {}", e)))?;
+
+        if !path_exists {
             return Err(AosError::Lifecycle(format!(
                 "Adapter file not found: {}",
                 adapter_path.display()
+            )));
+        }
+
+        // Check file size before loading to prevent OOM using safe metadata read
+        let metadata = safe_file_metadata(&adapter_path, &path_config.allowed_bases)
+            .map_err(|e| AosError::Lifecycle(format!("Failed to read file metadata: {}", e)))?;
+        if metadata.len() > self.max_adapter_size_bytes {
+            return Err(AosError::PolicyViolation(format!(
+                "Adapter file size {} bytes exceeds maximum {} bytes",
+                metadata.len(),
+                self.max_adapter_size_bytes
             )));
         }
 
@@ -108,8 +145,10 @@ impl AdapterLoader {
         adapter_id: u16,
         adapter_name: &str,
     ) -> Result<AdapterHandle> {
+        // Resolve path with security validation first
+        let adapter_path = self.resolve_path(adapter_name)?;
+        
         // Prefer memory-mapped .aos path if configured and available
-        let adapter_path = self.resolve_path(adapter_name);
         if self.use_mmap && adapter_path.extension() == Some(OsStr::new("aos")) {
             if let Some(mmap_loader) = self.mmap_loader.clone() {
                 return self
@@ -117,51 +156,61 @@ impl AdapterLoader {
                     .await;
             }
         }
+        
         // Perform the blocking load operation in a blocking task
-        let base_path = self.base_path.clone();
-        let adapter_name = adapter_name.to_string();
+        let adapter_path_clone = adapter_path.clone();
+        let adapter_name_clone = adapter_name.to_string();
 
+        let max_size = self.max_adapter_size_bytes;
+        let base_path = self.base_path.clone();
         let handle = tokio::task::spawn_blocking(move || {
-            // Resolve candidate paths
-            let adapter_path = {
-                let mut name = adapter_name.clone();
-                if let Some(rest) = name.strip_prefix("b3:") {
-                    name = rest.to_string();
-                }
-                // Prefer sanitized name; avoid using the raw adapter_name with prefix as a path segment
-                let candidates = [
-                    base_path.join(format!("{}.safetensors", name)),
-                    base_path.join(&name).join("weights.safetensors"),
-                ];
-                candidates
-                    .into_iter()
-                    .find(|p| p.exists())
-                    .unwrap_or(base_path.join(format!("{}.safetensors", name)))
+            // Configure path validation for adapter loading
+            let path_config = PathValidationConfig {
+                allowed_bases: vec![base_path],
+                max_path_length: 4096,
+                max_file_size_bytes: max_size,
             };
 
-            if !adapter_path.exists() {
+            // Validate adapter path with enhanced security
+            validate_file_path_comprehensive(&adapter_path_clone, &path_config)
+                .map_err(|e| AosError::Lifecycle(format!("Invalid adapter path: {}", e)))?;
+
+            let path_exists = safe_file_exists(&adapter_path_clone, &path_config.allowed_bases)
+                .map_err(|e| AosError::Lifecycle(format!("Cannot access adapter file: {}", e)))?;
+
+            if !path_exists {
                 return Err(AosError::Lifecycle(format!(
                     "Adapter file not found: {}",
-                    adapter_path.display()
+                    adapter_path_clone.display()
+                )));
+            }
+
+            // Check file size before loading to prevent OOM using safe metadata read
+            let metadata = safe_file_metadata(&adapter_path_clone, &path_config.allowed_bases)
+                .map_err(|e| AosError::Lifecycle(format!("Failed to read file metadata: {}", e)))?;
+            if metadata.len() > max_size {
+                return Err(AosError::PolicyViolation(format!(
+                    "Adapter file size {} bytes exceeds maximum {} bytes",
+                    metadata.len(),
+                    max_size
                 )));
             }
 
             // Load adapter weights from SafeTensors format
-            use std::fs;
-            let weights_data = fs::read(&adapter_path)
+            let weights_data = std::fs::read(&adapter_path_clone)
                 .map_err(|e| AosError::Lifecycle(format!("Failed to read adapter file: {}", e)))?;
 
             tracing::info!(
                 "Loaded adapter {} ({}) from {} ({} bytes)",
                 adapter_id,
-                adapter_name,
-                adapter_path.display(),
+                adapter_name_clone,
+                adapter_path_clone.display(),
                 weights_data.len()
             );
 
             Ok(AdapterHandle {
                 adapter_id,
-                path: adapter_path.clone(),
+                path: adapter_path_clone,
                 memory_bytes: weights_data.len(),
             })
         })
@@ -307,7 +356,33 @@ impl AdapterLoader {
         adapter_name: &str,
         loader: &Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>,
     ) -> Result<AdapterHandle> {
-        let path = self.resolve_path(adapter_name);
+        let path = self.resolve_path(adapter_name)?;
+
+        // Configure path validation for adapter loading
+        let path_config = PathValidationConfig {
+            allowed_bases: vec![self.base_path.clone()],
+            max_path_length: 4096,
+            max_file_size_bytes: self.max_adapter_size_bytes,
+        };
+
+        // Validate adapter path with enhanced security
+        validate_file_path_comprehensive(&path, &path_config)
+            .map_err(|e| AosError::Lifecycle(format!("Invalid adapter path: {}", e)))?;
+
+        // Check file size before loading to prevent OOM using async safe metadata read
+        // Note: tokio::fs::metadata is used here since it's async, but we could enhance this
+        // with a safe async version in the future
+        let metadata = tokio::fs::metadata(&path)
+            .await
+            .map_err(|e| AosError::Lifecycle(format!("Failed to read file metadata: {}", e)))?;
+        if metadata.len() > self.max_adapter_size_bytes {
+            return Err(AosError::PolicyViolation(format!(
+                "Adapter file size {} bytes exceeds maximum {} bytes",
+                metadata.len(),
+                self.max_adapter_size_bytes
+            )));
+        }
+        
         let options = adapteros_single_file_adapter::LoadOptions {
             skip_verification: false,
             skip_signature_check: false,
@@ -343,54 +418,104 @@ impl AdapterLoader {
         16 * 1024 * 1024
     }
 
-    /// Resolve adapter file path from flexible identifiers
+    /// Resolve adapter file path from flexible identifiers with security validation
     ///
     /// Supports the following layouts:
     /// - .aos files:    `<root>/<id>.aos` (PREFERRED)
     /// - Hex-based:     `<root>/<hex>.safetensors` or `<root>/<hex>/weights.safetensors`
     /// - Packaged dir:  `<root>/<id>/weights.safetensors`
     /// - Legacy flat:   `<root>/<id>.safetensors`
-    fn resolve_path(&self, adapter_name: &str) -> std::path::PathBuf {
+    ///
+    /// All paths are validated to prevent path traversal attacks and canonicalized
+    /// to ensure they remain within the base_path directory.
+    fn resolve_path(&self, adapter_name: &str) -> Result<PathBuf> {
+        // Validate adapter_name doesn't contain traversal patterns
+        check_path_traversal(adapter_name)?;
+
         let mut name = adapter_name.to_string();
         if let Some(rest) = name.strip_prefix("b3:") {
             name = rest.to_string();
         }
 
+        // Validate sanitized name
+        check_path_traversal(&name)?;
+
         let is_hex = name.len() == 64 && name.chars().all(|c| c.is_ascii_hexdigit());
 
-        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        let mut candidates: Vec<PathBuf> = Vec::new();
 
-        // 1. FIRST: Try .aos files (preferred format)
-        candidates.push(self.base_path.join(format!("{}.aos", &name)));
+        // 1. FIRST: Try .aos files (preferred format) with secure path joining
+        if let Ok(path) = join_paths_safe(&self.base_path, format!("{}.aos", &name)) {
+            candidates.push(path);
+        }
         if adapter_name != name {
-            candidates.push(self.base_path.join(format!("{}.aos", adapter_name)));
+            if let Ok(path) = join_paths_safe(&self.base_path, format!("{}.aos", adapter_name)) {
+                candidates.push(path);
+            }
         }
 
-        // 2. Then try SafeTensors formats
-        // Prefer packaged dir over flat for non-hex ids
+        // 2. Then try SafeTensors formats with secure path joining
         if !is_hex {
-            candidates.push(self.base_path.join(&name).join("weights.safetensors"));
-            candidates.push(self.base_path.join(format!("{}.safetensors", &name)));
+            // Prefer packaged dir over flat for non-hex ids
+            if let Ok(dir_path) = join_paths_safe(&self.base_path, &name) {
+                if let Ok(path) = join_paths_safe(&dir_path, "weights.safetensors") {
+                    candidates.push(path);
+                }
+            }
+            if let Ok(path) = join_paths_safe(&self.base_path, format!("{}.safetensors", &name)) {
+                candidates.push(path);
+            }
         } else {
             // For hex, try flat first (CAS-like) then packaged dir
-            candidates.push(self.base_path.join(format!("{}.safetensors", &name)));
-            candidates.push(self.base_path.join(&name).join("weights.safetensors"));
+            if let Ok(path) = join_paths_safe(&self.base_path, format!("{}.safetensors", &name)) {
+                candidates.push(path);
+            }
+            if let Ok(dir_path) = join_paths_safe(&self.base_path, &name) {
+                if let Ok(path) = join_paths_safe(&dir_path, "weights.safetensors") {
+                    candidates.push(path);
+                }
+            }
         }
 
         // Also consider the raw adapter_name value (could include prefixes or legacy ids)
         if adapter_name != name {
-            candidates.push(
-                self.base_path
-                    .join(adapter_name)
-                    .join("weights.safetensors"),
-            );
-            candidates.push(self.base_path.join(format!("{}.safetensors", adapter_name)));
+            if let Ok(dir_path) = join_paths_safe(&self.base_path, adapter_name) {
+                if let Ok(path) = join_paths_safe(&dir_path, "weights.safetensors") {
+                    candidates.push(path);
+                }
+            }
+            if let Ok(path) = join_paths_safe(&self.base_path, format!("{}.safetensors", adapter_name)) {
+                candidates.push(path);
+            }
         }
 
-        candidates
-            .into_iter()
-            .find(|p| p.exists())
-            .unwrap_or_else(|| self.base_path.join(format!("{}.aos", &name)))
+        // Find first existing candidate
+        let resolved = match candidates.into_iter().find(|p| p.exists()) {
+            Some(path) => path,
+            None => {
+                // Default fallback - still needs to be validated
+                join_paths_safe(&self.base_path, format!("{}.aos", &name))
+                    .map_err(|e| AosError::Security(format!("Failed to resolve adapter path: {}", e)))?
+            }
+        };
+
+        // Canonicalize and verify the path is within base_path
+        let canonical_base = self.base_path
+            .canonicalize()
+            .map_err(|e| AosError::Security(format!("Failed to canonicalize base path: {}", e)))?;
+        
+        let canonical_resolved = normalize_path(&resolved)?;
+        
+        // Verify resolved path is within base_path
+        if !canonical_resolved.starts_with(&canonical_base) {
+            return Err(AosError::Security(format!(
+                "Resolved adapter path {} is outside base directory {}",
+                canonical_resolved.display(),
+                canonical_base.display()
+            )));
+        }
+
+        Ok(canonical_resolved)
     }
 }
 

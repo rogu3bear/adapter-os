@@ -22,7 +22,7 @@ export interface RecoveryAction {
 export interface ErrorRecoveryProps {
   title?: string;
   message: string;
-  error?: Error;
+  error?: Error & { userFriendly?: { title: string; message: string; actionText?: string; helpUrl?: string; variant: string } };
   recoveryActions?: RecoveryAction[];
   showHelp?: boolean;
   helpUrl?: string;
@@ -31,7 +31,7 @@ export interface ErrorRecoveryProps {
 }
 
 export function ErrorRecovery({
-  title = 'Something went wrong',
+  title,
   message,
   error,
   recoveryActions = [],
@@ -40,8 +40,23 @@ export function ErrorRecovery({
   variant = 'error',
   className = ''
 }: ErrorRecoveryProps) {
+  // Use user-friendly error information if available
+  const displayTitle = error?.userFriendly?.title || title || 'Something went wrong';
+  const displayMessage = error?.userFriendly?.message || message;
+  const displayVariant = (error?.userFriendly?.variant as 'error' | 'warning' | 'info') || variant;
+  const displayHelpUrl = error?.userFriendly?.helpUrl || helpUrl;
+
+  // Add user-friendly action if available
+  const enhancedRecoveryActions = [...recoveryActions];
+  if (error?.userFriendly?.actionText && recoveryActions.length === 0) {
+    enhancedRecoveryActions.push({
+      label: error.userFriendly.actionText,
+      action: () => window.location.reload(), // Default action - could be customized
+      primary: true
+    });
+  }
   const getIcon = () => {
-    switch (variant) {
+    switch (displayVariant) {
       case 'warning':
         return <AlertTriangle className="h-5 w-5 text-amber-600" />;
       case 'info':
@@ -52,7 +67,7 @@ export function ErrorRecovery({
   };
 
   const getAlertClass = () => {
-    switch (variant) {
+    switch (displayVariant) {
       case 'warning':
         return 'border-amber-200 bg-amber-50';
       case 'info':
@@ -63,7 +78,7 @@ export function ErrorRecovery({
   };
 
   const getTitleClass = () => {
-    switch (variant) {
+    switch (displayVariant) {
       case 'warning':
         return 'text-amber-800';
       case 'info':
@@ -74,7 +89,7 @@ export function ErrorRecovery({
   };
 
   const getMessageClass = () => {
-    switch (variant) {
+    switch (displayVariant) {
       case 'warning':
         return 'text-amber-700';
       case 'info':
@@ -89,10 +104,10 @@ export function ErrorRecovery({
       {getIcon()}
       <div className="flex-1">
         <AlertTitle className={`${getTitleClass()} font-semibold`}>
-          {title}
+          {displayTitle}
         </AlertTitle>
         <AlertDescription className={`mt-1 ${getMessageClass()}`}>
-          {message}
+          {displayMessage}
 
           {error && (
             <details className="mt-2">
@@ -111,9 +126,9 @@ export function ErrorRecovery({
             </details>
           )}
 
-          {(recoveryActions.length > 0 || showHelp) && (
+          {(enhancedRecoveryActions.length > 0 || showHelp) && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {recoveryActions.map((action, index) => (
+              {enhancedRecoveryActions.map((action, index) => (
                 <Button
                   key={index}
                   variant={action.variant || (action.primary ? 'default' : 'outline')}
@@ -131,8 +146,9 @@ export function ErrorRecovery({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    if (helpUrl) {
-                      window.open(helpUrl, '_blank');
+                    const helpLink = displayHelpUrl || helpUrl;
+                    if (helpLink) {
+                      window.open(helpLink, '_blank');
                     } else {
                       // Default help action - could open help modal
                       logger.info('Help requested from error recovery component', {

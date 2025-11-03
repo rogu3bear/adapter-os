@@ -20,11 +20,13 @@ import {
   Activity,
   Terminal,
   Brain,
-  Settings
+  Settings,
+  Key
 } from 'lucide-react';
 import { ServiceCard } from './ServiceCard';
 import { TerminalOutput } from './TerminalOutput';
 import PromptOrchestrationPanel from './PromptOrchestrationPanel';
+import { AuthenticationSettings } from './AuthenticationSettings';
 
 // Simple service interface
 interface SimpleService {
@@ -249,7 +251,7 @@ export default function ServicePanel() {
         </div>
 
         <Tabs defaultValue="services" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="services" className="flex items-center gap-2">
               <Settings className="w-4 h-4" />
               Services
@@ -261,6 +263,10 @@ export default function ServicePanel() {
             <TabsTrigger value="monitoring" className="flex items-center gap-2">
               <Activity className="w-4 h-4" />
               Monitoring
+            </TabsTrigger>
+            <TabsTrigger value="authentication" className="flex items-center gap-2">
+              <Key className="w-4 h-4" />
+              Authentication
             </TabsTrigger>
           </TabsList>
 
@@ -438,6 +444,10 @@ export default function ServicePanel() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="authentication">
+            <AuthenticationSettings />
           </TabsContent>
         </Tabs>
       </div>

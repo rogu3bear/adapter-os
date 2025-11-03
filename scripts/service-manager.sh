@@ -82,6 +82,22 @@ backend_start() {
     # Change to project root for relative paths
     cd "$PROJECT_ROOT"
 
+    # Check for MLX backend configuration
+    if [ -n "${AOS_MLX_FFI_MODEL:-}" ]; then
+        echo -e "${BLUE}MLX backend requested: ${AOS_MLX_FFI_MODEL}${NC}"
+        
+        # Validate model path exists
+        if [ ! -d "$AOS_MLX_FFI_MODEL" ]; then
+            echo -e "${RED}MLX model path does not exist: $AOS_MLX_FFI_MODEL${NC}"
+            echo -e "${YELLOW}Please set AOS_MLX_FFI_MODEL to a valid model directory${NC}"
+            return 1
+        fi
+        
+        # Check if binary was built with mlx-ffi-backend feature
+        # This is a simple check - in practice, the server will report if feature is missing
+        echo -e "${BLUE}MLX backend will be used if --features mlx-ffi-backend was enabled${NC}"
+    fi
+
     # Start backend server
     ./target/debug/adapteros-server --skip-pf-check --config configs/cp.toml --single-writer > server.log 2>&1 &
     local pid=$!

@@ -70,6 +70,20 @@ export interface TokenMetadata {
   last_used_at?: string;
 }
 
+export interface AuthConfigResponse {
+  production_mode: boolean;
+  dev_token_enabled: boolean;
+  jwt_mode: string;
+  token_expiry_hours: number;
+}
+
+export interface UpdateAuthConfigRequest {
+  production_mode?: boolean;
+  dev_token_enabled?: boolean;
+  jwt_mode?: string;
+  token_expiry_hours?: number;
+}
+
 export interface UpdateProfileRequest {
   display_name?: string;
   avatar_url?: string;

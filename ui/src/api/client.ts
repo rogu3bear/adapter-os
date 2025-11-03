@@ -10,19 +10,32 @@
 import * as types from './types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
+import { enhanceError, isTransientError } from '../utils/errorMessages';
+import { retryWithBackoff, RetryConfig, createRetryWrapper } from '../utils/retry';
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 
 class ApiClient {
   private baseUrl: string;
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
+  private retryConfig: RetryConfig;
 
-  constructor(baseUrl: string = API_BASE_URL) {
+  constructor(baseUrl: string = API_BASE_URL, retryConfig?: Partial<RetryConfig>) {
     this.baseUrl = baseUrl;
+    this.retryConfig = {
+      maxAttempts: 3,
+      baseDelay: 1000,
+      maxDelay: 10000,
+      backoffMultiplier: 2,
+      jitter: 0.1,
+      retryableErrors: isTransientError,
+      ...retryConfig
+    };
     logger.info('API Client initialized', {
       component: 'ApiClient',
       operation: 'constructor',
-      baseUrl: this.baseUrl
+      baseUrl: this.baseUrl,
+      retryEnabled: true
     });
   }
 
@@ -67,8 +80,44 @@ class ApiClient {
 
   async request<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    skipRetry: boolean = false,
+    cancelToken?: AbortSignal,
+    allowMutationRetry: boolean = false
   ): Promise<T> {
+    const method = options.method || 'GET';
+
+    // Configure retry based on HTTP method and explicit permission
+    // GET requests are safe to retry, mutations need explicit permission
+    const shouldRetry = !skipRetry && (method === 'GET' || method === 'HEAD' || allowMutationRetry);
+    const operationConfig = shouldRetry ? this.retryConfig : {
+      ...this.retryConfig,
+      maxAttempts: 1 // No retry for mutations unless explicitly enabled
+    };
+
+    const operation = async (): Promise<T> => {
+      return this.executeRequest(path, options, cancelToken);
+    };
+
+    const result = await retryWithBackoff(operation, operationConfig, (attempt, error, delay) => {
+      logger.info('Retrying API request', {
+        component: 'ApiClient',
+        operation: 'request',
+        method,
+        path,
+        attempt,
+        delay
+      });
+    }, `${method} ${path}`);
+
+    if (result.success) {
+      return result.value;
+    } else {
+      throw (result as any).error;
+    }
+  }
+
+  private async executeRequest<T>(path: string, options: RequestInit = {}, cancelToken?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${path}`;
 
     // Compute deterministic request ID
@@ -91,13 +140,14 @@ class ApiClient {
         ...options,
         headers,
         credentials: 'include', // Send httpOnly cookies
+        signal: cancelToken, // Add cancellation support
       });
     } catch (networkError) {
       // Network error (connection failure, timeout, etc.)
       const error = toError(networkError);
       logger.error('API request network error', {
         component: 'ApiClient',
-        operation: 'request',
+        operation: 'executeRequest',
         method,
         path,
         requestId,
@@ -119,20 +169,75 @@ class ApiClient {
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       let errorCode: string | undefined;
-      
+      let errorDetails: any = {};
+
       try {
         const error: types.ErrorResponse = await response.json();
         errorMessage = error.error || errorMessage;
         errorCode = error.code;
+        errorDetails = error.details || {};
       } catch {
         // If JSON parsing fails, use status text
       }
-      
-      const error = new Error(errorMessage);
-      (error as any).code = errorCode;
-      (error as any).status = response.status;
-      
-      // Log HTTP errors before throwing
+
+      const originalError = new Error(errorMessage);
+      (originalError as any).code = errorCode;
+      (originalError as any).status = response.status;
+      (originalError as any).details = errorDetails;
+
+      // Extract context from request for better error messages
+      const context: any = {
+        operation: path.split('/').pop(),
+        method,
+        path,
+      };
+
+      // Extract adapter ID from path if present
+      const adapterMatch = path.match(/\/adapters\/([^\/]+)/);
+      if (adapterMatch) {
+        context.adapterId = adapterMatch[1];
+      }
+
+      // Extract model ID from path if present
+      const modelMatch = path.match(/\/models\/([^\/]+)/);
+      if (modelMatch) {
+        context.modelId = modelMatch[1];
+      }
+
+      // Extract training job ID from path if present
+      const trainingMatch = path.match(/\/training\/[^\/]+\/([^\/]+)/);
+      if (trainingMatch) {
+        context.jobId = trainingMatch[1];
+      }
+
+      // Extract file size from FormData if present
+      if (options.body instanceof FormData) {
+        const file = options.body.get('file') as File;
+        if (file) {
+          context.fileSize = file.size;
+          context.fileName = file.name;
+        }
+      }
+
+      // Extract memory requirements from request body if present
+      if (typeof body === 'string') {
+        try {
+          const bodyData = JSON.parse(body);
+          if (bodyData.memory_bytes) {
+            context.memoryRequired = bodyData.memory_bytes;
+          }
+          if (bodyData.tenant_id) {
+            context.tenantId = bodyData.tenant_id;
+          }
+        } catch {
+          // Ignore JSON parse errors for context extraction
+        }
+      }
+
+      // Enhance error with user-friendly messaging
+      const enhancedError = enhanceError(originalError, context);
+
+      // Log both original and enhanced error details
       logger.error('API request HTTP error', {
         component: 'ApiClient',
         operation: 'request',
@@ -142,9 +247,11 @@ class ApiClient {
         status: response.status,
         statusText: response.statusText,
         errorCode,
-      }, error);
-      
-      throw error;
+        userFriendlyTitle: enhancedError.userFriendly.title,
+        isTransient: isTransientError(enhancedError)
+      }, originalError);
+
+      throw enhancedError;
     }
 
     // Handle 204 No Content
@@ -235,6 +342,17 @@ class ApiClient {
 
   async updateUserProfile(data: types.UpdateProfileRequest): Promise<types.ProfileResponse> {
     return this.request<types.ProfileResponse>('/v1/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAuthConfig(): Promise<types.AuthConfigResponse> {
+    return this.request<types.AuthConfigResponse>('/v1/auth/config');
+  }
+
+  async updateAuthConfig(data: types.UpdateAuthConfigRequest): Promise<types.AuthConfigResponse> {
+    return this.request<types.AuthConfigResponse>('/v1/auth/config', {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -501,7 +619,7 @@ class ApiClient {
     });
   }
 
-  async importAdapter(file: File, load?: boolean): Promise<types.Adapter> {
+  async importAdapter(file: File, load?: boolean, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.Adapter> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -513,7 +631,8 @@ class ApiClient {
       method: 'POST',
       body: formData,
       headers: {}, // Let browser set Content-Type for FormData
-    });
+      ...options,
+    }, skipRetry, cancelToken);
   }
 
   async deleteAdapter(adapterId: string): Promise<void> {
@@ -620,10 +739,11 @@ class ApiClient {
     return this.request<types.AdapterActivation[]>(`/v1/adapters/${adapterId}/activations`);
   }
 
-  async promoteAdapterState(adapterId: string): Promise<types.AdapterStateResponse> {
+  async promoteAdapterState(adapterId: string, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.AdapterStateResponse> {
     return this.request<types.AdapterStateResponse>(`/v1/adapters/${adapterId}/promote`, {
       method: 'POST',
-    });
+      ...options,
+    }, skipRetry, cancelToken);
   }
 
   async updateAdapterPolicy(adapterId: string, req: types.UpdateAdapterPolicyRequest): Promise<types.UpdateAdapterPolicyResponse> {
@@ -648,6 +768,13 @@ class ApiClient {
 
   async getCategoryPolicy(category: types.AdapterCategory): Promise<types.CategoryPolicy> {
     return this.request<types.CategoryPolicy>(`/v1/adapters/category-policies/${category}`);
+  }
+
+  async updateCategoryPolicy(category: types.AdapterCategory, policy: types.CategoryPolicy): Promise<types.CategoryPolicy> {
+    return this.request<types.CategoryPolicy>(`/v1/adapters/category-policies/${category}`, {
+      method: 'PUT',
+      body: JSON.stringify(policy),
+    });
   }
 
   // Repositories
@@ -720,11 +847,12 @@ class ApiClient {
   }
 
   // Base Model Management API Methods - Citation: IMPLEMENTATION_PLAN.md Phase 2
-  async importModel(data: types.ImportModelRequest): Promise<types.ImportModelResponse> {
+  async importModel(data: types.ImportModelRequest, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.ImportModelResponse> {
     return this.request<types.ImportModelResponse>('/v1/models/import', {
       method: 'POST',
       body: JSON.stringify(data),
-    });
+      ...options,
+    }, skipRetry, cancelToken);
   }
 
   async loadBaseModel(modelId: string): Promise<types.ModelStatusResponse> {
@@ -769,11 +897,12 @@ class ApiClient {
   }
 
   // Inference
-  async infer(data: types.InferRequest): Promise<types.InferResponse> {
+  async infer(data: types.InferRequest, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.InferResponse> {
     return this.request<types.InferResponse>('/v1/infer', {
       method: 'POST',
       body: JSON.stringify(data),
-    });
+      ...options,
+    }, skipRetry, cancelToken);
   }
 
   // ===== Phase 6: Policy Operations =====
