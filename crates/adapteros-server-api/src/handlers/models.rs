@@ -1448,6 +1448,176 @@ mod tests {
         assert_eq!(req.model_name, "test-model");
     }
 
+/// Cancel a model operation (load/unload)
+#[utoipa::path(
+    post,
+    path = "/v1/models/{model_id}/cancel",
+    params(
+        ("model_id" = String, Path, description = "Model ID")
+    ),
+    responses(
+        (status = 200, description = "Operation cancelled successfully"),
+        (status = 404, description = "Operation not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "models"
+)]
+pub async fn cancel_model_operation(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    if claims.role != "admin" && claims.role != "operator" {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+        ));
+    }
+
+    let tenant_id = &claims.tenant_id;
+
+    // Use operation tracker to cancel the operation
+    match state.operation_tracker.cancel_model_operation(&model_id, tenant_id).await {
+        Ok(()) => Ok(StatusCode::OK),
+        Err(crate::operation_tracker::OperationCancellationError::NotFound) => {
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("operation not found").with_code("NOT_FOUND")),
+            ))
+        }
+        Err(crate::operation_tracker::OperationCancellationError::NotCancellable) => {
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new("operation cannot be cancelled").with_code("NOT_CANCELLABLE")),
+            ))
+        }
+        Err(_) => {
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("failed to cancel operation").with_code("INTERNAL_ERROR")),
+            ))
+        }
+    }
+}
+
+/// Get model runtime health status
+#[utoipa::path(
+    get,
+    path = "/v1/models/health",
+    responses(
+        (status = 200, description = "Health check response", body = ModelRuntimeHealthResponse),
+        (status = 500, description = "Health check failed")
+    ),
+    tag = "models"
+)]
+pub async fn model_runtime_health(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<ModelRuntimeHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if claims.role != "admin" && claims.role != "operator" {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+        ));
+    }
+
+    let Some(rt) = &state.model_runtime else {
+        return Ok(Json(ModelRuntimeHealthResponse {
+            status: "unhealthy".to_string(),
+            total_models: 0,
+            loaded_count: 0,
+            inconsistencies: vec![],
+            checked_at: chrono::Utc::now().to_rfc3339(),
+        }));
+    };
+
+    // Get all models from database
+    let db_models = sqlx::query!(
+        "SELECT tenant_id, model_id, status FROM base_model_status"
+    )
+    .fetch_all(state.db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to query model states: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+        )
+    })?;
+
+    // Get all loaded models from runtime
+    let guard = rt.lock().await;
+    let runtime_models = guard.get_all_loaded_models();
+    drop(guard);
+
+    let mut inconsistencies = Vec::new();
+    let mut runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models.iter().cloned().collect();
+
+    // Check each DB model
+    for db_model in &db_models {
+        let tenant_id = &db_model.tenant_id;
+        let model_id = &db_model.model_id;
+        let db_status = &db_model.status;
+
+        let runtime_loaded = runtime_model_set.contains(&(tenant_id.clone(), model_id.clone()));
+
+        match db_status.as_str() {
+            "active" => {
+                if !runtime_loaded {
+                    inconsistencies.push(ModelInconsistency {
+                        model_id: model_id.clone(),
+                        tenant_id: tenant_id.clone(),
+                        issue: "Model marked active in DB but not loaded in runtime".to_string(),
+                        runtime_status: "not_loaded".to_string(),
+                    });
+                }
+            }
+            "inactive" | "failed" => {
+                if runtime_loaded {
+                    inconsistencies.push(ModelInconsistency {
+                        model_id: model_id.clone(),
+                        tenant_id: tenant_id.clone(),
+                        issue: "Model marked inactive/failed in DB but loaded in runtime".to_string(),
+                        runtime_status: "loaded".to_string(),
+                    });
+                }
+            }
+            _ => {
+                inconsistencies.push(ModelInconsistency {
+                    model_id: model_id.clone(),
+                    tenant_id: tenant_id.clone(),
+                    issue: format!("Unknown model status: {}", db_status),
+                    runtime_status: if runtime_loaded { "loaded" } else { "not_loaded" }.to_string(),
+                });
+            }
+        }
+    }
+
+    // Check for models loaded in runtime but not in database
+    for (tenant_id, model_id) in &runtime_models {
+        let in_db = db_models.iter().any(|db| &db.tenant_id == tenant_id && &db.model_id == model_id);
+        if !in_db {
+            inconsistencies.push(ModelInconsistency {
+                model_id: model_id.clone(),
+                tenant_id: tenant_id.clone(),
+                issue: "Model loaded in runtime but not found in database".to_string(),
+                runtime_status: "loaded".to_string(),
+            });
+        }
+    }
+
+    let status = if inconsistencies.is_empty() { "healthy" } else { "unhealthy" };
+
+    Ok(Json(ModelRuntimeHealthResponse {
+        status: status.to_string(),
+        total_models: db_models.len() as i32,
+        loaded_count: runtime_models.len() as i32,
+        inconsistencies,
+        checked_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
     #[test]
     fn test_cursor_config_instructions() {
         let config = CursorConfigResponse {
