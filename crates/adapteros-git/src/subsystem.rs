@@ -54,6 +54,16 @@ pub struct GitStatusResponse {
     pub last_scan: Option<String>,
 }
 
+/// Git branch information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitBranchInfo {
+    pub name: String,
+    pub is_current: bool,
+    pub last_commit: String,
+    pub ahead: u32,
+    pub behind: u32,
+}
+
 /// Git subsystem manager
 pub struct GitSubsystem {
     enabled: bool,
@@ -239,23 +249,73 @@ impl GitSubsystem {
         .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
     }
 
-    // TODO: Implement get_status method
-    // pub async fn get_status(&self) -> Result<GitStatusResponse> {
-    //     let active_sessions = self.branch_manager.list_active_sessions().await.len() as u32;
-    //     let repositories_tracked = self
-    //         .db
-    //         .list_git_repositories()
-    //         .await
-    //         .map(|repos| repos.len() as u32)
-    //         .unwrap_or(0);
-    //
-    //     Ok(GitStatusResponse {
-    //         enabled: self.enabled,
-    //         active_sessions,
-    //         repositories_tracked,
-    //         last_scan: None, // TODO: Implement last scan tracking
-    //     })
-    // }
+    pub async fn get_status(&self) -> Result<GitStatusResponse> {
+        let active_sessions = self.branch_manager.list_active_sessions().await.len() as u32;
+        let repositories_tracked = self
+            .db
+            .list_git_repositories()
+            .await
+            .map(|repos| repos.len() as u32)
+            .unwrap_or(0);
+
+        Ok(GitStatusResponse {
+            enabled: self.enabled,
+            active_sessions,
+            repositories_tracked,
+            last_scan: None, // TODO: Implement last scan tracking
+        })
+    }
+
+    pub async fn list_branches(&self, repo_id: Option<&str>) -> Result<Vec<crate::GitBranchInfo>> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+
+        task::spawn_blocking(move || -> Result<Vec<crate::GitBranchInfo>> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!("Failed to open repository {}: {}", repo_path.display(), e))
+            })?;
+
+            let mut branches = Vec::new();
+
+            // Local branches
+            let local_branches = repo.branches(Some(BranchType::Local)).map_err(|e| {
+                AosError::Git(format!("Failed to list local branches: {}", e))
+            })?;
+
+            for branch_result in local_branches {
+                let (branch, _) = branch_result.map_err(|e| {
+                    AosError::Git(format!("Failed to get branch: {}", e))
+                })?;
+
+                let name = branch.name().map_err(|e| {
+                    AosError::Git(format!("Failed to get branch name: {}", e))
+                })?.unwrap_or("unknown").to_string();
+
+                let is_current = branch.is_head();
+                let last_commit = if let Some(ref_) = branch.into_reference().target() {
+                    if let Ok(commit) = repo.find_commit(ref_) {
+                        commit.summary().unwrap_or("No message").to_string()
+                    } else {
+                        "unknown".to_string()
+                    }
+                } else {
+                    "unknown".to_string()
+                };
+
+                branches.push(crate::GitBranchInfo {
+                    name,
+                    is_current,
+                    last_commit,
+                    ahead: 0, // TODO: Calculate ahead/behind
+                    behind: 0, // TODO: Calculate ahead/behind
+                });
+            }
+
+            Ok(branches)
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Branch listing task join error: {}", e)))?
+    }
 
     /// Get reference to the branch manager
     pub fn branch_manager(&self) -> &BranchManager {

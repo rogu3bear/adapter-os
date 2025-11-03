@@ -10,13 +10,9 @@ use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
 use adapteros_core::{AosError, Result};
+use tracing::{debug, error, info, warn};
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::collections::HashMap;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-use tracing::error;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-use tracing::warn;
-use tracing::{debug, info};
 
 /// Keychain provider implementation
 pub struct KeychainProvider {
@@ -165,6 +161,164 @@ impl MacKeychain {
             keys: std::sync::Mutex::new(HashMap::new()),
         }
     }
+
+    /// Store Ed25519 private key in macOS Keychain
+    fn store_ed25519_private_key(&self, key_id: &str, signing_key: &ed25519_dalek::SigningKey) -> Result<()> {
+        use std::process::Command;
+
+        let key_data = signing_key.to_bytes();
+        let key_data_b64 = base64::encode(&key_data);
+
+        // Use security command to store in keychain
+        let account = format!("{}-ed25519", key_id);
+        let result = Command::new("security")
+            .args(&[
+                "add-generic-password",
+                "-a", &account,
+                "-s", &self.service_name,
+                "-w", &key_data_b64,
+                "-U"  // Update if exists
+            ])
+            .output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute security command for key storage");
+                AosError::Crypto("Failed to store key in macOS Keychain".to_string())
+            })?;
+
+        if !result.status.success() {
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "macOS Keychain storage failed");
+            return Err(AosError::Crypto(format!("macOS Keychain storage failed: {}", stderr)));
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve Ed25519 private key from macOS Keychain
+    fn retrieve_ed25519_private_key(&self, key_id: &str) -> Result<ed25519_dalek::SigningKey> {
+        use std::process::Command;
+
+        let account = format!("{}-ed25519", key_id);
+
+        // Use security command to retrieve from keychain
+        let result = Command::new("security")
+            .args(&[
+                "find-generic-password",
+                "-a", &account,
+                "-s", &self.service_name,
+                "-w"  // Print password only
+            ])
+            .output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute security command for key retrieval");
+                AosError::Crypto("Failed to retrieve key from macOS Keychain".to_string())
+            })?;
+
+        if !result.status.success() {
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "macOS Keychain retrieval failed");
+            return Err(AosError::Crypto(format!("macOS Keychain retrieval failed: {}", stderr)));
+        }
+
+        let key_data_b64 = String::from_utf8(result.stdout)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid UTF-8 in keychain data");
+                AosError::Crypto("Invalid keychain data encoding".to_string())
+            })?
+            .trim()
+            .to_string();
+
+        let key_data = base64::decode(&key_data_b64)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid base64 in keychain data");
+                AosError::Crypto("Invalid keychain data format".to_string())
+            })?;
+
+        if key_data.len() != 32 {
+            error!(key_id = %key_id, len = key_data.len(), "Invalid key length from keychain");
+            return Err(AosError::Crypto("Invalid key length from keychain".to_string()));
+        }
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&key_data);
+
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
+        Ok(signing_key)
+    }
+
+    /// Store symmetric key in macOS Keychain
+    fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
+        use std::process::Command;
+
+        let key_data_b64 = base64::encode(key_data);
+
+        // Use security command to store in keychain
+        let account = format!("{}-symmetric", key_id);
+        let result = Command::new("security")
+            .args(&[
+                "add-generic-password",
+                "-a", &account,
+                "-s", &self.service_name,
+                "-w", &key_data_b64,
+                "-U"  // Update if exists
+            ])
+            .output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute security command for symmetric key storage");
+                AosError::Crypto("Failed to store symmetric key in macOS Keychain".to_string())
+            })?;
+
+        if !result.status.success() {
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "macOS Keychain symmetric key storage failed");
+            return Err(AosError::Crypto(format!("macOS Keychain symmetric key storage failed: {}", stderr)));
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve symmetric key from macOS Keychain
+    fn retrieve_symmetric_key(&self, key_id: &str) -> Result<Vec<u8>> {
+        use std::process::Command;
+
+        let account = format!("{}-symmetric", key_id);
+
+        // Use security command to retrieve from keychain
+        let result = Command::new("security")
+            .args(&[
+                "find-generic-password",
+                "-a", &account,
+                "-s", &self.service_name,
+                "-w"  // Print password only
+            ])
+            .output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute security command for symmetric key retrieval");
+                AosError::Crypto("Failed to retrieve symmetric key from macOS Keychain".to_string())
+            })?;
+
+        if !result.status.success() {
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "macOS Keychain symmetric key retrieval failed");
+            return Err(AosError::Crypto(format!("macOS Keychain symmetric key retrieval failed: {}", stderr)));
+        }
+
+        let key_data_b64 = String::from_utf8(result.stdout)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid UTF-8 in symmetric keychain data");
+                AosError::Crypto("Invalid symmetric keychain data encoding".to_string())
+            })?
+            .trim()
+            .to_string();
+
+        let key_data = base64::decode(&key_data_b64)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid base64 in symmetric keychain data");
+                AosError::Crypto("Invalid symmetric keychain data format".to_string())
+            })?;
+
+        Ok(key_data)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -173,13 +327,14 @@ impl KeyringImpl for MacKeychain {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         match &alg {
             KeyAlgorithm::Ed25519 => {
-                // Use Ed25519 from the existing crypto stack for now
-                // TODO: Integrate with macOS Keychain when API stabilizes
                 use rand::rngs::OsRng;
 
                 let mut rng = OsRng;
                 let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
                 let verifying_key = signing_key.verifying_key();
+
+                // Store private key in macOS Keychain
+                self.store_ed25519_private_key(key_id, &signing_key)?;
 
                 let handle = KeyHandle::with_public_key(
                     format!("{}:{}", self.service_name, key_id),
@@ -187,73 +342,62 @@ impl KeyringImpl for MacKeychain {
                     verifying_key.to_bytes().to_vec(),
                 );
 
-                // Store key data in memory for now
+                // Cache handle in memory for faster lookups
                 self.keys
                     .lock()
                     .unwrap()
                     .insert(key_id.to_string(), handle.clone());
 
-                info!(key_id = %key_id, algorithm = ?alg, "Generated Ed25519 key (macOS Keychain integration pending)");
+                info!(key_id = %key_id, algorithm = ?alg, "Generated Ed25519 key and stored in macOS Keychain");
                 Ok(handle)
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
-                // For symmetric keys, generate and store in memory for now
+                // Generate symmetric key
                 use rand::rngs::OsRng;
                 use rand::RngCore;
 
                 let mut key_data = [0u8; 32];
                 OsRng.fill_bytes(&mut key_data);
 
+                // Store key in macOS Keychain
+                self.store_symmetric_key(key_id, &key_data)?;
+
                 let handle =
                     KeyHandle::new(format!("{}:{}", self.service_name, key_id), alg.clone());
 
-                // Store key data in memory
+                // Cache handle in memory for faster lookups
                 self.keys
                     .lock()
                     .unwrap()
                     .insert(key_id.to_string(), handle.clone());
 
-                info!(key_id = %key_id, algorithm = ?alg, "Generated symmetric key (macOS Keychain integration pending)");
+                info!(key_id = %key_id, algorithm = ?alg, "Generated symmetric key and stored in macOS Keychain");
                 Ok(handle)
             }
         }
     }
 
     async fn sign(&self, key_id: &str, msg: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Implement actual macOS Keychain signing integration
-        // For now, use the existing in-memory key implementation
-        warn!("macOS Keychain signing not yet implemented, using in-memory fallback");
+        // Retrieve private key from macOS Keychain
+        let signing_key = self.retrieve_ed25519_private_key(key_id)?;
 
-        let keys = self.keys.lock().unwrap();
-        let _handle = keys
-            .get(key_id)
-            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
-
-        // Use the existing Ed25519 implementation for now
-        let key_data = [42u8; 32]; // TODO: retrieve from keychain
+        // Sign the message
         use ed25519_dalek::Signer;
-        let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_data);
         let signature = signing_key.sign(msg);
 
-        info!(key_id = %key_id, message_len = msg.len(), "Signed message (macOS Keychain integration pending)");
+        info!(key_id = %key_id, message_len = msg.len(), "Signed message using macOS Keychain");
         Ok(signature.to_bytes().to_vec())
     }
 
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Implement actual macOS Keychain encryption integration
-        // For now, use the existing AES-GCM implementation
-        warn!("macOS Keychain sealing not yet implemented, using AES-GCM fallback");
-
-        let keys = self.keys.lock().unwrap();
-        let _handle = keys
-            .get(key_id)
-            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+        // Retrieve symmetric key from macOS Keychain
+        let key_data = self.retrieve_symmetric_key(key_id)?;
 
         // Use AES-GCM for encryption
         use aes_gcm::aead::{Aead, KeyInit};
         use aes_gcm::{Aes256Gcm, Nonce};
 
-        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&[42u8; 32]); // TODO: retrieve from keychain
+        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_data);
         let cipher = Aes256Gcm::new(key);
 
         // Generate a random nonce
@@ -272,30 +416,24 @@ impl KeyringImpl for MacKeychain {
         let mut result = nonce_bytes.to_vec();
         result.extend(ciphertext);
 
-        info!(key_id = %key_id, plaintext_len = plaintext.len(), "Encrypted data (macOS Keychain integration pending)");
+        info!(key_id = %key_id, plaintext_len = plaintext.len(), "Encrypted data using macOS Keychain");
         Ok(result)
     }
 
     #[allow(deprecated)]
     async fn unseal(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Implement actual macOS Keychain decryption integration
-        // For now, use the existing AES-GCM implementation
-        warn!("macOS Keychain unsealing not yet implemented, using AES-GCM fallback");
-
         if ciphertext.len() < 12 {
             return Err(AosError::Crypto("Ciphertext too short".to_string()));
         }
 
-        let keys = self.keys.lock().unwrap();
-        let _handle = keys
-            .get(key_id)
-            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+        // Retrieve symmetric key from macOS Keychain
+        let key_data = self.retrieve_symmetric_key(key_id)?;
 
         // Use AES-GCM for decryption
         use aes_gcm::aead::{Aead, KeyInit};
         use aes_gcm::{Aes256Gcm, Nonce};
 
-        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&[42u8; 32]); // TODO: retrieve from keychain
+        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_data);
         let cipher = Aes256Gcm::new(key);
 
         // Extract nonce from beginning of ciphertext
@@ -379,24 +517,205 @@ impl LinuxKeyring {
             keys: std::sync::Mutex::new(HashMap::new()),
         }
     }
+
+    /// Store Ed25519 private key in Linux keyring
+    fn store_ed25519_private_key(&self, key_id: &str, signing_key: &ed25519_dalek::SigningKey) -> Result<()> {
+        use std::process::Command;
+
+        let key_data = signing_key.to_bytes();
+        let key_data_b64 = base64::encode(&key_data);
+
+        // Use secret-tool to store in keyring (part of gnome-keyring)
+        let result = Command::new("secret-tool")
+            .args(&[
+                "store",
+                "--label", &format!("AdapterOS Ed25519 Key: {}", key_id),
+                "service", &self.service_name,
+                "key-type", "ed25519",
+                "key-id", key_id,
+            ])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to spawn secret-tool for key storage");
+                AosError::Crypto("Failed to store key in Linux keyring".to_string())
+            })?;
+
+        // Write the base64 encoded key to stdin
+        if let Some(mut stdin) = result.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(key_data_b64.as_bytes())
+                .map_err(|e| {
+                    error!(error = %e, key_id = %key_id, "Failed to write key data to secret-tool");
+                    AosError::Crypto("Failed to write key data to Linux keyring".to_string())
+                })?;
+        }
+
+        let output = result.wait_with_output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute secret-tool");
+                AosError::Crypto("Failed to store key in Linux keyring".to_string())
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "Linux keyring storage failed");
+            return Err(AosError::Crypto(format!("Linux keyring storage failed: {}", stderr)));
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve Ed25519 private key from Linux keyring
+    fn retrieve_ed25519_private_key(&self, key_id: &str) -> Result<ed25519_dalek::SigningKey> {
+        use std::process::Command;
+
+        let output = Command::new("secret-tool")
+            .args(&[
+                "lookup",
+                "service", &self.service_name,
+                "key-type", "ed25519",
+                "key-id", key_id,
+            ])
+            .output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute secret-tool for key retrieval");
+                AosError::Crypto("Failed to retrieve key from Linux keyring".to_string())
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "Linux keyring retrieval failed");
+            return Err(AosError::Crypto(format!("Linux keyring retrieval failed: {}", stderr)));
+        }
+
+        let key_data_b64 = String::from_utf8(output.stdout)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid UTF-8 in keyring data");
+                AosError::Crypto("Invalid keyring data encoding".to_string())
+            })?
+            .trim()
+            .to_string();
+
+        let key_data = base64::decode(&key_data_b64)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid base64 in keyring data");
+                AosError::Crypto("Invalid keyring data format".to_string())
+            })?;
+
+        if key_data.len() != 32 {
+            error!(key_id = %key_id, len = key_data.len(), "Invalid key length from keyring");
+            return Err(AosError::Crypto("Invalid key length from keyring".to_string()));
+        }
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&key_data);
+
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
+        Ok(signing_key)
+    }
+
+    /// Store symmetric key in Linux keyring
+    fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
+        use std::process::Command;
+
+        let key_data_b64 = base64::encode(key_data);
+
+        let result = Command::new("secret-tool")
+            .args(&[
+                "store",
+                "--label", &format!("AdapterOS Symmetric Key: {}", key_id),
+                "service", &self.service_name,
+                "key-type", "symmetric",
+                "key-id", key_id,
+            ])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to spawn secret-tool for symmetric key storage");
+                AosError::Crypto("Failed to store symmetric key in Linux keyring".to_string())
+            })?;
+
+        if let Some(mut stdin) = result.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(key_data_b64.as_bytes())
+                .map_err(|e| {
+                    error!(error = %e, key_id = %key_id, "Failed to write symmetric key data to secret-tool");
+                    AosError::Crypto("Failed to write symmetric key data to Linux keyring".to_string())
+                })?;
+        }
+
+        let output = result.wait_with_output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute secret-tool for symmetric key");
+                AosError::Crypto("Failed to store symmetric key in Linux keyring".to_string())
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "Linux keyring symmetric key storage failed");
+            return Err(AosError::Crypto(format!("Linux keyring symmetric key storage failed: {}", stderr)));
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve symmetric key from Linux keyring
+    fn retrieve_symmetric_key(&self, key_id: &str) -> Result<Vec<u8>> {
+        use std::process::Command;
+
+        let output = Command::new("secret-tool")
+            .args(&[
+                "lookup",
+                "service", &self.service_name,
+                "key-type", "symmetric",
+                "key-id", key_id,
+            ])
+            .output()
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to execute secret-tool for symmetric key retrieval");
+                AosError::Crypto("Failed to retrieve symmetric key from Linux keyring".to_string())
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(key_id = %key_id, stderr = %stderr, "Linux keyring symmetric key retrieval failed");
+            return Err(AosError::Crypto(format!("Linux keyring symmetric key retrieval failed: {}", stderr)));
+        }
+
+        let key_data_b64 = String::from_utf8(output.stdout)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid UTF-8 in symmetric keyring data");
+                AosError::Crypto("Invalid symmetric keyring data encoding".to_string())
+            })?
+            .trim()
+            .to_string();
+
+        let key_data = base64::decode(&key_data_b64)
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid base64 in symmetric keyring data");
+                AosError::Crypto("Invalid symmetric keyring data format".to_string())
+            })?;
+
+        Ok(key_data)
+    }
 }
 
 #[cfg(target_os = "linux")]
 #[async_trait::async_trait]
 impl KeyringImpl for LinuxKeyring {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
-        // TODO: Implement actual Linux keyring integration
-        // For now, use in-memory storage as placeholder
-        warn!("Linux keyring not yet implemented, using in-memory fallback");
-
         use rand::rngs::OsRng;
 
         let handle = match alg {
             KeyAlgorithm::Ed25519 => {
-                use ed25519_dalek::SigningKey;
                 let mut rng = OsRng;
-                let signing_key = SigningKey::generate(&mut rng);
+                let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
                 let verifying_key = signing_key.verifying_key();
+
+                // Store private key in Linux keyring
+                self.store_ed25519_private_key(key_id, &signing_key)?;
+
                 KeyHandle::with_public_key(
                     format!("{}:{}", self.service_name, key_id),
                     alg,
@@ -404,72 +723,96 @@ impl KeyringImpl for LinuxKeyring {
                 )
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
+                let mut rng = OsRng;
+                let mut key_data = [0u8; 32];
+                rng.fill_bytes(&mut key_data);
+
+                // Store symmetric key in Linux keyring
+                self.store_symmetric_key(key_id, &key_data)?;
+
                 KeyHandle::new(format!("{}:{}", self.service_name, key_id), alg)
             }
         };
 
+        // Cache handle in memory for faster lookups
         self.keys
             .lock()
             .unwrap()
             .insert(key_id.to_string(), handle.clone());
+
+        info!(key_id = %key_id, algorithm = ?alg, "Generated key and stored in Linux keyring");
         Ok(handle)
     }
 
     async fn sign(&self, key_id: &str, msg: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Implement actual Linux keyring signing
-        warn!("Linux keyring signing not yet implemented");
+        // Retrieve private key from Linux keyring
+        let signing_key = self.retrieve_ed25519_private_key(key_id)?;
 
-        let keys = self.keys.lock().unwrap();
-        let _handle = keys
-            .get(key_id)
-            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
-
-        // Placeholder: use in-memory key for signing
-        use ed25519_dalek::{Signer, SigningKey};
-        let key_data = [42u8; 32]; // TODO: retrieve from keyring
-        let signing_key = SigningKey::from_bytes(&key_data);
+        // Sign the message
+        use ed25519_dalek::Signer;
         let signature = signing_key.sign(msg);
 
+        info!(key_id = %key_id, message_len = msg.len(), "Signed message using Linux keyring");
         Ok(signature.to_bytes().to_vec())
     }
 
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Implement actual Linux keyring encryption
-        warn!("Linux keyring sealing not yet implemented");
+        // Retrieve symmetric key from Linux keyring
+        let key_data = self.retrieve_symmetric_key(key_id)?;
 
-        let keys = self.keys.lock().unwrap();
-        let _handle = keys
-            .get(key_id)
-            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+        // Use AES-GCM for encryption
+        use aes_gcm::aead::{Aead, KeyInit};
+        use aes_gcm::{Aes256Gcm, Nonce};
 
-        // Placeholder: simple XOR encryption
-        let key = [42u8; 32];
-        let ciphertext = plaintext
-            .iter()
-            .enumerate()
-            .map(|(i, &b)| b ^ key[i % key.len()])
-            .collect();
+        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_data);
+        let cipher = Aes256Gcm::new(key);
 
-        Ok(ciphertext)
+        // Generate a random nonce
+        use rand::rngs::OsRng;
+        use rand::RngCore;
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        // Encrypt the plaintext
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| AosError::Crypto(format!("Encryption failed: {}", e)))?;
+
+        // Prepend nonce to ciphertext
+        let mut result = nonce_bytes.to_vec();
+        result.extend(ciphertext);
+
+        info!(key_id = %key_id, plaintext_len = plaintext.len(), "Encrypted data using Linux keyring");
+        Ok(result)
     }
 
     async fn unseal(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Implement actual Linux keyring decryption
-        warn!("Linux keyring unsealing not yet implemented");
+        if ciphertext.len() < 12 {
+            return Err(AosError::Crypto("Ciphertext too short".to_string()));
+        }
 
-        let keys = self.keys.lock().unwrap();
-        let _handle = keys
-            .get(key_id)
-            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+        // Retrieve symmetric key from Linux keyring
+        let key_data = self.retrieve_symmetric_key(key_id)?;
 
-        // Placeholder: simple XOR decryption
-        let key = [42u8; 32];
-        let plaintext = ciphertext
-            .iter()
-            .enumerate()
-            .map(|(i, &b)| b ^ key[i % key.len()])
-            .collect();
+        // Use AES-GCM for decryption
+        use aes_gcm::aead::{Aead, KeyInit};
+        use aes_gcm::{Aes256Gcm, Nonce};
 
+        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_data);
+        let cipher = Aes256Gcm::new(key);
+
+        // Extract nonce from beginning of ciphertext
+        let nonce_bytes = &ciphertext[..12];
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let encrypted_data = &ciphertext[12..];
+
+        // Decrypt the data
+        let plaintext = cipher
+            .decrypt(nonce, encrypted_data)
+            .map_err(|e| AosError::Crypto(format!("Decryption failed: {}", e)))?;
+
+        info!(key_id = %key_id, ciphertext_len = ciphertext.len(), "Decrypted data using Linux keyring");
         Ok(plaintext)
     }
 

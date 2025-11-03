@@ -4059,6 +4059,8 @@ pub async fn infer(
         prompt: req.prompt.clone(),
         max_tokens: req.max_tokens.unwrap_or(100),
         require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
+        adapter_hints: None, // No pre-routing for basic infer endpoint
+        router_features: None,
     };
 
     match uds_client.infer(uds_path, worker_request).await {
@@ -4207,6 +4209,8 @@ pub async fn infer_stream(
             prompt: req.prompt.clone(),
             max_tokens: req.max_tokens.unwrap_or(100),
             require_evidence: req.require_evidence.unwrap_or(false),
+            adapter_hints: None, // No pre-routing for basic infer endpoint
+            router_features: None,
         };
         tokio::spawn(async move {
             if let Ok(resp) = uds_client.infer(uds_path.as_path(), worker_req).await {

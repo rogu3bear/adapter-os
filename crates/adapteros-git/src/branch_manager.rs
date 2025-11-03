@@ -59,7 +59,6 @@ pub enum BranchOperation {
 #[derive(Clone)]
 pub struct BranchManager {
     config: BranchManagerConfig,
-    #[allow(dead_code)] // TODO: Implement database integration in future iteration
     db: adapteros_db::Db,
     active_sessions: Arc<RwLock<HashMap<String, GitSession>>>,
     repositories: Arc<RwLock<HashMap<String, PathBuf>>>,
@@ -164,13 +163,22 @@ impl BranchManager {
             merge_commit_sha: None,
         };
 
-        // Store session
+        // Store session in memory
         self.active_sessions
             .write()
             .await
             .insert(session.id.clone(), session.clone());
 
-        // TODO: Store session in database
+        // Store session in database
+        self.db.create_git_session(
+            &session.id,
+            &session.adapter_id,
+            &session.repo_id,
+            &session.branch_name,
+            &session.base_commit_sha,
+        ).await.map_err(|e| {
+            AosError::Database(format!("Failed to store git session: {}", e))
+        })?;
 
         Ok(session)
     }
@@ -240,7 +248,15 @@ impl BranchManager {
 
         session.ended_at = Some(chrono::Utc::now());
 
-        // TODO: Update session in database
+        // Update session in database
+        let status = if merge_commit_sha.is_some() { "merged" } else { "abandoned" };
+        self.db.update_git_session_status(
+            session_id,
+            status,
+            merge_commit_sha.as_deref(),
+        ).await.map_err(|e| {
+            AosError::Database(format!("Failed to update git session: {}", e))
+        })?;
 
         Ok(merge_commit_sha)
     }
@@ -373,8 +389,14 @@ impl BranchManager {
 
     /// Load active sessions from database
     async fn load_active_sessions(&self) -> Result<()> {
-        // TODO: Load from database
-        // For now, start with empty sessions
+        let active_sessions = self.db.list_active_git_sessions().await
+            .map_err(|e| AosError::Database(format!("Failed to load active sessions: {}", e)))?;
+
+        let mut sessions = self.active_sessions.write().await;
+        for session in active_sessions {
+            sessions.insert(session.id.clone(), session);
+        }
+
         Ok(())
     }
 }

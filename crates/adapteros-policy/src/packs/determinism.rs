@@ -23,6 +23,8 @@ pub struct DeterminismConfig {
     pub epsilon_bounds: EpsilonBounds,
     /// Toolchain version requirements
     pub toolchain_requirements: ToolchainRequirements,
+    /// Minimum router entropy threshold (prevents uniform gate distribution)
+    pub min_router_entropy: f32,
 }
 
 /// RNG seeding method
@@ -97,6 +99,7 @@ impl Default for DeterminismConfig {
                     "-ffast-math".to_string(), // Note: This should be disabled for determinism
                 ],
             },
+            min_router_entropy: 0.1, // Minimum entropy to prevent uniform gate distribution
         }
     }
 }
@@ -143,6 +146,18 @@ impl DeterminismPolicy {
             _ => Err(AosError::PolicyViolation(
                 "RNG seeding method does not match policy requirements".to_string(),
             )),
+        }
+    }
+
+    /// Validate router entropy (prevents uniform gate distribution)
+    pub fn validate_router_entropy(&self, entropy: f32) -> Result<()> {
+        if entropy < self.config.min_router_entropy {
+            Err(AosError::PolicyViolation(format!(
+                "Router entropy {:.4} below minimum threshold {:.4}",
+                entropy, self.config.min_router_entropy
+            )))
+        } else {
+            Ok(())
         }
     }
 
