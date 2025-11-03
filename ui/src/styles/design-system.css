@@ -106,47 +106,53 @@
   --radius-input: var(--radius-2);
   --radius-surface: var(--radius-4);
 
+  /* ===== ANIMATION & TRANSITION TOKENS ===== */
+  --transition-fast: 0.1s;
+  --transition-base: 0.15s;
+  --transition-slow: 0.3s;
+  --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+  
   /* ===== SHADOWS ===== */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.12);
-  --shadow-lg: 0 12px 24px rgba(15, 23, 42, 0.16);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.16);
 
   /* ===== COLOR SYSTEM ===== */
   --gray-0: #ffffff;
-  --gray-100: #f7f8fb;
-  --gray-200: #e7e9f0;
-  --gray-300: #d2d6e0;
-  --gray-400: #a8afbd;
-  --gray-500: #788198;
-  --gray-600: #525a70;
-  --gray-700: #353c4f;
-  --gray-800: #1f2535;
-  --gray-900: #111827;
+  --gray-100: #f5f5f5;
+  --gray-200: #e5e5e5;
+  --gray-300: #d4d4d4;
+  --gray-400: #a3a3a3;
+  --gray-500: #737373;
+  --gray-600: #525252;
+  --gray-700: #404040;
+  --gray-800: #262626;
+  --gray-900: #171717;
 
-  --accent-300: #a5b4fc;
-  --accent-400: #818cf8;
-  --accent-500: #6366f1;
-  --accent-600: #4f46e5;
+  --accent-300: var(--gray-300);
+  --accent-400: var(--gray-400);
+  --accent-500: var(--gray-500);
+  --accent-600: var(--gray-600);
 
-  --success: #10b981;
-  --success-surface: #ecfdf5;
-  --success-border: #a7f3d0;
+  --success: var(--gray-600);
+  --success-surface: var(--surface-2);
+  --success-border: var(--gray-300);
 
-  --warning: #f59e0b;
-  --warning-surface: #fffbeb;
-  --warning-border: #fcd34d;
+  --warning: var(--gray-500);
+  --warning-surface: var(--surface-2);
+  --warning-border: var(--gray-300);
 
-  --error: #ef4444;
-  --error-surface: #fef2f2;
-  --error-border: #fecaca;
+  --error: var(--gray-700);
+  --error-surface: var(--surface-2);
+  --error-border: var(--gray-400);
 
-  --info: #3b82f6;
-  --info-surface: #eff6ff;
-  --info-border: #bfdbfe;
+  --info: var(--gray-600);
+  --info-surface: var(--surface-2);
+  --info-border: var(--gray-300);
 
   --surface-1: var(--gray-0);
-  --surface-2: #f3f4f9;
-  --surface-3: #e8eaf3;
+  --surface-2: #fafafa;
+  --surface-3: #f5f5f5;
 
   /* Semantic aliases for legacy usage */
   --status-success: var(--success);
@@ -183,19 +189,19 @@
 @media (prefers-color-scheme: dark) {
   :root {
     /* Invert surfaces and grays */
-    --surface-1: #0f0f0f;
-    --surface-2: #1a1a1a;
-    --surface-3: #262626;
-    --gray-0: #f9fafb;
-    --gray-100: #f3f4f6;
-    --gray-200: #e5e7eb;
-    --gray-300: #d1d5db;
-    --gray-400: #9ca3af;
-    --gray-500: #6b7280;
-    --gray-600: #4b5563;
-    --gray-700: #374151;
-    --gray-800: #1f2937;
-    --gray-900: #111827;
+    --surface-1: #171717;
+    --surface-2: #262626;
+    --surface-3: #404040;
+    --gray-0: #fafafa;
+    --gray-100: #f5f5f5;
+    --gray-200: #e5e5e5;
+    --gray-300: #d4d4d4;
+    --gray-400: #a3a3a3;
+    --gray-500: #737373;
+    --gray-600: #525252;
+    --gray-700: #404040;
+    --gray-800: #262626;
+    --gray-900: #171717;
 
     /* Semantic colors remain consistent (fg/bg swap via context) */
     --success-fg: var(--success);
@@ -207,6 +213,19 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.16);
     --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.20);
+  }
+}
+
+/* ===== ACCESSIBILITY SUPPORT ===== */
+/* Respect user's reduced motion preference per Web Animations API guidelines */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

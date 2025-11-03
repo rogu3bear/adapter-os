@@ -69,9 +69,9 @@ export function RetryNotification({
 
   if (isCancelled) {
     return (
-      <Alert className={`border-amber-200 bg-amber-50 ${className}`}>
-        <AlertTriangle className="h-4 w-4 text-amber-600" />
-        <AlertDescription className="text-amber-800">
+      <Alert className={`border-gray-300 bg-gray-50 ${className}`}>
+        <AlertTriangle className="h-4 w-4 text-gray-500" />
+        <AlertDescription className="text-gray-700">
           Retry cancelled for {operation}
         </AlertDescription>
       </Alert>
@@ -79,15 +79,15 @@ export function RetryNotification({
   }
 
   return (
-    <Alert className={`border-blue-200 bg-blue-50 ${className}`}>
-      <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
-      <AlertDescription className="text-blue-800">
+    <Alert className={`border-gray-300 bg-gray-50 ${className}`}>
+      <RefreshCw className="h-4 w-4 text-gray-400 animate-spin" />
+      <AlertDescription className="text-gray-700">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="font-medium">
               Retrying {operation}...
             </span>
-            <span className="text-sm text-blue-600">
+            <span className="text-sm text-gray-600">
               {attempt}/{maxAttempts}
             </span>
           </div>

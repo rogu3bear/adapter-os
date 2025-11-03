@@ -63,6 +63,26 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// Valid user roles - centralized definition
+const VALID_USER_ROLES: UserRole[] = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'];
+
+function validateAndNormalizeUserRole(role: string): UserRole {
+  // Check if the role is valid
+  if (VALID_USER_ROLES.includes(role as UserRole)) {
+    return role as UserRole;
+  }
+
+  // Log invalid role for debugging
+  console.warn('Invalid user role received from server, defaulting to viewer', {
+    receivedRole: role,
+    validRoles: VALID_USER_ROLES,
+    component: 'AuthProvider'
+  });
+
+  // Default to viewer role for security (most restrictive)
+  return 'viewer';
+}
+
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,7 +105,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       id: data.user_id,
       email,
       display_name: data.display_name || derivedDisplayName,
-      role: data.role as UserRole,
+      role: validateAndNormalizeUserRole(data.role),
       tenant_id: data.tenant_id || 'default',
       permissions: data.permissions ?? [],
       last_login_at: data.last_login_at,

@@ -52,11 +52,11 @@ export function SuccessFeedback({
   const getIcon = () => {
     switch (variant) {
       case 'celebration':
-        return <Sparkles className="h-5 w-5 text-yellow-600" />;
+        return <Sparkles className="h-5 w-5 text-gray-500" />;
       case 'milestone':
-        return <CheckCircle className="h-5 w-5 text-blue-600" />;
+        return <CheckCircle className="h-5 w-5 text-gray-400" />;
       default:
-        return <CheckCircle className="h-5 w-5 text-green-600" />;
+        return <CheckCircle className="h-5 w-5 text-gray-600" />;
     }
   };
 
@@ -124,7 +124,7 @@ export function SuccessFeedback({
         </AlertDescription>
       </div>
       {variant === 'celebration' && (
-        <Badge variant="outline" className="ml-2 text-yellow-700 border-yellow-300">
+        <Badge variant="outline" className="ml-2 text-gray-700 border-gray-300">
           🎉
         </Badge>
       )}

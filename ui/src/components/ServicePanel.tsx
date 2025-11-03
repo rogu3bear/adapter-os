@@ -202,9 +202,9 @@ export default function ServicePanel() {
 
   const getGlobalStatusIcon = () => {
     switch (globalStatus) {
-      case 'healthy': return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'warning': return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
-      case 'error': return <AlertTriangle className="w-5 h-5 text-red-500" />;
+      case 'healthy': return <CheckCircle className="w-5 h-5 text-gray-600" />;
+      case 'warning': return <AlertTriangle className="w-5 h-5 text-gray-500" />;
+      case 'error': return <AlertTriangle className="w-5 h-5 text-gray-700" />;
       default: return <RefreshCw className="w-5 h-5 text-gray-500 animate-spin" />;
     }
   };
@@ -275,7 +275,7 @@ export default function ServicePanel() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-yellow-500" />
+                  <Zap className="w-5 h-5 text-gray-500" />
                   Essential Services
                 </CardTitle>
               </CardHeader>
@@ -358,7 +358,7 @@ export default function ServicePanel() {
               {/* Core Services */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <Server className="w-5 h-5 text-blue-500" />
+                  <Server className="w-5 h-5 text-gray-500" />
                   <h2 className="text-xl font-semibold text-gray-900">Core Services</h2>
                 </div>
                 <div className="space-y-3">

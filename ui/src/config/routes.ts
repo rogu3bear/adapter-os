@@ -19,6 +19,7 @@ import {
   Settings,
   BarChart3,
   Building,
+  Users,
 } from 'lucide-react';
 
 import DashboardPage from '@/pages/DashboardPage';
@@ -41,6 +42,7 @@ import ReplayPage from '@/pages/ReplayPage';
 import AdminPage from '@/pages/AdminPage';
 import ReportsPage from '@/pages/ReportsPage';
 import TrainerPage from '@/pages/TrainerPage';
+import PersonasPage from '@/pages/PersonasPage';
 
 export interface RouteConfig {
   path: string;
@@ -71,6 +73,15 @@ export const routes: RouteConfig[] = [
     navTitle: 'Getting Started',
     navIcon: Compass,
     navOrder: 2,
+  },
+  {
+    path: '/personas',
+    component: PersonasPage,
+    requiresAuth: false,
+    navGroup: 'Home',
+    navTitle: 'Persona Demo',
+    navIcon: Users,
+    navOrder: 3,
   },
   {
     path: '/trainer',
