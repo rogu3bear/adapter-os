@@ -132,6 +132,8 @@ pub struct InferencePipeline {
     recent_logits: Vec<Vec<f32>>,
     /// Sliding entropy window size (default 8)
     entropy_window: usize,
+    /// Determinism policy validator
+    determinism_validator: adapteros_policy::packs::determinism::DeterminismPolicy,
 }
 
 /// Context for computing priors during routing
@@ -155,8 +157,34 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
-        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        // Create policy validator from manifest config
+        let determinism_validator = adapteros_policy::packs::determinism::DeterminismPolicy::new(
+            adapteros_policy::packs::determinism::DeterminismConfig {
+                require_metallib_embed: policy.determinism_policy().require_metallib_embed,
+                require_kernel_hash_match: policy.determinism_policy().require_kernel_hash_match,
+                rng: adapteros_policy::packs::determinism::RngSeedingMethod::HkdfSeeded,
+                retrieval_tie_break: vec![],
+                epsilon_bounds: adapteros_policy::packs::determinism::EpsilonBounds {
+                    logits_epsilon: 1e-6,
+                    embeddings_epsilon: 1e-5,
+                    attention_epsilon: 1e-6,
+                    gates_epsilon: 1e-4,
+                },
+                toolchain_requirements: adapteros_policy::packs::determinism::ToolchainRequirements {
+                    rust_version: "1.75.0".to_string(),
+                    metal_sdk_version: "3.0".to_string(),
+                    kernel_compiler_version: "1.0".to_string(),
+                    allowed_compiler_flags: vec![
+                        "-O2".to_string(),
+                        "-ffast-math".to_string(),
+                    ],
+                },
+                min_router_entropy: 0.1,
+            }
+        );
+        determinism_validator.validate_backend_attestation(&report)?;
+        
+        
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -169,7 +197,7 @@ impl InferencePipeline {
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with seed
-        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        let seed = adapteros_core::derive_seed(&adapteros_core::B3Hash::hash(b"default-inference-seed"), "inference-pipeline");
         let generator = Generator::new(seed)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
@@ -190,6 +218,7 @@ impl InferencePipeline {
             prior_context: None,
             recent_logits: Vec::new(),
             entropy_window: 8,
+            determinism_validator
         })
     }
 
@@ -206,8 +235,34 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
-        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        // Create policy validator from manifest config
+        let determinism_validator = adapteros_policy::packs::determinism::DeterminismPolicy::new(
+            adapteros_policy::packs::determinism::DeterminismConfig {
+                require_metallib_embed: policy.determinism_policy().require_metallib_embed,
+                require_kernel_hash_match: policy.determinism_policy().require_kernel_hash_match,
+                rng: adapteros_policy::packs::determinism::RngSeedingMethod::HkdfSeeded,
+                retrieval_tie_break: vec![],
+                epsilon_bounds: adapteros_policy::packs::determinism::EpsilonBounds {
+                    logits_epsilon: 1e-6,
+                    embeddings_epsilon: 1e-5,
+                    attention_epsilon: 1e-6,
+                    gates_epsilon: 1e-4,
+                },
+                toolchain_requirements: adapteros_policy::packs::determinism::ToolchainRequirements {
+                    rust_version: "1.75.0".to_string(),
+                    metal_sdk_version: "3.0".to_string(),
+                    kernel_compiler_version: "1.0".to_string(),
+                    allowed_compiler_flags: vec![
+                        "-O2".to_string(),
+                        "-ffast-math".to_string(),
+                    ],
+                },
+                min_router_entropy: 0.1,
+            }
+        );
+        determinism_validator.validate_backend_attestation(&report)?;
+
+
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -220,7 +275,7 @@ impl InferencePipeline {
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with seed
-        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        let seed = adapteros_core::derive_seed(&adapteros_core::B3Hash::hash(b"default-inference-seed"), "inference-pipeline");
         let generator = Generator::new(seed)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
@@ -238,6 +293,7 @@ impl InferencePipeline {
             prior_context: None,
             recent_logits: Vec::new(),
             entropy_window: 8,
+            determinism_validator
         })
     }
 
@@ -362,11 +418,9 @@ impl InferencePipeline {
             let decision = self.router.route(&features_vec, &priors);
 
             // 6. Check policy: entropy floor (simplified for now)
-            // TODO: Implement router entropy check in PolicyEngine
+            // Validate router entropy against policy requirements
             let entropy = self.calculate_gate_entropy(&decision.gates_q15);
-            if entropy < 0.02 {
-                warn!("Router entropy below floor: {:.4}", entropy);
-            }
+            self.determinism_validator.validate_router_entropy(entropy)?;
 
             // 7. Execute kernel inference (reuse buffers)
             io_buffers.input_ids.clear();

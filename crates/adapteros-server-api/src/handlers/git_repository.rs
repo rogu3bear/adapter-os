@@ -838,6 +838,163 @@ fn extract_evidence_spans(
     Ok(evidence_spans)
 }
 
+/// Trigger repository scan
+#[utoipa::path(
+    post,
+    path = "/v1/repositories/{repo_id}/scan",
+    params(("repo_id" = String, Path, description = "Repository ID")),
+    responses(
+        (status = 202, description = "Scan triggered successfully"),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "repositories"
+)]
+pub async fn trigger_repository_scan(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Check if repository exists
+    let repo = state
+        .db
+        .get_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error checking repository {}: {}", repo_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id),
+                ),
+            )
+        })?;
+
+    // Trigger analysis (could be background job in future)
+    // For now, just log that scan was triggered
+    info!("Repository scan triggered for: {}", repo_id);
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Get repository status
+#[utoipa::path(
+    get,
+    path = "/v1/repositories/{repo_id}/status",
+    params(("repo_id" = String, Path, description = "Repository ID")),
+    responses(
+        (status = 200, description = "Repository status", body = ScanStatusResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "repositories"
+)]
+pub async fn get_repository_status(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<ScanStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Check if repository exists
+    let repo = state
+        .db
+        .get_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error checking repository {}: {}", repo_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id),
+                ),
+            )
+        })?;
+
+    let status = ScanStatusResponse {
+        status: repo.status,
+        commits_processed: 0, // TODO: Implement actual commit counting
+        last_commit: Some("HEAD".to_string()), // TODO: Get actual last commit
+    };
+
+    Ok(Json(status))
+}
+
+/// Unregister repository
+#[utoipa::path(
+    delete,
+    path = "/v1/repositories/{repo_id}",
+    params(("repo_id" = String, Path, description = "Repository ID")),
+    responses(
+        (status = 204, description = "Repository unregistered successfully"),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "repositories"
+)]
+pub async fn unregister_repository(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Check if repository exists
+    let _repo = state
+        .db
+        .get_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error checking repository {}: {}", repo_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id),
+                ),
+            )
+        })?;
+
+    // Delete repository
+    state
+        .db
+        .delete_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete repository {}: {}", repo_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to delete repository").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+
+    info!("Repository unregistered: {}", repo_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Path policy configuration
 #[derive(Debug, Clone)]
 pub struct PathPolicy {

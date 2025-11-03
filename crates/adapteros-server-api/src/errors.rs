@@ -131,3 +131,20 @@ pub type AuthResult<T> = Result<T, AuthError>;
 
 /// Result type for validation operations
 pub type ValidationResult<T> = Result<T, ValidationError>;
+
+/// IntoResponse implementation for ErrorResponse
+/// This allows ErrorResponse to be returned directly from handlers
+impl axum::response::IntoResponse for crate::types::ErrorResponse {
+    fn into_response(self) -> axum::response::Response {
+        let status = match self.code.as_str() {
+            "NOT_FOUND" => StatusCode::NOT_FOUND,
+            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+            "FORBIDDEN" => StatusCode::FORBIDDEN,
+            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
+            "CONFLICT" => StatusCode::CONFLICT,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+
+        (status, axum::Json(self)).into_response()
+    }
+}

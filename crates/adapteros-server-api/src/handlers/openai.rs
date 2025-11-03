@@ -88,6 +88,8 @@ pub async fn chat_completions(
         prompt: infer_req.prompt.clone(),
         max_tokens: infer_req.max_tokens.unwrap_or(100),
         require_evidence: true,
+        adapter_hints: None, // No pre-routing for OpenAI-compatible endpoint
+        router_features: None,
     };
 
     // Record inference latency

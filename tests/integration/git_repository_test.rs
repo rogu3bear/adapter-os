@@ -11,6 +11,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use tempfile::TempDir;
 use tokio::fs;
+use git2;
 
 /// Test git repository registration and analysis
 ///
@@ -455,6 +456,110 @@ fn validate_evidence_quality(evidence_spans: &[serde_json::Value]) -> bool {
     // Evidence: docs/code-intelligence/code-policies.md:45-78
     // Policy: Evidence quality requirements
     
+/// Test GitSubsystem status and session management
+///
+/// Evidence: crates/adapteros-git/src/subsystem.rs:242-257
+/// Policy: Git subsystem status reporting
+#[tokio::test]
+async fn test_git_subsystem_status() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("test.db");
+    let db = Db::new(&db_path).await?;
+
+    // Create GitSubsystem
+    let config = adapteros_git::GitConfig { enabled: true };
+    let git_subsystem = adapteros_git::GitSubsystem::new(config, db.clone()).await?;
+
+    // Test get_status
+    let status = git_subsystem.get_status().await?;
+    assert!(status.enabled);
+    assert_eq!(status.active_sessions, 0); // No sessions initially
+
+    // Get repository count
+    let repo_count = db.list_git_repositories().await?.len();
+    assert_eq!(status.repositories_tracked as usize, repo_count);
+
+    Ok(())
+}
+
+/// Test BranchManager session lifecycle
+///
+/// Evidence: crates/adapteros-git/src/branch_manager.rs:104-185
+/// Policy: Git session management
+#[tokio::test]
+async fn test_branch_manager_session_lifecycle() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let db_path = temp_dir.path().join("test.db");
+    let db = Db::new(&db_path).await?;
+
+    // Create test repository
+    let repo_path = temp_dir.path().join("test_repo");
+    std::fs::create_dir_all(&repo_path)?;
+    std::fs::create_dir_all(repo_path.join(".git"))?;
+    std::fs::write(repo_path.join("README.md"), "Test repo")?;
+
+    // Initialize git repo
+    let repo = git2::Repository::init(&repo_path)?;
+    let mut index = repo.index()?;
+    index.add_path(std::path::Path::new("README.md"))?;
+    index.write()?;
+    let tree_id = index.write_tree()?;
+    let tree = repo.find_tree(tree_id)?;
+    let signature = git2::Signature::now("test", "test@example.com")?;
+    repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])?;
+
+    // Register repository
+    db.create_git_repository(
+        "test_repo",
+        "test/repo",
+        &repo_path.to_string_lossy(),
+        "main",
+        "{}",
+        "test_user",
+    ).await?;
+
+    // Create BranchManager
+    let config = adapteros_git::BranchManagerConfig::default();
+    let branch_manager = adapteros_git::BranchManager::new(db.clone(), config).await?;
+
+    // Register repository with branch manager
+    branch_manager.register_repository("test/repo".to_string(), repo_path.clone()).await?;
+
+    // Start session
+    let session = branch_manager.start_session(
+        "test_adapter".to_string(),
+        "test/repo".to_string(),
+        Some("main".to_string()),
+    ).await?;
+
+    assert_eq!(session.adapter_id, "test_adapter");
+    assert_eq!(session.repo_id, "test/repo");
+    assert!(session.id.len() > 0);
+
+    // Check active sessions
+    let active_sessions = branch_manager.list_active_sessions().await;
+    assert_eq!(active_sessions.len(), 1);
+    assert_eq!(active_sessions[0].id, session.id);
+
+    // End session
+    let merge_commit = branch_manager.end_session(&session.id, false).await?;
+    assert!(merge_commit.is_none()); // No merge since we didn't commit anything
+
+    // Check sessions are cleared
+    let active_sessions_after = branch_manager.list_active_sessions().await;
+    assert_eq!(active_sessions_after.len(), 0);
+
+    Ok(())
+}
+
+/// Validate evidence quality
+///
+/// Evidence: docs/code-intelligence/code-policies.md:45-78
+/// Policy: Evidence quality requirements
+fn validate_evidence_quality(evidence_spans: &[serde_json::Value]) -> bool {
+    // Evidence: docs/code-intelligence/code-policies.md:45-78
+    // Policy: Evidence quality requirements
+
     // Must have at least one evidence span
     if evidence_spans.is_empty() {
         return false;
