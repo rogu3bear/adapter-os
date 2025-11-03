@@ -274,6 +274,11 @@ impl Router {
         self.shared_downsample = enabled;
     }
 
+    /// Get the entropy floor (eps) value
+    pub fn entropy_floor(&self) -> f32 {
+        self.eps
+    }
+
     /// Get current diversity score from orthogonal constraints
     pub fn diversity_score(&self) -> f32 {
         if let Some(ref constraints) = self.orthogonal_constraints {
