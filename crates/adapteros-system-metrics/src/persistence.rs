@@ -396,16 +396,15 @@ impl MetricsPersistenceService {
             .to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count = sqlx::query(
-            "DELETE FROM process_health_metrics WHERE collected_at < ?"
-        )
-        .bind(&cutoff_rfc3339)
-        .execute(self.db.pool())
-        .await
-        .map_err(|e| {
-            adapteros_core::AosError::Database(format!("Failed to cleanup metrics: {}", e))
-        })?
-        .rows_affected();
+        let deleted_count =
+            sqlx::query("DELETE FROM process_health_metrics WHERE collected_at < ?")
+                .bind(&cutoff_rfc3339)
+                .execute(self.db.pool())
+                .await
+                .map_err(|e| {
+                    adapteros_core::AosError::Database(format!("Failed to cleanup metrics: {}", e))
+                })?
+                .rows_affected();
 
         info!("Cleaned up {} old health metrics", deleted_count);
 
