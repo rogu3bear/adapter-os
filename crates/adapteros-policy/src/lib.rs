@@ -252,17 +252,42 @@ impl PolicyEngine {
     }
 
     /// Validate backend attestation for determinism
-    pub fn validate_determinism_attestation(
+    pub fn validate_backend_determinism(
         &self,
         report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
     ) -> Result<()> {
-        use crate::PolicyPackId;
-        let validator = self.pack_manager.get_validator(&PolicyPackId::Determinism)
-            .ok_or_else(|| AosError::PolicyViolation("Determinism policy pack not found".to_string()))?;
-        let determinism_validator = validator.as_any().downcast_ref::<crate::packs::determinism::DeterminismPolicy>()
-            .ok_or_else(|| AosError::PolicyViolation("Failed to get determinism validator".to_string()))?;
-        determinism_validator.validate_backend_attestation(report)
+        use crate::packs::{DeterminismConfig, DeterminismPolicy};
+
+        // Create determinism policy from manifest config
+        let config = DeterminismConfig {
+            require_metallib_embed: self.policies.determinism.require_metallib_embed,
+            require_kernel_hash_match: self.policies.determinism.require_kernel_hash_match,
+            rng: match self.policies.determinism.rng.as_str() {
+                "hkdf_seeded" => crate::packs::determinism::RngSeedingMethod::HkdfSeeded,
+                "fixed_seed" => crate::packs::determinism::RngSeedingMethod::FixedSeed(42),
+                _ => crate::packs::determinism::RngSeedingMethod::HkdfSeeded,
+            },
+            retrieval_tie_break: self.policies.determinism.retrieval_tie_break
+                .iter()
+                .map(|s| match s.as_str() {
+                    "score_desc" => crate::packs::determinism::TieBreakRule::ScoreDesc,
+                    "doc_id_asc" => crate::packs::determinism::TieBreakRule::DocIdAsc,
+                    _ => crate::packs::determinism::TieBreakRule::ScoreDesc,
+                })
+                .collect(),
+            epsilon_bounds: crate::packs::determinism::EpsilonBounds {
+                logits_epsilon: 0.001,
+                embeddings_epsilon: 0.001,
+                attention_epsilon: 0.001,
+                gates_epsilon: 0.001,
+            },
+            toolchain_requirements: Default::default(),
+        };
+
+        let policy = DeterminismPolicy::new(config);
+        policy.validate_backend_attestation(report)
     }
+
 
     /// Get memory policy
     pub fn memory_policy(&self) -> &MemoryPolicy {

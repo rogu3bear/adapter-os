@@ -599,6 +599,41 @@ impl std::fmt::Display for OperationConflict {
 
 impl std::error::Error for OperationConflict {}
 
+impl OperationTracker {
+    /// Get the status of a specific operation
+    pub async fn get_operation_status(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+    ) -> Option<OperationProgressEvent> {
+        let operations_lock = self.get_operations_read();
+        let operations = operations_lock.read().await;
+        let key = (resource_id.to_string(), tenant_id.to_string());
+
+        operations.get(&key).map(|op| {
+            let elapsed = op.started_at.elapsed().as_secs_f64();
+            let (operation_type_str, resource_type) = match op.operation_type {
+                OperationType::Model(ModelOperationType::Load) => ("load", "model"),
+                OperationType::Model(ModelOperationType::Unload) => ("unload", "model"),
+                OperationType::Adapter(AdapterOperationType::Load) => ("load", "adapter"),
+                OperationType::Adapter(AdapterOperationType::Unload) => ("unload", "adapter"),
+            };
+
+            OperationProgressEvent {
+                operation_id: format!("{}:{}", resource_id, tenant_id),
+                adapter_id: resource_id.to_string(),
+                tenant_id: tenant_id.to_string(),
+                operation_type: operation_type_str.to_string(),
+                progress_pct: op.progress_pct,
+                status: "running".to_string(),
+                message: None, // Could be enhanced to store last message
+                started_at: Utc::now().to_rfc3339(), // This should be stored in the operation
+                elapsed_secs: elapsed,
+            }
+        })
+    }
+}
+
 fn format_duration(d: Duration) -> String {
     let secs = d.as_secs();
     if secs < 60 {

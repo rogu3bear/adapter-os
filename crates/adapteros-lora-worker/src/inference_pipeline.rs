@@ -155,7 +155,7 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        policy.determinism_policy().validate_backend_attestation(&report)?;
+        policy.validate_backend_determinism(&report)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -206,7 +206,7 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        policy.determinism_policy().validate_backend_attestation(&report)?;
+        policy.validate_backend_determinism(&report)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
