@@ -10,12 +10,16 @@ mlx-ffi-backend = ["adapteros-base-llm", "adapteros-lora-mlx-ffi"]
 # Optional subsystems for CDP and Federation handlers
 cdp = []
 federation = []
+# Optional features for operation tracker
+metrics = []
+redis = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-db = { path = "../adapteros-db" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-git = { path = "../adapteros-git" }
@@ -68,3 +72,6 @@ futures-util = "0.3"
 glob = "0.3"
 walkdir = "2.4"
 blake3 = { workspace = true }
+
+[dev-dependencies]
+axum-test = "15.0"

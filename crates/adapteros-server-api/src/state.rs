@@ -34,6 +34,14 @@ fn default_trace_buffer_capacity() -> usize {
     512
 }
 
+fn default_metrics_server_port() -> u16 {
+    9090
+}
+
+fn default_metrics_server_enabled() -> bool {
+    true
+}
+
 /// Runtime configuration subset needed by API handlers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
@@ -52,10 +60,79 @@ pub struct ApiConfig {
     /// Production mode flag - when true, dev bypass is disabled
     #[serde(default = "default_false")]
     pub production_mode: bool,
+    /// Model load timeout in seconds (default: 300)
+    #[serde(default = "default_model_load_timeout_secs")]
+    pub model_load_timeout_secs: u64,
+    /// Model unload timeout in seconds (default: 30)
+    #[serde(default = "default_model_unload_timeout_secs")]
+    pub model_unload_timeout_secs: u64,
+    /// Model operation retry configuration
+    #[serde(default)]
+    pub operation_retry: OperationRetryConfig,
+}
+
+fn default_model_load_timeout_secs() -> u64 {
+    300
+}
+
+fn default_model_unload_timeout_secs() -> u64 {
+    30
 }
 
 fn default_false() -> bool {
     false
+}
+
+/// Configuration for operation retry behavior
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationRetryConfig {
+    /// Maximum number of retry attempts (default: 3)
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+    /// Initial retry delay in milliseconds (default: 1000)
+    #[serde(default = "default_initial_retry_delay_ms")]
+    pub initial_retry_delay_ms: u64,
+    /// Maximum retry delay in milliseconds (default: 30000)
+    #[serde(default = "default_max_retry_delay_ms")]
+    pub max_retry_delay_ms: u64,
+    /// Retry backoff multiplier (default: 2.0)
+    #[serde(default = "default_retry_backoff_multiplier")]
+    pub backoff_multiplier: f64,
+    /// Jitter factor for retry delays (default: 0.1)
+    #[serde(default = "default_retry_jitter")]
+    pub jitter: f64,
+}
+
+impl Default for OperationRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: default_max_retries(),
+            initial_retry_delay_ms: default_initial_retry_delay_ms(),
+            max_retry_delay_ms: default_max_retry_delay_ms(),
+            backoff_multiplier: default_retry_backoff_multiplier(),
+            jitter: default_retry_jitter(),
+        }
+    }
+}
+
+fn default_max_retries() -> u32 {
+    3
+}
+
+fn default_initial_retry_delay_ms() -> u64 {
+    1000
+}
+
+fn default_max_retry_delay_ms() -> u64 {
+    30000
+}
+
+fn default_retry_backoff_multiplier() -> f64 {
+    2.0
+}
+
+fn default_retry_jitter() -> f64 {
+    0.1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +147,10 @@ pub struct MetricsConfig {
     pub telemetry_channel_capacity: usize,
     #[serde(default = "default_trace_buffer_capacity")]
     pub trace_buffer_capacity: usize,
+    #[serde(default = "default_metrics_server_port")]
+    pub server_port: u16,
+    #[serde(default = "default_metrics_server_enabled")]
+    pub server_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +307,7 @@ pub struct AppState {
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
     pub metrics_collector: Arc<MetricsCollector>,
     pub metrics_registry: Arc<MetricsRegistry>,
+    pub metrics_server: Option<Arc<adapteros_telemetry::MetricsServer>>,
     pub training_service: Arc<TrainingService>,
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
     pub file_change_tx:
@@ -234,6 +316,7 @@ pub struct AppState {
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
     #[cfg(feature = "cdp")]
     pub code_job_manager: Option<Arc<CodeJobManager>>,
+    /// Tracks ongoing operations to prevent duplicates
     /// JWT validation mode
     pub jwt_mode: JwtMode,
     /// Optional Ed25519 public key PEM for JWT validation
@@ -252,6 +335,10 @@ pub struct AppState {
     pub telemetry_tx: broadcast::Sender<UnifiedTelemetryEvent>,
     /// Broadcast channel for telemetry bundle updates
     pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
+    /// Broadcast channel for operation progress updates
+    pub operation_progress_tx: broadcast::Sender<crate::types::OperationProgressEvent>,
+    /// Tracker for ongoing adapter operations
+    pub operation_tracker: Arc<crate::operation_tracker::OperationTracker>,
     /// In-memory trace buffer for recent traces
     pub trace_buffer: Arc<TraceBuffer>,
 }
@@ -308,6 +395,16 @@ impl AppState {
         let (bundles_tx, _bundles_rx) =
             broadcast::channel::<crate::types::TelemetryBundleResponse>(256);
 
+        // Create broadcast channel for operation progress updates
+        let (progress_tx, _progress_rx) =
+            broadcast::channel::<crate::types::OperationProgressEvent>(256);
+
+        // Initialize operation tracker with progress broadcasting
+        let operation_tracker = crate::operation_tracker::OperationTracker::new_with_progress(
+            std::time::Duration::from_secs(300), // 5 minute timeout
+            progress_tx.clone(),
+        );
+
         // Initialize router with default weights and deterministic seed
         let router_seed = [42u8; 32]; // Fixed seed for deterministic routing
         let router_weights = vec![1.0; 10]; // Placeholder weights - should be configurable
@@ -320,6 +417,7 @@ impl AppState {
             metrics_exporter,
             metrics_collector,
             metrics_registry,
+            metrics_server: None,
             training_service,
             git_subsystem: None,
             file_change_tx: None,
@@ -331,13 +429,28 @@ impl AppState {
             jwt_public_key_pem: None,
             policy_manager: Arc::new(PolicyPackManager::new()),
             router,
-            model_runtime: Some(Arc::new(tokio::sync::Mutex::new(
-                crate::model_runtime::ModelRuntime::new(),
-            ))),
+            model_runtime: {
+                // Get file size limits from config
+                let config_guard = config.read().unwrap();
+                let max_model_size = config_guard.security.max_model_size_bytes;
+                let max_config_size = config_guard.security.max_config_size_bytes;
+                let max_tokenizer_size = config_guard.security.max_tokenizer_size_bytes;
+                drop(config_guard);
+
+                Some(Arc::new(tokio::sync::Mutex::new(
+                    crate::model_runtime::ModelRuntime::with_limits(
+                        max_model_size,
+                        max_config_size,
+                        max_tokenizer_size,
+                    ),
+                )))
+            },
             training_sessions: Arc::new(AsyncRwLock::new(HashMap::new())),
             telemetry_buffer,
             telemetry_tx,
             telemetry_bundles_tx: bundles_tx,
+            operation_progress_tx: progress_tx,
+            operation_tracker: Arc::new(operation_tracker),
             trace_buffer,
         }
     }
@@ -376,6 +489,11 @@ impl AppState {
 
     pub fn with_crypto(mut self, crypto: CryptoState) -> Self {
         self.crypto = Arc::new(crypto);
+        self
+    }
+
+    pub fn with_metrics_server(mut self, metrics_server: Arc<adapteros_telemetry::MetricsServer>) -> Self {
+        self.metrics_server = Some(metrics_server);
         self
     }
 
@@ -444,6 +562,8 @@ mod tests {
                 telemetry_buffer_capacity: 3, // Tiny capacity for testing eviction
                 telemetry_channel_capacity: default_telemetry_channel_capacity(),
                 trace_buffer_capacity: default_trace_buffer_capacity(),
+                server_port: default_metrics_server_port(),
+                server_enabled: default_metrics_server_enabled(),
             },
             golden_gate: None,
             bundles_root: "/tmp".to_string(),
@@ -453,6 +573,9 @@ mod tests {
                 allowlist: default_path_allowlist(),
                 denylist: default_path_denylist(),
             },
+            model_load_timeout_secs: default_model_load_timeout_secs(),
+            model_unload_timeout_secs: default_model_unload_timeout_secs(),
+            operation_retry: OperationRetryConfig::default(),
         };
         let config = Arc::new(RwLock::new(api_config));
 
@@ -591,6 +714,8 @@ mod tests {
                 telemetry_buffer_capacity: default_telemetry_buffer_capacity(),
                 telemetry_channel_capacity: default_telemetry_channel_capacity(),
                 trace_buffer_capacity: default_trace_buffer_capacity(),
+                server_port: default_metrics_server_port(),
+                server_enabled: default_metrics_server_enabled(),
             },
             golden_gate: None,
             bundles_root: temp_dir.path().display().to_string(),
@@ -600,6 +725,9 @@ mod tests {
                 allowlist: default_path_allowlist(),
                 denylist: default_path_denylist(),
             },
+            model_load_timeout_secs: default_model_load_timeout_secs(),
+            model_unload_timeout_secs: default_model_unload_timeout_secs(),
+            operation_retry: OperationRetryConfig::default(),
         };
         let config = Arc::new(RwLock::new(api_config));
 

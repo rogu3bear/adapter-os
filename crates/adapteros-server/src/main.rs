@@ -172,11 +172,33 @@ async fn main() -> Result<()> {
     // Load configuration
     info!("Loading configuration from {}", cli.config);
     let mut config_data = Config::load(&cli.config)?;
+    
+    // Validate configuration before proceeding
+    info!("Validating configuration");
+    config_data.validate()?;
+    info!("Configuration validation passed");
 
     if config_data.security.jwt_public_key_pem.is_none() {
         if let Some(ref pem_file) = config_data.security.jwt_public_key_pem_file {
             let pem = read_trimmed_file(pem_file)?;
             config_data.security.jwt_public_key_pem = Some(pem);
+        }
+    }
+
+    // Apply MLX configuration if present
+    if let Some(ref mlx_config) = config_data.mlx {
+        if mlx_config.enabled {
+            if let Some(ref model_path) = mlx_config.model_path {
+                // Set environment variable if not already set (env var takes precedence)
+                if std::env::var("AOS_MLX_FFI_MODEL").is_err() {
+                    std::env::set_var("AOS_MLX_FFI_MODEL", model_path);
+                    info!("Set AOS_MLX_FFI_MODEL from config: {}", model_path);
+                } else {
+                    info!(
+                        "AOS_MLX_FFI_MODEL already set in environment, not overriding with config value"
+                    );
+                }
+            }
         }
     }
 
@@ -463,6 +485,10 @@ async fn main() -> Result<()> {
                 denylist: vec!["**/.env*".to_string(), "**/secrets/**".to_string()],
             },
             production_mode: cfg.server.production_mode,
+            model_load_timeout_secs: 300,
+            model_unload_timeout_secs: 30,
+            max_loaded_models: 3,
+            max_models_per_tenant: 1,
         }))
     };
 
@@ -571,6 +597,28 @@ async fn main() -> Result<()> {
         metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_000);
     }
     info!("Initialized metrics time series for dashboard");
+
+    // Create metrics server for HTTP Prometheus export
+    let metrics_server = if cfg.metrics.server_enabled {
+        let server = Arc::new(
+            adapteros_telemetry::MetricsServer::new(metrics_collector.clone(), cfg.metrics.server_port)
+                .expect("metrics server"),
+        );
+
+        // Start metrics server in background
+        let server_clone = server.clone();
+        tokio::spawn(async move {
+            if let Err(e) = server_clone.start().await {
+                error!("Metrics server error: {}", e);
+            }
+        });
+
+        info!("Metrics server started on port {}", cfg.metrics.server_port);
+        Some(server)
+    } else {
+        info!("Metrics server disabled");
+        None
+    };
 
     // Initialize policy hash watcher (continuous monitoring)
     let (telemetry_tx, _telemetry) = {
@@ -835,9 +883,43 @@ async fn main() -> Result<()> {
         cfg.orchestrator.base_model.clone()
     };
 
-    let training_service = Arc::new(TrainingService::new_with_base_model(
+    let db_for_training = {
+        match db.backend() {
+            adapteros_db::DatabaseBackend::Sqlite(db_inner) => Arc::new(db_inner.clone()),
+            adapteros_db::DatabaseBackend::Postgres(_) => {
+                return Err(AosError::Config(
+                    "TrainingService requires SQLite database backend".to_string(),
+                )
+                .into());
+            }
+        }
+    };
+    let training_service = Arc::new(TrainingService::new_with_db(
+        db_for_training,
         orchestrator_base_model,
     ));
+
+    // Warm up training service cache and reconcile stuck jobs on startup
+    {
+        let training_service_clone = training_service.clone();
+        info!("Warming up training service cache...");
+        match training_service_clone.warmup_cache().await {
+            Ok(count) => info!("Training service cache warmup complete: loaded {} jobs", count),
+            Err(e) => warn!("Training service cache warmup failed: {}", e),
+        }
+
+        info!("Reconciling stuck training jobs...");
+        match training_service_clone.reconcile_stuck_jobs(24).await {
+            Ok(count) => {
+                if count > 0 {
+                    warn!("Reconciled {} stuck training jobs", count);
+                } else {
+                    info!("No stuck training jobs found");
+                }
+            }
+            Err(e) => warn!("Training job reconciliation failed: {}", e),
+        }
+    }
 
     let mut state = AppState::new(
         db.clone(),
@@ -849,6 +931,11 @@ async fn main() -> Result<()> {
         training_service,
         Some(telemetry_tx),
     );
+
+    // Add metrics server to AppState if enabled
+    if let Some(metrics_server) = metrics_server {
+        state = state.with_metrics_server(metrics_server);
+    }
 
     {
         let signing_path_opt = {
@@ -890,6 +977,14 @@ async fn main() -> Result<()> {
             None,
             3,
         );
+
+        // Configure adapter loader with file size limits
+        {
+            let max_adapter_size = cfg.server.max_adapter_size_bytes;
+            let mut loader = lifecycle.loader.write();
+            loader.set_max_size(max_adapter_size);
+        }
+
         if cfg.server.enable_mmap_adapters {
             lifecycle =
                 lifecycle.with_mmap_loader(adapters_path.clone(), cfg.server.mmap_cache_size_mb);
@@ -921,6 +1016,14 @@ async fn main() -> Result<()> {
         let policies = Policies::default();
         let mut lifecycle =
             LifecycleManager::new(adapter_names, &policies, adapters_path.clone(), None, 3);
+
+        // Configure adapter loader with file size limits
+        {
+            let max_adapter_size = cfg.server.max_adapter_size_bytes;
+            let mut loader = lifecycle.loader.write();
+            loader.set_max_size(max_adapter_size);
+        }
+
         if enable_mmap {
             lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), mmap_mb);
         }
@@ -1022,6 +1125,16 @@ async fn main() -> Result<()> {
         info!("Git subsystem disabled in configuration");
     }
 
+    // Reconcile model states on startup to fix any stuck 'loading' or 'unloading' states
+    {
+        use adapteros_server_api::handlers::models::reconcile_model_states;
+        info!("Running model state reconciliation on startup");
+        if let Err(e) = reconcile_model_states(&state).await {
+            warn!("Model state reconciliation failed: {}", e);
+            // Continue startup even if reconciliation fails
+        }
+    }
+
     // Spawn status cache update background task
     {
         let state_clone = state.clone();
@@ -1050,6 +1163,59 @@ async fn main() -> Result<()> {
             }
         });
         info!("Status file writer started (5s interval)");
+    }
+
+    // Spawn periodic model state health check task
+    {
+        use adapteros_server_api::handlers::models::check_model_state_health;
+        let state_clone = state.clone();
+        let _ = spawn_deterministic("Model state health check".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every 60 seconds
+            loop {
+                interval.tick().await;
+                match check_model_state_health(&state_clone).await {
+                    Ok(metrics) => {
+                        if metrics.divergences > 0 {
+                            warn!(
+                                divergence_count = metrics.divergences,
+                                total_models = metrics.total_models,
+                                "Model state health check detected {} divergence(s) out of {} models",
+                                metrics.divergences,
+                                metrics.total_models
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Model state health check failed: {}", e);
+                    }
+                }
+            }
+        });
+        info!("Model state health check task started (60s interval)");
+    }
+
+    // Spawn operation health monitoring task (stuck operations and state divergences)
+    {
+        use adapteros_server_api::handlers::monitor_operation_health;
+        let state_clone = state.clone();
+        let _ = spawn_deterministic("Operation health monitor".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every 60 seconds
+            loop {
+                interval.tick().await;
+                match monitor_operation_health(&state_clone).await {
+                    Ok(()) => {
+                        // Monitoring completed successfully
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Operation health monitoring failed"
+                        );
+                    }
+                }
+            }
+        });
+        info!("Operation health monitor started (60s interval)");
     }
 
     // Clone metrics and telemetry buffer before moving state into routes
@@ -1231,6 +1397,28 @@ async fn main() -> Result<()> {
         info!("Queue depth monitor started");
     }
 
+    // Background task to clean up old training logs periodically
+    {
+        let training_service_clone = training_service.clone();
+        let _ = spawn_deterministic("Training log cleanup".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3600)); // Run hourly
+            loop {
+                interval.tick().await;
+                match training_service_clone.cleanup_old_logs(7).await {
+                    Ok(count) => {
+                        if count > 0 {
+                            info!("Cleaned up {} old training log files", count);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Training log cleanup failed: {}", e);
+                    }
+                }
+            }
+        });
+        info!("Training log cleanup task started (hourly, keeps 7 days)");
+    }
+
     // Build router with UI (after spawning background tasks)
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
@@ -1269,14 +1457,18 @@ async fn main() -> Result<()> {
         let app_service = app.clone();
         let builder = HyperBuilder::new(hyper_util::rt::TokioExecutor::new());
 
-        let shutdown = shutdown_signal();
+        let state_for_cleanup = state.clone();
+        let shutdown = async {
+            shutdown_signal().await;
+            cleanup_resources(&state_for_cleanup).await;
+        };
         tokio::pin!(shutdown);
 
         loop {
             tokio::select! {
                 biased;
                 _ = &mut shutdown => {
-                    info!("Shutdown signal received");
+                    info!("Shutdown signal received and cleanup completed");
                     break;
                 }
                 accept_res = listener.accept() => {
@@ -1329,13 +1521,30 @@ async fn main() -> Result<()> {
         warn!("⚠️  Starting control plane on TCP (development mode)");
         info!("UI available at http://{}:{}/", addr.ip(), port);
         info!("API available at http://{}:{}/api/", addr.ip(), port);
+        let state_for_cleanup = state.clone();
+        let shutdown = async {
+            shutdown_signal().await;
+            cleanup_resources(&state_for_cleanup).await;
+        };
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(shutdown)
             .await?;
     }
 
     Ok(())
+}
+
+/// Statistics for cleanup operations during shutdown
+#[derive(Debug, Default)]
+struct CleanupStats {
+    total_models: usize,
+    models_unloaded: usize,
+    models_failed: usize,
+    models_timed_out: usize,
+    total_adapters: usize,
+    adapters_unloaded: usize,
+    adapters_failed: usize,
 }
 
 async fn shutdown_signal() {
@@ -1361,4 +1570,172 @@ async fn shutdown_signal() {
     let _ = select_2(ctrl_c, terminate).await;
 
     info!("Shutdown signal received");
+}
+
+/// Cleanup models and adapters during graceful shutdown
+async fn cleanup_resources(state: &adapteros_server_api::state::AppState) {
+    use std::time::Duration;
+    use adapteros_server_api::model_runtime::ModelRuntime;
+    use adapteros_lora_lifecycle::AdapterLoader;
+    use tracing::{info, warn, error};
+
+    info!("Starting graceful shutdown cleanup");
+
+    let mut cleanup_stats = CleanupStats::default();
+
+    // Cleanup models with timeout
+    if let Some(model_runtime) = &state.model_runtime {
+        let timeout = Duration::from_secs(30);
+        let cleanup_start = std::time::Instant::now();
+
+        let loaded_models = {
+            let guard = model_runtime.lock().await;
+            guard.get_all_loaded_models()
+        };
+
+        cleanup_stats.total_models = loaded_models.len();
+        info!(count = cleanup_stats.total_models, "Found {} models to unload", cleanup_stats.total_models);
+
+        if cleanup_stats.total_models > 0 {
+            for (tenant_id, model_id) in loaded_models {
+                let model_start = std::time::Instant::now();
+                let result = tokio::time::timeout(timeout, async {
+                    let mut guard = model_runtime.lock().await;
+                    guard.unload_model(&tenant_id, &model_id)
+                }).await;
+
+                let model_duration = model_start.elapsed();
+
+                match result {
+                    Ok(Ok(())) => {
+                        cleanup_stats.models_unloaded += 1;
+                        info!(
+                            tenant_id = %tenant_id,
+                            model_id = %model_id,
+                            duration_ms = model_duration.as_millis(),
+                            "Model unloaded successfully during shutdown"
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        cleanup_stats.models_failed += 1;
+                        error!(
+                            tenant_id = %tenant_id,
+                            model_id = %model_id,
+                            error = %e,
+                            duration_ms = model_duration.as_millis(),
+                            "Failed to unload model during shutdown"
+                        );
+                    }
+                    Err(_) => {
+                        cleanup_stats.models_timed_out += 1;
+                        error!(
+                            tenant_id = %tenant_id,
+                            model_id = %model_id,
+                            duration_ms = model_duration.as_millis(),
+                            "Model unload timed out during shutdown"
+                        );
+                    }
+                }
+
+                // Update database status to 'unloaded' regardless of unload result
+                // This ensures the database reflects the shutdown state
+                if let Err(e) = sqlx::query!(
+                    "UPDATE base_model_status SET status = 'unloaded', updated_at = datetime('now') WHERE model_id = ? AND tenant_id = ?",
+                    model_id,
+                    tenant_id
+                )
+                .execute(state.db.pool())
+                .await {
+                    warn!(
+                        tenant_id = %tenant_id,
+                        model_id = %model_id,
+                        error = %e,
+                        "Failed to update model status in database during shutdown"
+                    );
+                }
+            }
+        }
+
+        let cleanup_duration = cleanup_start.elapsed();
+        info!(
+            duration_ms = cleanup_duration.as_millis(),
+            unloaded = cleanup_stats.models_unloaded,
+            failed = cleanup_stats.models_failed,
+            timed_out = cleanup_stats.models_timed_out,
+            "Model cleanup completed"
+        );
+    }
+
+    // Cleanup adapters - unload all loaded adapters directly from loader
+    if let Some(lifecycle_manager) = &state.lifecycle_manager {
+        let adapter_cleanup_start = std::time::Instant::now();
+        let guard = lifecycle_manager.lock().await;
+        // Get direct access to the adapter loader
+        let loader = guard.loader();
+        let loaded_adapters: Vec<u16> = {
+            let loader_guard = loader.read().await;
+            (0..u16::MAX)
+                .filter(|&id| loader_guard.is_loaded(id))
+                .collect()
+        };
+
+        cleanup_stats.total_adapters = loaded_adapters.len();
+        info!(count = cleanup_stats.total_adapters, "Found {} adapters to unload", cleanup_stats.total_adapters);
+
+        drop(guard); // Release lifecycle lock
+
+        if cleanup_stats.total_adapters > 0 {
+            for adapter_idx in loaded_adapters {
+                let adapter_start = std::time::Instant::now();
+                let guard = lifecycle_manager.lock().await;
+                let loader = guard.loader();
+                let result = {
+                    let mut loader_guard = loader.write().await;
+                    loader_guard.unload_adapter(adapter_idx)
+                };
+
+                let adapter_duration = adapter_start.elapsed();
+
+                match result {
+                    Ok(()) => {
+                        cleanup_stats.adapters_unloaded += 1;
+                        info!(
+                            adapter_idx = adapter_idx,
+                            duration_ms = adapter_duration.as_millis(),
+                            "Adapter unloaded successfully during shutdown"
+                        );
+                    }
+                    Err(e) => {
+                        cleanup_stats.adapters_failed += 1;
+                        error!(
+                            adapter_idx = adapter_idx,
+                            error = %e,
+                            duration_ms = adapter_duration.as_millis(),
+                            "Failed to unload adapter during shutdown"
+                        );
+                    }
+                }
+            }
+        }
+
+        let adapter_cleanup_duration = adapter_cleanup_start.elapsed();
+        info!(
+            duration_ms = adapter_cleanup_duration.as_millis(),
+            unloaded = cleanup_stats.adapters_unloaded,
+            failed = cleanup_stats.adapters_failed,
+            "Adapter cleanup completed"
+        );
+    }
+
+    // Final cleanup summary
+    info!(
+        models_total = cleanup_stats.total_models,
+        models_unloaded = cleanup_stats.models_unloaded,
+        models_failed = cleanup_stats.models_failed,
+        models_timed_out = cleanup_stats.models_timed_out,
+        adapters_total = cleanup_stats.total_adapters,
+        adapters_unloaded = cleanup_stats.adapters_unloaded,
+        adapters_failed = cleanup_stats.adapters_failed,
+        "Graceful shutdown cleanup completed"
+    );
 }
