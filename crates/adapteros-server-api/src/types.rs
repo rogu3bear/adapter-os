@@ -153,36 +153,6 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
-/// Enhanced ErrorResponse with user-friendly messages
-impl ErrorResponse {
-    /// Create an error response with user-friendly message mapping
-    pub fn new_user_friendly(error_code: &str, technical_message: &str) -> Self {
-        let user_friendly_message = crate::errors::UserFriendlyErrorMapper::map_error_message(error_code, technical_message);
-
-        Self {
-            error: user_friendly_message,
-            code: error_code.to_string(),
-            details: Some(serde_json::json!({
-                "technical_details": technical_message,
-                "user_friendly": true
-            })),
-        }
-    }
-
-    /// Create an error response with both user-friendly and technical messages
-    pub fn with_technical_details(mut self, technical_message: &str) -> Self {
-        if let Some(details) = &mut self.details {
-            if let Some(obj) = details.as_object_mut() {
-                obj.insert("technical_details".to_string(), serde_json::Value::String(technical_message.to_string()));
-            }
-        } else {
-            self.details = Some(serde_json::json!({
-                "technical_details": technical_message
-            }));
-        }
-        self
-    }
-}
 
 // ============================================================================
 // Golden Baselines API Types

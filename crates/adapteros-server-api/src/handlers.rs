@@ -6464,15 +6464,6 @@ pub async fn load_adapter(
         }
     }
 
-    // Check for concurrent operations using OperationTracker
-    if let Some(ref operation_tracker) = state.operation_tracker {
-        if let Err(conflict) = operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
-            ));
-        }
-    }
 
     // Update adapter state to 'loading'
     state
@@ -6495,7 +6486,7 @@ pub async fn load_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(OperationConflict { .. }) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
+    if let Err(OperationConflict { .. }) = state.operation_tracker.start_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Load)).await {
         return Err((
             StatusCode::CONFLICT,
             Json(
@@ -6610,11 +6601,11 @@ pub async fn load_adapter(
                 }
 
                 // Complete operation tracking
-                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load, true).await;
+                state.operation_tracker.complete_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Load), true).await;
             }
             Err(e) => {
                 // Complete operation tracking with failure
-                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load, false).await;
+                state.operation_tracker.complete_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Load), false).await;
                 // Rollback state on error
                 state
                     .db
@@ -6786,7 +6777,7 @@ pub async fn unload_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(OperationConflict { .. }) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload).await {
+    if let Err(OperationConflict { .. }) = state.operation_tracker.start_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Unload)).await {
         return Err((
             StatusCode::CONFLICT,
             Json(

@@ -488,6 +488,6 @@ Happy learning! 🚀
 ---
 
 **Last Updated**: 2025-01-15
-**Version**: 2.1
+**Version**: 2.2
 **Maintained By**: AdapterOS Documentation Team
 
