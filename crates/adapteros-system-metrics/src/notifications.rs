@@ -218,7 +218,7 @@ impl NotificationService {
             INSERT INTO process_monitoring_notifications (
                 id, alert_id, notification_type, recipient, message, status
             ) VALUES (?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&notification.alert_id)
@@ -254,7 +254,7 @@ impl NotificationService {
             UPDATE process_monitoring_notifications 
             SET status = ?, error_message = ?, sent_at = CURRENT_TIMESTAMP
             WHERE id = ?
-            "#
+            "#,
         )
         .bind(status)
         .bind(&error_message)
@@ -497,8 +497,12 @@ impl NotificationService {
                 recipient: row.get("recipient"),
                 message: row.get("message"),
                 status: crate::monitoring_types::NotificationStatus::from_string(row.get("status")),
-                sent_at: row.get::<Option<chrono::NaiveDateTime>, _>("sent_at").map(|dt| dt.and_utc()),
-                delivered_at: row.get::<Option<chrono::NaiveDateTime>, _>("delivered_at").map(|dt| dt.and_utc()),
+                sent_at: row
+                    .get::<Option<chrono::NaiveDateTime>, _>("sent_at")
+                    .map(|dt| dt.and_utc()),
+                delivered_at: row
+                    .get::<Option<chrono::NaiveDateTime>, _>("delivered_at")
+                    .map(|dt| dt.and_utc()),
                 error_message: row.get("error_message"),
                 retry_count: row.get::<Option<i64>, _>("retry_count").unwrap_or(0),
                 created_at: row.get::<chrono::NaiveDateTime, _>("created_at").and_utc(),
@@ -513,7 +517,7 @@ impl NotificationService {
         let failed_notifications = sqlx::query(
             "SELECT * FROM process_monitoring_notifications 
              WHERE status = 'failed' AND retry_count < ? 
-             ORDER BY created_at ASC LIMIT 10"
+             ORDER BY created_at ASC LIMIT 10",
         )
         .bind(self.config.retry_attempts as i64)
         .fetch_all(self.db.pool())

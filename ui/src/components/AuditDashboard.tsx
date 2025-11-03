@@ -21,7 +21,7 @@ import {
   Filter
 } from 'lucide-react';
 import apiClient from '../api/client';
-import { Policy, TelemetryBundle, PromotionGate } from '../api/types';
+import { Policy, TelemetryBundle, PromotionGate, ComplianceControl, PolicyViolationRecord } from '../api/types';
 // 【ui/src/components/AuditDashboard.tsx§1-30】 - Replace toast errors with ErrorRecovery
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
@@ -51,6 +51,91 @@ interface PolicyViolation {
   resolved: boolean;
 }
 
+// Helper function to map backend ComplianceControl to component ComplianceStatus
+function mapComplianceControlToStatus(control: ComplianceControl): ComplianceStatus {
+  // Map backend status string to component status enum
+  let status: ComplianceStatus['status'] = 'unknown';
+  const statusLower = control.status.toLowerCase();
+  if (statusLower === 'compliant') {
+    status = 'compliant';
+  } else if (statusLower === 'non-compliant' || statusLower === 'non_compliant') {
+    status = 'non-compliant';
+  } else if (statusLower === 'pending') {
+    status = 'pending';
+  }
+
+  return {
+    controlId: control.control_id,
+    controlName: control.control_name,
+    status,
+    lastChecked: control.last_checked,
+    evidence: control.evidence,
+    findings: control.findings
+  };
+}
+
+// Helper function to map PolicyViolationRecord from backend to component PolicyViolation
+function mapViolationRecordToViolation(record: PolicyViolationRecord): PolicyViolation {
+  // Parse metadata if available to extract additional details
+  let severity: PolicyViolation['severity'] = 'medium';
+  let policyName = 'Unknown Policy';
+  let details = record.reason;
+
+  if (record.metadata) {
+    try {
+      const metadata = JSON.parse(record.metadata);
+      const severityStr = (metadata.severity as string)?.toLowerCase();
+      if (severityStr === 'critical') {
+        severity = 'critical';
+      } else if (severityStr === 'high') {
+        severity = 'high';
+      } else if (severityStr === 'medium') {
+        severity = 'medium';
+      } else {
+        severity = 'low';
+      }
+      policyName = metadata.policy_pack || metadata.policy_name || policyName;
+      details = metadata.details || metadata.message || details;
+    } catch {
+      // If metadata parsing fails, use defaults
+    }
+  }
+
+  // Infer severity from violation_type if available
+  if (record.violation_type) {
+    const typeLower = record.violation_type.toLowerCase();
+    if (typeLower.includes('critical') || typeLower.includes('blocker')) {
+      severity = 'critical';
+    } else if (typeLower.includes('high')) {
+      severity = 'high';
+    } else if (typeLower.includes('low') || typeLower.includes('info')) {
+      severity = 'low';
+    }
+  }
+
+  // Extract policy name from cpid or violation_type if available
+  if (record.cpid) {
+    policyName = `Policy Pack ${record.cpid.substring(0, 8)}`;
+  } else if (record.violation_type) {
+    // Try to extract policy name from violation_type (e.g., "EGRESS-001" -> "Egress Ruleset")
+    const parts = record.violation_type.split('-');
+    if (parts.length > 0) {
+      const packName = parts[0];
+      policyName = `${packName.charAt(0) + packName.slice(1).toLowerCase()} Ruleset`;
+    }
+  }
+
+  return {
+    id: record.id,
+    policyName,
+    violationType: record.violation_type || 'Policy Violation',
+    severity,
+    timestamp: record.created_at,
+    details,
+    resolved: record.released
+  };
+}
+
 export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [telemetryBundles, setTelemetryBundles] = useState<TelemetryBundle[]>([]);
@@ -72,9 +157,14 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       const bundles = await apiClient.listTelemetryBundles();
       setTelemetryBundles(bundles);
 
-      // Generate mock compliance data (in production, this would come from backend)
-      generateComplianceData(policiesList);
-      generateViolationData();
+      // Load compliance audit data from backend (includes violations)
+      const complianceAudit = await apiClient.getComplianceAudit();
+      const mappedControls = complianceAudit.controls.map(mapComplianceControlToStatus);
+      setComplianceStatus(mappedControls);
+
+      // Map violations from compliance audit response
+      const mappedViolations = complianceAudit.violations.map(mapViolationRecordToViolation);
+      setViolations(mappedViolations);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load audit data';
       logger.error('Failed to load audit data', {
@@ -92,102 +182,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   useEffect(() => {
     loadAuditData();
   }, [loadAuditData]);
-
-  const generateComplianceData = (policies: Policy[]) => {
-    const controls: ComplianceStatus[] = [
-      {
-        controlId: 'EGRESS-001',
-        controlName: 'Network Egress Control',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Zero egress mode enforced', 'PF rules active'],
-        findings: []
-      },
-      {
-        controlId: 'DETERM-001',
-        controlName: 'Deterministic Execution',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Metal kernels precompiled', 'HKDF seeding enabled'],
-        findings: []
-      },
-      {
-        controlId: 'ROUTER-001',
-        controlName: 'Router Configuration',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['K-sparse within bounds', 'Entropy floor met'],
-        findings: []
-      },
-      {
-        controlId: 'EVIDENCE-001',
-        controlName: 'Evidence Requirements',
-        status: 'pending',
-        lastChecked: new Date().toISOString(),
-        evidence: ['ARR: 0.94', 'ECS@5: 0.72'],
-        findings: ['ECS@5 below threshold of 0.75']
-      },
-      {
-        controlId: 'ISOLATION-001',
-        controlName: 'Tenant Isolation',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Per-tenant processes', 'UID/GID separation'],
-        findings: []
-      },
-      {
-        controlId: 'TELEMETRY-001',
-        controlName: 'Telemetry Compliance',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Sampling rules met', 'Bundle rotation active'],
-        findings: []
-      },
-      {
-        controlId: 'ARTIFACTS-001',
-        controlName: 'Artifact Security',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['All artifacts signed', 'SBOM present'],
-        findings: []
-      },
-      {
-        controlId: 'MEMORY-001',
-        controlName: 'Memory Management',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['15% headroom maintained', 'Eviction order followed'],
-        findings: []
-      }
-    ];
-
-    setComplianceStatus(controls);
-  };
-
-  const generateViolationData = () => {
-    const mockViolations: PolicyViolation[] = [
-      {
-        id: 'V001',
-        policyName: 'Evidence Ruleset',
-        violationType: 'Insufficient Evidence Coverage',
-        severity: 'medium',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        details: 'ECS@5 score of 0.72 is below required threshold of 0.75',
-        resolved: false
-      },
-      {
-        id: 'V002',
-        policyName: 'Performance Ruleset',
-        violationType: 'Latency Threshold Exceeded',
-        severity: 'low',
-        timestamp: new Date(Date.now() - 7200000).toISOString(),
-        details: 'P95 latency of 26ms exceeded budget of 24ms',
-        resolved: true
-      }
-    ];
-
-    setViolations(mockViolations);
-  };
 
   const handleRunAudit = async () => {
     setIsLoading(true);

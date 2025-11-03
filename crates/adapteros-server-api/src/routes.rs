@@ -779,10 +779,22 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/routing/history", get(handlers::get_routing_history))
         .route("/v1/routing/decisions", get(handlers::routing_decisions))
         // Prompt orchestration routes
-        .route("/v1/prompt-orchestration/config", get(handlers::get_prompt_orchestration_config))
-        .route("/v1/prompt-orchestration/config", put(handlers::update_prompt_orchestration_config))
-        .route("/v1/prompt-orchestration/analyze", post(handlers::analyze_prompt))
-        .route("/v1/prompt-orchestration/metrics", get(handlers::get_prompt_orchestration_metrics))
+        .route(
+            "/v1/prompt-orchestration/config",
+            get(handlers::get_prompt_orchestration_config),
+        )
+        .route(
+            "/v1/prompt-orchestration/config",
+            put(handlers::update_prompt_orchestration_config),
+        )
+        .route(
+            "/v1/prompt-orchestration/analyze",
+            post(handlers::analyze_prompt),
+        )
+        .route(
+            "/v1/prompt-orchestration/metrics",
+            get(handlers::get_prompt_orchestration_metrics),
+        )
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))

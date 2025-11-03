@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -90,67 +90,139 @@ export function AdapterLifecycleManager({
     checkInterval: 60000,
   });
 
-  // Mock state records for demonstration
+  // State records derived from adapters prop
   const [stateRecords, setStateRecords] = useState<AdapterStateRecord[]>([]);
+  const [policiesLoading, setPoliciesLoading] = useState(false);
+  const [policiesError, setPoliciesError] = useState<Error | null>(null);
 
-  // Mock policies
-  const [policies, setPolicies] = useState<Record<AdapterCategory, CategoryPolicy>>({
-    code: {
-      promotion_threshold_ms: 300000, // 5 minutes
-      demotion_threshold_ms: 3600000, // 1 hour
-      memory_limit: 100 * 1024 * 1024, // 100MB
-      eviction_priority: 'low',
-      auto_promote: true,
-      auto_demote: true,
-      max_in_memory: 50,
-      routing_priority: 1.0
-    },
-    framework: {
-      promotion_threshold_ms: 600000, // 10 minutes
-      demotion_threshold_ms: 7200000, // 2 hours
-      memory_limit: 200 * 1024 * 1024, // 200MB
-      eviction_priority: 'normal',
-      auto_promote: true,
-      auto_demote: true,
-      max_in_memory: 20,
-      routing_priority: 0.8
-    },
-    codebase: {
-      promotion_threshold_ms: 1800000, // 30 minutes
-      demotion_threshold_ms: 14400000, // 4 hours
-      memory_limit: 500 * 1024 * 1024, // 500MB
-      eviction_priority: 'high',
-      auto_promote: false,
-      auto_demote: true,
-      max_in_memory: 10,
-      routing_priority: 0.6
-    },
-    ephemeral: {
-      promotion_threshold_ms: 60000, // 1 minute
-      demotion_threshold_ms: 300000, // 5 minutes
-      memory_limit: 50 * 1024 * 1024, // 50MB
-      eviction_priority: 'critical',
-      auto_promote: false,
-      auto_demote: true,
-      max_in_memory: 100,
-      routing_priority: 0.4
+  // Category policies fetched from backend
+  const [policies, setPolicies] = useState<Record<AdapterCategory, CategoryPolicy> | null>(null);
+
+  // Fetch category policies from API
+  const fetchCategoryPolicies = useCallback(async () => {
+    setPoliciesLoading(true);
+    setPoliciesError(null);
+    try {
+      const fetchedPolicies = await apiClient.getCategoryPolicies();
+      
+      // Validate all required categories are present
+      const requiredCategories: AdapterCategory[] = ['code', 'framework', 'codebase', 'ephemeral'];
+      const missingCategories = requiredCategories.filter(cat => !fetchedPolicies[cat]);
+      
+      if (missingCategories.length > 0) {
+        logger.warn('Missing categories in policy response', {
+          component: 'AdapterLifecycleManager',
+          operation: 'fetchCategoryPolicies',
+          missingCategories,
+        });
+      }
+      
+      // Validate eviction_priority values are valid
+      const validPriorities: EvictionPriority[] = ['never', 'low', 'normal', 'high', 'critical'];
+      for (const [category, policy] of Object.entries(fetchedPolicies)) {
+        if (!validPriorities.includes(policy.eviction_priority as EvictionPriority)) {
+          logger.error('Invalid eviction_priority in policy response', {
+            component: 'AdapterLifecycleManager',
+            operation: 'fetchCategoryPolicies',
+            category,
+            invalidPriority: policy.eviction_priority,
+          });
+          // Use 'normal' as safe fallback
+          (fetchedPolicies[category] as CategoryPolicy).eviction_priority = 'normal';
+        }
+      }
+      
+      // Type assertion is safe because backend guarantees category keys match AdapterCategory
+      setPolicies(fetchedPolicies as Record<AdapterCategory, CategoryPolicy>);
+      logger.info('Category policies loaded', {
+        component: 'AdapterLifecycleManager',
+        operation: 'fetchCategoryPolicies',
+        categories: Object.keys(fetchedPolicies),
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch category policies';
+      logger.error('Failed to fetch category policies', {
+        component: 'AdapterLifecycleManager',
+        operation: 'fetchCategoryPolicies',
+        error: errorMessage,
+      }, err instanceof Error ? err : new Error(errorMessage));
+      setPoliciesError(err instanceof Error ? err : new Error(errorMessage));
+      // Fallback to defaults if API fails - use default structure matching backend defaults
+      setPolicies({
+        code: {
+          promotion_threshold_ms: 1800000, // 30 minutes (from backend default)
+          demotion_threshold_ms: 86400000, // 24 hours
+          memory_limit: 200 * 1024 * 1024, // 200MB
+          eviction_priority: 'low',
+          auto_promote: true,
+          auto_demote: false,
+          max_in_memory: 10,
+          routing_priority: 1.2
+        },
+        framework: {
+          promotion_threshold_ms: 3600000, // 1 hour
+          demotion_threshold_ms: 43200000, // 12 hours
+          memory_limit: 150 * 1024 * 1024, // 150MB
+          eviction_priority: 'normal',
+          auto_promote: true,
+          auto_demote: true,
+          max_in_memory: 8,
+          routing_priority: 1.0
+        },
+        codebase: {
+          promotion_threshold_ms: 7200000, // 2 hours
+          demotion_threshold_ms: 14400000, // 4 hours
+          memory_limit: 300 * 1024 * 1024, // 300MB
+          eviction_priority: 'high',
+          auto_promote: false,
+          auto_demote: true,
+          max_in_memory: 5,
+          routing_priority: 0.8
+        },
+        ephemeral: {
+          promotion_threshold_ms: 0, // Immediate
+          demotion_threshold_ms: 0, // Immediate
+          memory_limit: 50 * 1024 * 1024, // 50MB
+          eviction_priority: 'critical',
+          auto_promote: false,
+          auto_demote: true,
+          max_in_memory: 20,
+          routing_priority: 0.5
+        }
+      });
+    } finally {
+      setPoliciesLoading(false);
     }
-  });
+  }, []);
 
+  // Load category policies on mount
   useEffect(() => {
-    // Initialize state records from adapters
-    const records: AdapterStateRecord[] = adapters.map((adapter, index) => ({
-      adapter_id: adapter.adapter_id,
-      adapter_idx: index,
-      state: adapter.current_state,
-      pinned: adapter.pinned,
-      memory_bytes: adapter.memory_bytes,
-      category: adapter.category,
-      scope: adapter.scope,
-      last_activated: adapter.last_activated,
-      activation_count: adapter.activation_count
-    }));
-    setStateRecords(records);
+    fetchCategoryPolicies();
+  }, [fetchCategoryPolicies]);
+
+  // Initialize state records from adapters with error handling
+  useEffect(() => {
+    try {
+      const records: AdapterStateRecord[] = adapters.map((adapter, index) => ({
+        adapter_id: adapter.adapter_id,
+        adapter_idx: index,
+        state: adapter.current_state,
+        pinned: adapter.pinned,
+        memory_bytes: adapter.memory_bytes,
+        category: adapter.category,
+        scope: adapter.scope,
+        last_activated: adapter.last_activated,
+        activation_count: adapter.activation_count
+      }));
+      setStateRecords(records);
+    } catch (err) {
+      logger.error('Failed to initialize state records', {
+        component: 'AdapterLifecycleManager',
+        operation: 'initializeStateRecords',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      }, err instanceof Error ? err : new Error('Failed to initialize state records'));
+      setStateRecords([]);
+    }
   }, [adapters]);
 
   const getStateIcon = (state: AdapterState) => {
@@ -425,8 +497,15 @@ export function AdapterLifecycleManager({
             <Settings className="mr-2 h-4 w-4" />
             Category Policies
           </Button>
-          <Button variant="outline" onClick={() => window.location.reload()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              fetchCategoryPolicies();
+              // State records refresh automatically when adapters prop changes
+            }}
+            disabled={policiesLoading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${policiesLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
@@ -543,12 +622,30 @@ export function AdapterLifecycleManager({
           <DialogHeader>
             <DialogTitle>Category Policies</DialogTitle>
           </DialogHeader>
-          <CategoryPolicyEditor 
-            category={selectedCategory}
-            policy={policies[selectedCategory]}
-            onPolicyUpdate={(policy) => handlePolicyUpdate(selectedCategory, policy)}
-            onCategoryChange={setSelectedCategory}
-          />
+          {policiesLoading ? (
+            <div className="flex items-center justify-center p-8">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Loading policies...</span>
+            </div>
+          ) : policiesError ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Failed to load category policies: {policiesError.message}. Using default values.
+              </AlertDescription>
+            </Alert>
+          ) : policies && policies[selectedCategory] ? (
+            <CategoryPolicyEditor 
+              category={selectedCategory}
+              policy={policies[selectedCategory]}
+              onPolicyUpdate={(policy) => handlePolicyUpdate(selectedCategory, policy)}
+              onCategoryChange={setSelectedCategory}
+            />
+          ) : (
+            <div className="p-8 text-center text-muted-foreground">
+              No policies available
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

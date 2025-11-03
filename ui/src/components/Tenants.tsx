@@ -539,7 +539,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
     }
   };
 
-  if (user.role !== 'Admin') {
+  if (user.role !== 'admin') {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center space-y-2">

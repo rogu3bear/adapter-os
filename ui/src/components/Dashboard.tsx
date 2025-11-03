@@ -123,7 +123,7 @@ function SystemHealthWidget() {
 
 // Role-specific dashboard configurations
 const dashboardLayouts: Record<UserRole, DashboardLayout> = {
-  Admin: {
+  admin: {
     widgets: [
       { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
@@ -140,7 +140,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Reports', icon: FileText, route: '/reports' }
     ]
   },
-  Operator: {
+  operator: {
     widgets: [
       { id: 'ml-pipeline', component: MLPipelineWidget, priority: 1 },
       { id: 'adapter-status', component: AdapterStatusWidget, priority: 2 },
@@ -155,7 +155,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'View Routing', icon: TrendingUp, route: '/routing' },
     ]
   },
-  SRE: {
+  sre: {
     widgets: [
       { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 1 },
       { id: 'active-alerts', component: ActiveAlertsWidget, priority: 2 },
@@ -169,7 +169,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Adapter Health', icon: Activity, route: '/adapters' }
     ]
   },
-  Compliance: {
+  compliance: {
     widgets: [
       { id: 'compliance-score', component: ComplianceScoreWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
@@ -183,7 +183,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Compliance Report', icon: CheckCircle, route: '/policies' }
     ]
   },
-  Auditor: {
+  auditor: {
     widgets: [
       { id: 'compliance-score', component: ComplianceScoreWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
@@ -196,7 +196,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Policy Review', icon: Shield, route: '/policies' }
     ]
   },
-  Viewer: {
+  viewer: {
     widgets: [
       { id: 'reporting-summary', component: ReportingSummaryWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },

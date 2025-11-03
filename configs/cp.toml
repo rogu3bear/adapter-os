@@ -1,8 +1,8 @@
 # AdapterOS Control Plane Configuration
 
 [server]
-# Use 8080 for development (UI expects this)
-port = 8080
+# Use 3300 for panel access
+port = 3300
 bind = "127.0.0.1"
 # Adapter loading options
 enable_mmap_adapters = true
@@ -59,8 +59,8 @@ max_lock_depth = 10
 recovery_timeout_secs = 10
 
 [rate_limits]
-requests_per_minute = 100
-burst_size = 20
+requests_per_minute = 1000
+burst_size = 100
 inference_per_minute = 50
 
 [metrics]

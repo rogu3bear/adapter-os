@@ -34,7 +34,7 @@ export function BaseModelWidget() {
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  const isAdmin = user?.role === 'Admin';
+  const isAdmin = user?.role === 'admin';
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
