@@ -358,8 +358,10 @@ impl InferencePipeline {
                 self.router.set_k(k_now);
             }
 
-            // Route using computed features and priors
+            // Route using computed features and priors (with latency tracking)
+            let router_start = Instant::now();
             let decision = self.router.route(&features_vec, &priors);
+            let router_latency = router_start.elapsed();
 
             // 6. Check policy: entropy floor (simplified for now)
             // TODO: Implement router entropy check in PolicyEngine
@@ -398,6 +400,7 @@ impl InferencePipeline {
                         "cpid": request.cpid,
                         "step": step,
                         "token": next_token,
+                        "router_latency_us": router_latency.as_micros(),
                         "kernel_latency_us": kernel_latency.as_micros(),
                         "adapters": decision.indices,
                     }),

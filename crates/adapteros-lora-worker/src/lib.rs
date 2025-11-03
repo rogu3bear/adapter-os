@@ -634,6 +634,10 @@ impl<K: FusedKernels> Worker<K> {
 
             // Sync K with lifecycle manager before routing
             self.router.set_k(self.lifecycle.current_k());
+
+            // Time router selection
+            let router_start = Instant::now();
+
             // Select routing algorithm based on manifest
             let decision = if self.routing_algorithm.as_str() == "entropy_floor" {
                 use adapteros_lora_router::scoring::ScoringFunction;
@@ -671,6 +675,18 @@ impl<K: FusedKernels> Worker<K> {
             } else {
                 self.router.route(&feature_vec, &priors)
             };
+
+            let router_latency = router_start.elapsed();
+
+            // Log router latency to telemetry
+            let _ = self.telemetry.log(
+                "router.decision",
+                serde_json::json!({
+                    "router_latency_us": router_latency.as_micros(),
+                    "k": decision.indices.len(),
+                    "adapters": decision.indices,
+                }),
+            );
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);
