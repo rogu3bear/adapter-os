@@ -78,7 +78,15 @@ pub async fn git_status(
     })?;
 
     match git_subsystem.get_status().await {
-        Ok(status) => Ok(Json(status)),
+        Ok(git_status) => {
+            let status = GitStatusResponse {
+                enabled: true,
+                active_sessions: git_status.active_sessions as u32,
+                repositories_tracked: git_status.repositories_tracked as u32,
+                last_scan: git_status.last_scan,
+            };
+            Ok(Json(status))
+        },
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new(format!("Failed to get git status: {}", e)).with_code("INTERNAL_ERROR")),
@@ -158,7 +166,16 @@ pub async fn list_git_branches(
     })?;
 
     match git_subsystem.list_branches(None).await {
-        Ok(branches) => Ok(Json(branches)),
+        Ok(branches) => {
+            let api_branches: Vec<GitBranchInfo> = branches.into_iter().map(|b| GitBranchInfo {
+                name: b.name,
+                is_current: b.is_current,
+                last_commit: b.last_commit,
+                ahead: b.ahead,
+                behind: b.behind,
+            }).collect();
+            Ok(Json(api_branches))
+        },
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new(format!("Failed to list branches: {}", e)).with_code("INTERNAL_ERROR")),

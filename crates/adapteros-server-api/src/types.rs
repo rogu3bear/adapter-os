@@ -1964,6 +1964,14 @@ pub struct GitStatusResponse {
     pub untracked_files: Vec<String>,
 }
 
+/// Repository scan status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ScanStatusResponse {
+    pub status: String,
+    pub commits_processed: i64,
+    pub last_commit: Option<String>,
+}
+
 /// Log file information response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LogFileInfo {
