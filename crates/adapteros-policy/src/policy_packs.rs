@@ -391,6 +391,9 @@ pub struct PolicyPackManager {
 
     /// Policy pack configurations
     configs: HashMap<PolicyPackId, PolicyPackConfig>,
+
+    /// Direct reference to determinism policy pack for attestation validation
+    determinism_pack: Option<crate::packs::determinism::DeterminismPolicy>,
 }
 
 impl Default for PolicyPackManager {
@@ -405,6 +408,7 @@ impl PolicyPackManager {
         let mut manager = Self {
             packs: HashMap::new(),
             configs: HashMap::new(),
+            determinism_pack: None,
         };
 
         // Initialize all policy packs
@@ -416,6 +420,11 @@ impl PolicyPackManager {
     /// Initialize all policy packs
     fn initialize_policy_packs(&mut self) {
         info!("Initializing all 20 policy packs");
+
+        // Initialize determinism policy pack for direct attestation validation
+        self.determinism_pack = Some(crate::packs::determinism::DeterminismPolicy::new(
+            crate::packs::determinism::DeterminismConfig::default()
+        ));
 
         // Register all policy pack validators
         self.register_pack(PolicyPackId::Egress, Box::new(EgressValidator::new()));
@@ -778,6 +787,17 @@ impl PolicyPackManager {
     /// Get a policy pack validator by ID
     pub fn get_validator(&self, pack_id: &PolicyPackId) -> Option<&(dyn PolicyPackValidator + Send + Sync)> {
         self.packs.get(pack_id).map(|v| v.as_ref())
+    }
+
+    /// Validate backend determinism attestation
+    pub fn validate_determinism_attestation(
+        &self,
+        report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
+    ) -> Result<()> {
+        self.determinism_pack
+            .as_ref()
+            .ok_or_else(|| adapteros_core::AosError::PolicyViolation("Determinism policy pack not initialized".to_string()))?
+            .validate_backend_attestation(report)
     }
 
     /// Enable or disable a policy pack

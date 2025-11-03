@@ -282,14 +282,7 @@ impl<K: FusedKernels> Worker<K> {
 
         // Enforce determinism policy using backend attestation
         let attestation = kernels.attest_determinism()?;
-        // Get determinism validator from policy pack manager
-        use adapteros_policy::{PolicyPackId, PolicyPackManager};
-        let determinism_validator = policy.pack_manager().get_validator(&PolicyPackId::Determinism)
-            .ok_or_else(|| AosError::PolicyViolation("Determinism policy pack not found".to_string()))?;
-        // Downcast to DeterminismValidator and validate
-        let determinism_validator = determinism_validator.as_any().downcast_ref::<adapteros_policy::packs::determinism::DeterminismValidator>()
-            .ok_or_else(|| AosError::PolicyViolation("Failed to get determinism validator".to_string()))?;
-        determinism_validator.validate_backend_attestation(&attestation)?;
+        policy.validate_backend_determinism(&attestation)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }

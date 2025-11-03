@@ -6698,6 +6698,42 @@ async fn load_model_internal(
         (status = 500, description = "Failed to unload adapter", body = ErrorResponse)
     )
 )]
+/// Get the status of an ongoing operation
+#[utoipa::path(
+    get,
+    path = "/v1/operations/{resource_id}/status",
+    tag = "operations",
+    params(
+        ("resource_id" = String, Path, description = "Resource identifier (model or adapter ID)"),
+    ),
+    request_body = None,
+    responses(
+        (status = 200, description = "Operation status", body = OperationProgressEvent),
+        (status = 400, description = "Missing tenant_id parameter", body = ErrorResponse),
+        (status = 404, description = "Operation not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn get_operation_status(
+    State(state): State<AppState>,
+    Path(resource_id): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<crate::types::OperationProgressEvent>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = params.get("tenant_id")
+        .ok_or_else(|| (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("tenant_id query parameter required").with_code("MISSING_TENANT_ID")),
+        ))?;
+
+    match state.operation_tracker.get_operation_status(&resource_id, tenant_id).await {
+        Some(status) => Ok(Json(status)),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Operation not found or completed").with_code("OPERATION_NOT_FOUND")),
+        )),
+    }
+}
+
 pub async fn unload_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

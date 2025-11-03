@@ -909,6 +909,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
         .route("/v1/stream/operations/progress", get(handlers::operation_progress_stream))
+        .route("/v1/operations/:resource_id/status", get(handlers::get_operation_status))
         .route("/v1/telemetry/events", get(handlers::get_activity_events))
         .route("/v1/telemetry/logs", post(handlers::submit_client_logs))
         .route("/v1/audits/export", get(handlers::export_audit_logs))
