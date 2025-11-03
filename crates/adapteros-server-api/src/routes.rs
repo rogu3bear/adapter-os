@@ -21,6 +21,15 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::health,
         handlers::ready,
         handlers::auth_login,
+        handlers::auth_refresh,
+        handlers::auth_list_sessions,
+        handlers::auth_revoke_session,
+        handlers::auth_logout_all,
+        handlers::auth_rotate_token,
+        handlers::auth_token_metadata,
+        handlers::auth_update_profile,
+        handlers::auth_get_config,
+        handlers::auth_update_config,
         handlers::propose_patch,
         handlers::infer,
         handlers::batch::batch_infer,
@@ -294,6 +303,14 @@ pub fn build(state: AppState) -> Router {
         .with_state(state.clone())
         .route("/v1/auth/logout", post(handlers::auth_logout))
         .route("/v1/auth/me", get(handlers::auth_me))
+        .route("/v1/auth/refresh", post(handlers::auth_refresh))
+        .route("/v1/auth/logout-all", post(handlers::auth_logout_all))
+        .route("/v1/auth/sessions", get(handlers::auth_list_sessions))
+        .route("/v1/auth/sessions/:session_id", delete(handlers::auth_revoke_session))
+        .route("/v1/auth/token/rotate", post(handlers::auth_rotate_token))
+        .route("/v1/auth/token", get(handlers::auth_token_metadata))
+        .route("/v1/auth/profile", put(handlers::auth_update_profile))
+        .route("/v1/auth/config", get(handlers::auth_get_config).put(handlers::auth_update_config))
         .route(
             "/v1/models/status/all",
             get(handlers::get_all_models_status),
@@ -515,14 +532,16 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/policy",
             put(handlers::update_adapter_policy),
         )
-        .route(
-            "/v1/adapters/category-policies",
-            get(handlers::get_category_policies),
-        )
-        .route(
-            "/v1/adapters/category-policies/:category",
-            get(handlers::get_category_policy),
-        )
+        // TODO: Fix category policy handlers
+        // .route(
+        //     "/v1/adapters/category-policies",
+        //     get(handlers::get_category_policies),
+        // )
+        // .route(
+        //     "/v1/adapters/category-policies/:category",
+        //     get(handlers::get_category_policy)
+        //         .put(handlers::update_category_policy),
+        // )
         .route(
             "/v1/adapters/:adapter_id/manifest",
             get(handlers::download_adapter_manifest),
@@ -550,6 +569,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/models/:model_id/unload",
             post(handlers::models::unload_model),
+        )
+        .route(
+            "/v1/models/:model_id/cancel",
+            post(handlers::models::cancel_model_operation),
+        )
+        .route(
+            "/v1/models/health",
+            get(handlers::models::model_runtime_health),
         )
         .route(
             "/v1/models/:model_id/status",
@@ -875,6 +902,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
+        .route("/v1/stream/operations/progress", get(handlers::operation_progress_stream))
         .route("/v1/telemetry/events", get(handlers::get_activity_events))
         .route("/v1/telemetry/logs", post(handlers::submit_client_logs))
         .route("/v1/audits/export", get(handlers::export_audit_logs))

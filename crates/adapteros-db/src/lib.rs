@@ -32,6 +32,7 @@ pub mod key_metadata;
 pub mod manifests;
 pub mod messages;
 pub mod migration_verify;
+pub mod model_operations;
 pub mod models;
 pub mod nodes;
 pub mod notifications;

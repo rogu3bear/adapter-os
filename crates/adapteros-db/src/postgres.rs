@@ -1872,6 +1872,7 @@ mod tests {
     }
 
     #[ignore] // Requires PostgreSQL server
+    #[allow(dead_code)]
     async fn test_postgres_migration() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await
