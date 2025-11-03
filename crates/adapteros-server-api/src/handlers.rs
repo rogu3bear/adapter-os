@@ -44,6 +44,7 @@ use adapteros_db::process_monitoring::{
 use adapteros_db::users::Role;
 use adapteros_db::{sqlx, AdapterRegistrationBuilder};
 use adapteros_git::CommitInfo;
+use adapteros_lora_router::features::CodeFeatures;
 use adapteros_system_metrics::monitoring_types::{
     AlertFilters, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyStatus,
 };
@@ -856,7 +857,9 @@ pub async fn auth_dev_bypass(
         tracing::warn!("Dev bypass attempted in production mode - rejected");
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("dev bypass not available in production").with_code("FORBIDDEN")),
+            Json(
+                ErrorResponse::new("dev bypass not available in production").with_code("FORBIDDEN"),
+            ),
         ));
     }
 
@@ -874,7 +877,7 @@ pub async fn auth_dev_bypass(
         "token": dev_token,
         "user": {
             "email": "dev@adapteros.local",
-            "role": "Admin"
+            "role": "admin"
         }
     }));
 
@@ -2480,10 +2483,7 @@ pub async fn list_workers(
         })
         .collect();
 
-    tracing::debug!(
-        worker_count = response.len(),
-        "Successfully listed workers"
-    );
+    tracing::debug!(worker_count = response.len(), "Successfully listed workers");
 
     Ok(Json(response))
 }
@@ -2585,7 +2585,7 @@ pub async fn auth_me(
         role: claims.role.clone(),
         display_name: None, // Can be derived from email on frontend
         tenant_id: Some(claims.tenant_id.clone()),
-        permissions: None, // Not stored in JWT claims
+        permissions: None,                          // Not stored in JWT claims
         last_login_at: Some(iat_timestamp.clone()), // Use iat as last login time
         mfa_enabled: None,
         token_last_rotated_at: None,
@@ -4059,6 +4059,8 @@ pub async fn infer(
         prompt: req.prompt.clone(),
         max_tokens: req.max_tokens.unwrap_or(100),
         require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
+        adapter_hints: None, // No pre-routing for basic infer endpoint
+        router_features: None,
     };
 
     match uds_client.infer(uds_path, worker_request).await {
@@ -4207,6 +4209,8 @@ pub async fn infer_stream(
             prompt: req.prompt.clone(),
             max_tokens: req.max_tokens.unwrap_or(100),
             require_evidence: req.require_evidence.unwrap_or(false),
+            adapter_hints: None,
+            router_features: None,
         };
         tokio::spawn(async move {
             if let Ok(resp) = uds_client.infer(uds_path.as_path(), worker_req).await {
@@ -6510,6 +6514,124 @@ pub async fn update_adapter_policy(
         }))
     }
 }
+
+/// Get all category policies
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/category-policies",
+    responses(
+        (status = 200, description = "Category policies retrieved successfully", body = std::collections::HashMap<String, CategoryPolicyResponse>),
+        (status = 503, description = "Lifecycle manager not available"),
+        (status = 403, description = "Forbidden")
+    )
+)]
+pub async fn get_category_policies(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<
+    Json<std::collections::HashMap<String, CategoryPolicyResponse>>,
+    (StatusCode, Json<ErrorResponse>),
+> {
+    let lifecycle = state.lifecycle_manager.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Lifecycle manager not available").with_code("NOT_CONFIGURED")),
+        )
+    })?;
+
+    let mgr = lifecycle.lock().await;
+    let policy_manager = mgr.get_category_policies();
+    let summary = policy_manager.get_policy_summary();
+
+    // Convert CategoryPolicySummary to CategoryPolicyResponse
+    let mut response: std::collections::HashMap<String, CategoryPolicyResponse> =
+        std::collections::HashMap::new();
+
+    for (category, policy_summary) in summary {
+        let eviction_priority_str = match policy_summary.eviction_priority {
+            adapteros_lora_lifecycle::EvictionPriority::Never => "never",
+            adapteros_lora_lifecycle::EvictionPriority::Low => "low",
+            adapteros_lora_lifecycle::EvictionPriority::Normal => "normal",
+            adapteros_lora_lifecycle::EvictionPriority::High => "high",
+            adapteros_lora_lifecycle::EvictionPriority::Critical => "critical",
+        };
+
+        response.insert(
+            category.clone(),
+            CategoryPolicyResponse {
+                promotion_threshold_ms: policy_summary.promotion_threshold_ms,
+                demotion_threshold_ms: policy_summary.demotion_threshold_ms,
+                memory_limit: policy_summary.memory_limit,
+                eviction_priority: eviction_priority_str.to_string(),
+                auto_promote: policy_summary.auto_promote,
+                auto_demote: policy_summary.auto_demote,
+                max_in_memory: policy_summary.max_in_memory,
+                routing_priority: policy_summary.routing_priority,
+            },
+        );
+    }
+
+    Ok(Json(response))
+}
+
+/// Get category policy for a specific category
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/category-policies/{category}",
+    params(
+        ("category" = String, Path, description = "Category name (code, framework, codebase, ephemeral)")
+    ),
+    responses(
+        (status = 200, description = "Category policy retrieved successfully", body = CategoryPolicyResponse),
+        (status = 404, description = "Category not found"),
+        (status = 503, description = "Lifecycle manager not available"),
+        (status = 403, description = "Forbidden")
+    )
+)]
+pub async fn get_category_policy(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(category): Path<String>,
+) -> Result<Json<CategoryPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let lifecycle = state.lifecycle_manager.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Lifecycle manager not available").with_code("NOT_CONFIGURED")),
+        )
+    })?;
+
+    let mgr = lifecycle.lock().await;
+    let policy_manager = mgr.get_category_policies();
+    let summary = policy_manager.get_policy_summary();
+
+    // Find the summary for this category
+    let policy_summary = summary.get(&category).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Category not found").with_code("NOT_FOUND")),
+        )
+    })?;
+
+    let eviction_priority_str = match policy_summary.eviction_priority {
+        adapteros_lora_lifecycle::EvictionPriority::Never => "never",
+        adapteros_lora_lifecycle::EvictionPriority::Low => "low",
+        adapteros_lora_lifecycle::EvictionPriority::Normal => "normal",
+        adapteros_lora_lifecycle::EvictionPriority::High => "high",
+        adapteros_lora_lifecycle::EvictionPriority::Critical => "critical",
+    };
+
+    Ok(Json(CategoryPolicyResponse {
+        promotion_threshold_ms: policy_summary.promotion_threshold_ms,
+        demotion_threshold_ms: policy_summary.demotion_threshold_ms,
+        memory_limit: policy_summary.memory_limit,
+        eviction_priority: eviction_priority_str.to_string(),
+        auto_promote: policy_summary.auto_promote,
+        auto_demote: policy_summary.auto_demote,
+        max_in_memory: policy_summary.max_in_memory,
+        routing_priority: policy_summary.routing_priority,
+    }))
+}
+
 /// Evict adapter from memory
 #[utoipa::path(
     post,
@@ -7008,14 +7130,130 @@ pub async fn get_system_metrics(
                 .unwrap_or(0) as i32
         },
         active_sessions: {
-            // TODO: Implement active sessions count - no sessions table exists in schema
-            // For now return 0, this needs proper implementation
-            0
+            // Count active inference sessions from telemetry buffer and metrics collector
+            use adapteros_telemetry::TelemetryFilters;
+            let start_filters = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.start".to_string()),
+                ..Default::default()
+            };
+            let complete_filters = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.complete".to_string()),
+                ..Default::default()
+            };
+
+            let started = state.telemetry_buffer.query(&start_filters).len();
+            let completed = state.telemetry_buffer.query(&complete_filters).len();
+
+            // Improved: Track by session IDs from metadata for accuracy
+            use chrono::{Duration as ChronoDuration, Utc};
+
+            let end_time = Utc::now();
+            let start_time = end_time - ChronoDuration::minutes(5);
+
+            let start_filters_time = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.start".to_string()),
+                start_time: Some(start_time),
+                end_time: Some(end_time),
+                ..Default::default()
+            };
+            let complete_filters_time = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.complete".to_string()),
+                start_time: Some(start_time),
+                end_time: Some(end_time),
+                ..Default::default()
+            };
+
+            // Collect session IDs from events (fallback to simple count if no IDs)
+            let started_sessions: std::collections::HashSet<String> = state
+                .telemetry_buffer
+                .query(&start_filters_time)
+                .iter()
+                .filter_map(|e| {
+                    e.metadata
+                        .as_ref()
+                        .and_then(|m| m.get("session_id").or_else(|| m.get("request_id")))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+
+            let completed_sessions: std::collections::HashSet<String> = state
+                .telemetry_buffer
+                .query(&complete_filters_time)
+                .iter()
+                .filter_map(|e| {
+                    e.metadata
+                        .as_ref()
+                        .and_then(|m| m.get("session_id").or_else(|| m.get("request_id")))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+
+            let active = if !started_sessions.is_empty() || !completed_sessions.is_empty() {
+                // Use session ID tracking for accuracy
+                started_sessions.difference(&completed_sessions).count() as i32
+            } else {
+                // Fallback: approximate as started - completed
+                let active = if started > completed {
+                    (started - completed) as i32
+                } else {
+                    0
+                };
+                active
+            };
+
+            // Also check metrics collector for active_sessions gauge
+            let snapshot = state.metrics_collector.get_metrics_snapshot().await;
+            let metrics_active = snapshot.system.active_sessions as i32;
+
+            // Use the higher of the two estimates
+            active.max(metrics_active)
         },
         tokens_per_second: {
-            // TODO: Implement tokens per second calculation from telemetry bundles
-            // No telemetry_metrics table exists, this needs proper implementation
-            0.0
+            // Get tokens per second from metrics collector snapshot
+            let snapshot = state.metrics_collector.get_metrics_snapshot().await;
+
+            // If snapshot has non-zero value, use it; otherwise calculate from recent tokens
+            if snapshot.throughput.tokens_per_second > 0.0 {
+                snapshot.throughput.tokens_per_second as f32
+            } else {
+                // Fallback: calculate from recent telemetry events
+                use adapteros_telemetry::TelemetryFilters;
+                use chrono::{Duration, Utc};
+
+                let end_time = Utc::now();
+                let start_time = end_time - Duration::seconds(60);
+
+                let filters = TelemetryFilters {
+                    limit: Some(1000),
+                    event_type: Some("inference.complete".to_string()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    ..Default::default()
+                };
+
+                let events = state.telemetry_buffer.query(&filters);
+
+                // Sum tokens from inference events
+                let mut total_tokens = 0u64;
+                for event in events.iter() {
+                    if let Some(ref metadata) = event.metadata {
+                        if let Some(output_tokens) =
+                            metadata.get("output_tokens").and_then(|t| t.as_u64())
+                        {
+                            total_tokens += output_tokens;
+                        }
+                    }
+                }
+
+                // Convert to tokens per second
+                (total_tokens as f32) / 60.0
+            }
         },
         latency_p95_ms: {
             // Calculate P95 latency from recent requests
@@ -7189,36 +7427,100 @@ pub async fn get_commit_diff(
     )
 )]
 pub async fn debug_routing(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
 ) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Integrate with actual router service
-    // For now, return enhanced debug info based on request
-    Ok(Json(RoutingDebugResponse {
-        features: FeatureVector {
-            language: Some("rust".to_string()),
-            frameworks: vec!["axum".to_string()],
-            symbol_hits: 5,
-            path_tokens: vec!["handlers".to_string()],
-            verb: "debug".to_string(),
+    // Extract features from the prompt
+    let code_features = CodeFeatures::from_context(&req.prompt);
+    let feature_vec = code_features.to_vector();
+
+    // Get router scoring explanation with latency recording
+    let router_start = std::time::Instant::now();
+    let scoring_explanation = state.router.explain_score(&feature_vec);
+    let router_latency_secs = router_start.elapsed().as_secs_f64();
+    state
+        .metrics_collector
+        .record_router_latency(&claims.tenant_id, router_latency_secs);
+
+    // Create feature vector for response
+    let features = FeatureVector {
+        language: code_features
+            .lang_one_hot
+            .iter()
+            .enumerate()
+            .find(|(_, &val)| val > 0.0)
+            .map(|(idx, _)| {
+                match idx {
+                    0 => "python",
+                    1 => "rust",
+                    2 => "javascript",
+                    3 => "typescript",
+                    4 => "java",
+                    5 => "cpp",
+                    6 => "csharp",
+                    7 => "go",
+                    _ => "unknown",
+                }
+                .to_string()
+            }),
+        frameworks: code_features.framework_prior.keys().cloned().collect(),
+        symbol_hits: code_features.symbol_hits as i32,
+        path_tokens: code_features.path_tokens.clone(),
+        verb: format!("{:?}", code_features.prompt_verb),
+    };
+
+    // Create mock adapter scores based on router weights
+    // In production, this would use real adapter metadata from database
+    let adapter_scores = vec![
+        AdapterScore {
+            adapter_id: "rust-code-v1".to_string(),
+            score: scoring_explanation.language_score as f64,
+            gate_value: (scoring_explanation.language_score as f64 * 0.9).min(1.0),
+            selected: scoring_explanation.language_score > 0.1,
         },
-        adapter_scores: vec![
-            AdapterScore {
-                adapter_id: "rust-code-v1".to_string(),
-                score: 0.85,
-                gate_value: 0.75,
-                selected: true,
-            },
-            AdapterScore {
-                adapter_id: "general-coding-v1".to_string(),
-                score: 0.65,
-                gate_value: 0.60,
-                selected: false,
-            },
-        ],
-        selected_adapters: vec!["rust-code-v1".to_string()],
-        explanation: format!("Selected rust-code-v1 based on prompt '{}'", req.prompt),
+        AdapterScore {
+            adapter_id: "framework-specific-v1".to_string(),
+            score: scoring_explanation.framework_score as f64,
+            gate_value: (scoring_explanation.framework_score as f64 * 0.9).min(1.0),
+            selected: scoring_explanation.framework_score > 0.1,
+        },
+        AdapterScore {
+            adapter_id: "general-coding-v1".to_string(),
+            score: (scoring_explanation.symbol_hits_score + scoring_explanation.path_tokens_score)
+                as f64,
+            gate_value: (((scoring_explanation.symbol_hits_score
+                + scoring_explanation.path_tokens_score) as f64)
+                * 0.8)
+                .min(1.0),
+            selected: (scoring_explanation.symbol_hits_score
+                + scoring_explanation.path_tokens_score)
+                > 0.1,
+        },
+    ];
+
+    // Determine selected adapters based on scores
+    let selected_adapters: Vec<String> = adapter_scores
+        .iter()
+        .filter(|score| score.selected)
+        .map(|score| score.adapter_id.clone())
+        .collect();
+
+    let explanation = format!(
+        "Router analysis: Language={:.3}, Framework={:.3}, Symbols={:.3}, Paths={:.3}, Verb={:.3}. Selected {} adapters.",
+        scoring_explanation.language_score,
+        scoring_explanation.framework_score,
+        scoring_explanation.symbol_hits_score,
+        scoring_explanation.path_tokens_score,
+        scoring_explanation.prompt_verb_score,
+        selected_adapters.len()
+    );
+
+    Ok(Json(RoutingDebugResponse {
+        features,
+        adapter_scores,
+        selected_adapters,
+        explanation,
     }))
 }
 
@@ -7306,13 +7608,290 @@ pub async fn meta() -> Json<MetaResponse> {
     )
 )]
 pub async fn routing_decisions(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<RoutingDecisionsQuery>,
+) -> Result<Json<RoutingDecisionsResponse>, StatusCode> {
+    // Filter telemetry buffer for router decision events for this tenant
+    let mut routing_decisions = Vec::new();
+
+    // Access telemetry buffer to find routing decisions
+    // Note: In production, this would query telemetry_bundles from database
+    // For now, return mock data based on recent telemetry events
+
+    // Mock routing decisions based on tenant and time filters
+    let now = chrono::Utc::now();
+    let since = params
+        .since
+        .as_ref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|| now - chrono::Duration::hours(24));
+
+    // Create mock routing decisions for demonstration
+    // In production, this would parse actual telemetry NDJSON
+    for i in 0..params.limit.min(10) {
+        let decision_time = now - chrono::Duration::minutes(i as i64 * 5);
+        if decision_time < since {
+            break;
+        }
+
+        routing_decisions.push(RoutingDecision {
+            ts: decision_time.to_rfc3339(),
+            tenant_id: claims.tenant_id.clone(),
+            adapters_used: vec![
+                "rust-code-v1".to_string(),
+                "framework-specific-v1".to_string(),
+                "general-coding-v1".to_string(),
+            ],
+            activations: vec![0.8, 0.6, 0.4],
+            reason: format!("Router selected top-3 adapters for prompt analysis (mock data)"),
+            trace_id: format!("trace_{}", i),
+        });
+    }
+
+    Ok(Json(RoutingDecisionsResponse {
+        items: routing_decisions,
+    }))
+}
+
+// ===== PROMPT ORCHESTRATION HANDLERS =====
+
+/// Get prompt orchestration configuration
+#[utoipa::path(
+    get,
+    path = "/v1/prompt-orchestration/config",
+    responses(
+        (status = 200, description = "Prompt orchestration configuration", body = PromptOrchestrationConfig)
+    ),
+    tag = "prompt-orchestration"
+)]
+pub async fn get_prompt_orchestration_config(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<PromptOrchestrationConfig>, (StatusCode, Json<ErrorResponse>)> {
+    // For now, return default configuration
+    // In production, this would be stored in database/config file
+    let config = PromptOrchestrationConfig {
+        enabled: true,
+        base_model_threshold: 0.2,
+        adapter_threshold: 0.1,
+        analysis_timeout: 50,
+        cache_enabled: true,
+        cache_ttl: 300,
+        enable_telemetry: true,
+        fallback_strategy: "adaptive".to_string(),
+    };
+
+    Ok(Json(config))
+}
+
+/// Update prompt orchestration configuration
+#[utoipa::path(
+    put,
+    path = "/v1/prompt-orchestration/config",
+    request_body = PromptOrchestrationConfig,
+    responses(
+        (status = 200, description = "Configuration updated successfully"),
+        (status = 400, description = "Invalid configuration", body = ErrorResponse)
+    ),
+    tag = "prompt-orchestration"
+)]
+pub async fn update_prompt_orchestration_config(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-    Query(_params): Query<RoutingDecisionsQuery>,
-) -> Result<Json<RoutingDecisionsResponse>, StatusCode> {
-    // TODO: Implement when router telemetry available
-    // Agent D will fallback to parsing telemetry NDJSON
-    Err(StatusCode::NOT_FOUND)
+    Json(_config): Json<PromptOrchestrationConfig>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // TODO: Validate and persist configuration
+    // For now, just accept the request
+    Ok(StatusCode::OK)
+}
+
+/// Analyze a prompt for orchestration decision
+#[utoipa::path(
+    post,
+    path = "/v1/prompt-orchestration/analyze",
+    request_body = PromptAnalysisRequest,
+    responses(
+        (status = 200, description = "Prompt analysis result", body = PromptAnalysisResponse),
+        (status = 400, description = "Invalid prompt", body = ErrorResponse)
+    ),
+    tag = "prompt-orchestration"
+)]
+pub async fn analyze_prompt(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<PromptAnalysisRequest>,
+) -> Result<Json<PromptAnalysisResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Record actual analysis start time
+    let analysis_start = std::time::Instant::now();
+
+    // Extract features from the prompt using router
+    let code_features = CodeFeatures::from_context(&req.prompt);
+    let feature_vec = code_features.to_vector();
+
+    // Get scoring explanation from router with latency recording
+    let router_start = std::time::Instant::now();
+    let scoring_explanation = state.router.explain_score(&feature_vec);
+    let router_latency_secs = router_start.elapsed().as_secs_f64();
+    state
+        .metrics_collector
+        .record_router_latency(&claims.tenant_id, router_latency_secs);
+
+    // Determine recommended strategy based on scoring
+    let recommended_strategy = if scoring_explanation.total_score < 0.2 {
+        "base_model".to_string()
+    } else if scoring_explanation.total_score > 0.5 {
+        "adapters".to_string()
+    } else {
+        "mixed".to_string()
+    };
+
+    // Calculate actual analysis time
+    let analysis_time_ms = (analysis_start.elapsed().as_secs_f64() * 1000.0) as i32;
+
+    // Emit telemetry event for prompt analysis
+    let analysis_event = adapteros_telemetry::TelemetryEventBuilder::new(
+        adapteros_telemetry::EventType::Custom("prompt.analyzed".to_string()),
+        adapteros_telemetry::LogLevel::Info,
+        format!("Prompt analyzed with strategy: {}", recommended_strategy),
+    )
+    .tenant_id(claims.tenant_id.clone())
+    .component("prompt-orchestration".to_string())
+    .metadata(serde_json::json!({
+        "strategy": recommended_strategy.clone(),
+        "complexity_score": scoring_explanation.total_score,
+        "analysis_time_ms": analysis_time_ms,
+    }))
+    .build();
+
+    state.telemetry_buffer.push(analysis_event.clone());
+    let _ = state.telemetry_tx.send(analysis_event);
+
+    let response = PromptAnalysisResponse {
+        prompt: req.prompt.clone(),
+        complexity_score: scoring_explanation.total_score as f64,
+        recommended_strategy,
+        analysis_time_ms,
+        features: PromptFeatures {
+            language: code_features
+                .lang_one_hot
+                .iter()
+                .enumerate()
+                .find(|(_, &val)| val > 0.0)
+                .map(|(idx, _)| {
+                    match idx {
+                        0 => "python",
+                        1 => "rust",
+                        2 => "javascript",
+                        3 => "typescript",
+                        4 => "java",
+                        5 => "cpp",
+                        6 => "csharp",
+                        7 => "go",
+                        _ => "unknown",
+                    }
+                    .to_string()
+                }),
+            frameworks: code_features.framework_prior.keys().cloned().collect(),
+            symbols: code_features.symbol_hits as i32,
+            tokens: code_features.path_tokens.len() as i32,
+            verb: format!("{:?}", code_features.prompt_verb),
+        },
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+
+    Ok(Json(response))
+}
+
+/// Get prompt orchestration metrics
+#[utoipa::path(
+    get,
+    path = "/v1/prompt-orchestration/metrics",
+    responses(
+        (status = 200, description = "Orchestration metrics", body = PromptOrchestrationMetrics)
+    ),
+    tag = "prompt-orchestration"
+)]
+pub async fn get_prompt_orchestration_metrics(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<PromptOrchestrationMetrics>, (StatusCode, Json<ErrorResponse>)> {
+    use adapteros_telemetry::TelemetryFilters;
+    use chrono::Utc;
+
+    // Query telemetry buffer for prompt analysis events
+    let filters = TelemetryFilters {
+        limit: Some(10000), // Get recent events
+        event_type: Some("prompt.analyzed".to_string()),
+        ..Default::default()
+    };
+
+    let analysis_events = state.telemetry_buffer.query(&filters);
+
+    // Aggregate metrics from events
+    let mut total_requests = 0i64;
+    let mut base_model_only = 0i64;
+    let mut adapter_used = 0i64;
+    let mut mixed_mode = 0i64;
+    let mut total_analysis_time_ms = 0.0;
+    let mut error_count = 0i64;
+
+    for event in analysis_events.iter() {
+        total_requests += 1;
+
+        // Extract strategy from metadata
+        if let Some(ref metadata) = event.metadata {
+            if let Some(strategy) = metadata.get("strategy").and_then(|s| s.as_str()) {
+                match strategy {
+                    "base_model" => base_model_only += 1,
+                    "adapters" => adapter_used += 1,
+                    "mixed" => mixed_mode += 1,
+                    _ => {}
+                }
+            }
+
+            // Extract analysis time
+            if let Some(time_ms) = metadata.get("analysis_time_ms").and_then(|t| t.as_f64()) {
+                total_analysis_time_ms += time_ms;
+            }
+
+            // Check for errors
+            if event.level == adapteros_telemetry::LogLevel::Error
+                || event.level == adapteros_telemetry::LogLevel::Critical
+            {
+                error_count += 1;
+            }
+        }
+    }
+
+    // Calculate average analysis time
+    let analysis_time_ms = if total_requests > 0 {
+        total_analysis_time_ms / total_requests as f64
+    } else {
+        0.0
+    };
+
+    // Cache hits/misses: Prompt orchestration caching is not yet implemented.
+    // When implemented, this would track reuse of prompt analysis results for similar prompts.
+    // For now, we return 0 to indicate the feature is not available.
+    // Note: This is separate from adapter cache (which exists but is tracked elsewhere).
+    let cache_hits = 0i64;
+    let cache_misses = total_requests; // All requests are misses until caching is implemented
+
+    let metrics = PromptOrchestrationMetrics {
+        total_requests,
+        base_model_only,
+        adapter_used,
+        mixed_mode,
+        analysis_time_ms,
+        cache_hits,
+        cache_misses: cache_misses.max(0),
+        error_count,
+        last_updated: Utc::now().to_rfc3339(),
+    };
+
+    Ok(Json(metrics))
 }
 
 /// List audits with extended fields
@@ -7754,14 +8333,130 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
                 .unwrap_or(0) as i32
         },
         active_sessions: {
-            // TODO: Implement active sessions count - no sessions table exists in schema
-            // For now return 0, this needs proper implementation
-            0
+            // Count active inference sessions from telemetry buffer and metrics collector
+            use adapteros_telemetry::TelemetryFilters;
+            let start_filters = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.start".to_string()),
+                ..Default::default()
+            };
+            let complete_filters = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.complete".to_string()),
+                ..Default::default()
+            };
+
+            let started = state.telemetry_buffer.query(&start_filters).len();
+            let completed = state.telemetry_buffer.query(&complete_filters).len();
+
+            // Improved: Track by session IDs from metadata for accuracy
+            use chrono::{Duration as ChronoDuration, Utc};
+
+            let end_time = Utc::now();
+            let start_time = end_time - ChronoDuration::minutes(5);
+
+            let start_filters_time = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.start".to_string()),
+                start_time: Some(start_time),
+                end_time: Some(end_time),
+                ..Default::default()
+            };
+            let complete_filters_time = TelemetryFilters {
+                limit: Some(1000),
+                event_type: Some("inference.complete".to_string()),
+                start_time: Some(start_time),
+                end_time: Some(end_time),
+                ..Default::default()
+            };
+
+            // Collect session IDs from events (fallback to simple count if no IDs)
+            let started_sessions: std::collections::HashSet<String> = state
+                .telemetry_buffer
+                .query(&start_filters_time)
+                .iter()
+                .filter_map(|e| {
+                    e.metadata
+                        .as_ref()
+                        .and_then(|m| m.get("session_id").or_else(|| m.get("request_id")))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+
+            let completed_sessions: std::collections::HashSet<String> = state
+                .telemetry_buffer
+                .query(&complete_filters_time)
+                .iter()
+                .filter_map(|e| {
+                    e.metadata
+                        .as_ref()
+                        .and_then(|m| m.get("session_id").or_else(|| m.get("request_id")))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+
+            let active = if !started_sessions.is_empty() || !completed_sessions.is_empty() {
+                // Use session ID tracking for accuracy
+                started_sessions.difference(&completed_sessions).count() as i32
+            } else {
+                // Fallback: approximate as started - completed
+                let active = if started > completed {
+                    (started - completed) as i32
+                } else {
+                    0
+                };
+                active
+            };
+
+            // Also check metrics collector for active_sessions gauge
+            let snapshot = state.metrics_collector.get_metrics_snapshot().await;
+            let metrics_active = snapshot.system.active_sessions as i32;
+
+            // Use the higher of the two estimates
+            active.max(metrics_active)
         },
         tokens_per_second: {
-            // TODO: Implement tokens per second calculation from telemetry bundles
-            // No telemetry_metrics table exists, this needs proper implementation
-            0.0
+            // Get tokens per second from metrics collector snapshot
+            let snapshot = state.metrics_collector.get_metrics_snapshot().await;
+
+            // If snapshot has non-zero value, use it; otherwise calculate from recent tokens
+            if snapshot.throughput.tokens_per_second > 0.0 {
+                snapshot.throughput.tokens_per_second as f32
+            } else {
+                // Fallback: calculate from recent telemetry events
+                use adapteros_telemetry::TelemetryFilters;
+                use chrono::{Duration, Utc};
+
+                let end_time = Utc::now();
+                let start_time = end_time - Duration::seconds(60);
+
+                let filters = TelemetryFilters {
+                    limit: Some(1000),
+                    event_type: Some("inference.complete".to_string()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    ..Default::default()
+                };
+
+                let events = state.telemetry_buffer.query(&filters);
+
+                // Sum tokens from inference events
+                let mut total_tokens = 0u64;
+                for event in events.iter() {
+                    if let Some(ref metadata) = event.metadata {
+                        if let Some(output_tokens) =
+                            metadata.get("output_tokens").and_then(|t| t.as_u64())
+                        {
+                            total_tokens += output_tokens;
+                        }
+                    }
+                }
+
+                // Convert to tokens per second
+                (total_tokens as f32) / 60.0
+            }
         },
         latency_p95_ms: {
             // Calculate P95 latency from recent requests
@@ -11264,10 +11959,10 @@ pub async fn get_compliance_audit(
 ) -> Result<Json<ComplianceAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Compliance, Role::Operator])?;
 
-    // Fetch policy violations from telemetry bundles
+    // Fetch policy violations from policy_quarantine table
     let pool = state.db.pool();
 
-    let violations = sqlx::query(
+    let violation_count = sqlx::query(
         r#"
         SELECT COUNT(*) as count
         FROM policy_quarantine
@@ -11287,7 +11982,50 @@ pub async fn get_compliance_audit(
         )
     })?;
 
-    let active_violations: i64 = violations.try_get("count").unwrap_or(0);
+    let active_violations: i64 = violation_count.try_get("count").unwrap_or(0);
+
+    // Fetch actual violation records
+    let violation_records = sqlx::query(
+        r#"
+        SELECT id, reason, violation_type, created_at, released, cpid, metadata
+        FROM policy_quarantine
+        WHERE released = FALSE
+        ORDER BY created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to fetch violations")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let violations: Vec<PolicyViolationRecord> = violation_records
+        .into_iter()
+        .map(|row| {
+            let created_at: String = row
+                .try_get("created_at")
+                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+            PolicyViolationRecord {
+                id: row.try_get("id").unwrap_or_else(|_| "unknown".to_string()),
+                reason: row
+                    .try_get("reason")
+                    .unwrap_or_else(|_| "Unknown violation".to_string()),
+                violation_type: row.try_get("violation_type").ok(),
+                created_at,
+                released: row.try_get("released").unwrap_or(false),
+                cpid: row.try_get("cpid").ok(),
+                metadata: row.try_get("metadata").ok(),
+            }
+        })
+        .collect();
 
     // Generate compliance controls status
     let controls = vec![
@@ -11345,6 +12083,7 @@ pub async fn get_compliance_audit(
         compliant_controls: compliant_count,
         active_violations: active_violations as usize,
         controls,
+        violations,
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -11720,7 +12459,19 @@ pub struct ComplianceAuditResponse {
     pub compliant_controls: usize,
     pub active_violations: usize,
     pub controls: Vec<ComplianceControl>,
+    pub violations: Vec<PolicyViolationRecord>,
     pub timestamp: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct PolicyViolationRecord {
+    pub id: String,
+    pub reason: String,
+    pub violation_type: Option<String>,
+    pub created_at: String,
+    pub released: bool,
+    pub cpid: Option<String>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]

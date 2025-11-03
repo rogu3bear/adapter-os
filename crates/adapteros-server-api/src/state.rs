@@ -2,6 +2,7 @@ use crate::types::ReplayVerificationResponse;
 use adapteros_crypto::Keypair;
 use adapteros_db::{self as db, Db};
 use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_lora_router::Router;
 #[cfg(feature = "cdp")]
 use adapteros_orchestrator::CodeJobManager;
 use adapteros_orchestrator::TrainingService;
@@ -239,6 +240,8 @@ pub struct AppState {
     pub jwt_public_key_pem: Option<String>,
     /// Policy pack manager enforcing all production rules
     pub policy_manager: Arc<PolicyPackManager>,
+    /// Router for K-sparse LoRA adapter selection
+    pub router: Arc<Router>,
     /// Optional runtime for base model backends (e.g., MLX FFI)
     pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntime>>>,
     /// Training session metadata cache for UI features
@@ -305,6 +308,11 @@ impl AppState {
         let (bundles_tx, _bundles_rx) =
             broadcast::channel::<crate::types::TelemetryBundleResponse>(256);
 
+        // Initialize router with default weights and deterministic seed
+        let router_seed = [42u8; 32]; // Fixed seed for deterministic routing
+        let router_weights = vec![1.0; 10]; // Placeholder weights - should be configurable
+        let router = Arc::new(Router::new(router_weights, 3, 1.0, 0.02, router_seed));
+
         Self {
             db,
             jwt_secret: Arc::new(jwt_secret),
@@ -322,6 +330,7 @@ impl AppState {
             jwt_mode: JwtMode::Hmac,
             jwt_public_key_pem: None,
             policy_manager: Arc::new(PolicyPackManager::new()),
+            router,
             model_runtime: Some(Arc::new(tokio::sync::Mutex::new(
                 crate::model_runtime::ModelRuntime::new(),
             ))),

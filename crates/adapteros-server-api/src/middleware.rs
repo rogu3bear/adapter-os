@@ -66,7 +66,7 @@ pub async fn auth_middleware(
             let claims = Claims {
                 sub: "dev-bypass-user".to_string(),
                 email: "dev@adapteros.local".to_string(),
-                role: "Admin".to_string(), // Admin role for full dev access
+                role: "admin".to_string(), // Admin role for full dev access
                 tenant_id: "default".to_string(),
                 exp: (now + Duration::hours(24)).timestamp(),
                 iat: now.timestamp(),

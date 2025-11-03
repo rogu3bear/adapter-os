@@ -647,18 +647,27 @@ impl MetricsCollector {
             .unwrap_or_default()
             .as_secs();
 
-        // Collect histogram percentiles (simplified implementation)
-        let inference_p50 = self.get_histogram_percentile(&self.inference_latency, 0.5);
-        let inference_p95 = self.get_histogram_percentile(&self.inference_latency, 0.95);
-        let inference_p99 = self.get_histogram_percentile(&self.inference_latency, 0.99);
+        // Collect histogram percentiles from Prometheus histograms
+        let inference_p50 =
+            self.get_histogram_percentile_by_name("adapteros_inference_latency_seconds", 0.5);
+        let inference_p95 =
+            self.get_histogram_percentile_by_name("adapteros_inference_latency_seconds", 0.95);
+        let inference_p99 =
+            self.get_histogram_percentile_by_name("adapteros_inference_latency_seconds", 0.99);
 
-        let router_p50 = self.get_histogram_percentile(&self.router_latency, 0.5);
-        let router_p95 = self.get_histogram_percentile(&self.router_latency, 0.95);
-        let router_p99 = self.get_histogram_percentile(&self.router_latency, 0.99);
+        let router_p50 =
+            self.get_histogram_percentile_by_name("adapteros_router_latency_seconds", 0.5);
+        let router_p95 =
+            self.get_histogram_percentile_by_name("adapteros_router_latency_seconds", 0.95);
+        let router_p99 =
+            self.get_histogram_percentile_by_name("adapteros_router_latency_seconds", 0.99);
 
-        let kernel_p50 = self.get_histogram_percentile(&self.kernel_latency, 0.5);
-        let kernel_p95 = self.get_histogram_percentile(&self.kernel_latency, 0.95);
-        let kernel_p99 = self.get_histogram_percentile(&self.kernel_latency, 0.99);
+        let kernel_p50 =
+            self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.5);
+        let kernel_p95 =
+            self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.95);
+        let kernel_p99 =
+            self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.99);
 
         // Collect gauge values
         let request_queue = self
@@ -801,17 +810,125 @@ impl MetricsCollector {
         cache.clone()
     }
 
-    /// Helper to get histogram percentile (simplified implementation)
-    fn get_histogram_percentile(&self, _histogram: &HistogramVec, percentile: f64) -> f64 {
-        // This is a simplified implementation
-        // In production, you'd want to use proper percentile calculation
-        // For now, return a placeholder value
-        match percentile {
-            0.5 => 0.025,  // 25ms p50
-            0.95 => 0.100, // 100ms p95
-            0.99 => 0.200, // 200ms p99
-            _ => 0.050,    // 50ms default
+    /// Helper to get histogram percentile from Prometheus histogram by name
+    fn get_histogram_percentile_by_name(&self, metric_name: &str, percentile: f64) -> f64 {
+        // Gather metrics from registry to get histogram data
+        let metric_families = self.registry.gather();
+
+        // Find the matching histogram metric family by name
+        let histogram_family = metric_families
+            .iter()
+            .find(|mf| mf.get_name() == metric_name);
+
+        if let Some(family) = histogram_family {
+            // Aggregate data across all label combinations
+            // Proper aggregation: convert cumulative -> non-cumulative -> sum -> rebuild cumulative
+            let mut total_samples = 0u64;
+            let mut all_buckets_by_label: Vec<Vec<(f64, u64)>> = Vec::new(); // Per-label bucket lists: (upper_bound, cumulative_count)
+
+            // Collect all buckets from all label combinations
+            for metric in family.get_metric() {
+                if metric.has_histogram() {
+                    let hist = metric.get_histogram();
+                    total_samples += hist.get_sample_count();
+
+                    let mut buckets: Vec<(f64, u64)> = Vec::new();
+                    for bucket in hist.get_bucket() {
+                        let upper_bound = bucket.get_upper_bound();
+                        let cumulative_count = bucket.get_cumulative_count();
+                        buckets.push((upper_bound, cumulative_count));
+                    }
+                    // Sort by upper bound
+                    buckets
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    all_buckets_by_label.push(buckets);
+                }
+            }
+
+            // If we have samples, aggregate buckets properly
+            if total_samples > 0 && !all_buckets_by_label.is_empty() {
+                // Step 1: Collect all unique bucket bounds across all label combinations
+                let mut unique_bounds: Vec<f64> = Vec::new();
+                for buckets in &all_buckets_by_label {
+                    for (bound, _) in buckets {
+                        if !unique_bounds.iter().any(|&b| (b - bound).abs() < 0.0001) {
+                            unique_bounds.push(*bound);
+                        }
+                    }
+                }
+                unique_bounds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Step 2: For each unique bound, convert cumulative to non-cumulative per label, then sum
+                let mut aggregated_non_cumulative: Vec<(f64, u64)> = Vec::new();
+
+                for &bound in &unique_bounds {
+                    let mut sum_non_cum = 0u64;
+
+                    for buckets in &all_buckets_by_label {
+                        // Find the cumulative count for this bound in this label combination
+                        if let Some((_, cum_count)) =
+                            buckets.iter().find(|(b, _)| (b - bound).abs() < 0.0001)
+                        {
+                            // Convert to non-cumulative: find previous bucket count
+                            let prev_bound = buckets
+                                .iter()
+                                .filter(|(b, _)| *b < bound && (*b - bound).abs() >= 0.0001)
+                                .max_by(|a, b| {
+                                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                                });
+
+                            let prev_count = prev_bound.map(|(_, c)| *c).unwrap_or(0);
+                            let non_cum = cum_count - prev_count;
+                            sum_non_cum += non_cum;
+                        }
+                    }
+
+                    aggregated_non_cumulative.push((bound, sum_non_cum));
+                }
+
+                // Step 3: Rebuild cumulative buckets
+                let mut aggregated_buckets: Vec<(f64, u64)> = Vec::new();
+                let mut running_cumulative = 0u64;
+                for (bound, non_cum) in aggregated_non_cumulative {
+                    running_cumulative += non_cum;
+                    aggregated_buckets.push((bound, running_cumulative));
+                }
+
+                // Step 4: Calculate percentile from aggregated cumulative buckets
+                // Find the bucket that contains the percentile
+                let target_count = (total_samples as f64 * percentile).round() as u64;
+
+                // Linear interpolation between buckets for more accurate percentile
+                for i in 0..aggregated_buckets.len() {
+                    let (upper, count) = aggregated_buckets[i];
+                    if count >= target_count {
+                        if i == 0 {
+                            // First bucket: return its upper bound
+                            return upper;
+                        } else {
+                            // Interpolate between previous and current bucket
+                            let (prev_upper, prev_count) = aggregated_buckets[i - 1];
+                            let count_range = count - prev_count;
+                            if count_range > 0 {
+                                let bucket_fraction =
+                                    (target_count - prev_count) as f64 / count_range as f64;
+                                return prev_upper + (upper - prev_upper) * bucket_fraction;
+                            } else {
+                                return upper;
+                            }
+                        }
+                    }
+                }
+
+                // If target is beyond all buckets, return the largest upper bound
+                if let Some((upper, _)) = aggregated_buckets.last() {
+                    return *upper;
+                }
+            }
         }
+
+        // Fallback: if no data, return 0
+        0.0
     }
 
     /// Get registry reference for custom metrics
