@@ -281,9 +281,15 @@ impl<K: FusedKernels> Worker<K> {
         let policy = PolicyEngine::new(manifest.policies.clone());
 
         // Enforce determinism policy using backend attestation
-        let _attestation = kernels.attest_determinism()?;
-        // Stub - validate_backend_attestation not yet implemented
-        // TODO: policy.determinism_policy().validate_backend_attestation(&attestation)?;
+        let attestation = kernels.attest_determinism()?;
+        // Get determinism validator from policy pack manager
+        use adapteros_policy::{PolicyPackId, PolicyPackManager};
+        let determinism_validator = policy.pack_manager().get_validator(&PolicyPackId::Determinism)
+            .ok_or_else(|| AosError::PolicyViolation("Determinism policy pack not found".to_string()))?;
+        // Downcast to DeterminismValidator and validate
+        let determinism_validator = determinism_validator.as_any().downcast_ref::<adapteros_policy::packs::determinism::DeterminismValidator>()
+            .ok_or_else(|| AosError::PolicyViolation("Failed to get determinism validator".to_string()))?;
+        determinism_validator.validate_backend_attestation(&attestation)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -693,6 +699,37 @@ impl<K: FusedKernels> Worker<K> {
             self.lifecycle
                 .record_router_decision(&decision.indices)
                 .await?;
+
+            // Lazy loading: ensure selected adapters are loaded before kernel execution
+            let lazy_load_start = Instant::now();
+            let was_preloaded = if self.manifest.policies.lazy_loading.enabled {
+                self.lifecycle.ensure_adapters_loaded(&decision.indices).await?
+            } else {
+                // Check if adapters are loaded without loading them
+                let loaded_states = self.lifecycle.check_adapters_loaded(&decision.indices);
+                let all_loaded = loaded_states.iter().all(|&loaded| loaded);
+                if !all_loaded {
+                    return Err(AosError::Worker(format!(
+                        "Lazy loading disabled but required adapters not loaded: {:?}",
+                        decision.indices.iter().zip(loaded_states).filter(|(_, loaded)| !loaded).map(|(idx, _)| idx).collect::<Vec<_>>()
+                    )));
+                }
+                true // All were preloaded
+            };
+            let lazy_load_duration = lazy_load_start.elapsed();
+
+            if !was_preloaded {
+                // Log lazy loading telemetry
+                let _ = self.telemetry.log(
+                    "inference.lazy_load",
+                    serde_json::json!({
+                        "step": step,
+                        "adapters_loaded": decision.indices.len(),
+                        "lazy_load_time_ms": lazy_load_duration.as_millis(),
+                        "cpid": request.cpid,
+                    }),
+                );
+            }
 
             // Convert Decision to RouterRing
             let router_ring = RouterRing {

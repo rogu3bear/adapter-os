@@ -1321,13 +1321,8 @@ pub async fn run() -> Result<()> {
             .await
             .unwrap_or_else(|_| "-".to_string());
 
-            // If error code exists, suggest using explain with event ID
-            if let Some(code) = error_code {
-                eprintln!(
-                    "\n✗ {} – see: aosctl explain {} (event: {})",
-                    code, code, event_id
-                );
-            }
+            // Display user-friendly error message
+            display_user_friendly_error(&e, error_code.as_deref(), &event_id);
 
             Err(e)
         }
@@ -1830,6 +1825,44 @@ fn extract_tenant_from_command(command: &Commands) -> Option<String> {
         | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
         Commands::Diag { tenant, .. } => tenant.clone(),
         _ => None,
+    }
+}
+
+/// Display user-friendly error message with CLI-specific formatting
+fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, event_id: &str) {
+    use crate::error_codes::find_by_code;
+
+    // First, try to get user-friendly message from error code registry
+    if let Some(code) = error_code {
+        if let Some(error_info) = find_by_code(code) {
+            eprintln!("{}", error_info);
+            return;
+        }
+    }
+
+    // Fallback: Try to extract user-friendly message from AosError if present
+    let error_msg = format!("{}", error);
+
+    // Try to map common error patterns to user-friendly messages
+    let user_friendly_msg = if error_msg.contains("Connection refused") {
+        "Database connection failed. Please check if the database is running and accessible.".to_string()
+    } else if error_msg.contains("Permission denied") {
+        "Permission denied. Please check file permissions and user access rights.".to_string()
+    } else if error_msg.contains("No such file") {
+        "File not found. Please verify the file path and ensure the file exists.".to_string()
+    } else if error_msg.contains("timeout") {
+        "Operation timed out. This may be due to system load or network issues.".to_string()
+    } else if let Some(code) = error_code {
+        format!("An error occurred ({}). See: aosctl explain {} (event: {})", code, code, event_id)
+    } else {
+        format!("An unexpected error occurred. Event ID: {}", event_id)
+    };
+
+    eprintln!("❌ {}", user_friendly_msg);
+
+    // Show the original error in verbose mode or for debugging
+    if std::env::var("AOS_DEBUG").is_ok() || std::env::var("RUST_BACKTRACE").is_ok() {
+        eprintln!("Technical details: {}", error_msg);
     }
 }
 

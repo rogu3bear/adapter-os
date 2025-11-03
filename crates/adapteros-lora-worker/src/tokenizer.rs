@@ -3,7 +3,7 @@
 //! Provides encoding/decoding and chat template formatting for Qwen2.5-Instruct models.
 
 use adapteros_core::{AosError, Result};
-use adapteros_secure_fs::{traversal::normalize_path, content::validate_json_content};
+use adapteros_secure_fs::{traversal::normalize_path, content::validate_tokenizer_config_json};
 use std::path::Path;
 use tokenizers::Tokenizer;
 
@@ -26,8 +26,9 @@ impl QwenTokenizer {
         let tokenizer_content = std::fs::read_to_string(&canonical_path)
             .map_err(|e| AosError::Worker(format!("Failed to read tokenizer file: {}", e)))?;
 
-        validate_json_content(&tokenizer_content, "tokenizer.json")
-            .map_err(|e| AosError::Worker(format!("Tokenizer JSON validation failed: {}", e)))?;
+        // Perform semantic validation for tokenizer config
+        validate_tokenizer_config_json(&tokenizer_content)
+            .map_err(|e| AosError::Worker(format!("Tokenizer config validation failed: {}", e)))?;
 
         let tokenizer = Tokenizer::from_file(&canonical_path)
             .map_err(|e| AosError::Worker(format!("Failed to load tokenizer: {}", e)))?;

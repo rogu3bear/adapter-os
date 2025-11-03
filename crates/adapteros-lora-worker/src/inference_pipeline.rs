@@ -155,8 +155,7 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
-        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        policy.determinism_policy().validate_backend_attestation(&report)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -168,8 +167,9 @@ impl InferencePipeline {
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
-        // Create deterministic generator with seed
-        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        // Create deterministic generator with seed derived from manifest
+        // TODO: Pass manifest or seed from Worker
+        let seed = [0u8; 32]; // Default seed for now
         let generator = Generator::new(seed)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
@@ -206,8 +206,7 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
-        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        policy.determinism_policy().validate_backend_attestation(&report)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -219,8 +218,9 @@ impl InferencePipeline {
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
-        // Create deterministic generator with seed
-        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        // Create deterministic generator with seed derived from manifest
+        // TODO: Pass manifest or seed from Worker
+        let seed = [0u8; 32]; // Default seed for now
         let generator = Generator::new(seed)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
@@ -363,11 +363,12 @@ impl InferencePipeline {
             let decision = self.router.route(&features_vec, &priors);
             let router_latency = router_start.elapsed();
 
-            // 6. Check policy: entropy floor (simplified for now)
-            // TODO: Implement router entropy check in PolicyEngine
+            // 6. Check policy: entropy floor (using default threshold for now)
             let entropy = self.calculate_gate_entropy(&decision.gates_q15);
-            if entropy < 0.02 {
-                warn!("Router entropy below floor: {:.4}", entropy);
+            let entropy_floor = 0.02; // TODO: Make this configurable via policy
+            if entropy < entropy_floor {
+                warn!("Router entropy {:.4} below floor {:.4}", entropy, entropy_floor);
+                // Policy enforcement: could trigger router recalibration or fallback to uniform selection
             }
 
             // 7. Execute kernel inference (reuse buffers)

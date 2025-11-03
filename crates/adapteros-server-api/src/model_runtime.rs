@@ -3,14 +3,15 @@
 //! When mlx-ffi-backend feature is enabled, actually loads models via MLX FFI.
 //! Otherwise acts as a stub for environments where backend is not linked.
 
-#[cfg(feature = "mlx-ffi-backend")]
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::warn;
 
 #[cfg(feature = "mlx-ffi-backend")]
 use adapteros_lora_mlx_ffi::MLXFFIModel;
+#[cfg(feature = "mlx-ffi-backend")]
+use lru::LruCache;
 #[cfg(feature = "mlx-ffi-backend")]
 use tracing::info;
 #[cfg(feature = "mlx-ffi-backend")]
@@ -29,6 +30,16 @@ struct ModelMetadata {
     memory_usage_mb: i32,
 }
 
+/// Cache entry for lazy loading - tracks model paths and access patterns
+#[cfg(feature = "mlx-ffi-backend")]
+struct ModelCacheEntry {
+    model_path: String,
+    last_accessed: Instant,
+    access_count: u64,
+    created_at: Instant,
+    size_bytes: u64,
+}
+
 pub struct ModelRuntime {
     #[cfg(feature = "mlx-ffi-backend")]
     /// Loaded models by (tenant_id, model_id) with metadata
@@ -36,6 +47,15 @@ pub struct ModelRuntime {
     /// Active operation handles for cancellation: (tenant_id, model_id) -> AbortHandle
     #[cfg(feature = "mlx-ffi-backend")]
     active_operations: HashMap<ModelKey, AbortHandle>,
+    /// Model cache for lazy loading - stores recently used model paths
+    #[cfg(feature = "mlx-ffi-backend")]
+    model_cache: lru::LruCache<ModelKey, ModelCacheEntry>,
+    /// Lazy loading enabled flag
+    lazy_loading_enabled: bool,
+    /// Maximum number of models to keep cached
+    max_cached_models: usize,
+    /// Cache eviction policy ("lru", "lfu", "ttl")
+    cache_eviction_policy: String,
     /// Maximum model file size in bytes (default: 10GB)
     max_model_size_bytes: u64,
     /// Maximum config.json file size in bytes (default: 1MB)
@@ -47,6 +67,8 @@ pub struct ModelRuntime {
     /// Maximum number of loaded models per tenant (default: 2)
     #[allow(unused)]
     max_tenant_models: usize,
+    /// Per-tenant file size limits (tenant_id -> max_bytes)
+    per_tenant_limits: HashMap<String, u64>,
 }
 
 impl Default for ModelRuntime {
@@ -62,11 +84,17 @@ impl ModelRuntime {
             models: HashMap::new(),
             #[cfg(feature = "mlx-ffi-backend")]
             active_operations: HashMap::new(),
+            #[cfg(feature = "mlx-ffi-backend")]
+            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).unwrap()),
+            lazy_loading_enabled: false,
+            max_cached_models: 3,
+            cache_eviction_policy: "lru".to_string(),
             max_model_size_bytes: 10 * 1024 * 1024 * 1024, // Default 10GB
             max_config_size_bytes: 1024 * 1024, // Default 1MB
             max_tokenizer_size_bytes: 10 * 1024 * 1024, // Default 10MB
             max_loaded_models: 5, // Default: 5 models globally
             max_tenant_models: 2, // Default: 2 models per tenant
+            per_tenant_limits: HashMap::new(),
         }
     }
 
@@ -81,17 +109,171 @@ impl ModelRuntime {
             models: HashMap::new(),
             #[cfg(feature = "mlx-ffi-backend")]
             active_operations: HashMap::new(),
+            #[cfg(feature = "mlx-ffi-backend")]
+            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).unwrap()),
+            lazy_loading_enabled: false,
+            max_cached_models: 3,
+            cache_eviction_policy: "lru".to_string(),
             max_model_size_bytes,
             max_config_size_bytes,
             max_tokenizer_size_bytes,
             max_loaded_models: 5, // Default: 5 models globally
             max_tenant_models: 2, // Default: 2 models per tenant
+            per_tenant_limits: HashMap::new(),
         }
     }
 
     /// Set maximum model file size in bytes
     pub fn set_max_size(&mut self, max_bytes: u64) {
         self.max_model_size_bytes = max_bytes;
+    }
+
+    /// Enable or disable lazy loading
+    pub fn set_lazy_loading(&mut self, enabled: bool) {
+        self.lazy_loading_enabled = enabled;
+    }
+
+    /// Set maximum number of cached models
+    pub fn set_max_cached_models(&mut self, max_cached: usize) {
+        self.max_cached_models = max_cached;
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            self.model_cache.resize(std::num::NonZeroUsize::new(max_cached).unwrap_or(std::num::NonZeroUsize::new(1).unwrap()));
+        }
+    }
+
+    /// Set cache eviction policy ("lru", "lfu", "ttl")
+    pub fn set_cache_eviction_policy(&mut self, policy: String) {
+        self.cache_eviction_policy = policy;
+    }
+
+    /// Evict models from cache based on the configured policy
+    #[cfg(feature = "mlx-ffi-backend")]
+    pub fn evict_cache_entries(&mut self) -> usize {
+        let mut evicted = 0;
+
+        match self.cache_eviction_policy.as_str() {
+            "lfu" => {
+                // Evict least frequently used entries when over capacity
+                while self.model_cache.len() > self.max_cached_models {
+                    if let Some((key, _)) = self.model_cache.iter()
+                        .min_by_key(|(_, entry)| entry.access_count) {
+                        let key_to_remove = key.clone();
+                        self.model_cache.pop(&key_to_remove);
+                        evicted += 1;
+                        info!("Evicted LFU cache entry: {:?}", key_to_remove);
+                    }
+                }
+            }
+            "ttl" => {
+                // Evict entries older than 1 hour (TTL policy)
+                let ttl_duration = Duration::from_secs(3600); // 1 hour
+                let now = Instant::now();
+                let keys_to_remove: Vec<_> = self.model_cache.iter()
+                    .filter(|(_, entry)| now.duration_since(entry.created_at) > ttl_duration)
+                    .map(|(key, _)| key.clone())
+                    .collect();
+
+                for key in keys_to_remove {
+                    self.model_cache.pop(&key);
+                    evicted += 1;
+                    info!("Evicted TTL cache entry: {:?}", key);
+                }
+            }
+            "lru" | _ => {
+                // LRU is handled automatically by the LruCache
+                // But we can still manually evict if over capacity
+                while self.model_cache.len() > self.max_cached_models {
+                    if let Some((key, _)) = self.model_cache.iter().next() {
+                        let key_to_remove = key.clone();
+                        self.model_cache.pop(&key_to_remove);
+                        evicted += 1;
+                        info!("Evicted LRU cache entry: {:?}", key_to_remove);
+                    }
+                }
+            }
+        }
+
+        evicted
+    }
+
+    /// Get cache statistics
+    #[cfg(feature = "mlx-ffi-backend")]
+    pub fn get_cache_stats(&self) -> HashMap<String, u64> {
+        let mut stats = HashMap::new();
+        stats.insert("cache_size".to_string(), self.model_cache.len() as u64);
+        stats.insert("max_cache_size".to_string(), self.max_cached_models as u64);
+
+        let total_accesses: u64 = self.model_cache.iter().map(|(_, entry)| entry.access_count).sum();
+        stats.insert("total_accesses".to_string(), total_accesses);
+
+        let total_size_bytes: u64 = self.model_cache.iter().map(|(_, entry)| entry.size_bytes).sum();
+        stats.insert("total_cached_size_bytes".to_string(), total_size_bytes);
+
+        stats
+    }
+
+    /// Ensure a model is loaded (used for lazy loading - load on first inference request)
+    pub async fn ensure_model_loaded(
+        &mut self,
+        tenant_id: &str,
+        model_id: &str,
+    ) -> Result<(), String> {
+        let model_key = (tenant_id.to_string(), model_id.to_string());
+
+        // If lazy loading is disabled, assume model is already loaded
+        if !self.lazy_loading_enabled {
+            return Ok(());
+        }
+
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            // Check if model is already loaded
+            if self.models.contains_key(&model_key) {
+                return Ok(());
+            }
+
+            // Check if model is in cache
+            if let Some(cache_entry) = self.model_cache.get(&model_key) {
+                // Update access statistics
+                let mut updated_entry = cache_entry.clone();
+                updated_entry.last_accessed = Instant::now();
+                updated_entry.access_count += 1;
+                self.model_cache.put(model_key.clone(), updated_entry);
+
+                // Actually load the model now
+                info!(
+                    tenant_id = %tenant_id,
+                    model_id = %model_id,
+                    "Lazy loading model on first inference request: {}",
+                    cache_entry.model_path
+                );
+
+                // Call the existing load logic but skip the lazy loading path
+                let was_lazy = self.lazy_loading_enabled;
+                self.lazy_loading_enabled = false;
+                let result = self.load_model(tenant_id, model_id, &cache_entry.model_path, 0);
+                self.lazy_loading_enabled = was_lazy;
+
+                result
+            } else {
+                Err(format!("Model {} for tenant {} not found in cache", model_id, tenant_id))
+            }
+        }
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            Err("MLX backend not available for model loading".to_string())
+        }
+    }
+
+    /// Set per-tenant file size limits
+    pub fn set_per_tenant_limits(&mut self, limits: HashMap<String, u64>) {
+        self.per_tenant_limits = limits;
+    }
+
+    /// Add or update a per-tenant file size limit
+    pub fn set_tenant_limit(&mut self, tenant_id: &str, max_bytes: u64) {
+        self.per_tenant_limits.insert(tenant_id.to_string(), max_bytes);
     }
 
     /// Set maximum config.json file size in bytes
@@ -154,6 +336,44 @@ impl ModelRuntime {
         model_path: &str,
         _memory_usage_mb: i32,
     ) -> Result<(), String> {
+        let model_key = (tenant_id.to_string(), model_id.to_string());
+
+        // If lazy loading is enabled, just cache the model path instead of loading
+        if self.lazy_loading_enabled {
+            #[cfg(feature = "mlx-ffi-backend")]
+            {
+                // Get file size for cache entry
+                let size_bytes = std::fs::metadata(model_path)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+
+                let cache_entry = ModelCacheEntry {
+                    model_path: model_path.to_string(),
+                    last_accessed: Instant::now(),
+                    access_count: 0,
+                    created_at: Instant::now(),
+                    size_bytes,
+                };
+                self.model_cache.put(model_key, cache_entry);
+
+                // Evict entries if we exceed capacity
+                self.evict_cache_entries();
+
+                info!(
+                    tenant_id = %tenant_id,
+                    model_id = %model_id,
+                    "Model cached for lazy loading: {}",
+                    model_path
+                );
+                return Ok(());
+            }
+            #[cfg(not(feature = "mlx-ffi-backend"))]
+            {
+                warn!("Lazy loading requested but MLX backend not available - models will be cached but not actually loaded");
+                return Ok(());
+            }
+        }
+
         // Note: Validation is typically done by caller (load_model_async) or explicitly before calling
         // This allows load_model to be called when validation has already been performed
         // For safety, we validate here too (idempotent - fast check)
@@ -162,12 +382,44 @@ impl ModelRuntime {
         // Check file size before loading to prevent OOM
         let metadata = std::fs::metadata(model_path)
             .map_err(|e| format!("Failed to read model file metadata: {}", e))?;
+
+        // Check global limit
         if metadata.len() > self.max_model_size_bytes {
+            // Log security violation
+            warn!(
+                security_violation = "model_file_size_exceeded_global_limit",
+                tenant_id = %tenant_id,
+                model_id = %model_id,
+                file_size = metadata.len(),
+                max_size = self.max_model_size_bytes,
+                "Model file size exceeds global limit"
+            );
             return Err(format!(
                 "Model file size {} bytes exceeds maximum {} bytes",
                 metadata.len(),
                 self.max_model_size_bytes
             ));
+        }
+
+        // Check per-tenant limit
+        if let Some(tenant_limit) = self.per_tenant_limits.get(tenant_id) {
+            if metadata.len() > *tenant_limit {
+                // Log security violation
+                warn!(
+                    security_violation = "model_file_size_exceeded_tenant_limit",
+                    tenant_id = %tenant_id,
+                    model_id = %model_id,
+                    file_size = metadata.len(),
+                    tenant_limit = *tenant_limit,
+                    "Model file size exceeds tenant limit"
+                );
+                return Err(format!(
+                    "Model file size {} bytes exceeds tenant '{}' limit of {} bytes",
+                    metadata.len(),
+                    tenant_id,
+                    tenant_limit
+                ));
+            }
         }
 
         #[cfg(feature = "mlx-ffi-backend")]

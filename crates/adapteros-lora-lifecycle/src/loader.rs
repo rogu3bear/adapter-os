@@ -1,6 +1,7 @@
 //! Hot-swap adapter loading and unloading
 
 use adapteros_core::{AosError, Result};
+use tracing::warn;
 use adapteros_secure_fs::traversal::{
     check_path_traversal, join_paths_safe, normalize_path,
     PathValidationConfig, validate_file_path_comprehensive, safe_file_exists, safe_file_metadata
@@ -27,6 +28,8 @@ pub struct AdapterLoader {
     mmap_loader: Option<Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>>,
     /// Maximum adapter file size in bytes (default: 500MB)
     max_adapter_size_bytes: u64,
+    /// Per-tenant file size limits (tenant_id -> max_bytes)
+    per_tenant_limits: HashMap<String, u64>,
 }
 
 impl AdapterLoader {
@@ -40,12 +43,23 @@ impl AdapterLoader {
             hot_swap_enabled: false,
             mmap_loader: None,
             max_adapter_size_bytes: 500 * 1024 * 1024, // Default 500MB
+            per_tenant_limits: HashMap::new(),
         }
     }
 
     /// Set maximum adapter file size in bytes
     pub fn set_max_size(&mut self, max_bytes: u64) {
         self.max_adapter_size_bytes = max_bytes;
+    }
+
+    /// Set per-tenant file size limits
+    pub fn set_per_tenant_limits(&mut self, limits: HashMap<String, u64>) {
+        self.per_tenant_limits = limits;
+    }
+
+    /// Add or update a per-tenant file size limit
+    pub fn set_tenant_limit(&mut self, tenant_id: &str, max_bytes: u64) {
+        self.per_tenant_limits.insert(tenant_id.to_string(), max_bytes);
     }
 
     /// Enable memory-mapped adapter loading
@@ -83,7 +97,7 @@ impl AdapterLoader {
     }
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
-    pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
+    pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str, tenant_id: Option<&str>) -> Result<AdapterHandle> {
         let adapter_path = self.resolve_path(adapter_name)?;
 
         // Configure path validation for adapter loading
@@ -91,6 +105,9 @@ impl AdapterLoader {
             allowed_bases: vec![self.base_path.clone()],
             max_path_length: 4096,
             max_file_size_bytes: self.max_adapter_size_bytes,
+            per_tenant_limits: self.per_tenant_limits.clone(),
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024 * 1024,
         };
 
         // Validate adapter path with enhanced security
@@ -110,12 +127,46 @@ impl AdapterLoader {
         // Check file size before loading to prevent OOM using safe metadata read
         let metadata = safe_file_metadata(&adapter_path, &path_config.allowed_bases)
             .map_err(|e| AosError::Lifecycle(format!("Failed to read file metadata: {}", e)))?;
+
+        // Check global limit
         if metadata.len() > self.max_adapter_size_bytes {
+            // Log security violation
+            warn!(
+                security_violation = "adapter_file_size_exceeded_global_limit",
+                adapter_id = adapter_id,
+                tenant_id = ?tenant_id,
+                file_size = metadata.len(),
+                max_size = self.max_adapter_size_bytes,
+                "Adapter file size exceeds global limit"
+            );
             return Err(AosError::PolicyViolation(format!(
                 "Adapter file size {} bytes exceeds maximum {} bytes",
                 metadata.len(),
                 self.max_adapter_size_bytes
             )));
+        }
+
+        // Check per-tenant limit
+        if let Some(tenant_id) = tenant_id {
+            if let Some(tenant_limit) = self.per_tenant_limits.get(tenant_id) {
+                if metadata.len() > *tenant_limit {
+                    // Log security violation
+                    warn!(
+                        security_violation = "adapter_file_size_exceeded_tenant_limit",
+                        adapter_id = adapter_id,
+                        tenant_id = %tenant_id,
+                        file_size = metadata.len(),
+                        tenant_limit = *tenant_limit,
+                        "Adapter file size exceeds tenant limit"
+                    );
+                    return Err(AosError::PolicyViolation(format!(
+                        "Adapter file size {} bytes exceeds tenant '{}' limit of {} bytes",
+                        metadata.len(),
+                        tenant_id,
+                        tenant_limit
+                    )));
+                }
+            }
         }
 
         // Load adapter weights (supports both .aos and .safetensors)
@@ -144,6 +195,7 @@ impl AdapterLoader {
         &mut self,
         adapter_id: u16,
         adapter_name: &str,
+        tenant_id: Option<&str>,
     ) -> Result<AdapterHandle> {
         // Resolve path with security validation first
         let adapter_path = self.resolve_path(adapter_name)?;
@@ -152,7 +204,7 @@ impl AdapterLoader {
         if self.use_mmap && adapter_path.extension() == Some(OsStr::new("aos")) {
             if let Some(mmap_loader) = self.mmap_loader.clone() {
                 return self
-                    .load_aos_mmap(adapter_id, adapter_name, &mmap_loader)
+                    .load_aos_mmap(adapter_id, adapter_name, &mmap_loader, tenant_id)
                     .await;
             }
         }
@@ -163,12 +215,17 @@ impl AdapterLoader {
 
         let max_size = self.max_adapter_size_bytes;
         let base_path = self.base_path.clone();
+        let tenant_limits = self.per_tenant_limits.clone();
+        let tenant_id_clone = tenant_id.map(|s| s.to_string());
         let handle = tokio::task::spawn_blocking(move || {
             // Configure path validation for adapter loading
             let path_config = PathValidationConfig {
                 allowed_bases: vec![base_path],
                 max_path_length: 4096,
                 max_file_size_bytes: max_size,
+                per_tenant_limits: tenant_limits,
+                enable_streaming_validation: true,
+                max_header_size_bytes: 1024 * 1024,
             };
 
             // Validate adapter path with enhanced security
@@ -188,12 +245,46 @@ impl AdapterLoader {
             // Check file size before loading to prevent OOM using safe metadata read
             let metadata = safe_file_metadata(&adapter_path_clone, &path_config.allowed_bases)
                 .map_err(|e| AosError::Lifecycle(format!("Failed to read file metadata: {}", e)))?;
+
+            // Check global limit
             if metadata.len() > max_size {
+                // Log security violation
+                warn!(
+                    security_violation = "adapter_file_size_exceeded_global_limit",
+                    adapter_id = adapter_id,
+                    tenant_id = ?tenant_id_clone,
+                    file_size = metadata.len(),
+                    max_size = max_size,
+                    "Adapter file size exceeds global limit"
+                );
                 return Err(AosError::PolicyViolation(format!(
                     "Adapter file size {} bytes exceeds maximum {} bytes",
                     metadata.len(),
                     max_size
                 )));
+            }
+
+            // Check per-tenant limit
+            if let Some(ref tenant_id) = tenant_id_clone {
+                if let Some(tenant_limit) = path_config.per_tenant_limits.get(tenant_id) {
+                    if metadata.len() > *tenant_limit {
+                        // Log security violation
+                        warn!(
+                            security_violation = "adapter_file_size_exceeded_tenant_limit",
+                            adapter_id = adapter_id,
+                            tenant_id = %tenant_id,
+                            file_size = metadata.len(),
+                            tenant_limit = *tenant_limit,
+                            "Adapter file size exceeds tenant limit"
+                        );
+                        return Err(AosError::PolicyViolation(format!(
+                            "Adapter file size {} bytes exceeds tenant '{}' limit of {} bytes",
+                            metadata.len(),
+                            tenant_id,
+                            tenant_limit
+                        )));
+                    }
+                }
             }
 
             // Load adapter weights from SafeTensors format
@@ -355,6 +446,7 @@ impl AdapterLoader {
         adapter_id: u16,
         adapter_name: &str,
         loader: &Arc<tokio::sync::Mutex<adapteros_single_file_adapter::MmapAdapterLoader>>,
+        tenant_id: Option<&str>,
     ) -> Result<AdapterHandle> {
         let path = self.resolve_path(adapter_name)?;
 
@@ -363,6 +455,9 @@ impl AdapterLoader {
             allowed_bases: vec![self.base_path.clone()],
             max_path_length: 4096,
             max_file_size_bytes: self.max_adapter_size_bytes,
+            per_tenant_limits: self.per_tenant_limits.clone(),
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024 * 1024,
         };
 
         // Validate adapter path with enhanced security
@@ -375,12 +470,46 @@ impl AdapterLoader {
         let metadata = tokio::fs::metadata(&path)
             .await
             .map_err(|e| AosError::Lifecycle(format!("Failed to read file metadata: {}", e)))?;
+
+        // Check global limit
         if metadata.len() > self.max_adapter_size_bytes {
+            // Log security violation
+            warn!(
+                security_violation = "adapter_file_size_exceeded_global_limit",
+                adapter_id = adapter_id,
+                tenant_id = ?tenant_id,
+                file_size = metadata.len(),
+                max_size = self.max_adapter_size_bytes,
+                "Adapter file size exceeds global limit"
+            );
             return Err(AosError::PolicyViolation(format!(
                 "Adapter file size {} bytes exceeds maximum {} bytes",
                 metadata.len(),
                 self.max_adapter_size_bytes
             )));
+        }
+
+        // Check per-tenant limit
+        if let Some(tenant_id) = tenant_id {
+            if let Some(tenant_limit) = self.per_tenant_limits.get(tenant_id) {
+                if metadata.len() > *tenant_limit {
+                    // Log security violation
+                    warn!(
+                        security_violation = "adapter_file_size_exceeded_tenant_limit",
+                        adapter_id = adapter_id,
+                        tenant_id = %tenant_id,
+                        file_size = metadata.len(),
+                        tenant_limit = *tenant_limit,
+                        "Adapter file size exceeds tenant limit"
+                    );
+                    return Err(AosError::PolicyViolation(format!(
+                        "Adapter file size {} bytes exceeds tenant '{}' limit of {} bytes",
+                        metadata.len(),
+                        tenant_id,
+                        tenant_limit
+                    )));
+                }
+            }
         }
         
         let options = adapteros_single_file_adapter::LoadOptions {
@@ -428,7 +557,7 @@ impl AdapterLoader {
     ///
     /// All paths are validated to prevent path traversal attacks and canonicalized
     /// to ensure they remain within the base_path directory.
-    fn resolve_path(&self, adapter_name: &str) -> Result<PathBuf> {
+    pub fn resolve_path(&self, adapter_name: &str) -> Result<PathBuf> {
         // Validate adapter_name doesn't contain traversal patterns
         check_path_traversal(adapter_name)?;
 
@@ -552,7 +681,7 @@ mod tests {
 
         // Load adapter
         let handle = loader
-            .load_adapter(0, "test_adapter")
+            .load_adapter(0, "test_adapter", None)
             .expect("Test adapter load should succeed");
         assert_eq!(handle.adapter_id, 0);
         assert!(loader.is_loaded(0));
@@ -587,7 +716,7 @@ mod tests {
 
         let mut loader = AdapterLoader::new(temp_dir.clone());
         let handle = loader
-            .load_adapter(42, name)
+            .load_adapter(42, name, None)
             .expect("should load packaged path");
         // Should pick packaged_dir/weights.safetensors
         assert_eq!(handle.path, packaged_path);
@@ -604,7 +733,7 @@ mod tests {
         let mut loader = AdapterLoader::new(temp_dir.clone());
         let name = "nonexistent_adapter";
         let err = loader
-            .load_adapter(1, name)
+            .load_adapter(1, name, None)
             .expect_err("should error when missing");
         let msg = format!("{}", err);
         // Should mention the attempted path

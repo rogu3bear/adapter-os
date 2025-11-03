@@ -1,18 +1,23 @@
-//! Model loading from SafeTensors format
+//! Model loading from SafeTensors format with LRU caching
 //!
 //! This module provides functionality to load Qwen models from SafeTensors format,
-//! which is the standard format used by MLX and other ML frameworks.
+//! which is the standard format used by MLX and other ML frameworks. Includes
+//! LRU-based caching with eviction to optimize memory usage.
 //!
-//! Citation: Based on `crates/adapteros-lora-worker/src/embeddings.rs:65-89` - extends
-//! the existing SafeTensors loading pattern for full model loading.
+//! Citations:
+//! - SafeTensors loading: Based on `crates/adapteros-lora-worker/src/embeddings.rs:65-89`【1†adapteros-lora-worker/src/embeddings.rs:65-89】
+//! - Model caching: Implements LRU cache with eviction per Memory Management Pattern【2†adapteros-memory/src/model_cache.rs:1-50】
+//! - Deterministic eviction: Uses BLAKE3 hash tiebreaking【3†adapteros-memory/src/unified_interface.rs:390-395】
 
 use memmap2::Mmap;
 use adapteros_core::{AosError, Result};
-use adapteros_secure_fs::{traversal::normalize_path, content::validate_and_parse_json};
+use adapteros_memory::{ModelCache, ModelCacheConfig};
+use adapteros_secure_fs::{traversal::normalize_path, content::{validate_and_parse_json, validate_model_config_json}};
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Qwen model structure loaded from SafeTensors
 #[derive(Debug, Clone)]
@@ -51,20 +56,85 @@ pub struct ModelConfig {
     pub max_position_embeddings: usize,
 }
 
-/// Model loader for SafeTensors format
+/// Model loader for SafeTensors format with LRU caching
 pub struct ModelLoader {
     model_path: std::path::PathBuf,
+    /// LRU cache for loaded models
+    cache: Option<Arc<ModelCache<String, QwenModel>>>,
 }
 
 impl ModelLoader {
-    /// Create a new model loader
+    /// Create a new model loader without caching
     pub fn new<P: AsRef<Path>>(model_path: P) -> Self {
         Self {
             model_path: model_path.as_ref().to_path_buf(),
+            cache: None,
         }
     }
 
-    /// Load Qwen model from SafeTensors format
+    /// Create a new model loader with caching enabled
+    pub fn with_cache<P: AsRef<Path>>(model_path: P, cache_config: ModelCacheConfig) -> Self {
+        Self {
+            model_path: model_path.as_ref().to_path_buf(),
+            cache: Some(Arc::new(ModelCache::with_config(cache_config))),
+        }
+    }
+
+    /// Enable caching on an existing loader
+    pub fn enable_cache(&mut self, config: ModelCacheConfig) {
+        self.cache = Some(Arc::new(ModelCache::with_config(config)));
+    }
+
+    /// Disable caching
+    pub fn disable_cache(&mut self) {
+        self.cache = None;
+    }
+
+    /// Get cache metrics (if caching is enabled)
+    pub fn cache_metrics(&self) -> Option<Arc<adapteros_memory::ModelCacheMetrics>> {
+        self.cache.as_ref().map(|c| c.metrics())
+    }
+
+    /// Load Qwen model from SafeTensors format with caching
+    ///
+    /// Uses LRU cache to avoid reloading models that are already in memory.
+    /// Falls back to disk loading if cache miss occurs.
+    pub fn load_qwen_model_cached(&self, tenant_id: Option<&str>) -> Result<Arc<QwenModel>> {
+        if let Some(ref cache) = self.cache {
+            // Create cache key from model path
+            let cache_key = self.model_path.to_string_lossy().to_string();
+
+            // Check cache first
+            if let Some(cached_entry) = cache.get(&cache_key) {
+                tracing::debug!(cache_key = %cache_key, "Model cache hit");
+                return Ok(Arc::clone(&cached_entry.model));
+            }
+
+            // Cache miss - load from disk
+            tracing::debug!(cache_key = %cache_key, "Model cache miss, loading from disk");
+            let model = Arc::new(self.load_qwen_model()?);
+
+            // Estimate memory usage (rough approximation)
+            let memory_usage = self.estimate_model_memory_usage(&model);
+            let quality_score = 0.8; // Default quality score for models
+
+            // Insert into cache
+            cache.insert(
+                cache_key,
+                Arc::clone(&model),
+                memory_usage,
+                tenant_id.map(|s| s.to_string()),
+                quality_score,
+            )?;
+
+            Ok(model)
+        } else {
+            // No caching enabled, load directly
+            Ok(Arc::new(self.load_qwen_model()?))
+        }
+    }
+
+    /// Load Qwen model from SafeTensors format (bypasses cache)
     pub fn load_qwen_model(&self) -> Result<QwenModel> {
         let safetensors_path = self.model_path.join("model.safetensors");
 
@@ -134,6 +204,10 @@ impl ModelLoader {
 
         let config_content = std::fs::read_to_string(&canonical_config_path)
             .map_err(|e| AosError::Worker(format!("Failed to read config: {}", e)))?;
+
+        // Perform semantic validation for model config
+        validate_model_config_json(&config_content)
+            .map_err(|e| AosError::Worker(format!("Model config validation failed: {}", e)))?;
 
         let config: ModelConfig = validate_and_parse_json(&config_content, "config.json")
             .map_err(|e| AosError::Worker(format!("Config validation failed: {}", e)))?;
@@ -244,6 +318,26 @@ impl ModelLoader {
 
         embedding_params + lm_head_params + attention_params + mlp_params
     }
+
+    /// Estimate memory usage of a loaded model in bytes
+    ///
+    /// Provides a rough estimate based on parameter count and data types.
+    /// This is used for cache memory management and eviction decisions.
+    fn estimate_model_memory_usage(&self, model: &QwenModel) -> u64 {
+        // Each f32 parameter is 4 bytes
+        let bytes_per_param = 4u64;
+
+        // Count total parameters
+        let total_params = self.estimate_parameter_count(&model.config);
+
+        // Calculate base memory usage (parameters only)
+        let base_memory = total_params as u64 * bytes_per_param;
+
+        // Add overhead for model structure and metadata (~10% overhead)
+        let overhead_factor = 1.1;
+
+        (base_memory as f64 * overhead_factor) as u64
+    }
 }
 
 /// Model information
@@ -267,6 +361,25 @@ mod tests {
         let loader = ModelLoader::new(temp_dir.path());
 
         // Test that we can create a loader
+        assert!(loader.model_path.exists());
+        assert!(loader.cache.is_none()); // No cache by default
+    }
+
+    #[test]
+    fn test_model_loader_with_cache() {
+        let temp_dir = tempdir().expect("Test temp directory creation should succeed");
+        let cache_config = ModelCacheConfig {
+            max_memory_bytes: 1024 * 1024, // 1MB
+            max_models: 5,
+            headroom_threshold: 15.0,
+            tenant_aware: false,
+            eviction_batch_size: 2,
+        };
+
+        let loader = ModelLoader::with_cache(temp_dir.path(), cache_config);
+
+        // Test that cache is enabled
+        assert!(loader.cache.is_some());
         assert!(loader.model_path.exists());
     }
 

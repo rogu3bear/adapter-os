@@ -5,6 +5,7 @@
 use adapteros_core::{AosError, Result};
 use std::path::{Component, Path, PathBuf};
 use tracing::debug;
+use chrono;
 
 /// Path traversal protection configuration
 #[derive(Debug, Clone)]
@@ -476,6 +477,12 @@ pub struct PathValidationConfig {
     pub max_path_length: usize,
     /// Maximum file size for validation (0 = no limit)
     pub max_file_size_bytes: u64,
+    /// Per-tenant size limits (tenant_id -> max_bytes)
+    pub per_tenant_limits: std::collections::HashMap<String, u64>,
+    /// Enable streaming validation for large files
+    pub enable_streaming_validation: bool,
+    /// Maximum header size to read for streaming validation
+    pub max_header_size_bytes: usize,
 }
 
 impl Default for PathValidationConfig {
@@ -484,6 +491,9 @@ impl Default for PathValidationConfig {
             allowed_bases: vec![],
             max_path_length: 4096, // Reasonable path length limit
             max_file_size_bytes: 10 * 1024 * 1024 * 1024, // 10GB default
+            per_tenant_limits: std::collections::HashMap::new(),
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024 * 1024, // 1MB header for streaming validation
         }
     }
 }
@@ -515,21 +525,153 @@ pub fn validate_file_path_comprehensive(
     }
 
     // If file exists, check size limits
-    if path.exists() && config.max_file_size_bytes > 0 {
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| AosError::Security(format!("Failed to read file metadata: {}", e)))?;
+    if path.exists() {
+        validate_file_size_limits(path, config)?;
+    }
 
-        if metadata.len() > config.max_file_size_bytes {
+    Ok(())
+}
+
+/// Validate file size limits with streaming support
+pub fn validate_file_size_limits(
+    path: impl AsRef<Path>,
+    config: &PathValidationConfig
+) -> Result<()> {
+    let path = path.as_ref();
+
+    // Get basic metadata first
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| AosError::Security(format!("Failed to read file metadata: {}", e)))?;
+
+    let file_size = metadata.len();
+
+    // Check global size limit
+    if config.max_file_size_bytes > 0 && file_size > config.max_file_size_bytes {
+        // Log security violation
+        let _violation_event = log_security_violation(
+            "file_size_exceeded_global_limit",
+            &format!("File size {} bytes exceeds global maximum {} bytes", file_size, config.max_file_size_bytes),
+            path,
+        );
+
+        return Err(AosError::Security(format!(
+            "File size {} bytes exceeds global maximum {} bytes",
+            file_size,
+            config.max_file_size_bytes
+        )));
+    }
+
+    // For large files, use streaming validation if enabled
+    if config.enable_streaming_validation && file_size > config.max_header_size_bytes as u64 {
+        validate_file_streaming(path, config)?;
+    }
+
+    Ok(())
+}
+
+/// Validate file size against per-tenant limits
+pub fn validate_file_size_per_tenant(
+    path: impl AsRef<Path>,
+    tenant_id: &str,
+    config: &PathValidationConfig
+) -> Result<()> {
+    let path = path.as_ref();
+
+    if let Some(tenant_limit) = config.per_tenant_limits.get(tenant_id) {
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| AosError::Security(format!("Failed to read file metadata for tenant validation: {}", e)))?;
+
+        if metadata.len() > *tenant_limit {
+            // Log security violation
+            let _violation_event = log_security_violation(
+                "file_size_exceeded_tenant_limit",
+                &format!("File size {} bytes exceeds tenant '{}' limit of {} bytes", metadata.len(), tenant_id, tenant_limit),
+                path,
+            );
+
             return Err(AosError::Security(format!(
-                "File size {} bytes exceeds maximum {} bytes",
+                "File size {} bytes exceeds tenant '{}' limit of {} bytes",
                 metadata.len(),
-                config.max_file_size_bytes
+                tenant_id,
+                tenant_limit
             )));
         }
     }
 
     Ok(())
 }
+
+/// Security violation information for telemetry
+#[derive(Debug, Clone)]
+pub struct SecurityViolationEvent {
+    pub violation_type: String,
+    pub details: String,
+    pub path: String,
+    pub timestamp: String,
+}
+
+/// Log security violations and return event information for telemetry
+pub fn log_security_violation(violation_type: &str, details: &str, path: &Path) -> SecurityViolationEvent {
+    // Log to tracing for immediate visibility
+    tracing::warn!(
+        security_violation = %violation_type,
+        details = %details,
+        path = %path.display(),
+        "Security violation detected"
+    );
+
+    SecurityViolationEvent {
+        violation_type: violation_type.to_string(),
+        details: details.to_string(),
+        path: path.display().to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+/// Validate file using streaming approach for large files
+pub fn validate_file_streaming(
+    path: impl AsRef<Path>,
+    config: &PathValidationConfig
+) -> Result<()> {
+    let path = path.as_ref();
+
+    // Open file for streaming validation
+    let file = std::fs::File::open(path)
+        .map_err(|e| AosError::Security(format!("Failed to open file for streaming validation: {}", e)))?;
+
+    // Read only the header portion for validation
+    let mut reader = std::io::BufReader::new(file);
+    let mut header_buffer = vec![0u8; config.max_header_size_bytes];
+
+    let bytes_read = std::io::Read::read(&mut reader, &mut header_buffer)
+        .map_err(|e| AosError::Security(format!("Failed to read file header for validation: {}", e)))?;
+
+    // Basic header validation - ensure it's not all zeros or has expected structure
+    // This is a basic check; specific file format validation should be done by the caller
+    let non_zero_bytes = header_buffer.iter().take(bytes_read).filter(|&&b| b != 0).count();
+
+    if non_zero_bytes == 0 {
+        return Err(AosError::Security("File header appears to be all zeros".to_string()));
+    }
+
+    // Check for obviously corrupted data patterns
+    if bytes_read >= 4 {
+        // Check for common file signatures or ensure not obviously corrupted
+        let first_four = &header_buffer[0..4];
+        // Allow common file signatures or reasonable data patterns
+        let is_reasonable_data = first_four.iter().any(|&b| b >= 32 && b <= 126) || // ASCII printable
+                               (first_four[0] == 0xFF && first_four[1] == 0xFE) || // UTF-16 BOM
+                               (first_four[0] == 0xEF && first_four[1] == 0xBB && first_four[2] == 0xBF) || // UTF-8 BOM
+                               first_four == &[0x50, 0x4B, 0x03, 0x04]; // ZIP signature
+
+        if !is_reasonable_data && non_zero_bytes < bytes_read / 2 {
+            return Err(AosError::Security("File header contains suspicious data patterns".to_string()));
+        }
+    }
+
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -688,6 +830,9 @@ mod tests {
             allowed_bases: vec![base_dir.clone()],
             max_path_length: 4096,
             max_file_size_bytes: 100,
+            per_tenant_limits: std::collections::HashMap::new(),
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024,
         };
 
         // Test valid file
@@ -802,6 +947,97 @@ mod tests {
         let outside_file = std::env::temp_dir().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         assert!(!is_path_within_base(&outside_file, base_dir)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_size_validation() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let test_file = temp_dir.path().join("test.txt");
+
+        // Test with small file
+        std::fs::write(&test_file, "small content")?;
+        let config = PathValidationConfig {
+            allowed_bases: vec![temp_dir.path().to_path_buf()],
+            max_path_length: 4096,
+            max_file_size_bytes: 100, // 100 bytes limit
+            per_tenant_limits: std::collections::HashMap::new(),
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024,
+        };
+
+        // Small file should pass
+        validate_file_size_limits(&test_file, &config)?;
+
+        // Test with large file
+        let large_content = "x".repeat(200); // 200 bytes
+        std::fs::write(&test_file, large_content)?;
+        let result = validate_file_size_limits(&test_file, &config);
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_validation() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let test_file = temp_dir.path().join("test.bin");
+
+        // Create a file with reasonable header
+        let mut content = vec![0xEF, 0xBB, 0xBF]; // UTF-8 BOM
+        content.extend_from_slice(b"Hello, World!");
+        std::fs::write(&test_file, content)?;
+
+        let config = PathValidationConfig {
+            allowed_bases: vec![temp_dir.path().to_path_buf()],
+            max_path_length: 4096,
+            max_file_size_bytes: 1024 * 1024,
+            per_tenant_limits: std::collections::HashMap::new(),
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024,
+        };
+
+        // Should pass streaming validation
+        validate_file_streaming(&test_file, &config)?;
+
+        // Test with all zeros file
+        let zero_content = vec![0u8; 1000];
+        std::fs::write(&test_file, zero_content)?;
+        let result = validate_file_streaming(&test_file, &config);
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_per_tenant_limits() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let test_file = temp_dir.path().join("test.txt");
+        std::fs::write(&test_file, "x".repeat(200))?; // 200 bytes
+
+        let mut per_tenant_limits = std::collections::HashMap::new();
+        per_tenant_limits.insert("tenant1".to_string(), 100); // 100 bytes limit
+        per_tenant_limits.insert("tenant2".to_string(), 1000); // 1000 bytes limit
+
+        let config = PathValidationConfig {
+            allowed_bases: vec![temp_dir.path().to_path_buf()],
+            max_path_length: 4096,
+            max_file_size_bytes: 1000,
+            per_tenant_limits,
+            enable_streaming_validation: true,
+            max_header_size_bytes: 1024,
+        };
+
+        // Should fail for tenant1 (100 bytes limit)
+        let result = validate_file_size_per_tenant(&test_file, "tenant1", &config);
+        assert!(result.is_err());
+
+        // Should pass for tenant2 (1000 bytes limit)
+        validate_file_size_per_tenant(&test_file, "tenant2", &config)?;
+
+        // Should pass for tenant3 (no specific limit)
+        validate_file_size_per_tenant(&test_file, "tenant3", &config)?;
 
         Ok(())
     }

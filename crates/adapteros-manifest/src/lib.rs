@@ -299,6 +299,7 @@ pub struct Policies {
     pub memory: MemoryPolicy,
     pub artifacts: ArtifactsPolicy,
     pub drift: DriftPolicy,
+    pub lazy_loading: LazyLoadingPolicy,
 }
 
 impl Default for Policies {
@@ -370,6 +371,12 @@ impl Default for Policies {
                 cas_only: true,
             },
             drift: DriftPolicy::default(),
+            lazy_loading: LazyLoadingPolicy {
+                enabled: true,
+                max_load_time_secs: 30,
+                max_concurrent_loads: 3,
+                preload_related: false,
+            },
         }
     }
 }
@@ -447,6 +454,18 @@ pub struct ArtifactsPolicy {
     pub require_signature: bool,
     pub require_sbom: bool,
     pub cas_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LazyLoadingPolicy {
+    /// Enable lazy loading of adapters on first request
+    pub enabled: bool,
+    /// Maximum time to wait for lazy loading (seconds)
+    pub max_load_time_secs: u64,
+    /// Maximum concurrent adapter loads
+    pub max_concurrent_loads: usize,
+    /// Whether to preload adapters after first lazy load
+    pub preload_related: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
