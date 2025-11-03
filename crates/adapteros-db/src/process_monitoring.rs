@@ -272,6 +272,20 @@ pub struct AlertFilters {
     pub limit: Option<i64>,
 }
 
+impl Default for AlertFilters {
+    fn default() -> Self {
+        Self {
+            tenant_id: None,
+            worker_id: None,
+            status: None,
+            severity: None,
+            start_time: None,
+            end_time: None,
+            limit: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AnomalyFilters {
     pub tenant_id: Option<String>,

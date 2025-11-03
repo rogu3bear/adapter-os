@@ -3,6 +3,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tokio::fs as tokio_fs;
+use tracing::{debug, info, warn};
+use hex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -77,6 +80,10 @@ fn default_max_model_size() -> u64 {
     10 * 1024 * 1024 * 1024 // 10GB
 }
 
+fn default_streaming_header_size() -> usize {
+    1024 * 1024 // 1MB
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     pub path: String,
@@ -115,6 +122,15 @@ pub struct SecurityConfig {
     /// Maximum model weights file size in bytes (default: 10GB)
     #[serde(default = "default_max_model_size")]
     pub max_model_size_bytes: u64,
+    /// Enable streaming validation for large files
+    #[serde(default = "default_true")]
+    pub enable_streaming_validation: bool,
+    /// Maximum header size to read for streaming validation (default: 1MB)
+    #[serde(default = "default_streaming_header_size")]
+    pub streaming_header_size_bytes: usize,
+    /// Per-tenant file size limits (tenant_id -> max_bytes)
+    #[serde(default)]
+    pub per_tenant_limits: std::collections::HashMap<String, u64>,
 }
 
 fn default_true() -> bool {
@@ -737,6 +753,219 @@ impl Config {
 
         Ok(())
     }
+
+    /// Comprehensive startup validation that checks paths, permissions, and connections
+    /// This is called after basic config validation during server startup
+    pub async fn validate_startup_requirements(&self) -> Result<()> {
+        info!("Performing comprehensive startup validation...");
+
+        // Validate all configured directory paths exist and are accessible
+        self.validate_directory_access().await?;
+
+        // Validate file permissions for critical paths
+        self.validate_file_permissions().await?;
+
+        // Test database connectivity
+        self.validate_database_connection().await?;
+
+        // Validate security requirements
+        self.validate_security_setup()?;
+
+        // Validate external service connections if configured
+        self.validate_external_connections().await?;
+
+        info!("✅ Startup validation completed successfully");
+        Ok(())
+    }
+
+    /// Validate that all configured directories exist and are accessible
+    async fn validate_directory_access(&self) -> Result<()> {
+        let dirs_to_check = vec![
+            (&self.paths.adapters_root, "adapters_root"),
+            (&self.paths.artifacts_root, "artifacts_root"),
+            (&self.paths.bundles_root, "bundles_root"),
+            (&self.paths.plan_dir, "plan_dir"),
+            (&self.alerting.alert_dir, "alert_dir"),
+        ];
+
+        for (dir_path, dir_name) in dirs_to_check {
+            let path = PathBuf::from(dir_path);
+
+            // Check if directory exists
+            if !path.exists() {
+                return Err(anyhow::anyhow!(
+                    "Required directory '{}' does not exist: {}",
+                    dir_name,
+                    path.display()
+                ));
+            }
+
+            // Check if it's actually a directory
+            if !path.is_dir() {
+                return Err(anyhow::anyhow!(
+                    "Path '{}' is not a directory: {}",
+                    dir_name,
+                    path.display()
+                ));
+            }
+
+            // Test read/write access by attempting to create a temporary file
+            let test_file = path.join(".aos_startup_test");
+            match tokio::fs::write(&test_file, b"test").await {
+                Ok(_) => {
+                    // Clean up test file
+                    let _ = tokio::fs::remove_file(&test_file).await;
+                    debug!("✅ Directory '{}' is writable: {}", dir_name, path.display());
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Directory '{}' is not writable: {} (error: {})",
+                        dir_name,
+                        path.display(),
+                        e
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate file permissions for security-critical files
+    async fn validate_file_permissions(&self) -> Result<()> {
+        // Check JWT secret file permissions if configured
+        if let Some(ref jwt_secret_file) = self.security.jwt_secret_file {
+            let path = PathBuf::from(jwt_secret_file);
+            if path.exists() {
+                self.validate_secure_file_permissions(&path, "jwt_secret_file").await?;
+            }
+        }
+
+        // Check JWT signing key permissions if configured
+        if let Some(ref jwt_signing_key) = self.security.jwt_signing_key_path {
+            let path = PathBuf::from(jwt_signing_key);
+            if path.exists() {
+                self.validate_secure_file_permissions(&path, "jwt_signing_key_path").await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate that a security-critical file has appropriate permissions
+    async fn validate_secure_file_permissions(&self, path: &PathBuf, file_name: &str) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = tokio::fs::metadata(path).await
+            .with_context(|| format!("Failed to read metadata for {}", file_name))?;
+
+        let permissions = metadata.permissions();
+        let mode = permissions.mode();
+
+        // Check if file is readable by others (should be 0600 or similar)
+        let others_read = mode & 0o004 != 0;
+        let others_write = mode & 0o002 != 0;
+        let group_read = mode & 0o040 != 0;
+        let group_write = mode & 0o020 != 0;
+
+        if others_read || others_write || group_read || group_write {
+            warn!(
+                "⚠️  Security file '{}' has overly permissive permissions (0{:o}). \
+                 Consider restricting to owner-only access (0600)",
+                file_name,
+                mode & 0o777
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Test database connectivity
+    async fn validate_database_connection(&self) -> Result<()> {
+        info!("Testing database connectivity...");
+
+        // Create a temporary database connection to test
+        let db = Database::new(&self.db.path).await
+            .with_context(|| format!("Failed to connect to database at {}", self.db.path))?;
+
+        // Test a simple query
+        let result: (i64,) = sqlx::query_as("SELECT 1")
+            .fetch_one(db.pool())
+            .await
+            .context("Failed to execute test query on database")?;
+
+        if result.0 != 1 {
+            return Err(anyhow::anyhow!("Database test query returned unexpected result"));
+        }
+
+        info!("✅ Database connectivity verified");
+        Ok(())
+    }
+
+    /// Validate security setup requirements
+    fn validate_security_setup(&self) -> Result<()> {
+        // Validate JWT secret strength
+        if self.security.jwt_secret.len() < 32 {
+            return Err(anyhow::anyhow!(
+                "JWT secret is too weak: {} characters (minimum 32 required)",
+                self.security.jwt_secret.len()
+            ));
+        }
+
+        // Check for weak JWT secrets (common patterns)
+        let secret = &self.security.jwt_secret;
+        if secret.chars().all(|c| c.is_ascii_digit()) {
+            warn!("⚠️  JWT secret contains only digits - consider using a more complex secret");
+        }
+        if secret.chars().all(|c| c.is_ascii_alphabetic()) {
+            warn!("⚠️  JWT secret contains only letters - consider using a more complex secret");
+        }
+
+        // Validate global seed format and entropy
+        if self.security.global_seed.len() != 64 {
+            return Err(anyhow::anyhow!(
+                "Global seed must be 64 hex characters, got {}",
+                self.security.global_seed.len()
+            ));
+        }
+
+        // Check if global seed has good entropy (not all zeros, not sequential)
+        let seed_bytes = hex::decode(&self.security.global_seed)
+            .context("Invalid hex in global seed")?;
+
+        if seed_bytes.iter().all(|&b| b == 0) {
+            return Err(anyhow::anyhow!("Global seed cannot be all zeros"));
+        }
+
+        if seed_bytes.windows(2).all(|w| w[1] == w[0] + 1) {
+            return Err(anyhow::anyhow!("Global seed cannot be sequential bytes"));
+        }
+
+        Ok(())
+    }
+
+    /// Validate connections to external services
+    async fn validate_external_connections(&self) -> Result<()> {
+        // Validate MLX model path if MLX is enabled
+        if let Some(ref mlx_config) = self.mlx {
+            if mlx_config.enabled {
+                if let Ok(model_path) = std::env::var("AOS_MLX_FFI_MODEL") {
+                    let path = PathBuf::from(&model_path);
+                    if !path.exists() {
+                        return Err(anyhow::anyhow!(
+                            "MLX model path from environment does not exist: {}",
+                            path.display()
+                        ));
+                    }
+                    // Additional MLX-specific validation could go here
+                }
+            }
+        }
+
+        // Add validation for other external services as they are added
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -760,10 +989,27 @@ pub struct MlxConfig {
     /// Options: "metal" (default, production) or "mlx" (development/experimentation)
     #[serde(default = "default_mlx_backend")]
     pub default_backend: String,
+    /// Enable lazy loading of models (load on first inference request instead of startup)
+    #[serde(default = "default_false")]
+    pub lazy_loading: bool,
+    /// Maximum number of models to keep cached in memory
+    #[serde(default = "default_model_cache_size")]
+    pub max_cached_models: usize,
+    /// Model cache eviction policy: "lru" (default), "lfu", or "ttl"
+    #[serde(default = "default_cache_eviction_policy")]
+    pub cache_eviction_policy: String,
 }
 
 fn default_mlx_backend() -> String {
     "metal".to_string()
+}
+
+fn default_model_cache_size() -> usize {
+    3
+}
+
+fn default_cache_eviction_policy() -> String {
+    "lru".to_string()
 }
 
 impl Default for MlxConfig {
@@ -772,6 +1018,9 @@ impl Default for MlxConfig {
             enabled: false,
             model_path: None,
             default_backend: default_mlx_backend(),
+            lazy_loading: false,
+            max_cached_models: default_model_cache_size(),
+            cache_eviction_policy: default_cache_eviction_policy(),
         }
     }
 }

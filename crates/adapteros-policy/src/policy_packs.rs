@@ -775,6 +775,11 @@ impl PolicyPackManager {
         &self.configs
     }
 
+    /// Get a policy pack validator by ID
+    pub fn get_validator(&self, pack_id: &PolicyPackId) -> Option<&(dyn PolicyPackValidator + Send + Sync)> {
+        self.packs.get(pack_id).map(|v| v.as_ref())
+    }
+
     /// Enable or disable a policy pack
     pub fn set_pack_enabled(&mut self, pack_id: PolicyPackId, enabled: bool) -> Result<()> {
         if let Some(config) = self.configs.get_mut(&pack_id) {

@@ -251,6 +251,19 @@ impl PolicyEngine {
         &self.policies.determinism
     }
 
+    /// Validate backend attestation for determinism
+    pub fn validate_determinism_attestation(
+        &self,
+        report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
+    ) -> Result<()> {
+        use crate::PolicyPackId;
+        let validator = self.pack_manager.get_validator(&PolicyPackId::Determinism)
+            .ok_or_else(|| AosError::PolicyViolation("Determinism policy pack not found".to_string()))?;
+        let determinism_validator = validator.as_any().downcast_ref::<crate::packs::determinism::DeterminismPolicy>()
+            .ok_or_else(|| AosError::PolicyViolation("Failed to get determinism validator".to_string()))?;
+        determinism_validator.validate_backend_attestation(report)
+    }
+
     /// Get memory policy
     pub fn memory_policy(&self) -> &MemoryPolicy {
         &self.policies.memory

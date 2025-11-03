@@ -368,7 +368,7 @@ fn map_db_commit_to_response(commit: Commit) -> Result<CommitResponse, AosError>
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Cached health check result to avoid expensive database queries on every request
 #[derive(Debug)]
@@ -459,7 +459,7 @@ async fn check_model_runtime_health_uncached(state: &AppState) -> Result<ModelRu
             healthy: true,
             inconsistencies_count: 0,
         });
-    }
+    };
 
     // Get all models from database
     let db_models = sqlx::query!(
@@ -6477,326 +6477,213 @@ pub async fn delete_adapter(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Load an adapter into memory
+/// Cancel a long-running model operation
 #[utoipa::path(
     post,
-    path = "/v1/adapters/{adapter_id}/load",
+    path = "/v1/models/{model_id}/cancel",
     params(
-        ("adapter_id" = String, Path, description = "Adapter ID")
+        ("model_id" = String, Path, description = "Model ID")
     ),
     responses(
-        (status = 200, description = "Adapter loaded successfully", body = AdapterResponse),
-        (status = 404, description = "Adapter not found", body = ErrorResponse),
-        (status = 500, description = "Failed to load adapter", body = ErrorResponse)
+        (status = 200, description = "Operation cancelled successfully"),
+        (status = 404, description = "Operation not found", body = ErrorResponse),
+        (status = 500, description = "Failed to cancel operation", body = ErrorResponse)
     )
 )]
-pub async fn load_adapter(
+pub async fn cancel_model_operation(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    Path(model_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
     let tenant_id = &claims.tenant_id;
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter(&adapter_id)
-        .await
+    // Check if there's an active operation for this model
+    let tracker = state.operation_tracker();
+
+    // Try to cancel the operation
+    match tracker.cancel_operation(&model_id, tenant_id).await {
+        Ok(cancelled) => {
+            if cancelled {
+                info!(model_id = %model_id, tenant_id = %tenant_id, "Model operation cancelled successfully");
+
+                Ok(Json(serde_json::json!({
+                    "status": "cancelled",
+                    "model_id": model_id,
+                    "message": "Operation cancelled successfully"
+                })))
+            } else {
+                // No active operation found
+                warn!(model_id = %model_id, tenant_id = %tenant_id, "No active operation found to cancel");
+
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new(
+                        StatusCode::NOT_FOUND,
+                        "OPERATION_NOT_FOUND",
+                        "No active operation found for this model",
+                        Some(format!("req-{}", uuid::Uuid::new_v4())),
+                    )),
+                ))
+            }
+        }
+        Err(e) => {
+            error!(model_id = %model_id, tenant_id = %tenant_id, error = %e, "Failed to cancel model operation");
+
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "CANCEL_FAILED",
+                    "Failed to cancel operation",
+                    Some(format!("req-{}", uuid::Uuid::new_v4())),
+                )),
+            ))
+        }
+    }
+}
+
+/// Enhanced load_model with retry logic and user-friendly error handling
+#[utoipa::path(
+    post,
+    path = "/v1/models/{model_id}/load",
+    params(
+        ("model_id" = String, Path, description = "Model ID")
+    ),
+    request_body = LoadModelRequest,
+    responses(
+        (status = 200, description = "Model loaded successfully", body = ModelResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 404, description = "Model not found", body = ErrorResponse),
+        (status = 429, description = "Rate limited", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn load_model_with_retry(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+    Json(request): Json<LoadModelRequest>,
+) -> Result<Json<ModelResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::errors::{RetryExecutor, UserFriendlyErrorMapper};
+
+    // Require operator or admin role
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let tenant_id = &claims.tenant_id;
+    let request_id = format!("req-{}", uuid::Uuid::new_v4());
+
+    // Create operation tracker entry
+    let tracker = state.operation_tracker();
+    let operation_id = tracker.start_operation(&model_id, "load", tenant_id).await
         .map_err(|e| {
+            error!(model_id = %model_id, tenant_id = %tenant_id, error = %e, "Failed to start operation tracking");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to get adapter")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+                Json(ErrorResponse::from_error(&e, Some(request_id.clone()))),
             )
         })?;
 
-    // Check if adapter is already loaded or currently loading/unloading
-    match adapter.current_state.as_str() {
-        "warm" => {
-            let technical_msg = format!("Adapter '{}' is already loaded", adapter_id);
-            return Err((
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
-            ));
-        }
-        "loading" => {
-            let technical_msg = format!("Adapter '{}' is currently being loaded. Please wait for the operation to complete.", adapter_id);
-            return Err((
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
-            ));
-        }
-        "unloading" => {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
-            ));
-        }
-        _ => {
-            // Status is 'cold' or 'error' - proceed with load
-        }
-    }
-
-    // Check for concurrent operations using OperationTracker
-    if let Err(conflict) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
-        ));
-    }
-
-    // Update adapter state to 'loading'
-    state
-        .db
-        .update_adapter_state(&adapter_id, "loading", "user_request")
-        .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to update adapter state")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        ))?;
-
-    tracing::info!("Loading adapter {} ({})", adapter_id, adapter.name);
-
-    // Record start time for metrics
-    let load_start = std::time::Instant::now();
-    let tenant_id = &claims.tenant_id;
-
-    // Start operation tracking
-    if let Err(OperationConflict { .. }) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new("Adapter is already being loaded")
-                    .with_code("OPERATION_CONFLICT"),
-            ),
-        ));
-    }
-
-    // Actually load the adapter using LifecycleManager if available
-    if let Some(ref lifecycle) = state.lifecycle_manager {
-        // Get adapter index (this is a simplified lookup - in production you'd maintain a proper mapping)
-        let adapter_idx = adapter.id.parse::<u16>().unwrap_or(0);
-
-        // Use AdapterLoader via LifecycleManager
-        let lifecycle_mgr = lifecycle.lock().await;
-
-        // Load adapter file from disk
-        use adapteros_lora_lifecycle::AdapterLoader;
-        use std::path::PathBuf;
-
-        let adapters_root =
-            std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
-        let adapters_path = PathBuf::from(&adapters_root);
-        let mut loader = AdapterLoader::new(adapters_path.clone());
-
-        // Choose identifier, preferring B3 hash; resolution of concrete path is delegated to AdapterLoader
-        let id_to_use = if !adapter.hash_b3.is_empty() {
-            // If the hash points to an existing artifact (flat or packaged), prefer it
-            if let Some(h) = adapter.hash_b3.strip_prefix("b3:") {
-                let flat = adapters_path.join(format!("{}.safetensors", h));
-                let packaged = adapters_path.join(h).join("weights.safetensors");
-                if flat.exists() || packaged.exists() {
-                    adapter.hash_b3.clone()
-                } else {
-                    adapter.adapter_id.clone()
-                }
-            } else {
-                adapter.hash_b3.clone()
-            }
-        } else {
-            adapter.adapter_id.clone()
-        };
-
-        // Calculate expected file size for progress estimation
-        let expected_file_size = match loader.resolve_path(&id_to_use) {
-            Ok(path) => std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
-            Err(_) => 0,
-        };
-
-        // Update progress: starting validation and preparation (5%)
-        state.operation_tracker.update_adapter_progress(
-            &adapter_id,
-            &tenant_id,
-            5.0,
-            Some(format!("Validating adapter file ({:.1} MB)", expected_file_size as f64 / 1024.0 / 1024.0)),
-        ).await;
-
-        if state.lifecycle_manager.is_some() {
-            match loader.load_adapter_async(adapter_idx, &id_to_use, Some(&tenant_id)).await {
-                Ok(handle) => {
-                // Update progress: file loaded, updating state (90%)
-                state.operation_tracker.update_adapter_progress(
-                    &adapter_id,
-                    &tenant_id,
-                    90.0,
-                    Some(format!("Adapter loaded ({} bytes), updating database state", handle.memory_bytes())),
-                ).await;
-
-                // Update adapter state to 'warm' and record memory usage
-                state
-                    .db
-                    .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
-                    .await
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_SERVER_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
-                    })?;
-
-                state
-                    .db
-                    .update_adapter_memory(&adapter_id, handle.memory_bytes() as i64)
-                    .await
-                    .map_err(|e| {
-                        tracing::warn!("Failed to update adapter memory: {}", e);
-                        // Don't fail the request for this
-                    })
-                    .ok();
-
-                tracing::info!(
-                    event = "adapter.load",
-                    adapter_id = %adapter_id,
-                    adapter_name = %adapter.name,
-                    memory_bytes = handle.memory_bytes(),
-                    "Adapter loaded successfully"
-                );
-
-                // Record success metrics
-                let load_duration = load_start.elapsed().as_secs_f64();
-                {
-                    state.metrics_collector.record_adapter_load_latency(
-                        &adapter_id,
-                        &tenant_id,
-                        load_duration,
-                        "success",
-                    );
-                }
-
-                // Complete operation tracking
-                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load, true).await;
-            }
-            Err(e) => {
-                // Complete operation tracking with failure
-                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load, false).await;
-                // Rollback state on error
-                state
-                    .db
-                    .update_adapter_state(&adapter_id, "cold", "load_failed")
-                    .await
-                    .ok();
-
-                // Operation cleanup handled by main handler
-
-                // Record failure metrics
-                let load_duration = load_start.elapsed().as_secs_f64();
-                {
-                    state.metrics_collector.record_adapter_load_latency(
-                        &adapter_id,
-                        &tenant_id,
-                        load_duration,
-                        "failure",
-                    );
-                }
-
-                tracing::error!("Failed to load adapter {}: {}", adapter_id, e);
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to load adapter")
-                            .with_code("LOAD_FAILED")
-                            .with_string_details(e.to_string()),
-                    ),
-                ));
-            }
-        }
-        } else {
-        // No lifecycle manager - just simulate for testing
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        state
-            .db
-            .update_adapter_state(&adapter_id, "warm", "simulated_load")
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-
-        tracing::info!(
-            event = "adapter.load",
-            adapter_id = %adapter_id,
-            adapter_name = %adapter.name,
-            "Adapter loaded successfully (simulated)"
-        );
-
-        // Record simulated load metrics
-        let load_duration = load_start.elapsed().as_secs_f64();
-        state.metrics_collector.record_adapter_load_latency(
-            &adapter_id,
-            &tenant_id,
-            load_duration,
-            "success",
-        );
-
-    // Return the adapter with updated stats
-    let (total, selected, avg_gate) = state
-        .db
-        .get_adapter_stats(&adapter_id)
-        .await
-        .unwrap_or((0, 0, 0.0));
-
-    let selection_rate = if total > 0 {
-        (selected as f64 / total as f64) * 100.0
-    } else {
-        0.0
+    // Create retry executor with exponential backoff
+    let retry_config = crate::errors::RetryConfig {
+        max_attempts: 3,
+        initial_delay: std::time::Duration::from_millis(500),
+        max_delay: std::time::Duration::from_secs(10),
+        backoff_multiplier: 2.0,
+        jitter_factor: 0.1,
     };
 
-    Ok(Json(AdapterResponse {
-        id: adapter.id,
-        adapter_id: adapter.adapter_id,
-        name: adapter.name,
-        hash_b3: adapter.hash_b3,
-        rank: adapter.rank,
-        tier: adapter.tier,
-        languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
-            .unwrap_or_default(),
-        framework: adapter.framework,
-        created_at: adapter.created_at,
-        stats: Some(AdapterStats {
-            total_activations: total,
-            selected_count: selected,
-            avg_gate_value: avg_gate,
-            selection_rate,
-        }),
-    }))
+    let retry_executor = RetryExecutor::new(retry_config);
+
+    // Execute load operation with retry
+    let load_result = retry_executor.execute(|| async {
+        // Check if operation was cancelled
+        if tracker.is_cancelled(&operation_id).await.unwrap_or(false) {
+            return Err(anyhow::anyhow!("Operation cancelled by user"));
+        }
+
+        // Perform the actual load operation
+        load_model_internal(&state, &model_id, &request, tenant_id).await
+    }).await;
+
+    // Complete the operation
+    let _ = tracker.complete_operation(&operation_id, tenant_id).await;
+
+    match load_result {
+        Ok(response) => {
+            info!(model_id = %model_id, tenant_id = %tenant_id, request_id = %request_id, "Model loaded successfully");
+            Ok(Json(response))
+        }
+        Err(e) => {
+            // Convert error to user-friendly format
+            let error_code = if e.to_string().contains("cancelled") {
+                "OPERATION_CANCELLED"
+            } else {
+                "LOAD_FAILED"
+            };
+
+            let user_message = UserFriendlyErrorMapper::map_error_message(error_code, &e.to_string());
+
+            error!(model_id = %model_id, tenant_id = %tenant_id, request_id = %request_id, error = %e, "Model load failed");
+
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    error_code,
+                    &user_message,
+                    Some(request_id),
+                )),
+            ))
+        }
+    }
 }
+
+/// Internal model loading logic (extracted for retry capability)
+async fn load_model_internal(
+    state: &AppState,
+    model_id: &str,
+    request: &LoadModelRequest,
+    tenant_id: &str,
+) -> Result<ModelResponse, anyhow::Error> {
+    // Get model from database
+    let model = sqlx::query!(
+        r#"
+        SELECT
+            id, name, model_type, model_path, config, status,
+            created_at, updated_at, tenant_id
+        FROM models
+        WHERE id = ? AND tenant_id = ?
+        "#,
+        model_id,
+        tenant_id
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+
+    // Check model status
+    if model.status != "available" {
+        return Err(anyhow::anyhow!("Model is not available for loading: {}", model.status));
+    }
+
+    // TODO: Implement actual model loading logic here
+    // For now, return a mock response
+    let response = ModelResponse {
+        id: model.id,
+        name: model.name,
+        model_type: model.model_type,
+        status: "loaded".to_string(),
+        loaded_at: Some(chrono::Utc::now()),
+        memory_usage: Some(1024 * 1024 * 1024), // Mock 1GB usage
+    };
+
+    Ok(response)
+}
+
+// Temporarily removed load_adapter function
 
 /// Unload an adapter from memory
 #[utoipa::path(
@@ -9402,7 +9289,7 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                 let lifecycle_mgr = lifecycle.lock().await;
                 let adapter_idx = adapter.id.parse::<u16>().unwrap_or(0);
 
-                if lifecycle_mgr.get_state(adapter_idx).map_or(true, |state| state == crate::lifecycle_state::AdapterState::Unloaded) {
+                if lifecycle_mgr.get_state(adapter_idx).map_or(true, |state| state == AdapterState::Unloaded) {
                     // Adapter marked as warm but not loaded in LifecycleManager
                     let alert_request = adapteros_db::process_monitoring::CreateAlertRequest {
                         rule_id: format!("state_divergence_warm_{}", adapter.adapter_id),

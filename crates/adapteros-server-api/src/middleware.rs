@@ -298,3 +298,75 @@ pub fn require_any_role(
         Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
     ))
 }
+
+/// Global error handling middleware that converts AosError to user-friendly HTTP responses
+///
+/// This middleware catches any unhandled errors in the request processing pipeline
+/// and attempts to convert them to user-friendly responses if they are AosError variants.
+/// Should be applied as the outermost middleware to catch all errors.
+pub async fn user_friendly_error_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // Try to execute the request
+    let result = next.run(req).await;
+
+    // If the request succeeded, return it as-is
+    if result.status().is_success() || result.status().is_redirection() {
+        return Ok(result);
+    }
+
+    // For error responses, try to convert any AosError in the extensions
+    // This is a fallback for handlers that don't explicitly handle errors
+    if let Some(error) = result.extensions().get::<adapteros_core::AosError>() {
+        let (status, json_response) = error.to_user_friendly_response();
+        return Err((status, json_response));
+    }
+
+    // Return the original response if we can't convert it
+    Ok(result)
+}
+
+/// Convenience function to create a user-friendly error response from any error
+///
+/// This function attempts to downcast the error to AosError and convert it to a
+/// user-friendly response. Falls back to a generic error response if conversion fails.
+pub fn to_user_friendly_response<E>(
+    error: E,
+    fallback_code: &str,
+    fallback_message: &str,
+) -> (StatusCode, Json<ErrorResponse>)
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    // Try to downcast to AosError
+    if let Some(aos_error) = error.downcast_ref::<adapteros_core::AosError>() {
+        return aos_error.to_user_friendly_response();
+    }
+
+    // Try to extract error code from the error message for better categorization
+    let error_msg = error.to_string();
+    let error_code = if error_msg.contains("not found") {
+        "NOT_FOUND"
+    } else if error_msg.contains("permission") || error_msg.contains("unauthorized") {
+        "UNAUTHORIZED"
+    } else if error_msg.contains("invalid") || error_msg.contains("validation") {
+        "VALIDATION_ERROR"
+    } else if error_msg.contains("timeout") {
+        "TIMEOUT"
+    } else {
+        fallback_code
+    };
+
+    // Create user-friendly response
+    let response = ErrorResponse::new_user_friendly(error_code, &error_msg);
+    let status = match error_code {
+        "NOT_FOUND" => StatusCode::NOT_FOUND,
+        "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+        "VALIDATION_ERROR" => StatusCode::BAD_REQUEST,
+        "TIMEOUT" => StatusCode::REQUEST_TIMEOUT,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    (status, Json(response))
+}

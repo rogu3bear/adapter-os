@@ -430,20 +430,37 @@ impl AppState {
             policy_manager: Arc::new(PolicyPackManager::new()),
             router,
             model_runtime: {
-                // Get file size limits from config
+                // Get file size limits and lazy loading settings from config
                 let config_guard = config.read().unwrap();
                 let max_model_size = config_guard.security.max_model_size_bytes;
                 let max_config_size = config_guard.security.max_config_size_bytes;
                 let max_tokenizer_size = config_guard.security.max_tokenizer_size_bytes;
+
+                let lazy_loading_enabled = config_guard.mlx.as_ref()
+                    .map(|mlx| mlx.lazy_loading)
+                    .unwrap_or(false);
+                let max_cached_models = config_guard.mlx.as_ref()
+                    .map(|mlx| mlx.max_cached_models)
+                    .unwrap_or(3);
+                let cache_eviction_policy = config_guard.mlx.as_ref()
+                    .unwrap_or(&crate::config::MlxConfig::default())
+                    .cache_eviction_policy
+                    .clone();
+
                 drop(config_guard);
 
-                Some(Arc::new(tokio::sync::Mutex::new(
-                    crate::model_runtime::ModelRuntime::with_limits(
-                        max_model_size,
-                        max_config_size,
-                        max_tokenizer_size,
-                    ),
-                )))
+                let mut runtime = crate::model_runtime::ModelRuntime::with_limits(
+                    max_model_size,
+                    max_config_size,
+                    max_tokenizer_size,
+                );
+
+                // Configure lazy loading settings
+                runtime.set_lazy_loading(lazy_loading_enabled);
+                runtime.set_max_cached_models(max_cached_models);
+                runtime.set_cache_eviction_policy(cache_eviction_policy);
+
+                Some(Arc::new(tokio::sync::Mutex::new(runtime)))
             },
             training_sessions: Arc::new(AsyncRwLock::new(HashMap::new())),
             telemetry_buffer,

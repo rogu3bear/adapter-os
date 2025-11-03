@@ -15,6 +15,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-memory = { path = "../adapteros-memory" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }

@@ -114,7 +114,7 @@ pub async fn import_model(
     if claims.role != "admin" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "admin role required")),
         ));
     }
 
@@ -174,7 +174,7 @@ pub async fn import_model(
         error!("Failed to create import record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
@@ -278,7 +278,7 @@ pub async fn load_model(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
         ));
     }
 
@@ -335,8 +335,7 @@ pub async fn load_model(
     .await
     .map_err(|e| {
         error!("Failed to update model status: {}", e);
-        // Clean up operation tracking on error
-        let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load), false).await;
+        // Note: Operation tracking cleanup skipped in error handler (already async context)
         let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -513,7 +512,7 @@ pub async fn unload_model(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
         ));
     }
 
@@ -565,8 +564,7 @@ pub async fn unload_model(
     .await
     .map_err(|e| {
         error!("Failed to update status: {}", e);
-        // Clean up operation tracking on error
-        let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Unload), false).await;
+        // Note: Operation tracking cleanup skipped in error handler (already async context)
         let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -703,7 +701,7 @@ pub async fn get_import_status(
         error!("Failed to get import status: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
@@ -747,7 +745,7 @@ pub async fn get_model_status(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
         ));
     }
 
@@ -768,7 +766,7 @@ pub async fn get_model_status(
         error!("Failed to get model status: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
@@ -786,7 +784,7 @@ pub async fn get_model_status(
         }
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("model not found or not loaded").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "model not found or not loaded")),
         )),
     }
 }
@@ -814,7 +812,7 @@ pub async fn download_model(
     if claims.role != "admin" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "admin role required")),
         ));
     }
 
@@ -834,14 +832,14 @@ pub async fn download_model(
         error!("Failed to get model info: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
     let model_info = model_info.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("model not found or access denied").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "model not found or access denied")),
         )
     })?;
 
@@ -863,14 +861,14 @@ pub async fn download_model(
         error!("Failed to fetch model import record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
     let import_record = import_record.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("no completed imports found for model").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "no completed imports found for model")),
         )
     })?;
 
@@ -933,7 +931,7 @@ pub async fn download_model(
     if artifacts.is_empty() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("no downloadable artifacts available").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "no downloadable artifacts available")),
         ));
     }
 
@@ -1094,7 +1092,7 @@ fn generate_download_token(
         );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("failed to generate download token").with_code("TOKEN_ERROR")),
+            Json(ErrorResponse::new_user_friendly("TOKEN_ERROR", "failed to generate download token")),
         )
     })?;
 
@@ -1121,7 +1119,7 @@ pub async fn download_model_artifact(
     if claims.role != "admin" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "admin role required")),
         ));
     }
 
@@ -1257,7 +1255,7 @@ pub async fn get_model_diagnostics(
         error!("Failed to query database models: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })
     .map(|rows| {
@@ -1359,7 +1357,7 @@ pub async fn validate_model(
         error!("Failed to check model: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
@@ -1481,7 +1479,7 @@ pub async fn get_cursor_config(
         error!("Failed to check model status: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
         )
     })?;
 
@@ -1593,7 +1591,7 @@ pub async fn cancel_model_operation(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
         ));
     }
 

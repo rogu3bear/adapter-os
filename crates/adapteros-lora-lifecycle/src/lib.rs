@@ -48,6 +48,53 @@ pub struct AdapterEvictionEvent {
     pub memory_freed: usize,
 }
 
+/// Telemetry event for lazy loading operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterLazyLoadEvent {
+    pub adapter_id: String,
+    pub adapter_idx: u16,
+    pub load_time_ms: u64,
+    pub memory_bytes: usize,
+}
+
+/// Lazy loading statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LazyLoadingStats {
+    pub total_adapters: usize,
+    pub loaded_adapters: usize,
+    pub load_ratio: f32,
+}
+
+/// Lazy loading metrics for monitoring and analytics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LazyLoadMetrics {
+    /// Total number of lazy load requests
+    pub total_requests: u64,
+    /// Number of successful lazy loads
+    pub successful_loads: u64,
+    /// Number of failed lazy loads
+    pub failed_loads: u64,
+    /// Total time spent on lazy loading (microseconds)
+    pub total_load_time_us: u64,
+    /// Cache hit rate (requests that were already loaded)
+    pub cache_hit_rate: f32,
+    /// Average load time per adapter (microseconds)
+    pub avg_load_time_us: u64,
+}
+
+impl Default for LazyLoadMetrics {
+    fn default() -> Self {
+        Self {
+            total_requests: 0,
+            successful_loads: 0,
+            failed_loads: 0,
+            total_load_time_us: 0,
+            cache_hit_rate: 0.0,
+            avg_load_time_us: 0,
+        }
+    }
+}
+
 pub mod activation_tracker;
 pub mod category_policies;
 pub mod loader;
@@ -84,6 +131,8 @@ pub struct LifecycleManager {
     mmap_loader: Option<Arc<tokio::sync::Mutex<MmapAdapterLoader>>>,
     /// Optional: hot-swap manager for zero-downtime updates
     hot_swap: Option<Arc<HotSwapManager>>,
+    /// Lazy loading metrics
+    lazy_load_metrics: Arc<RwLock<LazyLoadMetrics>>,
 }
 
 impl LifecycleManager {
@@ -114,6 +163,7 @@ impl LifecycleManager {
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
             mmap_loader: None,
             hot_swap: None,
+            lazy_load_metrics: Arc::new(RwLock::new(LazyLoadMetrics::default())),
         }
     }
 
@@ -150,6 +200,7 @@ impl LifecycleManager {
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
             mmap_loader: None,
             hot_swap: None,
+            lazy_load_metrics: Arc::new(RwLock::new(LazyLoadMetrics::default())),
         }
     }
 
@@ -584,7 +635,7 @@ impl LifecycleManager {
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterState::Unloaded {
                 let mut loader = self.loader.write();
-                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id)?;
+                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id, None)?;
 
                 record.state = AdapterState::Cold;
 
@@ -603,7 +654,7 @@ impl LifecycleManager {
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterState::Unloaded {
                 let mut loader = self.loader.write();
-                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id)?;
+                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id, None)?;
 
                 record.state = AdapterState::Cold;
 
@@ -974,6 +1025,193 @@ impl LifecycleManager {
             .map(|(id, record)| (*id, record.state.priority_boost()))
             .collect()
     }
+
+    /// Ensure adapters are loaded for inference (lazy loading)
+    ///
+    /// This method respects tenant isolation by only loading adapters that belong
+    /// to the tenant associated with this LifecycleManager instance. The adapter
+    /// registry and file system access are already tenant-scoped.
+    ///
+    /// Returns true if all adapters were already loaded, false if any were lazy-loaded
+    pub async fn ensure_adapters_loaded(&self, adapter_ids: &[u16]) -> Result<bool> {
+        let mut all_loaded = true;
+        let mut to_load = Vec::new();
+        let mut failed_loads = Vec::new();
+
+        // Update metrics: increment total requests
+        {
+            let mut metrics = self.lazy_load_metrics.write();
+            metrics.total_requests += 1;
+        }
+
+        // Check which adapters need loading
+        {
+            let states = self.states.read();
+            for &adapter_id in adapter_ids {
+                if let Some(record) = states.get(&adapter_id) {
+                    if record.state == AdapterState::Unloaded {
+                        to_load.push((adapter_id, record.adapter_id.clone()));
+                        all_loaded = false;
+                    }
+                } else {
+                    return Err(AosError::Lifecycle(format!(
+                        "Adapter {} not found in lifecycle manager",
+                        adapter_id
+                    )));
+                }
+            }
+        }
+
+        // Load adapters that need loading
+        let to_load_count = to_load.len();
+        if to_load_count > 0 {
+            info!(
+                "Lazy loading {} adapters: {:?}",
+                to_load_count,
+                to_load.iter().map(|(id, name)| format!("{}({})", name, id)).collect::<Vec<_>>()
+            );
+
+            for (adapter_id, adapter_name) in &to_load {
+                let load_start = std::time::Instant::now();
+
+                // Load adapter using the loader with error handling
+                let load_result = {
+                    let mut loader = self.loader.write();
+                    loader.load_adapter_async(*adapter_id, &adapter_name, None).await
+                };
+
+                match load_result {
+                    Ok(_) => {
+                        // Update state to Cold (loaded but not active)
+                        {
+                            let mut states = self.states.write();
+                            if let Some(record) = states.get_mut(&adapter_id) {
+                                record.state = AdapterState::Cold;
+                                record.memory_bytes = 50 * 1024 * 1024; // Estimate 50MB per adapter
+                            }
+                        }
+
+                        let load_duration = load_start.elapsed();
+                        let load_time_us = load_duration.as_micros() as u64;
+
+                        // Update metrics
+                        {
+                            let mut metrics = self.lazy_load_metrics.write();
+                            metrics.successful_loads += 1;
+                            metrics.total_load_time_us += load_time_us;
+                            metrics.avg_load_time_us = metrics.total_load_time_us / metrics.successful_loads.max(1);
+                        }
+
+                        // Log telemetry event
+                        if let Some(ref telemetry) = self.telemetry {
+                            let _ = telemetry.log(
+                                "adapter.lazy_loaded",
+                                AdapterLazyLoadEvent {
+                                    adapter_id: adapter_name.clone(),
+                                    adapter_idx: *adapter_id,
+                                    load_time_ms: load_duration.as_millis() as u64,
+                                    memory_bytes: 50 * 1024 * 1024, // Estimated
+                                },
+                            );
+                        }
+
+                        info!(
+                            "Lazy loaded adapter {} ({}) in {}ms",
+                            adapter_name,
+                            adapter_id,
+                            load_duration.as_millis()
+                        );
+                    }
+                    Err(e) => {
+                        // Log failure but don't fail the entire operation
+                        warn!(
+                            "Failed to lazy load adapter {} ({}): {}",
+                            adapter_name, adapter_id, e
+                        );
+
+                        failed_loads.push((adapter_id, adapter_name.clone(), e.to_string()));
+
+                        // Update metrics
+                        {
+                            let mut metrics = self.lazy_load_metrics.write();
+                            metrics.failed_loads += 1;
+                        }
+
+                        // Log telemetry event for failed load
+                        if let Some(ref telemetry) = self.telemetry {
+                            let _ = telemetry.log(
+                                "adapter.lazy_load_failed",
+                                AdapterLazyLoadEvent {
+                                    adapter_id: adapter_name.clone(),
+                                    adapter_idx: *adapter_id,
+                                    load_time_ms: load_start.elapsed().as_millis() as u64,
+                                    memory_bytes: 0, // Failed load
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // If some adapters failed to load, this is still considered a "lazy load" operation
+        // but we should warn about the failures
+        if !failed_loads.is_empty() {
+            warn!(
+                "Lazy loading completed with {} failures: {:?}",
+                failed_loads.len(),
+                failed_loads.iter().map(|(id, name, err)| format!("{}({}): {}", name, id, err)).collect::<Vec<_>>()
+            );
+        }
+
+        // Update cache hit rate
+        {
+            let mut metrics = self.lazy_load_metrics.write();
+            let total_adapters_requested = adapter_ids.len() as u64;
+            let adapters_already_loaded = total_adapters_requested - to_load_count as u64;
+            if metrics.total_requests > 0 {
+                metrics.cache_hit_rate = (adapters_already_loaded as f32) / (total_adapters_requested as f32);
+            }
+        }
+
+        Ok(all_loaded && failed_loads.is_empty())
+    }
+
+    /// Check if adapters are loaded without loading them
+    pub fn check_adapters_loaded(&self, adapter_ids: &[u16]) -> Vec<bool> {
+        let states = self.states.read();
+        adapter_ids
+            .iter()
+            .map(|&adapter_id| {
+                states
+                    .get(&adapter_id)
+                    .map(|record| record.state.is_loaded())
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    /// Get lazy loading statistics
+    pub fn get_lazy_loading_stats(&self) -> LazyLoadingStats {
+        let states = self.states.read();
+        let total_adapters = states.len();
+        let loaded_adapters = states.values().filter(|r| r.state.is_loaded()).count();
+
+        LazyLoadingStats {
+            total_adapters,
+            loaded_adapters,
+            load_ratio: if total_adapters > 0 {
+                loaded_adapters as f32 / total_adapters as f32
+            } else {
+                0.0
+            },
+        }
+    }
+
+    /// Get lazy loading metrics for monitoring
+    pub fn get_lazy_load_metrics(&self) -> LazyLoadMetrics {
+        self.lazy_load_metrics.read().clone()
+    }
 }
 
 /// K reduction event for telemetry
@@ -1085,6 +1323,62 @@ mod tests {
 
         // Adapter 0 should fall below activation threshold and be evicted
         assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_lazy_loading_functionality() {
+        let adapter_names = vec!["test_adapter_a".to_string(), "test_adapter_b".to_string()];
+        let temp_dir = std::env::temp_dir().join("mplora_lazy_loading_test");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
+
+        // Initially all adapters should be unloaded
+        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
+        assert_eq!(manager.get_state(1), Some(AdapterState::Unloaded));
+
+        // Check loading status
+        let loaded_status = manager.check_adapters_loaded(&[0, 1]);
+        assert_eq!(loaded_status, vec![false, false]);
+
+        // For testing purposes, we'll manually set adapter 0 to loaded state
+        // to simulate successful loading without dealing with file I/O
+        {
+            let mut states = manager.states.write();
+            if let Some(record) = states.get_mut(&0) {
+                record.state = AdapterState::Cold;
+                record.memory_bytes = 50 * 1024 * 1024;
+            }
+        }
+
+        // Check loading status again
+        let loaded_status = manager.check_adapters_loaded(&[0, 1]);
+        assert_eq!(loaded_status, vec![true, false]);
+
+        // Get lazy loading stats
+        let stats = manager.get_lazy_loading_stats();
+        assert_eq!(stats.total_adapters, 2);
+        assert_eq!(stats.loaded_adapters, 1);
+        assert!((stats.load_ratio - 0.5).abs() < 1e-6);
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_lazy_loading_nonexistent_adapter() {
+        let adapter_names = vec!["existent_adapter".to_string()];
+        let temp_dir = std::env::temp_dir().join("mplora_lazy_loading_error_test");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
+
+        // Try to lazy load a non-existent adapter
+        let result = manager.ensure_adapters_loaded(&[999]).await;
+        assert!(result.is_err(), "Should fail for non-existent adapter");
 
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }

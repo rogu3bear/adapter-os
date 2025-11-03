@@ -34,14 +34,23 @@ pub struct ReplayDivergence {
     pub context: String,
 }
 
-/// API error response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ErrorResponse {
-    pub error: String,
-    #[serde(default = "default_error_code")]
-    pub code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
+// Re-export the unified ErrorResponse from api-types
+pub use adapteros_api_types::ErrorResponse;
+
+impl ErrorResponse {
+    /// Create an error response with user-friendly message mapping
+    pub fn new_user_friendly(error_code: &str, technical_message: &str) -> Self {
+        let user_friendly_message = crate::errors::UserFriendlyErrorMapper::map_error_message(error_code, technical_message);
+
+        Self {
+            error: user_friendly_message,
+            code: error_code.to_string(),
+            details: Some(serde_json::json!({
+                "technical_details": technical_message,
+                "user_friendly": true
+            })),
+        }
+    }
 }
 
 /// Single request item within a batch inference call
@@ -95,48 +104,6 @@ pub struct OperationProgressEvent {
     pub elapsed_secs: f64,
 }
 
-fn default_error_code() -> String {
-    "INTERNAL_ERROR".to_string()
-}
-
-impl ErrorResponse {
-    pub fn new(error: impl Into<String>) -> Self {
-        Self {
-            error: error.into(),
-            code: "INTERNAL_ERROR".to_string(),
-            details: None,
-        }
-    }
-
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = code.into();
-        self
-    }
-
-    pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.details = Some(details);
-        self
-    }
-
-    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
-        self.details = Some(serde_json::Value::String(details.into()));
-        self
-    }
-
-    /// Create an error response with user-friendly message mapping
-    pub fn new_user_friendly(error_code: &str, technical_message: &str) -> Self {
-        let user_friendly_message = crate::errors::UserFriendlyErrorMapper::map_error_message(error_code, technical_message);
-
-        Self {
-            error: user_friendly_message,
-            code: error_code.to_string(),
-            details: Some(serde_json::json!({
-                "technical_details": technical_message,
-                "user_friendly": true
-            })),
-        }
-    }
-}
 
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response {
