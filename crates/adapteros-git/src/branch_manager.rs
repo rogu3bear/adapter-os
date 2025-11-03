@@ -393,7 +393,24 @@ impl BranchManager {
             .map_err(|e| AosError::Database(format!("Failed to load active sessions: {}", e)))?;
 
         let mut sessions = self.active_sessions.write().await;
-        for session in active_sessions {
+        for db_session in active_sessions {
+            let session = GitSession {
+                id: db_session.id,
+                adapter_id: db_session.adapter_id,
+                repo_id: db_session.repo_id,
+                branch_name: db_session.branch_name,
+                base_commit_sha: db_session.base_commit_sha,
+                started_at: db_session.started_at.parse()
+                    .map_err(|e| AosError::Database(format!("Failed to parse started_at: {}", e)))?,
+                ended_at: db_session.ended_at.and_then(|s| s.parse().ok()),
+                status: match db_session.status.as_str() {
+                    "active" => SessionStatus::Active,
+                    "merged" => SessionStatus::Merged,
+                    "abandoned" => SessionStatus::Abandoned,
+                    _ => SessionStatus::Active,
+                },
+                merge_commit_sha: db_session.merge_commit_sha,
+            };
             sessions.insert(session.id.clone(), session);
         }
 
