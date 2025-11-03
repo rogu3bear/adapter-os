@@ -381,10 +381,10 @@ impl AlertEvaluator {
     async fn is_in_cooldown(&self, rule_id: &str, cooldown_seconds: i64) -> Result<bool> {
         let cutoff_time = chrono::Utc::now() - chrono::Duration::seconds(cooldown_seconds);
 
-          let recent_alert = sqlx::query(
+        let recent_alert = sqlx::query(
             "SELECT created_at FROM process_alerts 
              WHERE rule_id = ? AND status IN ('active', 'acknowledged') 
-             ORDER BY created_at DESC LIMIT 1"
+             ORDER BY created_at DESC LIMIT 1",
         )
         .bind(rule_id)
         .fetch_optional(self.db.pool())
@@ -394,7 +394,10 @@ impl AlertEvaluator {
         })?;
 
         if let Some(alert) = recent_alert {
-            let created_at_str: Option<String> = alert.try_get::<Option<String>, _>("created_at").ok().flatten();
+            let created_at_str: Option<String> = alert
+                .try_get::<Option<String>, _>("created_at")
+                .ok()
+                .flatten();
             let alert_time = match created_at_str {
                 Some(dt_str) => chrono::DateTime::parse_from_rfc3339(&dt_str),
                 None => return Ok(false), // No created_at means we can't check cooldown
@@ -672,9 +675,7 @@ impl AlertEvaluator {
 
         let tenants = rows
             .into_iter()
-            .map(|row| TenantInfo {
-                id: row.get("id"),
-            })
+            .map(|row| TenantInfo { id: row.get("id") })
             .collect();
 
         Ok(tenants)

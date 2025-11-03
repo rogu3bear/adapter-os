@@ -1,0 +1,60 @@
+import React from 'react';
+import { Loader2 } from 'lucide-react';
+import { Skeleton } from './skeleton';
+import { cn } from './utils';
+
+type LoadingStateSize = 'sm' | 'md';
+
+const sizeClassMap: Record<LoadingStateSize, string> = {
+  sm: 'p-4',
+  md: 'p-8',
+};
+
+const spinnerClassMap: Record<LoadingStateSize, string> = {
+  sm: 'h-5 w-5',
+  md: 'h-6 w-6',
+};
+
+const skeletonHeightMap: Record<LoadingStateSize, string> = {
+  sm: 'h-3',
+  md: 'h-4',
+};
+
+interface LoadingStateProps {
+  title?: string;
+  description?: string;
+  skeletonLines?: number;
+  size?: LoadingStateSize;
+  className?: string;
+}
+
+export function LoadingState({
+  title,
+  description,
+  skeletonLines = 0,
+  size = 'md',
+  className,
+}: LoadingStateProps) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/40 text-center shadow-sm',
+        sizeClassMap[size],
+        className,
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className={cn('animate-spin text-primary', spinnerClassMap[size])} aria-hidden="true" />
+      {title && <h3 className="mt-3 text-sm font-medium text-foreground">{title}</h3>}
+      {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+      {skeletonLines > 0 && (
+        <div className="mt-4 w-full space-y-2">
+          {Array.from({ length: skeletonLines }).map((_, index) => (
+            <Skeleton key={index} className={cn('w-full', skeletonHeightMap[size])} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

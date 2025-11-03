@@ -8,7 +8,11 @@
 //! - Policy Pack #8 (Isolation): Per-tenant operations with UID/GID checks
 //! - Handler pattern from handlers.rs L4567-4597
 
-use crate::{auth::Claims, state::AppState, types::{ErrorResponse, ModelValidationResponse}};
+use crate::{
+    auth::Claims,
+    state::AppState,
+    types::{ErrorResponse, ModelValidationResponse},
+};
 use axum::{
     body::Body,
     extract::{Extension, Path, State},
@@ -179,7 +183,7 @@ pub async fn import_model(
     // 2. Register model in 'models' table using db.register_model()
     // 3. Create base_model_status record with status 'unloaded' for the tenant
     // 4. Update import status to 'completed'
-    // 
+    //
     // For now, we check if a model with this name already exists and ensure
     // base_model_status record exists. This ensures models can be loaded even
     // if import completion logic runs elsewhere.
@@ -199,7 +203,7 @@ pub async fn import_model(
     if let Some(model) = existing_model {
         // Ensure base_model_status record exists for this tenant
         let status_exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM base_model_status WHERE model_id = ? AND tenant_id = ?"
+            "SELECT COUNT(*) FROM base_model_status WHERE model_id = ? AND tenant_id = ?",
         )
         .bind(&model.id)
         .bind(tenant_id)
@@ -353,7 +357,10 @@ pub async fn load_model(
             Err("mlx-ffi-backend feature not enabled. Rebuild with --features mlx-ffi-backend to enable model loading.".to_string())
         }
     } else {
-        Err("Model runtime not available. This should not happen - please report this error.".to_string())
+        Err(
+            "Model runtime not available. This should not happen - please report this error."
+                .to_string(),
+        )
     };
 
     // Handle load result - only mark as loaded if successful
@@ -1110,7 +1117,9 @@ pub async fn get_model_diagnostics(
 
     // Check environment variable
     let aos_mlx_ffi_model_env = std::env::var("AOS_MLX_FFI_MODEL").ok();
-    let aos_mlx_ffi_model_path_exists = aos_mlx_ffi_model_env.as_ref().map(|p| std::path::Path::new(p).exists());
+    let aos_mlx_ffi_model_path_exists = aos_mlx_ffi_model_env
+        .as_ref()
+        .map(|p| std::path::Path::new(p).exists());
 
     // Check model runtime availability
     let model_runtime_available = state.model_runtime.is_some();
@@ -1166,13 +1175,20 @@ pub async fn get_model_diagnostics(
     if database_models_count == 0 {
         issues.push("No models found in database - import a model first".to_string());
     } else {
-        ok_items.push(format!("{} model(s) found in database", database_models_count));
+        ok_items.push(format!(
+            "{} model(s) found in database",
+            database_models_count
+        ));
     }
 
     let summary = if issues.is_empty() {
         format!("All checks passed. {}", ok_items.join(", "))
     } else {
-        format!("Issues found: {}. {}", issues.join(", "), ok_items.join(", "))
+        format!(
+            "Issues found: {}. {}",
+            issues.join(", "),
+            ok_items.join(", ")
+        )
     };
 
     Ok(Json(crate::types::ModelDiagnosticsResponse {
@@ -1229,10 +1245,14 @@ pub async fn validate_model(
         // Model exists in database, now check if it can be loaded
         // Check if model runtime is available
         let (can_load, reason, download_commands) = if state.model_runtime.is_none() {
-            (false, Some("Model runtime not available".to_string()), Some(vec![
-                "cargo build --release --features mlx-ffi-backend".to_string(),
-                "export AOS_MLX_FFI_MODEL=/path/to/your/model".to_string(),
-            ]))
+            (
+                false,
+                Some("Model runtime not available".to_string()),
+                Some(vec![
+                    "cargo build --release --features mlx-ffi-backend".to_string(),
+                    "export AOS_MLX_FFI_MODEL=/path/to/your/model".to_string(),
+                ]),
+            )
         } else {
             // Check if MLX model path exists
             #[cfg(feature = "mlx-ffi-backend")]
@@ -1240,31 +1260,53 @@ pub async fn validate_model(
                 match std::env::var("AOS_MLX_FFI_MODEL") {
                     Ok(model_path) => {
                         if !std::path::Path::new(&model_path).exists() {
-                            (false, Some(format!("Model path does not exist: {}", model_path)), Some(vec![
-                                format!("mkdir -p {}", std::path::Path::new(&model_path).parent().unwrap_or(std::path::Path::new("/tmp")).display()),
-                                format!("# Download your model to: {}", model_path),
-                                "# For example, using huggingface-hub:".to_string(),
-                                format!("huggingface-cli download {} --local-dir {}", row.model_name, model_path),
-                                "# Or using git-lfs for large models:".to_string(),
-                                format!("git lfs clone https://huggingface.co/{} {}", row.model_name, model_path),
-                            ]))
+                            (
+                                false,
+                                Some(format!("Model path does not exist: {}", model_path)),
+                                Some(vec![
+                                    format!(
+                                        "mkdir -p {}",
+                                        std::path::Path::new(&model_path)
+                                            .parent()
+                                            .unwrap_or(std::path::Path::new("/tmp"))
+                                            .display()
+                                    ),
+                                    format!("# Download your model to: {}", model_path),
+                                    "# For example, using huggingface-hub:".to_string(),
+                                    format!(
+                                        "huggingface-cli download {} --local-dir {}",
+                                        row.model_name, model_path
+                                    ),
+                                    "# Or using git-lfs for large models:".to_string(),
+                                    format!(
+                                        "git lfs clone https://huggingface.co/{} {}",
+                                        row.model_name, model_path
+                                    ),
+                                ]),
+                            )
                         } else {
                             (true, None, None)
                         }
                     }
-                    Err(_) => {
-                        (false, Some("AOS_MLX_FFI_MODEL environment variable not set".to_string()), Some(vec![
+                    Err(_) => (
+                        false,
+                        Some("AOS_MLX_FFI_MODEL environment variable not set".to_string()),
+                        Some(vec![
                             "export AOS_MLX_FFI_MODEL=/path/to/your/model/directory".to_string(),
                             "# Example: export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b".to_string(),
-                        ]))
-                    }
+                        ]),
+                    ),
                 }
             }
             #[cfg(not(feature = "mlx-ffi-backend"))]
             {
-                (false, Some("mlx-ffi-backend feature not enabled".to_string()), Some(vec![
-                    "cargo build --release --features mlx-ffi-backend".to_string(),
-                ]))
+                (
+                    false,
+                    Some("mlx-ffi-backend feature not enabled".to_string()),
+                    Some(vec![
+                        "cargo build --release --features mlx-ffi-backend".to_string()
+                    ]),
+                )
             }
         };
 

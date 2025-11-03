@@ -1,11 +1,12 @@
 // 【ui/src/components/UserReportsPage.tsx§38-80】 - Replace manual polling with standardized hook
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
+import { useTenant } from '@/layout/LayoutProvider';
 import { LastUpdated } from './ui/last-updated';
 import {
   Activity,
@@ -32,43 +33,33 @@ interface UserReportsPageProps {
 }
 
 export function UserReportsPage({ tenantId }: UserReportsPageProps) {
+  const { selectedTenant } = useTenant();
+  const effectiveTenant = tenantId || selectedTenant;
   const [recentActivity, setRecentActivity] = useState<TelemetryEvent[]>([]);
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
-  const fetchReportData = async () => {
-    const [metricsRes, trainingRes, adaptersRes] = await Promise.all([
+  const fetchReportData = useCallback(async () => {
+    const [metricsRes, trainingRes, adaptersRes, activityRes] = await Promise.all([
       apiClient.getSystemMetrics().catch(() => null),
       apiClient.listTrainingJobs().catch(() => []),
-      apiClient.listAdapters().catch(() => [])
+      apiClient.listAdapters().catch(() => []),
+      // Fetch recent telemetry events from API
+      effectiveTenant
+        ? apiClient.getTelemetryEvents({
+            limit: 20, // Show last 20 events in reports page
+            tenantId: effectiveTenant,
+            startTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Last 24 hours
+          }).catch(() => []) // Graceful degradation: return empty array on error
+        : Promise.resolve([]), // Return empty array if no tenant selected
     ]);
-
-    // Mock recent activity - replace with actual telemetry endpoint when available
-    const activity: TelemetryEvent[] = [
-      {
-        id: '1',
-        timestamp: new Date().toISOString(),
-        event_type: 'inference',
-        level: 'info',
-        message: 'Inference completed successfully',
-        component: 'worker'
-      },
-      {
-        id: '2',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        event_type: 'training',
-        level: 'info',
-        message: 'Training job started',
-        component: 'orchestrator'
-      }
-    ];
 
     return {
       metrics: metricsRes,
       recentTraining: trainingRes.slice(0, 5),
       adapters: adaptersRes,
-      activity
+      activity: activityRes // Real telemetry events from API
     };
-  };
+  }, [effectiveTenant]);
 
   const { 
     data, 
@@ -79,9 +70,14 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
     fetchReportData,
     'slow', // Background updates (reports)
     {
+      enabled: !!effectiveTenant, // Only poll when tenant is available
       showLoadingIndicator: true,
       onError: (err) => {
-        logger.error('Failed to fetch user report data', { component: 'UserReportsPage', operation: 'fetchReportData' }, err);
+        logger.error('Failed to fetch user report data', { 
+          component: 'UserReportsPage', 
+          operation: 'fetchReportData',
+          tenantId: effectiveTenant,
+        }, err);
       }
     }
   );

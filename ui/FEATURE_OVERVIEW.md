@@ -263,7 +263,7 @@ ui/src/components/
   items: [
     { to: '/admin', label: 'IT Admin', icon: Settings }
   ],
-  roles: ['Admin']
+  roles: ['admin']
 }
 ```
 
@@ -309,7 +309,7 @@ const adapters = await apiClient.listAdapters();
 function ITAdminRoute() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== 'Admin') return <Navigate to="/dashboard" replace />;
+  if (user.role !== 'admin') return <Navigate to="/dashboard" replace />;
   return <ITAdminDashboard />;
 }
 ```

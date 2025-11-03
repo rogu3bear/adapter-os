@@ -165,7 +165,7 @@ export const ErrorRecoveryTemplates = {
         retryAction
           ? [
               { label: 'Try Again', action: retryAction, primary: true },
-              { label: 'Check Status', action: () => window.location.href = '/dashboard' }
+              { label: 'Check Status', action: () => { window.location.href = '/dashboard'; } }
             ]
           : []
       }
@@ -181,8 +181,8 @@ export const ErrorRecoveryTemplates = {
         retryAction
           ? [
               { label: 'Retry Loading', action: retryAction },
-              { label: 'Free Memory', action: () => window.location.href = '/adapters' },
-              { label: 'Check Logs', action: () => window.location.href = '/telemetry' }
+              { label: 'Free Memory', action: () => { window.location.href = '/adapters'; } },
+              { label: 'Check Logs', action: () => { window.location.href = '/telemetry'; } }
             ]
           : []
       }
@@ -199,7 +199,7 @@ export const ErrorRecoveryTemplates = {
           ? [
               { label: 'Retry Training', action: retryAction },
               { label: 'Adjust Settings', action: alternativeAction },
-              { label: 'View Logs', action: () => window.location.href = '/telemetry' }
+              { label: 'View Logs', action: () => { window.location.href = '/telemetry'; } }
             ]
           : []
       }
@@ -217,7 +217,7 @@ export const ErrorRecoveryTemplates = {
           ? [
               { label: 'Try Again', action: retryAction, primary: true },
               { label: 'Simplify Prompt', action: () => {/* Could focus input */} },
-              { label: 'Check Model Status', action: () => window.location.href = '/adapters' }
+              { label: 'Check Model Status', action: () => { window.location.href = '/adapters'; } }
             ]
           : []
       }
@@ -231,7 +231,7 @@ export const ErrorRecoveryTemplates = {
       message="You don't have the required permissions to perform this action. Please contact your administrator."
       variant="warning"
       recoveryActions={[
-        { label: 'Go to Dashboard', action: () => window.location.href = '/dashboard' }
+        { label: 'Go to Dashboard', action: () => { window.location.href = '/dashboard'; } }
       ]}
       showHelp={false}
     />
@@ -245,10 +245,10 @@ export const ErrorRecoveryTemplates = {
         retryAction
           ? [
               { label: 'Try Again', action: retryAction },
-              { label: 'Go Home', action: () => window.location.href = '/dashboard' }
+              { label: 'Go Home', action: () => { window.location.href = '/dashboard'; return; } }
             ]
           : [
-              { label: 'Go Home', action: () => window.location.href = '/dashboard', primary: true }
+              { label: 'Go Home', action: () => { window.location.href = '/dashboard'; }, primary: true }
             ]
       }
       helpUrl="/docs/support"
