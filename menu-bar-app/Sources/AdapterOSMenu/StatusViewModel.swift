@@ -21,7 +21,6 @@ class StatusViewModel: ObservableObject {
     
     // MARK: - Private State
     
-    private let statusPath = "/var/run/adapteros_status.json"
     private let reader = StatusReader()
     private let metricsCollector = SystemMetricsCollector()
     private var pollTimerCancellable: AnyCancellable?
@@ -30,6 +29,21 @@ class StatusViewModel: ObservableObject {
     private var lastHash: Data?
     private var transientErrorSuppressed = false
     private var sleepWakeObservers: [NSObjectProtocol] = []
+    private var currentStatusPath: String?
+    private var watcherFailureCount: Int = 0
+    private let maxWatcherFailures = 3
+    private var lastWatcherRetryTime: Date?
+    
+    /// Find the first existing status file path
+    private func findStatusFile() -> String? {
+        let fileManager = FileManager.default
+        for path in StatusReader.defaultPaths {
+            if fileManager.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
     
     // MARK: - Lifecycle
     
@@ -58,7 +72,19 @@ class StatusViewModel: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
-                if self.vnodeSource == nil { self.setupWatcher() }
+                // Check if status file path changed (e.g., server started using fallback)
+                let foundPath = self.findStatusFile()
+                if foundPath != self.currentStatusPath {
+                    // Path changed, recreate watcher
+                    self.setupWatcher()
+                } else if self.vnodeSource == nil {
+                    // No watcher but path hasn't changed, try to set up watcher
+                    // Only retry if we haven't exceeded max failures
+                    if self.watcherFailureCount < self.maxWatcherFailures {
+                        self.setupWatcher()
+                    }
+                }
+                // Always refresh via polling (works even if watcher fails)
                 Task { @MainActor in await self.refresh() }
             }
     }
@@ -160,9 +186,53 @@ class StatusViewModel: ObservableObject {
         vnodeSource?.cancel()
         vnodeSource = nil
 
-        guard FileManager.default.fileExists(atPath: statusPath) else { return }
+        // Exponential backoff: if we've failed recently, wait before retrying
+        if let lastRetry = lastWatcherRetryTime, watcherFailureCount > 0 {
+            let timeSinceRetry = Date().timeIntervalSince(lastRetry)
+            let backoffSeconds = min(pow(2.0, Double(watcherFailureCount - 1)), 30.0) // Cap at 30s
+            if timeSinceRetry < backoffSeconds {
+                // Too soon to retry, skip this attempt
+                return
+            }
+        }
+
+        // Find the current status file path
+        guard let statusPath = findStatusFile() else {
+            // File doesn't exist yet, will retry with exponential backoff
+            watcherFailureCount += 1
+            lastWatcherRetryTime = Date()
+            if watcherFailureCount <= maxWatcherFailures {
+                let backoffSeconds = min(pow(2.0, Double(watcherFailureCount - 1)), 30.0)
+                print("StatusViewModel: Status file not found, will retry in \(Int(backoffSeconds))s (attempt \(watcherFailureCount)/\(maxWatcherFailures))")
+            } else if watcherFailureCount == maxWatcherFailures + 1 {
+                print("StatusViewModel: Status file not found after \(maxWatcherFailures) attempts, falling back to polling only")
+            }
+            return
+        }
+        
+        // Update current path
+        currentStatusPath = statusPath
+        
         let fd = open(statusPath, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            // Failed to open file descriptor
+            watcherFailureCount += 1
+            lastWatcherRetryTime = Date()
+            let errnoValue = errno
+            if watcherFailureCount <= maxWatcherFailures {
+                let backoffSeconds = min(pow(2.0, Double(watcherFailureCount - 1)), 30.0)
+                print("StatusViewModel: Failed to open status file '\(statusPath)' (errno: \(errnoValue)), will retry in \(Int(backoffSeconds))s (attempt \(watcherFailureCount)/\(maxWatcherFailures))")
+            } else if watcherFailureCount == maxWatcherFailures + 1 {
+                print("StatusViewModel: Failed to open status file after \(maxWatcherFailures) attempts, falling back to polling only")
+            }
+            return
+        }
+
+        // Successfully opened file descriptor, reset failure count
+        if watcherFailureCount > 0 {
+            print("StatusViewModel: Successfully set up watcher for '\(statusPath)' after \(watcherFailureCount) previous failures")
+            watcherFailureCount = 0
+        }
 
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: DispatchQueue.main)
         source.setEventHandler { [weak self, weak source] in
@@ -176,6 +246,7 @@ class StatusViewModel: ObservableObject {
         source.setCancelHandler {
             close(fd)
         }
+        
         source.resume()
         vnodeSource = source
     }

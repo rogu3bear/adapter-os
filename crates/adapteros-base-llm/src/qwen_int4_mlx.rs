@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Quantization manifest (matches quantize_qwen.rs format)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -347,6 +347,6 @@ impl BaseLLM for Qwen25Int4Mlx {
             None,
             adapteros_core::B3Hash::hash(operation.as_bytes()),
         );
-        Event::new(0, "qwen_int4_mlx", operation, inputs, outputs, metadata, ts)
+        Event::new(0, "qwen_int4_mlx".to_string(), operation.to_string(), inputs, outputs, metadata, ts)
     }
 }

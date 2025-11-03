@@ -140,7 +140,9 @@ Start here if you're evaluating MPLoRA for compliance:
 
 ### REST API
 - Control Plane API: See [control-plane.md](control-plane.md)
+- Authentication API: See [AUTHENTICATION.md](AUTHENTICATION.md)
 - Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/code-api-registry.md)
+- OpenAPI Specification: See [api.md](api.md) (auto-generated)
 
 ### Rust API
 Generate and browse Rust API documentation:

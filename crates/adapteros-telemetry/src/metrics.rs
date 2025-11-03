@@ -62,6 +62,9 @@ pub struct MetricsCollector {
     inference_latency: HistogramVec,
     router_latency: HistogramVec,
     kernel_latency: HistogramVec,
+    // Lifecycle operation metrics
+    adapter_load_latency: HistogramVec,
+    adapter_unload_latency: HistogramVec,
     // Queue depth metrics
     queue_depth: GaugeVec,
     adapter_queue_depth: GaugeVec,
@@ -97,6 +100,7 @@ pub struct MetricsSnapshot {
     pub system: SystemMetrics,
     pub policy: PolicyMetrics,
     pub adapters: AdapterMetrics,
+    pub lifecycle: LifecycleMetrics,
     pub disk: DiskMetrics,
     pub network: NetworkMetrics,
     pub determinism: DeterminismMetrics,
@@ -149,6 +153,20 @@ pub struct AdapterMetrics {
     pub evictions_total: u64,
     pub active_adapters: f64,
     pub activations_by_adapter: HashMap<String, u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleMetrics {
+    pub load_p50_ms: f64,
+    pub load_p95_ms: f64,
+    pub load_p99_ms: f64,
+    pub unload_p50_ms: f64,
+    pub unload_p95_ms: f64,
+    pub unload_p99_ms: f64,
+    pub load_operations_total: u64,
+    pub unload_operations_total: u64,
+    pub load_operations_failed: u64,
+    pub unload_operations_failed: u64,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -240,6 +258,57 @@ impl MetricsCollector {
             .map_err(|e| {
                 AosError::Telemetry(format!(
                     "Failed to register kernel latency histogram: {}",
+                    e
+                ))
+            })?;
+
+        // Lifecycle operation histograms with buckets for seconds (1ms to 5 minutes)
+        let lifecycle_buckets = vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
+        ];
+
+        let adapter_load_latency = HistogramVec::new(
+            HistogramOpts::new(
+                "adapteros_adapter_load_duration_seconds",
+                "Adapter load operation duration in seconds",
+            )
+            .buckets(lifecycle_buckets.clone()),
+            &["adapter_id", "tenant_id", "status"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter load latency histogram: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(adapter_load_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter load latency histogram: {}",
+                    e
+                ))
+            })?;
+
+        let adapter_unload_latency = HistogramVec::new(
+            HistogramOpts::new(
+                "adapteros_adapter_unload_duration_seconds",
+                "Adapter unload operation duration in seconds",
+            )
+            .buckets(lifecycle_buckets.clone()),
+            &["adapter_id", "tenant_id", "status"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter unload latency histogram: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(adapter_unload_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter unload latency histogram: {}",
                     e
                 ))
             })?;
@@ -467,6 +536,8 @@ impl MetricsCollector {
             inference_latency,
             router_latency,
             kernel_latency,
+            adapter_load_latency,
+            adapter_unload_latency,
             queue_depth,
             adapter_queue_depth,
             tokens_generated_total,
@@ -508,6 +579,32 @@ impl MetricsCollector {
     pub fn record_kernel_latency(&self, kernel_type: &str, tenant_id: &str, latency_secs: f64) {
         self.kernel_latency
             .with_label_values(&[kernel_type, tenant_id])
+            .observe(latency_secs);
+    }
+
+    /// Record adapter load operation latency
+    pub fn record_adapter_load_latency(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        latency_secs: f64,
+        status: &str,
+    ) {
+        self.adapter_load_latency
+            .with_label_values(&[adapter_id, tenant_id, status])
+            .observe(latency_secs);
+    }
+
+    /// Record adapter unload operation latency
+    pub fn record_adapter_unload_latency(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        latency_secs: f64,
+        status: &str,
+    ) {
+        self.adapter_unload_latency
+            .with_label_values(&[adapter_id, tenant_id, status])
             .observe(latency_secs);
     }
 
@@ -669,6 +766,21 @@ impl MetricsCollector {
         let kernel_p99 =
             self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.99);
 
+        // Collect lifecycle operation percentiles
+        let load_p50 =
+            self.get_histogram_percentile_by_name("adapteros_adapter_load_duration_seconds", 0.5) * 1000.0; // Convert to ms
+        let load_p95 =
+            self.get_histogram_percentile_by_name("adapteros_adapter_load_duration_seconds", 0.95) * 1000.0;
+        let load_p99 =
+            self.get_histogram_percentile_by_name("adapteros_adapter_load_duration_seconds", 0.99) * 1000.0;
+
+        let unload_p50 =
+            self.get_histogram_percentile_by_name("adapteros_adapter_unload_duration_seconds", 0.5) * 1000.0;
+        let unload_p95 =
+            self.get_histogram_percentile_by_name("adapteros_adapter_unload_duration_seconds", 0.95) * 1000.0;
+        let unload_p99 =
+            self.get_histogram_percentile_by_name("adapteros_adapter_unload_duration_seconds", 0.99) * 1000.0;
+
         // Collect gauge values
         let request_queue = self
             .queue_depth
@@ -789,6 +901,18 @@ impl MetricsCollector {
                 evictions_total,
                 active_adapters: 0.0, // Would track active adapters
                 activations_by_adapter: HashMap::new(),
+            },
+            lifecycle: LifecycleMetrics {
+                load_p50_ms: load_p50,
+                load_p95_ms: load_p95,
+                load_p99_ms: load_p99,
+                unload_p50_ms: unload_p50,
+                unload_p95_ms: unload_p95,
+                unload_p99_ms: unload_p99,
+                load_operations_total: 0, // TODO: Track load operations
+                unload_operations_total: 0, // TODO: Track unload operations
+                load_operations_failed: 0, // TODO: Track failed loads
+                unload_operations_failed: 0, // TODO: Track failed unloads
             },
             disk: disk_metrics,
             network: network_metrics,
@@ -1074,6 +1198,18 @@ impl Default for MetricsSnapshot {
                 evictions_total: 0,
                 active_adapters: 0.0,
                 activations_by_adapter: HashMap::new(),
+            },
+            lifecycle: LifecycleMetrics {
+                load_p50_ms: 0.0,
+                load_p95_ms: 0.0,
+                load_p99_ms: 0.0,
+                unload_p50_ms: 0.0,
+                unload_p95_ms: 0.0,
+                unload_p99_ms: 0.0,
+                load_operations_total: 0,
+                unload_operations_total: 0,
+                load_operations_failed: 0,
+                unload_operations_failed: 0,
             },
             disk: DiskMetrics {
                 io_utilization: 0.0,

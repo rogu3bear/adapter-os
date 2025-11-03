@@ -18,7 +18,7 @@ use rand_chacha::ChaCha20Rng;
 pub enum BackendChoice {
     /// Metal backend (macOS GPU)
     Metal,
-    /// MLX backend (Python/MLX)
+    /// MLX backend (C++ FFI/MLX)
     Mlx { model_path: PathBuf },
     /// CoreML backend (macOS Neural Engine)
     CoreML,
@@ -105,16 +105,16 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
         }
 
         BackendChoice::Mlx { model_path } => {
-            // Compile-time guard: MLX backend requires experimental-backends feature
-            #[cfg(not(feature = "experimental-backends"))]
+            // Compile-time guard: MLX backend requires mlx-ffi-backend or experimental-backends feature
+            #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
             {
                 let _ = model_path;
                 Err(AosError::PolicyViolation(
-                    "MLX backend requires --features experimental-backends (not enabled in deterministic-only build)".to_string(),
+                    "MLX backend requires --features mlx-ffi-backend (not enabled in deterministic-only build)".to_string(),
                 ))
             }
 
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(any(feature = "mlx-ffi-backend", feature = "experimental-backends"))]
             {
                 // Ensure real MLX FFI is available; do not silently fallback to placeholders
                 if !adapteros_lora_mlx_ffi::ffi_is_real() {

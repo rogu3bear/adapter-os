@@ -8,6 +8,7 @@ license.workspace = true
 [features]
 default = []
 experimental-backends = ["adapteros-lora-mlx-ffi"]
+mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
@@ -25,6 +26,7 @@ adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 pyo3 = { workspace = true, optional = true }

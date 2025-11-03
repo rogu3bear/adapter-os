@@ -229,3 +229,12 @@ pub struct ValidateDatasetResponse {
     pub warnings: Vec<String>,
     pub statistics: Option<DatasetStatisticsResponse>,
 }
+
+/// Training event for SSE streaming
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingEvent {
+    pub event_type: String, // "job_started", "job_completed", "job_failed", "epoch_completed", "progress_updated"
+    pub job_id: String,
+    pub timestamp: String,
+    pub payload: serde_json::Value,
+}

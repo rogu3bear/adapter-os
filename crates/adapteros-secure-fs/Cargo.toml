@@ -11,6 +11,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 cap-std = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tracing = "0.1"
 regex = "1.0"
 tempfile = "3.8"

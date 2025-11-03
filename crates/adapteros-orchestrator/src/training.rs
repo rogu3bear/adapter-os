@@ -5,15 +5,20 @@
 
 use adapteros_core::AosError;
 use adapteros_core::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
+use adapteros_db::training_jobs::{TrainingJobRecord, TrainingProgress};
+use adapteros_db::Db;
 use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
 };
 use anyhow::{anyhow, Result};
+use serde_json::json;
 use std::collections::HashMap;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
 
 /// Builder for creating training job parameters
@@ -159,16 +164,22 @@ impl JobControl {
 
 /// Training service for managing jobs
 pub struct TrainingService {
-    jobs: Arc<RwLock<HashMap<String, TrainingJob>>>,
+    db: Option<Arc<Db>>,
+    /// In-memory cache for active jobs (for fast access)
+    jobs_cache: Arc<RwLock<HashMap<String, TrainingJob>>>,
     templates: Arc<RwLock<HashMap<String, TrainingTemplate>>>,
     base_model: Arc<String>,
     controls: Arc<RwLock<HashMap<String, Arc<JobControl>>>>,
+    /// Log directory for training job logs
+    log_dir: PathBuf,
+    /// Broadcast channel for training events (SSE streaming)
+    event_tx: broadcast::Sender<serde_json::Value>,
 }
 
 const DEFAULT_BASE_MODEL: &str = "qwen2.5-7b";
 
 impl TrainingService {
-    /// Create a new training service
+    /// Create a new training service (in-memory only, for backward compatibility)
     pub fn new() -> Self {
         Self::new_with_base_model(DEFAULT_BASE_MODEL)
     }
@@ -177,13 +188,193 @@ impl TrainingService {
     pub fn new_with_base_model<S: Into<String>>(base_model: S) -> Self {
         let base_model = Arc::new(base_model.into());
         let templates = Self::default_templates();
+        let log_dir = std::env::var("AOS_TRAINING_LOGS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var/training_logs"));
+        let (event_tx, _) = broadcast::channel(1000);
 
         Self {
-            jobs: Arc::new(RwLock::new(HashMap::new())),
+            db: None,
+            jobs_cache: Arc::new(RwLock::new(HashMap::new())),
             templates: Arc::new(RwLock::new(templates)),
             base_model,
             controls: Arc::new(RwLock::new(HashMap::new())),
+            log_dir,
+            event_tx,
         }
+    }
+
+    /// Create a new training service with database persistence
+    pub fn new_with_db<S: Into<String>>(db: Arc<Db>, base_model: S) -> Self {
+        let base_model = Arc::new(base_model.into());
+        let templates = Self::default_templates();
+        let log_dir = std::env::var("AOS_TRAINING_LOGS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var/training_logs"));
+        let (event_tx, _) = broadcast::channel(1000);
+
+        Self {
+            db: Some(db),
+            jobs_cache: Arc::new(RwLock::new(HashMap::new())),
+            templates: Arc::new(RwLock::new(templates)),
+            base_model,
+            controls: Arc::new(RwLock::new(HashMap::new())),
+            log_dir,
+            event_tx,
+        }
+    }
+
+    /// Create a new training service with database and event broadcaster
+    pub fn new_with_db_and_events<S: Into<String>>(
+        db: Arc<Db>,
+        base_model: S,
+        event_tx: broadcast::Sender<serde_json::Value>,
+    ) -> Self {
+        let base_model = Arc::new(base_model.into());
+        let templates = Self::default_templates();
+        let log_dir = std::env::var("AOS_TRAINING_LOGS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var/training_logs"));
+
+        Self {
+            db: Some(db),
+            jobs_cache: Arc::new(RwLock::new(HashMap::new())),
+            templates: Arc::new(RwLock::new(templates)),
+            base_model,
+            controls: Arc::new(RwLock::new(HashMap::new())),
+            log_dir,
+            event_tx,
+        }
+    }
+
+    /// Get a receiver for training events (for SSE streaming)
+    pub fn subscribe_events(&self) -> broadcast::Receiver<serde_json::Value> {
+        self.event_tx.subscribe()
+    }
+
+    /// Emit a training event
+    fn emit_event(&self, event_type: &str, job_id: &str, payload: serde_json::Value) {
+        let event = json!({
+            "event_type": event_type,
+            "job_id": job_id,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "payload": payload,
+        });
+        let _ = self.event_tx.send(event);
+    }
+
+    /// Get log file path for a job
+    fn log_file_path(&self, job_id: &str) -> PathBuf {
+        self.log_dir.join(format!("{}.log", job_id))
+    }
+
+    /// Append a log entry to the job's log file
+    fn append_log(&self, job_id: &str, message: &str) -> Result<()> {
+        // Ensure log directory exists
+        if let Some(parent) = self.log_dir.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::create_dir_all(&self.log_dir)?;
+
+        let log_path = self.log_file_path(job_id);
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let log_line = format!("[{}] {}\n", timestamp, message);
+
+        // Append to log file
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|e| AosError::Io(format!("Failed to open log file {}: {}", log_path.display(), e)))?;
+        
+        file.write_all(log_line.as_bytes())
+            .map_err(|e| AosError::Io(format!("Failed to write to log file {}: {}", log_path.display(), e)))?;
+        file.flush()
+            .map_err(|e| AosError::Io(format!("Failed to flush log file {}: {}", log_path.display(), e)))?;
+
+        Ok(())
+    }
+
+    /// Convert TrainingJobRecord to TrainingJob
+    fn record_to_job(record: TrainingJobRecord) -> Result<TrainingJob> {
+        let config: TrainingConfig = serde_json::from_str(&record.training_config_json)
+            .map_err(|e| AosError::Internal(format!("Failed to parse config: {}", e)))?;
+        
+        let progress: TrainingProgress = serde_json::from_str(&record.progress_json)
+            .map_err(|e| AosError::Internal(format!("Failed to parse progress: {}", e)))?;
+
+        let status = match record.status.as_str() {
+            "pending" => TrainingJobStatus::Pending,
+            "running" => TrainingJobStatus::Running,
+            "paused" => TrainingJobStatus::Paused,
+            "completed" => TrainingJobStatus::Completed,
+            "failed" => TrainingJobStatus::Failed,
+            "cancelled" => TrainingJobStatus::Cancelled,
+            _ => TrainingJobStatus::Pending,
+        };
+
+        let metadata: Option<HashMap<String, serde_json::Value>> = record.metadata_json
+            .as_ref()
+            .and_then(|m| serde_json::from_str(m).ok());
+
+        Ok(TrainingJob {
+            id: record.id,
+            adapter_name: record.adapter_name.unwrap_or_default(),
+            template_id: record.template_id,
+            repo_id: Some(record.repo_id),
+            status,
+            progress_pct: progress.progress_pct,
+            current_epoch: progress.current_epoch,
+            total_epochs: progress.total_epochs,
+            current_loss: progress.current_loss,
+            learning_rate: progress.learning_rate,
+            tokens_per_second: progress.tokens_per_second,
+            created_at: record.created_at.unwrap_or_else(|| record.started_at.clone()),
+            started_at: Some(record.started_at),
+            completed_at: record.completed_at,
+            error_message: progress.error_message,
+            config,
+            artifact_path: metadata.as_ref()
+                .and_then(|m| m.get("artifact_path"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            adapter_id: metadata.as_ref()
+                .and_then(|m| m.get("adapter_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            weights_hash_b3: metadata.as_ref()
+                .and_then(|m| m.get("weights_hash_b3"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+        })
+    }
+
+    /// Convert TrainingJob to database operations
+    fn job_to_db_data(job: &TrainingJob) -> Result<(String, String, Option<String>)> {
+        let config_json = serde_json::to_string(&job.config)
+            .map_err(|e| AosError::Internal(format!("Failed to serialize config: {}", e)))?;
+        
+        let progress = TrainingProgress {
+            progress_pct: job.progress_pct,
+            current_epoch: job.current_epoch,
+            total_epochs: job.total_epochs,
+            current_loss: job.current_loss,
+            learning_rate: job.learning_rate,
+            tokens_per_second: job.tokens_per_second,
+            error_message: job.error_message.clone(),
+        };
+        let progress_json = serde_json::to_string(&progress)
+            .map_err(|e| AosError::Internal(format!("Failed to serialize progress: {}", e)))?;
+
+        let metadata = json!({
+            "artifact_path": job.artifact_path,
+            "adapter_id": job.adapter_id,
+            "weights_hash_b3": job.weights_hash_b3,
+        });
+        let metadata_json = serde_json::to_string(&metadata)
+            .map_err(|e| AosError::Internal(format!("Failed to serialize metadata: {}", e)))?;
+
+        Ok((config_json, progress_json, Some(metadata_json)))
     }
 
     fn default_templates() -> HashMap<String, TrainingTemplate> {
@@ -267,16 +458,50 @@ impl TrainingService {
 
     /// List all training jobs
     pub async fn list_jobs(&self) -> Result<Vec<TrainingJob>> {
-        let jobs = self.jobs.read().await;
-        Ok(jobs.values().cloned().collect())
+        if let Some(ref db) = self.db {
+            // Load from database
+            let records = db.list_all_training_jobs().await?;
+            let mut jobs = Vec::new();
+            for record in records {
+                match Self::record_to_job(record) {
+                    Ok(job) => jobs.push(job),
+                    Err(e) => {
+                        tracing::warn!("Failed to convert job record: {}", e);
+                    }
+                }
+            }
+            Ok(jobs)
+        } else {
+            // Fallback to in-memory cache
+            let jobs = self.jobs_cache.read().await;
+            Ok(jobs.values().cloned().collect())
+        }
     }
 
     /// Get a specific training job
     pub async fn get_job(&self, job_id: &str) -> Result<TrainingJob> {
-        let jobs = self.jobs.read().await;
-        jobs.get(job_id)
-            .cloned()
-            .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)).into())
+        // Check cache first for fast access
+        {
+            let cache = self.jobs_cache.read().await;
+            if let Some(job) = cache.get(job_id) {
+                return Ok(job.clone());
+            }
+        }
+
+        // Load from database if available
+        if let Some(ref db) = self.db {
+            if let Some(record) = db.get_training_job(job_id).await? {
+                let job = Self::record_to_job(record)?;
+                // Update cache
+                {
+                    let mut cache = self.jobs_cache.write().await;
+                    cache.insert(job_id.to_string(), job.clone());
+                }
+                return Ok(job);
+            }
+        }
+
+        Err(AosError::NotFound(format!("Training job not found: {}", job_id)).into())
     }
 
     /// Start a new training job
@@ -319,9 +544,27 @@ impl TrainingService {
             weights_hash_b3: None,
         };
 
+        // Persist to database if available
+        if let Some(ref db) = self.db {
+            let (config_json, _progress_json, metadata_json) = Self::job_to_db_data(&job)?;
+            let repo_id = params.repo_id.as_deref().unwrap_or("default-repo");
+            let created_by = params.tenant_id.as_deref().unwrap_or("system");
+            
+            db.create_training_job_with_metadata(
+                repo_id,
+                &config_json,
+                created_by,
+                Some(&job.adapter_name),
+                job.template_id.as_deref(),
+                metadata_json.as_deref(),
+            )
+            .await?;
+        }
+
+        // Update cache
         {
-            let mut jobs = self.jobs.write().await;
-            jobs.insert(job_id.clone(), job.clone());
+            let mut cache = self.jobs_cache.write().await;
+            cache.insert(job_id.clone(), job.clone());
         }
 
         // Initialize job control entry
@@ -331,7 +574,8 @@ impl TrainingService {
         }
 
         // Spawn background training task
-        let jobs_ref = self.jobs.clone();
+        let jobs_cache_ref = self.jobs_cache.clone();
+        let db_ref = self.db.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
         let dataset_for_run = params.dataset_path.clone();
@@ -342,9 +586,11 @@ impl TrainingService {
         let adapter_id_for_run = params.adapter_id.clone();
         let controls_ref = self.controls.clone();
         let base_model_for_run = Arc::clone(&self.base_model);
+        let log_dir_for_run = self.log_dir.clone();
         tokio::spawn(async move {
             if let Err(e) = run_training_job(
-                jobs_ref,
+                jobs_cache_ref,
+                db_ref,
                 controls_ref,
                 job_id_for_run.clone(),
                 cfg_for_run,
@@ -355,6 +601,7 @@ impl TrainingService {
                 package_for_run,
                 adapter_id_for_run,
                 base_model_for_run,
+                log_dir_for_run,
             )
             .await
             {
@@ -363,6 +610,24 @@ impl TrainingService {
         });
 
         tracing::info!("Training job created: {}", job_id);
+        
+        // Log job creation
+        let _ = self.append_log(&job_id, &format!("Training job {} created", job_id));
+        let _ = self.append_log(&job_id, &format!("Adapter name: {}", job.adapter_name));
+        if let Some(ref template_id) = job.template_id {
+            let _ = self.append_log(&job_id, &format!("Template: {}", template_id));
+        }
+        let _ = self.append_log(&job_id, &format!("Config: rank={}, epochs={}, lr={}", 
+            job.config.rank, job.config.epochs, job.config.learning_rate));
+
+        // Emit event
+        self.emit_event("job_started", &job_id, json!({
+            "adapter_name": job.adapter_name,
+            "template_id": job.template_id,
+            "repo_id": job.repo_id,
+            "status": "pending",
+            "config": job.config,
+        }));
 
         Ok(job)
     }
@@ -375,14 +640,25 @@ impl TrainingService {
             control.resume_notify.notify_waiters();
         }
 
-        let mut jobs = self.jobs.write().await;
-        if let Some(job) = jobs.get_mut(job_id) {
+        let mut cache = self.jobs_cache.write().await;
+        if let Some(job) = cache.get_mut(job_id) {
             if matches!(
                 job.status,
                 TrainingJobStatus::Running | TrainingJobStatus::Pending | TrainingJobStatus::Paused
             ) {
                 job.status = TrainingJobStatus::Cancelled;
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                
+                // Update database
+                if let Some(ref db) = self.db {
+                    db.update_training_status(job_id, "cancelled").await?;
+                }
+                
+                // Emit event
+                self.emit_event("job_cancelled", job_id, json!({
+                    "status": "cancelled",
+                }));
+                
                 info!("Training job cancelled: {}", job_id);
                 Ok(())
             } else {
@@ -400,8 +676,8 @@ impl TrainingService {
     pub async fn pause_job(&self, job_id: &str) -> Result<()> {
         // Update job status with validation
         {
-            let mut jobs = self.jobs.write().await;
-            let job = jobs
+            let mut cache = self.jobs_cache.write().await;
+            let job = cache
                 .get_mut(job_id)
                 .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?;
 
@@ -417,6 +693,14 @@ impl TrainingService {
                 }
                 _ => {
                     job.status = TrainingJobStatus::Paused;
+                    // Update database
+                    if let Some(ref db) = self.db {
+                        db.update_training_status(job_id, "paused").await?;
+                    }
+                    // Emit event
+                    self.emit_event("job_paused", job_id, json!({
+                        "status": "paused",
+                    }));
                 }
             }
         }
@@ -441,8 +725,8 @@ impl TrainingService {
 
         // Update job status with validation
         {
-            let mut jobs = self.jobs.write().await;
-            let job = jobs
+            let mut cache = self.jobs_cache.write().await;
+            let job = cache
                 .get_mut(job_id)
                 .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?;
 
@@ -459,6 +743,14 @@ impl TrainingService {
                 TrainingJobStatus::Paused => {
                     job.status = TrainingJobStatus::Running;
                     should_notify = true;
+                    // Update database
+                    if let Some(ref db) = self.db {
+                        db.update_training_status(job_id, "running").await?;
+                    }
+                    // Emit event
+                    self.emit_event("job_resumed", job_id, json!({
+                        "status": "running",
+                    }));
                 }
             }
         }
@@ -483,8 +775,8 @@ impl TrainingService {
         loss: f32,
         tokens_per_second: f32,
     ) -> Result<()> {
-        let mut jobs = self.jobs.write().await;
-        if let Some(job) = jobs.get_mut(job_id) {
+        let mut cache = self.jobs_cache.write().await;
+        if let Some(job) = cache.get_mut(job_id) {
             job.current_epoch = epoch;
             job.current_loss = loss;
             job.tokens_per_second = tokens_per_second;
@@ -495,6 +787,32 @@ impl TrainingService {
                 job.started_at = Some(chrono::Utc::now().to_rfc3339());
             }
 
+            // Update database
+            if let Some(ref db) = self.db {
+                let progress = TrainingProgress {
+                    progress_pct: job.progress_pct,
+                    current_epoch: job.current_epoch,
+                    total_epochs: job.total_epochs,
+                    current_loss: job.current_loss,
+                    learning_rate: job.learning_rate,
+                    tokens_per_second: job.tokens_per_second,
+                    error_message: job.error_message.clone(),
+                };
+                db.update_training_progress(job_id, &progress).await?;
+                if job.status == TrainingJobStatus::Running && job.started_at.is_some() {
+                    db.update_training_status(job_id, "running").await?;
+                }
+            }
+
+            // Emit progress event
+            self.emit_event("progress_updated", job_id, json!({
+                "epoch": job.current_epoch,
+                "total_epochs": job.total_epochs,
+                "loss": job.current_loss,
+                "progress_pct": job.progress_pct,
+                "tokens_per_second": job.tokens_per_second,
+            }));
+
             Ok(())
         } else {
             Err(AosError::NotFound(format!("Training job not found: {}", job_id)).into())
@@ -503,11 +821,44 @@ impl TrainingService {
 
     /// Mark job as completed
     pub async fn complete_job(&self, job_id: &str) -> Result<()> {
-        let mut jobs = self.jobs.write().await;
-        if let Some(job) = jobs.get_mut(job_id) {
+        let mut cache = self.jobs_cache.write().await;
+        if let Some(job) = cache.get_mut(job_id) {
             job.status = TrainingJobStatus::Completed;
             job.progress_pct = 100.0;
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            
+            // Update database
+            if let Some(ref db) = self.db {
+                let progress = TrainingProgress {
+                    progress_pct: job.progress_pct,
+                    current_epoch: job.current_epoch,
+                    total_epochs: job.total_epochs,
+                    current_loss: job.current_loss,
+                    learning_rate: job.learning_rate,
+                    tokens_per_second: job.tokens_per_second,
+                    error_message: job.error_message.clone(),
+                };
+                db.update_training_progress(job_id, &progress).await?;
+                db.update_training_status(job_id, "completed").await?;
+                
+                // Update metadata if artifacts exist
+                if job.artifact_path.is_some() || job.adapter_id.is_some() || job.weights_hash_b3.is_some() {
+                    let (_, _, metadata_json) = Self::job_to_db_data(job)?;
+                    if let Some(metadata) = metadata_json {
+                        db.update_training_job_metadata(job_id, &metadata).await?;
+                    }
+                }
+            }
+            
+            // Emit completion event
+            self.emit_event("job_completed", job_id, json!({
+                "status": "completed",
+                "final_loss": job.current_loss,
+                "artifact_path": job.artifact_path,
+                "adapter_id": job.adapter_id,
+                "weights_hash_b3": job.weights_hash_b3,
+            }));
+            
             tracing::info!("Training job completed: {}", job_id);
             Ok(())
         } else {
@@ -517,11 +868,33 @@ impl TrainingService {
 
     /// Mark job as failed
     pub async fn fail_job(&self, job_id: &str, error: String) -> Result<()> {
-        let mut jobs = self.jobs.write().await;
-        if let Some(job) = jobs.get_mut(job_id) {
+        let mut cache = self.jobs_cache.write().await;
+        if let Some(job) = cache.get_mut(job_id) {
             job.status = TrainingJobStatus::Failed;
-            job.error_message = Some(error);
+            job.error_message = Some(error.clone());
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            
+            // Update database
+            if let Some(ref db) = self.db {
+                let progress = TrainingProgress {
+                    progress_pct: job.progress_pct,
+                    current_epoch: job.current_epoch,
+                    total_epochs: job.total_epochs,
+                    current_loss: job.current_loss,
+                    learning_rate: job.learning_rate,
+                    tokens_per_second: job.tokens_per_second,
+                    error_message: Some(error.clone()),
+                };
+                db.update_training_progress(job_id, &progress).await?;
+                db.update_training_status(job_id, "failed").await?;
+            }
+            
+            // Emit failure event
+            self.emit_event("job_failed", job_id, json!({
+                "status": "failed",
+                "error": error,
+            }));
+            
             error!("Training job failed: {}", job_id);
             Ok(())
         } else {
@@ -529,18 +902,30 @@ impl TrainingService {
         }
     }
 
-    /// Get training logs (placeholder)
+    /// Get training logs from persistent storage
     pub async fn get_logs(&self, job_id: &str) -> Result<Vec<String>> {
         // Verify job exists
         let _ = self.get_job(job_id).await?;
 
-        // TODO: Fetch actual logs from persistent storage
-        Ok(vec![
-            format!("Training job {} started", job_id),
-            "Loading model and adapters...".to_string(),
-            "Preparing training data...".to_string(),
-            "Starting epoch 1/3...".to_string(),
-        ])
+        let log_path = self.log_file_path(job_id);
+        
+        if !log_path.exists() {
+            // Return empty logs if file doesn't exist yet
+            return Ok(vec![]);
+        }
+
+        // Read log file
+        let content = tokio::fs::read_to_string(&log_path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to read log file {}: {}", log_path.display(), e)))?;
+
+        // Split into lines and return
+        let lines: Vec<String> = content
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+
+        Ok(lines)
     }
 
     /// List all training templates
@@ -556,6 +941,233 @@ impl TrainingService {
             AosError::NotFound(format!("Template not found: {}", template_id)).into()
         })
     }
+
+    /// List training jobs with artifacts
+    pub async fn list_jobs_with_artifacts(&self) -> Result<Vec<TrainingJob>> {
+        if let Some(ref db) = self.db {
+            let records = db.list_training_jobs_with_artifacts().await?;
+            let mut jobs = Vec::new();
+            for record in records {
+                // Filter jobs that actually have artifacts in metadata
+                if let Some(ref metadata_json) = record.metadata_json {
+                    if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_json) {
+                        if metadata.get("artifact_path").is_some() 
+                            || metadata.get("adapter_id").is_some() 
+                            || metadata.get("weights_hash_b3").is_some() {
+                            match Self::record_to_job(record) {
+                                Ok(job) => jobs.push(job),
+                                Err(e) => {
+                                    tracing::warn!("Failed to convert job record: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(jobs)
+        } else {
+            // Fallback to cache
+            let cache = self.jobs_cache.read().await;
+            Ok(cache.values()
+                .filter(|job| job.artifact_path.is_some() || job.adapter_id.is_some() || job.weights_hash_b3.is_some())
+                .cloned()
+                .collect())
+        }
+    }
+
+    /// Clean up old training artifacts (removes files older than specified days)
+    ///
+    /// This removes artifact files from disk but keeps database records.
+    /// Use with caution - this is a destructive operation.
+    pub async fn cleanup_old_artifacts(&self, days: i64) -> Result<usize> {
+        if let Some(ref db) = self.db {
+            let old_jobs = db.get_old_training_jobs(days).await?;
+            let mut cleaned_count = 0;
+
+            for record in old_jobs {
+                if let Some(ref metadata_json) = record.metadata_json {
+                    if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_json) {
+                        if let Some(artifact_path) = metadata.get("artifact_path")
+                            .and_then(|v| v.as_str())
+                        {
+                            let path = std::path::PathBuf::from(artifact_path);
+                            if path.exists() {
+                                // Remove artifact directory
+                                if let Err(e) = std::fs::remove_dir_all(&path) {
+                                    tracing::warn!("Failed to remove artifact directory {}: {}", path.display(), e);
+                                } else {
+                                    cleaned_count += 1;
+                                    tracing::info!("Cleaned up artifact directory: {}", path.display());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(cleaned_count)
+        } else {
+            // In-memory mode: no cleanup needed
+            Ok(0)
+        }
+    }
+
+    /// Warm up the in-memory cache by loading all jobs from the database
+    ///
+    /// This should be called on server startup to ensure cache is populated.
+    /// Without this, jobs may appear missing until first accessed.
+    pub async fn warmup_cache(&self) -> Result<usize> {
+        if let Some(ref db) = self.db {
+            let records = db.list_all_training_jobs().await?;
+            let mut cache = self.jobs_cache.write().await;
+            let mut loaded = 0;
+
+            for record in records {
+                match Self::record_to_job(record) {
+                    Ok(job) => {
+                        cache.insert(job.id.clone(), job);
+                        loaded += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load job from DB during cache warmup: {}", e);
+                    }
+                }
+            }
+
+            tracing::info!("Cache warmup complete: loaded {} jobs", loaded);
+            Ok(loaded)
+        } else {
+            // In-memory mode: no warmup needed
+            Ok(0)
+        }
+    }
+
+    /// Clean up old log files (removes log files older than specified days)
+    ///
+    /// This removes log files from disk but keeps database records.
+    /// Use with caution - this is a destructive operation.
+    pub async fn cleanup_old_logs(&self, days: i64) -> Result<usize> {
+        if !self.log_dir.exists() {
+            return Ok(0);
+        }
+
+        let cutoff_time = chrono::Utc::now() - chrono::Duration::days(days);
+        let mut cleaned_count = 0;
+
+        // Read log directory
+        let entries = std::fs::read_dir(&self.log_dir)
+            .map_err(|e| AosError::Io(format!("Failed to read log directory {}: {}", self.log_dir.display(), e)))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| AosError::Io(format!("Failed to read log directory entry: {}", e)))?;
+            let path = entry.path();
+
+            // Only process .log files
+            if path.extension().and_then(|s| s.to_str()) == Some("log") {
+                // Check file modification time
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        let modified_time = chrono::DateTime::<chrono::Utc>::from(modified);
+                        if modified_time < cutoff_time {
+                            // Remove old log file
+                            if let Err(e) = std::fs::remove_file(&path) {
+                                tracing::warn!("Failed to remove old log file {}: {}", path.display(), e);
+                            } else {
+                                cleaned_count += 1;
+                                tracing::debug!("Cleaned up old log file: {}", path.display());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if cleaned_count > 0 {
+            tracing::info!("Cleaned up {} old log files", cleaned_count);
+        }
+
+        Ok(cleaned_count)
+    }
+
+    /// Reconcile stuck training jobs (jobs in 'running' state that are likely stuck)
+    ///
+    /// This detects jobs that have been in 'running' state for longer than expected
+    /// and marks them as failed. Should be called on server startup to handle crashes.
+    ///
+    /// # Arguments
+    /// * `max_age_hours` - Maximum age in hours for a running job before considering it stuck
+    pub async fn reconcile_stuck_jobs(&self, max_age_hours: i64) -> Result<usize> {
+        if let Some(ref db) = self.db {
+            // Get all running jobs
+            let running_jobs = db.list_training_jobs_by_status("running").await?;
+            let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(max_age_hours);
+            let mut reconciled = 0;
+
+            for record in running_jobs {
+                // Parse started_at to check age
+                if let Ok(started_at) = chrono::DateTime::parse_from_rfc3339(&record.started_at) {
+                    let started_at_utc = started_at.with_timezone(&chrono::Utc);
+                    if started_at_utc < cutoff_time {
+                        // Job is stuck - mark as failed
+                        let error_msg = format!(
+                            "Job stuck in running state for more than {} hours (started: {})",
+                            max_age_hours, record.started_at
+                        );
+                        
+                        tracing::warn!("Reconciling stuck job {}: {}", record.id, error_msg);
+                        
+                        // Update database
+                        db.update_training_status(&record.id, "failed").await?;
+                        
+                        // Update cache if present
+                        {
+                            let mut cache = self.jobs_cache.write().await;
+                            if let Some(job) = cache.get_mut(&record.id) {
+                                job.status = TrainingJobStatus::Failed;
+                                job.error_message = Some(error_msg.clone());
+                                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                        }
+                        
+                        // Emit event
+                        self.emit_event("job_failed", &record.id, json!({
+                            "status": "failed",
+                            "reason": "stuck_job_reconciliation",
+                            "error_message": error_msg,
+                        }));
+                        
+                        reconciled += 1;
+                    }
+                }
+            }
+
+            if reconciled > 0 {
+                tracing::info!("Reconciled {} stuck training jobs", reconciled);
+            }
+
+            Ok(reconciled)
+        } else {
+            // In-memory mode: check cache
+            let cache = self.jobs_cache.read().await;
+            let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(max_age_hours);
+            let mut reconciled = 0;
+
+            for (_job_id, job) in cache.iter() {
+                if matches!(job.status, TrainingJobStatus::Running) {
+                    if let Some(ref started_at_str) = job.started_at {
+                        if let Ok(started_at) = chrono::DateTime::parse_from_rfc3339(started_at_str) {
+                            let started_at_utc = started_at.with_timezone(&chrono::Utc);
+                            if started_at_utc < cutoff_time {
+                                reconciled += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(reconciled)
+        }
+    }
 }
 
 impl Default for TrainingService {
@@ -567,7 +1179,8 @@ impl Default for TrainingService {
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
 /// config, runs training with per-epoch callback, and updates the shared job map.
 async fn run_training_job(
-    jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
+    jobs_cache_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
+    db_ref: Option<Arc<Db>>,
     controls_ref: Arc<RwLock<HashMap<String, Arc<JobControl>>>>,
     job_id: String,
     orchestrator_cfg: TrainingConfig,
@@ -578,14 +1191,42 @@ async fn run_training_job(
     package: bool,
     adapter_id_opt: Option<String>,
     base_model: Arc<String>,
+    log_dir: PathBuf,
 ) -> Result<()> {
+    // Helper to append log
+    let append_log = |message: &str| -> Result<()> {
+        let log_path = log_dir.join(format!("{}.log", job_id));
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let log_line = format!("[{}] {}\n", timestamp, message);
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = file.write_all(log_line.as_bytes());
+            let _ = file.flush();
+        }
+        Ok(())
+    };
+
     // Transition to running
     {
-        let mut jobs = jobs_ref.write().await;
-        if let Some(job) = jobs.get_mut(&job_id) {
+        let mut cache = jobs_cache_ref.write().await;
+        if let Some(job) = cache.get_mut(&job_id) {
             job.status = TrainingJobStatus::Running;
             job.started_at = Some(chrono::Utc::now().to_rfc3339());
         }
+    }
+    
+    let _ = append_log("Training job started");
+    let _ = append_log(&format!("Loading dataset from: {:?}", dataset_path.as_ref().or(directory_path.as_ref())));
+    
+    // Update database
+    if let Some(ref db) = db_ref {
+        db.update_training_status(&job_id, "running").await?;
     }
 
     // Map orchestrator config to worker trainer config
@@ -598,6 +1239,9 @@ async fn run_training_job(
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
         weight_group_config: Default::default(),
     };
+    
+    let _ = append_log(&format!("Training config: rank={}, alpha={}, epochs={}, batch_size={}, lr={}", 
+        worker_cfg.rank, worker_cfg.alpha, worker_cfg.epochs, worker_cfg.batch_size, worker_cfg.learning_rate));
 
     // Load dataset if provided, else build from directory, else use a small synthetic batch
     let examples: Vec<WorkerTrainingExample> = if let Some(path) = dataset_path {
@@ -689,13 +1333,29 @@ async fn run_training_job(
                             e
                         );
                         // Mark job failed before returning error
+                        let error_msg = e.to_string();
+                        let _ = append_log(&format!("ERROR: Directory dataset build failed: {}", error_msg));
                         {
-                            let mut jobs = jobs_ref.write().await;
-                            if let Some(job) = jobs.get_mut(&job_id) {
+                            let mut cache = jobs_cache_ref.write().await;
+                            if let Some(job) = cache.get_mut(&job_id) {
                                 job.status = TrainingJobStatus::Failed;
-                                job.error_message = Some(e.to_string());
+                                job.error_message = Some(error_msg.clone());
                                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                             }
+                        }
+                        // Update database
+                        if let Some(ref db) = db_ref {
+                            let progress = TrainingProgress {
+                                progress_pct: 0.0,
+                                current_epoch: 0,
+                                total_epochs: orchestrator_cfg.epochs,
+                                current_loss: 0.0,
+                                learning_rate: orchestrator_cfg.learning_rate,
+                                tokens_per_second: 0.0,
+                                error_message: Some(error_msg.clone()),
+                            };
+                            let _ = db.update_training_progress(&job_id, &progress).await;
+                            let _ = db.update_training_status(&job_id, "failed").await;
                         }
                         // Propagate error to fail the task
                         return Err(e.into());
@@ -720,7 +1380,9 @@ async fn run_training_job(
         ]
     };
 
+    let _ = append_log(&format!("Loaded {} training examples", examples.len()));
     let mut trainer = WorkerTrainer::new(worker_cfg)?;
+    let _ = append_log("Initialized trainer");
 
     // Respect pause/cancel before starting
     let control = {
@@ -731,30 +1393,60 @@ async fn run_training_job(
             .ok_or_else(|| AosError::Internal("Job control not found".to_string()))?
     };
     if control.cancelled.load(Ordering::SeqCst) {
-        let mut jobs = jobs_ref.write().await;
-        if let Some(job) = jobs.get_mut(&job_id) {
+        let _ = append_log("Training job cancelled before start");
+        let mut cache = jobs_cache_ref.write().await;
+        if let Some(job) = cache.get_mut(&job_id) {
             job.status = TrainingJobStatus::Cancelled;
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
         }
+        // Update database
+        if let Some(ref db) = db_ref {
+            let _ = db.update_training_status(&job_id, "cancelled").await;
+        }
         return Ok(());
     }
+    
+    let _ = append_log("Starting training loop");
 
     // Run with per-epoch callback to update progress
     let job_id_clone = job_id.clone();
-    let jobs_ref_clone = jobs_ref.clone();
+    let jobs_cache_ref_clone = jobs_cache_ref.clone();
+    let db_ref_clone = db_ref.clone();
+    let log_dir_clone = log_dir.clone();
+    // Get event tx from cache if available (we'll need to pass it through)
+    // For now, we'll emit events through the cache update callback
     let result = trainer
         .train_with_callback(&examples, move |epoch, loss| {
+            // Log epoch start
+            let log_path = log_dir_clone.join(format!("{}.log", job_id_clone));
+            if let Some(parent) = log_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let timestamp = chrono::Utc::now().to_rfc3339();
+            let log_line = format!("[{}] Epoch {}/{} completed, loss: {:.6}\n", 
+                timestamp, epoch, orchestrator_cfg.epochs, loss);
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                let _ = file.write_all(log_line.as_bytes());
+                let _ = file.flush();
+            }
+            
+            // Emit epoch completed event (via cache update - we'll handle this in update_progress)
+            
             // If paused, busy-wait with small sleep until resumed or cancelled
             while control.paused.load(Ordering::SeqCst) {
                 if control.cancelled.load(Ordering::SeqCst) {
                     break;
                 }
                 // Best-effort status update to Paused while we wait
-                let jobs_ref_inner = jobs_ref_clone.clone();
+                let cache_ref = jobs_cache_ref_clone.clone();
                 let job_id_inner = job_id_clone.clone();
                 tokio::spawn(async move {
-                    let mut jobs = jobs_ref_inner.write().await;
-                    if let Some(job) = jobs.get_mut(&job_id_inner) {
+                    let mut cache = cache_ref.write().await;
+                    if let Some(job) = cache.get_mut(&job_id_inner) {
                         if job.status == TrainingJobStatus::Running {
                             job.status = TrainingJobStatus::Paused;
                         }
@@ -762,12 +1454,13 @@ async fn run_training_job(
                 });
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            let jobs_ref_inner = jobs_ref_clone.clone();
+            let cache_ref = jobs_cache_ref_clone.clone();
+            let db_ref_inner = db_ref_clone.clone();
             let job_id_inner = job_id_clone.clone();
             // Fire-and-forget async update
             tokio::spawn(async move {
-                let mut jobs = jobs_ref_inner.write().await;
-                if let Some(job) = jobs.get_mut(&job_id_inner) {
+                let mut cache = cache_ref.write().await;
+                if let Some(job) = cache.get_mut(&job_id_inner) {
                     job.current_epoch = epoch as u32;
                     job.current_loss = loss;
                     if job.total_epochs > 0 {
@@ -776,6 +1469,20 @@ async fn run_training_job(
                     if job.status == TrainingJobStatus::Paused {
                         job.status = TrainingJobStatus::Running;
                     }
+                    
+                    // Update database
+                    if let Some(ref db) = db_ref_inner {
+                        let progress = TrainingProgress {
+                            progress_pct: job.progress_pct,
+                            current_epoch: job.current_epoch,
+                            total_epochs: job.total_epochs,
+                            current_loss: job.current_loss,
+                            learning_rate: job.learning_rate,
+                            tokens_per_second: job.tokens_per_second,
+                            error_message: job.error_message.clone(),
+                        };
+                        let _ = db.update_training_progress(&job_id_inner, &progress).await;
+                    }
                 }
             });
         })
@@ -783,13 +1490,15 @@ async fn run_training_job(
 
     match result {
         Ok(training_result) => {
-            let mut jobs = jobs_ref.write().await;
-            if let Some(job) = jobs.get_mut(&job_id) {
+            let _ = append_log(&format!("Training completed successfully. Final loss: {:.6}", training_result.final_loss));
+            let mut cache = jobs_cache_ref.write().await;
+            if let Some(job) = cache.get_mut(&job_id) {
                 job.status = TrainingJobStatus::Completed;
                 job.progress_pct = 100.0;
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
 
                 if package {
+                    let _ = append_log("Starting adapter packaging");
                     // Quantize and package into adapters_root
                     let chosen_root = adapters_root.unwrap_or_else(|| {
                         std::env::var("AOS_ADAPTERS_ROOT")
@@ -801,10 +1510,13 @@ async fn run_training_job(
                     let aid_for_pack = adapter_id.clone();
                     let root_for_pack = chosen_root.clone();
 
+                    let _ = append_log(&format!("Packaging adapter: {} to {}", adapter_id, chosen_root));
+
                     // Quantize weights
                     let quantized = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(
                         &training_result.weights,
                     );
+                    let _ = append_log("Weights quantized to Q15");
 
                     // Package synchronously in this async task (no nested runtime spawn)
                     let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(
@@ -830,24 +1542,79 @@ async fn run_training_job(
                     {
                         Ok(packaged) => {
                             job.artifact_path = Some(format!("{}/{}", root_for_pack, adapter_id));
-                            job.adapter_id = Some(adapter_id);
-                            job.weights_hash_b3 = Some(packaged.hash_b3);
+                            job.adapter_id = Some(adapter_id.clone());
+                            job.weights_hash_b3 = Some(packaged.hash_b3.clone());
+                            let _ = append_log(&format!("Adapter packaged successfully: {} (hash: {})", adapter_id, packaged.hash_b3));
                         }
                         Err(e) => {
+                            let error_msg = format!("Packaging failed: {}", e);
+                            let _ = append_log(&format!("ERROR: {}", error_msg));
                             tracing::error!("Packaging failed: {}", e);
                         }
                     }
                 }
             }
+            
+            // Update database with completion
+            {
+                let cache = jobs_cache_ref.read().await;
+                if let Some(job) = cache.get(&job_id) {
+                    if let Some(ref db) = db_ref {
+                        let progress = TrainingProgress {
+                            progress_pct: 100.0,
+                            current_epoch: job.current_epoch,
+                            total_epochs: job.total_epochs,
+                            current_loss: job.current_loss,
+                            learning_rate: job.learning_rate,
+                            tokens_per_second: job.tokens_per_second,
+                            error_message: job.error_message.clone(),
+                        };
+                        let _ = db.update_training_progress(&job_id, &progress).await;
+                        let _ = db.update_training_status(&job_id, "completed").await;
+                        
+                        // Update metadata if artifacts exist
+                        if job.artifact_path.is_some() || job.adapter_id.is_some() || job.weights_hash_b3.is_some() {
+                            let metadata = json!({
+                                "artifact_path": job.artifact_path,
+                                "adapter_id": job.adapter_id,
+                                "weights_hash_b3": job.weights_hash_b3,
+                            });
+                            if let Ok(metadata_json) = serde_json::to_string(&metadata) {
+                                let _ = db.update_training_job_metadata(&job_id, &metadata_json).await;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            let _ = append_log("Training job completed successfully");
             Ok(())
         }
         Err(e) => {
-            let mut jobs = jobs_ref.write().await;
-            if let Some(job) = jobs.get_mut(&job_id) {
+            let error_msg = e.to_string();
+            let _ = append_log(&format!("ERROR: Training failed: {}", error_msg));
+            let mut cache = jobs_cache_ref.write().await;
+            if let Some(job) = cache.get_mut(&job_id) {
                 job.status = TrainingJobStatus::Failed;
-                job.error_message = Some(e.to_string());
+                job.error_message = Some(error_msg.clone());
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
             }
+            
+            // Update database with failure
+            if let Some(ref db) = db_ref {
+                let progress = TrainingProgress {
+                    progress_pct: 0.0,
+                    current_epoch: 0,
+                    total_epochs: orchestrator_cfg.epochs,
+                    current_loss: 0.0,
+                    learning_rate: orchestrator_cfg.learning_rate,
+                    tokens_per_second: 0.0,
+                    error_message: Some(error_msg.clone()),
+                };
+                let _ = db.update_training_progress(&job_id, &progress).await;
+                let _ = db.update_training_status(&job_id, "failed").await;
+            }
+            
             Err(e.into())
         }
     }

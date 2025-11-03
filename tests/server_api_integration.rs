@@ -13,6 +13,8 @@
 
 use adapteros_core::Result;
 use adapteros_db::Db;
+use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_manifest::Policies;
 use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::types::*;
 use adapteros_server_api::{routes, state::AppState};
@@ -23,6 +25,8 @@ use axum::{
 };
 use serde_json::json;
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use std::path::PathBuf;
 use tower::ServiceExt;
 
 /// Test database setup
@@ -48,10 +52,15 @@ async fn setup_test_app() -> Result<Router> {
                 enabled: true,
                 bearer_token: "test-token".to_string(),
                 system_metrics_interval_secs: 30,
+                telemetry_buffer_capacity: 1000,
+                telemetry_channel_capacity: 100,
+                trace_buffer_capacity: 1000,
             },
             golden_gate: None,
             bundles_root: "var/bundles".to_string(),
             rate_limits: None,
+            path_policy: Default::default(),
+            production_mode: false,
         },
     ));
     let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
@@ -71,6 +80,16 @@ async fn setup_test_app() -> Result<Router> {
     }
     let training_service = Arc::new(TrainingService::new());
 
+    // Create lifecycle manager for testing
+    let policies = Policies::default();
+    let lifecycle_manager = Arc::new(Mutex::new(LifecycleManager::new(
+        vec!["test-adapter".to_string()],
+        &policies,
+        PathBuf::from("var/adapters"),
+        None, // telemetry
+        3,    // initial_k
+    )));
+
     let state = AppState::with_sqlite(
         db,
         jwt_secret,
@@ -79,7 +98,7 @@ async fn setup_test_app() -> Result<Router> {
         metrics_collector,
         metrics_registry,
         training_service,
-    );
+    ).with_lifecycle(lifecycle_manager);
     Ok(routes::build(state))
 }
 
@@ -643,3 +662,4 @@ async fn test_api_consistency() -> Result<()> {
     println!("✓ API consistency tests completed successfully!");
     Ok(())
 }
+

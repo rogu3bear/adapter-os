@@ -2,6 +2,8 @@
 
 use super::format::*;
 use super::training::{TrainingConfig, TrainingExample};
+use crate::aos2_format::Aos2Adapter;
+use crate::format_detector::{detect_format, FormatVersion};
 use crate::weights::{WeightGroupDiskInfo, WeightGroupsManifest};
 use adapteros_core::{AosError, Result};
 use serde::Deserialize;
@@ -254,41 +256,91 @@ impl SingleFileAdapterLoader {
         path: P,
         options: LoadOptions,
     ) -> Result<SingleFileAdapter> {
-        // Optional mmap path for lazy loading, then convert to standard adapter
-        if options.use_mmap {
-            let path_ref = path.as_ref();
-            let mmap_adapter =
-                crate::mmap_loader::MmapAdapterLoader::global().load(path_ref, &options)?;
-            let mut adapter = mmap_adapter.to_standard_adapter()?;
-
-            // Apply same verification semantics as standard loader
-            if !options.skip_verification {
-                let sig_backup = if options.skip_signature_check {
-                    adapter.signature.take()
-                } else {
-                    None
-                };
-                if !adapter.verify()? {
-                    return Err(AosError::Training(
-                        "Adapter integrity verification failed".to_string(),
-                    ));
-                }
-                if options.skip_signature_check {
-                    adapter.signature = sig_backup;
-                }
-            }
-
-            tracing::info!(
-                "Loaded (mmap) .aos adapter from: {} (format v{}, signed: {})",
-                path_ref.display(),
-                adapter.manifest.format_version,
-                adapter.is_signed()
-            );
-            return Ok(adapter);
-        }
-
         let path = path.as_ref();
 
+        // Detect format first
+        let format = detect_format(path)?;
+
+        match format {
+            FormatVersion::AosV2 => {
+                // Load AOS 2.0 format
+                Self::load_aos2_format(path, options).await
+            }
+            FormatVersion::ZipV1 => {
+                // Load ZIP format (existing logic)
+                if options.use_mmap {
+                    // Use mmap loader for ZIP
+                    let mmap_adapter =
+                        crate::mmap_loader::MmapAdapterLoader::global().load(path, &options)?;
+                    let mut adapter = mmap_adapter.to_standard_adapter()?;
+
+                    // Apply verification semantics
+                    if !options.skip_verification {
+                        let sig_backup = if options.skip_signature_check {
+                            adapter.signature.take()
+                        } else {
+                            None
+                        };
+                        if !adapter.verify()? {
+                            return Err(AosError::Training(
+                                "Adapter integrity verification failed".to_string(),
+                            ));
+                        }
+                        if options.skip_signature_check {
+                            adapter.signature = sig_backup;
+                        }
+                    }
+
+                    tracing::info!(
+                        "Loaded (mmap ZIP) .aos adapter from: {} (format v{}, signed: {})",
+                        path.display(),
+                        adapter.manifest.format_version,
+                        adapter.is_signed()
+                    );
+                    return Ok(adapter);
+                }
+
+                // Standard ZIP loader
+                Self::load_zip_format(path, options).await
+            }
+        }
+    }
+
+    /// Load AOS 2.0 format adapter
+    async fn load_aos2_format(path: &Path, options: LoadOptions) -> Result<SingleFileAdapter> {
+        let aos2_adapter = Aos2Adapter::load(path)?;
+        let adapter_arc = aos2_adapter.to_single_file_adapter()?;
+        let mut adapter = (*adapter_arc).clone();
+
+        // Apply verification semantics
+        if !options.skip_verification {
+            let sig_backup = if options.skip_signature_check {
+                adapter.signature.take()
+            } else {
+                None
+            };
+            if !adapter.verify()? {
+                return Err(AosError::Training(
+                    "Adapter integrity verification failed".to_string(),
+                ));
+            }
+            if options.skip_signature_check {
+                adapter.signature = sig_backup;
+            }
+        }
+
+        tracing::info!(
+            "Loaded AOS 2.0 adapter from: {} (format v{}, signed: {})",
+            path.display(),
+            adapter.manifest.format_version,
+            adapter.is_signed()
+        );
+
+        Ok(adapter)
+    }
+
+    /// Load ZIP format adapter (internal helper)
+    async fn load_zip_format(path: &Path, options: LoadOptions) -> Result<SingleFileAdapter> {
         // Use synchronous I/O for ZIP operations
         let file = std::fs::File::open(path)
             .map_err(|e| AosError::Io(format!("Failed to open .aos file: {}", e)))?;

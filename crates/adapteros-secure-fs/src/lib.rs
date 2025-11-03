@@ -4,6 +4,7 @@
 //! symlink protection, and path traversal prevention for AdapterOS.
 
 pub mod caps;
+pub mod content;
 pub mod permissions;
 pub mod symlink;
 pub mod traversal;

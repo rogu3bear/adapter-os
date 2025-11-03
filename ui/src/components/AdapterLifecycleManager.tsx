@@ -52,6 +52,7 @@ import {
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
 import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
+import { useAdapterOperations } from '../hooks/useAdapterOperations';
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -97,6 +98,14 @@ export function AdapterLifecycleManager({
 
   // Category policies fetched from backend
   const [policies, setPolicies] = useState<Record<AdapterCategory, CategoryPolicy> | null>(null);
+
+  // Shared adapter operations
+  const adapterOperations = useAdapterOperations({
+    onAdapterUpdate,
+    onAdapterEvict,
+    onAdapterPin,
+    onPolicyUpdate,
+  });
 
   // Fetch category policies from API
   const fetchCategoryPolicies = useCallback(async () => {
@@ -284,7 +293,7 @@ export function AdapterLifecycleManager({
       // Note: Current API only supports promoting state (cold -> warm -> hot)
       // Manual state setting requires backend enhancement
       if (newState === 'hot' || newState === 'warm') {
-        await apiClient.promoteAdapterState(adapterId);
+        await adapterOperations.promoteAdapter(adapterId);
         setStatusMessage({ message: 'Adapter state promoted successfully.', variant: 'success' });
         // Refresh records
         setStateRecords(prev => prev.map(record => (
@@ -325,11 +334,11 @@ export function AdapterLifecycleManager({
 
   const handlePinToggle = async (adapterId: string, pinned: boolean) => {
     setIsLoading(true);
+    setStatusMessage(null);
+    setErrorRecovery(null);
     try {
-      await apiClient.pinAdapter(adapterId, pinned);
+      await adapterOperations.pinAdapter(adapterId, pinned);
       setStatusMessage({ message: pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', variant: 'success' });
-      onAdapterPin(adapterId, pinned);
-      setErrorRecovery(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
@@ -353,11 +362,11 @@ export function AdapterLifecycleManager({
 
   const handleEvictAdapter = async (adapterId: string) => {
     setIsLoading(true);
+    setStatusMessage(null);
+    setErrorRecovery(null);
     try {
-      const result = await apiClient.evictAdapter(adapterId);
-      setStatusMessage({ message: `Adapter evicted: ${result.message || 'Memory freed successfully.'}`, variant: 'success' });
-      onAdapterEvict(adapterId);
-      setErrorRecovery(null);
+      await adapterOperations.evictAdapter(adapterId);
+      setStatusMessage({ message: 'Adapter evicted successfully.', variant: 'success' });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
@@ -380,34 +389,26 @@ export function AdapterLifecycleManager({
 
   const handlePolicyUpdate = async (category: AdapterCategory, policy: CategoryPolicy) => {
     setIsLoading(true);
+    setStatusMessage(null);
+    setErrorRecovery(null);
     try {
-      setPolicies(prev => ({ ...prev, [category]: policy }));
-      onPolicyUpdate(category, policy);
-      // TODO: Backend implementation required - PUT /v1/adapters/category/:category/policy
-      // This endpoint doesn't exist yet. For now, we update locally only.
-      setStatusMessage({ message: `Policy updated locally for ${category}. Backend sync pending API implementation.`, variant: 'info' });
-      logger.warn('Policy update: backend endpoint not implemented', {
-        component: 'AdapterLifecycleManager',
-        operation: 'handlePolicyUpdate',
-        category,
-        policy,
-        note: 'Local update only - PUT /v1/adapters/category/:category/policy needs implementation'
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update policy';
+      await adapterOperations.updateCategoryPolicy(category, policy);
+      setStatusMessage({ message: `Policy updated successfully for ${category}.`, variant: 'success' });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update policy';
+      setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMessage),
+          () => handlePolicyUpdate(category, policy)
+        )
+      );
       logger.error('Failed to update policy', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePolicyUpdate',
         category,
         error: errorMessage
       });
-      setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handlePolicyUpdate(category, policy)
-        )
-      );
     } finally {
       setIsLoading(false);
     }
@@ -427,6 +428,11 @@ export function AdapterLifecycleManager({
       {errorRecovery && (
         <div>
           {errorRecovery}
+        </div>
+      )}
+      {adapterOperations.operationError && (
+        <div>
+          {adapterOperations.operationError}
         </div>
       )}
 

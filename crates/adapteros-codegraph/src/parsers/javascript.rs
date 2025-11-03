@@ -43,12 +43,12 @@ impl JavaScriptParser {
         let javascript_lang = tree_sitter_javascript::language();
 
         parser
-            .set_language(javascript_lang)
+            .set_language(&javascript_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set JavaScript language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (function_declaration
                 name: (identifier) @name
@@ -59,7 +59,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let arrow_function_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (arrow_function
                 parameters: (formal_parameters) @params
@@ -69,7 +69,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create arrow function query: {}", e)))?;
 
         let function_expression_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (function_expression
                 name: (identifier)? @name
@@ -82,7 +82,7 @@ impl JavaScriptParser {
         })?;
 
         let class_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (class_declaration
                 name: (identifier) @name
@@ -93,7 +93,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let method_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (class_declaration
                 name: (identifier) @class_name
@@ -109,7 +109,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create method query: {}", e)))?;
 
         let import_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (import_statement
                 source: (string) @source
@@ -123,7 +123,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let export_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (export_statement
                 (export_clause)? @export_clause
@@ -133,7 +133,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create export query: {}", e)))?;
 
         let variable_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (variable_declaration
                 (variable_declarator
@@ -146,7 +146,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create variable query: {}", e)))?;
 
         let object_method_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (object_expression
                 (pair

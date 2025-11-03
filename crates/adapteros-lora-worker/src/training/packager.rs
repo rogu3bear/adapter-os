@@ -53,6 +53,18 @@ impl AdapterPackager {
         config: &TrainingConfig,
         base_model: &str,
     ) -> Result<PackagedAdapter> {
+        self.package_with_metadata(adapter_id, weights, config, base_model, std::collections::HashMap::new()).await
+    }
+
+    /// Package adapter with weights, manifest, and metadata
+    pub async fn package_with_metadata(
+        &self,
+        adapter_id: &str,
+        weights: &QuantizedLoRAWeights,
+        config: &TrainingConfig,
+        base_model: &str,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> Result<PackagedAdapter> {
         info!("Packaging adapter: {}", adapter_id);
 
         // Create adapter directory
@@ -77,7 +89,7 @@ impl AdapterPackager {
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
-            metadata: std::collections::HashMap::new(),
+            metadata,
         };
 
         // Save manifest

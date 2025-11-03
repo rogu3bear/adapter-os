@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-adapteros-codegraph = { path = "../adapteros-codegraph" }
+adapteros-codegraph = { path = "../adapteros-codegraph", optional = true }
 hnsw_rs = { workspace = true }
 tantivy = { workspace = true }
 serde = { workspace = true }
@@ -23,10 +23,11 @@ chrono = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 
 [features]
-default = ["pgvector", "fts5"]
+default = ["pgvector", "fts5", "codegraph"]
 pgvector = []
 fts5 = []
 rag-pgvector = []
+codegraph = ["adapteros-codegraph"]
 
 [dev-dependencies]
 tempfile = "3"

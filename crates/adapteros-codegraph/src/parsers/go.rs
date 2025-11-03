@@ -43,12 +43,12 @@ impl GoParser {
         let go_lang = tree_sitter_go::language();
 
         parser
-            .set_language(go_lang)
+            .set_language(&go_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Go language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (function_declaration
                 name: (identifier) @name
@@ -60,7 +60,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let method_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (method_declaration
                 name: (field_identifier) @name
@@ -72,7 +72,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create method query: {}", e)))?;
 
         let struct_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (type_declaration
                 (type_spec
@@ -85,7 +85,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create struct query: {}", e)))?;
 
         let interface_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (type_declaration
                 (type_spec
@@ -98,7 +98,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create interface query: {}", e)))?;
 
         let type_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (type_declaration
                 (type_spec
@@ -111,7 +111,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create type query: {}", e)))?;
 
         let variable_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (var_declaration
                 (var_spec
@@ -125,7 +125,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create variable query: {}", e)))?;
 
         let const_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (const_declaration
                 (const_spec
@@ -139,7 +139,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create const query: {}", e)))?;
 
         let package_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (package_clause
                 name: (package_identifier) @name
@@ -149,7 +149,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create package query: {}", e)))?;
 
         let import_query = Query::new(
-            go_lang,
+            &&go_lang,
             r#"
             (import_declaration
                 (import_spec

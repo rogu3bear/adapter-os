@@ -81,6 +81,20 @@ pub struct BatchInferResponse {
     pub responses: Vec<BatchInferItemResponse>,
 }
 
+/// Operation progress event for SSE streaming
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OperationProgressEvent {
+    pub operation_id: String, // Format: "{adapter_id}:{tenant_id}"
+    pub adapter_id: String,
+    pub tenant_id: String,
+    pub operation_type: String, // "load" | "unload"
+    pub progress_pct: f64,     // 0.0 to 100.0
+    pub status: String,        // "running" | "completed" | "failed"
+    pub message: Option<String>,
+    pub started_at: String,     // ISO 8601 timestamp
+    pub elapsed_secs: f64,
+}
+
 fn default_error_code() -> String {
     "INTERNAL_ERROR".to_string()
 }
@@ -108,6 +122,20 @@ impl ErrorResponse {
         self.details = Some(serde_json::Value::String(details.into()));
         self
     }
+
+    /// Create an error response with user-friendly message mapping
+    pub fn new_user_friendly(error_code: &str, technical_message: &str) -> Self {
+        let user_friendly_message = crate::errors::UserFriendlyErrorMapper::map_error_message(error_code, technical_message);
+
+        Self {
+            error: user_friendly_message,
+            code: error_code.to_string(),
+            details: Some(serde_json::json!({
+                "technical_details": technical_message,
+                "user_friendly": true
+            })),
+        }
+    }
 }
 
 impl IntoResponse for ErrorResponse {
@@ -122,6 +150,37 @@ impl IntoResponse for ErrorResponse {
         };
 
         (status, axum::Json(self)).into_response()
+    }
+}
+
+/// Enhanced ErrorResponse with user-friendly messages
+impl ErrorResponse {
+    /// Create an error response with user-friendly message mapping
+    pub fn new_user_friendly(error_code: &str, technical_message: &str) -> Self {
+        let user_friendly_message = crate::errors::UserFriendlyErrorMapper::map_error_message(error_code, technical_message);
+
+        Self {
+            error: user_friendly_message,
+            code: error_code.to_string(),
+            details: Some(serde_json::json!({
+                "technical_details": technical_message,
+                "user_friendly": true
+            })),
+        }
+    }
+
+    /// Create an error response with both user-friendly and technical messages
+    pub fn with_technical_details(mut self, technical_message: &str) -> Self {
+        if let Some(details) = &mut self.details {
+            if let Some(obj) = details.as_object_mut() {
+                obj.insert("technical_details".to_string(), serde_json::Value::String(technical_message.to_string()));
+            }
+        } else {
+            self.details = Some(serde_json::json!({
+                "technical_details": technical_message
+            }));
+        }
+        self
     }
 }
 
@@ -2059,8 +2118,19 @@ pub struct EvictAdapterResponse {
     pub message: String,
 }
 
-/// Category policy response matching UI types
+/// Request to update category policy
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryPolicyRequest {
+    pub promotion_threshold_ms: u64,
+    pub demotion_threshold_ms: u64,
+    pub memory_limit: usize,
+    pub eviction_priority: String, // "never" | "low" | "normal" | "high" | "critical"
+    pub auto_promote: bool,
+    pub auto_demote: bool,
+    pub max_in_memory: Option<usize>,
+    pub routing_priority: f32,
+}
+
 pub struct CategoryPolicyResponse {
     pub promotion_threshold_ms: u64,
     pub demotion_threshold_ms: u64,

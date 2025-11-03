@@ -66,8 +66,7 @@ members = [
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
-    # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
-    # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
+    "crates/adapteros-codegraph",
     "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)
     "xtask",
     "fuzz",
@@ -84,7 +83,7 @@ repository = "https://github.com/rogu3bear/mplora"
 default = ["deterministic-only"]
 deterministic-only = []
 experimental-backends = ["dep:pyo3"]
-mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi"]
+mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi", "adapteros-lora-worker/mlx-ffi-backend"]
 extended-tests = []
 
 [dependencies]
@@ -305,7 +304,7 @@ adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-telemetry = { path = "crates/adapteros-telemetry" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
-adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
+adapteros-lora-rag = { path = "crates/adapteros-lora-rag", default-features = false }
 adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
 adapteros-server = { path = "crates/adapteros-server" }
 adapteros-server-api = { path = "crates/adapteros-server-api" }

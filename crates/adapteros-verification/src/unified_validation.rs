@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -1339,50 +1340,58 @@ pub struct VerificationSummary {
     pub verification_duration_ms: u64,
 }
 
-impl VerificationStatus {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for VerificationStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "pass" | "passed" => Some(VerificationStatus::Pass),
-            "warning" | "warn" => Some(VerificationStatus::Warning),
-            "fail" | "failed" => Some(VerificationStatus::Fail),
-            _ => Some(VerificationStatus::Unknown),
+            "pass" | "passed" => Ok(VerificationStatus::Pass),
+            "warning" | "warn" => Ok(VerificationStatus::Warning),
+            "fail" | "failed" => Ok(VerificationStatus::Fail),
+            _ => Ok(VerificationStatus::Unknown),
         }
     }
 }
 
-impl IssueSeverity {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for IssueSeverity {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "critical" => Some(IssueSeverity::Critical),
-            "high" => Some(IssueSeverity::High),
-            "medium" => Some(IssueSeverity::Medium),
-            "low" => Some(IssueSeverity::Low),
-            "info" => Some(IssueSeverity::Info),
-            _ => None,
+            "critical" => Ok(IssueSeverity::Critical),
+            "high" => Ok(IssueSeverity::High),
+            "medium" => Ok(IssueSeverity::Medium),
+            "low" => Ok(IssueSeverity::Low),
+            "info" => Ok(IssueSeverity::Info),
+            _ => Err(()),
         }
     }
 }
 
-impl SecuritySeverity {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for SecuritySeverity {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "critical" => Some(SecuritySeverity::Critical),
-            "high" => Some(SecuritySeverity::High),
-            "medium" => Some(SecuritySeverity::Medium),
-            "low" => Some(SecuritySeverity::Low),
-            "info" => Some(SecuritySeverity::Info),
-            _ => None,
+            "critical" => Ok(SecuritySeverity::Critical),
+            "high" => Ok(SecuritySeverity::High),
+            "medium" => Ok(SecuritySeverity::Medium),
+            "low" => Ok(SecuritySeverity::Low),
+            "info" => Ok(SecuritySeverity::Info),
+            _ => Err(()),
         }
     }
 }
 
-impl RecommendationPriority {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for RecommendationPriority {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "high" => Some(RecommendationPriority::High),
-            "medium" => Some(RecommendationPriority::Medium),
-            "low" => Some(RecommendationPriority::Low),
-            _ => None,
+            "high" => Ok(RecommendationPriority::High),
+            "medium" => Ok(RecommendationPriority::Medium),
+            "low" => Ok(RecommendationPriority::Low),
+            _ => Err(()),
         }
     }
 }

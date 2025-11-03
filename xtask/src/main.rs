@@ -7,6 +7,7 @@ mod code2db_dataset;
 mod determinism_report;
 mod pack_lora;
 mod sbom;
+mod train_base_adapter;
 mod verify_agents;
 
 #[tokio::main]
@@ -41,6 +42,18 @@ async fn main() -> Result<()> {
                 pack_lora::PackLoraArgs::parse()
             };
             pack_lora::run(parsed).await?;
+        }
+        Some("train-base-adapter") => {
+            use clap::Parser;
+            let args_vec: Vec<String> = env::args().collect();
+            let parsed = if args_vec.len() > 1 {
+                let mut new_args = vec![args_vec[0].clone()];
+                new_args.extend(args_vec[2..].to_vec());
+                train_base_adapter::TrainBaseAdapterArgs::parse_from(new_args)
+            } else {
+                train_base_adapter::TrainBaseAdapterArgs::parse()
+            };
+            train_base_adapter::run(parsed).await?;
         }
         Some("verify-agents") => {
             // Parse args for verify-agents subcommand
@@ -101,6 +114,7 @@ fn print_help() {
     println!("  verify-agents       Verify all agent deliverables");
     println!("  code2db-dataset     Build JSON training dataset for code→DB tasks");
     println!("  pack-lora           Quantize and package trained LoRA weights");
+    println!("  train-base-adapter  Train base adapter from manifest");
     println!();
     println!("For verify-agents options, run:");
     println!("  cargo xtask verify-agents --help");
@@ -108,4 +122,6 @@ fn print_help() {
     println!("  cargo xtask code2db-dataset --help");
     println!("For LoRA packager options, run:");
     println!("  cargo xtask pack-lora --help");
+    println!("For base adapter training options, run:");
+    println!("  cargo xtask train-base-adapter --help");
 }

@@ -558,6 +558,13 @@ pub enum Commands {
     },
 
     // ============================================================
+    // AOS File Operations
+    // ============================================================
+    /// AOS adapter file operations (create, verify, info, convert)
+    #[command(subcommand)]
+    Aos(commands::aos::AosCmd),
+
+    // ============================================================
     // General Operations
     // ============================================================
     /// Import an artifact bundle
@@ -657,7 +664,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal, mlx, or coreml
+        /// Backend selection: metal (default), mlx (C++ FFI, requires --features mlx-ffi-backend), or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -701,7 +708,7 @@ pub enum Commands {
   # Audit with JSON output
   aosctl audit-determinism --format json
 
-  # Audit MLX backend (requires --features experimental-backends)
+  # Audit MLX backend (requires --features mlx-ffi-backend)
   aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
 "#)]
     AuditDeterminism {
@@ -1120,6 +1127,23 @@ pub enum Commands {
         args: train::TrainArgs,
     },
 
+    /// Train base adapter from manifest
+    #[command(after_help = r#"Examples:
+  # Train base adapter with default settings
+  aosctl train-base-adapter
+
+  # Train with custom manifest and tokenizer
+  aosctl train-base-adapter --manifest training/datasets/my_manifest.json \
+    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+
+  # Train and output as .aos file
+  aosctl train-base-adapter --output-format aos --adapter-id my_adapter
+"#)]
+    TrainBaseAdapter {
+        #[command(flatten)]
+        args: train_base_adapter::TrainBaseAdapterArgs,
+    },
+
     /// Alias for tenant-init (for convenience)
     #[command(hide = true)]
     Init {
@@ -1362,6 +1386,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Adapter(cmd) => {
             adapter::handle_adapter_command(cmd.clone(), output).await?;
         }
+        Commands::Aos(cmd) => {
+            commands::aos::run(commands::aos::AosArgs { cmd: cmd.clone() }, output).await?;
+        }
         Commands::Adapters(cmd) => {
             commands::adapters::run(
                 commands::adapters::AdaptersArgs { cmd: cmd.clone() },
@@ -1488,16 +1515,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             );
         }
 
-        // CodeGraph & Call Graph (temporarily disabled due to mplora-codegraph dependency)
-        Commands::CallgraphExport { .. } => {
-            anyhow::bail!(
-                "CallgraphExport is temporarily disabled due to mplora-codegraph dependency"
-            );
+        // CodeGraph & Call Graph
+        Commands::CallgraphExport { codegraph_db, output: output_path, format } => {
+            let format = format.parse::<export_callgraph::ExportFormat>()
+                .map_err(|e| anyhow::anyhow!("Invalid format '{}': {}", format, e))?;
+            export_callgraph::export_callgraph(&codegraph_db, &output_path, format, output).await?;
         }
-        Commands::CodegraphStats { .. } => {
-            anyhow::bail!(
-                "CodegraphStats is temporarily disabled due to mplora-codegraph dependency"
-            );
+        Commands::CodegraphStats { codegraph_db } => {
+            codegraph_stats::run(codegraph_db.to_path_buf(), output).await?;
         }
         Commands::SecdStatus {
             pid_file,
@@ -1707,6 +1732,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             args.execute().await?;
         }
 
+        Commands::TrainBaseAdapter { args } => {
+            args.execute().await?;
+        }
+
         // Code Intelligence Commands
         Commands::CodeInit { path, tenant } => {
             commands::code::code_init(path, tenant, output).await?;
@@ -1777,12 +1806,14 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
+        Commands::TrainBaseAdapter { .. } => "train-base-adapter",
         Commands::CodeInit { .. } => "code-init",
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",
         Commands::CodeStatus { .. } => "code-status",
         Commands::VerifyAdapter { .. } => "verify-adapter",
         Commands::QuantizeQwen { .. } => "quantize-qwen",
+        Commands::Aos(_) => "aos",
         Commands::Infer { .. } => "infer",
     }
     .to_string()

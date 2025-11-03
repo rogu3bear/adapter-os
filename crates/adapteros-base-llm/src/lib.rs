@@ -161,7 +161,7 @@ impl BaseLLMFactory {
                 {
                     // Prefer MLX FFI if feature enabled and model_path provided via env or config
                     if std::env::var("AOS_MLX_FFI_MODEL").is_ok() || config.model_path.is_some() {
-                        let mut m = QwenMlxFfi::new(config.metadata.clone());
+                        let m = QwenMlxFfi::new(config.metadata.clone());
                         // If config had an explicit path, set env to ensure MLXFFIModel::load uses it
                         if let Some(path) = &config.model_path {
                             std::env::set_var("AOS_MLX_FFI_MODEL", path);
