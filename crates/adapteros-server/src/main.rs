@@ -274,34 +274,26 @@ async fn main() -> Result<()> {
 
     // Model runtime environment validation
     {
-        #[cfg(feature = "mlx-ffi-backend")]
-        {
-            match std::env::var("AOS_MLX_FFI_MODEL") {
-                Ok(path) => {
-                    if std::path::Path::new(&path).exists() {
-                        info!(
-                            path = %path,
-                            "AOS_MLX_FFI_MODEL environment variable set and path exists"
-                        );
-                    } else {
-                        warn!(
-                            path = %path,
-                            "AOS_MLX_FFI_MODEL environment variable set but path does not exist. Model loading will fail."
-                        );
-                    }
-                }
-                Err(_) => {
+        // Note: mlx-ffi-backend feature check removed to avoid build warnings
+        // MLX backend is handled at runtime via adapteros-lora-mlx-ffi crate
+        match std::env::var("AOS_MLX_FFI_MODEL") {
+            Ok(path) => {
+                if std::path::Path::new(&path).exists() {
+                    info!(
+                        path = %path,
+                        "AOS_MLX_FFI_MODEL environment variable set and path exists"
+                    );
+                } else {
                     warn!(
-                        "AOS_MLX_FFI_MODEL environment variable not set. Model loading will fail. Set this to the path of your MLX model directory."
+                        path = %path,
+                        "AOS_MLX_FFI_MODEL environment variable set but path does not exist. Model loading will fail."
                     );
                 }
             }
-        }
-        #[cfg(not(feature = "mlx-ffi-backend"))]
-        {
-            warn!(
-                "mlx-ffi-backend feature not enabled. Model runtime will operate in stub mode."
-            );
+            Err(_) => {
+                // Environment variable not set - this is fine for non-MLX backends
+                // Using default backend (Metal/CPU)
+            }
         }
     }
 
@@ -568,6 +560,17 @@ async fn main() -> Result<()> {
     let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
         metrics_collector.clone(),
     ));
+
+    // Initialize time series for key metrics (1 second resolution, 1000 points = ~16 minutes of history)
+    for name in [
+        "inference_latency_p95_ms",
+        "queue_depth",
+        "tokens_per_second",
+        "memory_usage_mb",
+    ] {
+        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_000);
+    }
+    info!("Initialized metrics time series for dashboard");
 
     // Initialize policy hash watcher (continuous monitoring)
     let (telemetry_tx, _telemetry) = {
@@ -1049,20 +1052,15 @@ async fn main() -> Result<()> {
         info!("Status file writer started (5s interval)");
     }
 
-    // Clone metrics before moving state into routes
-    let metrics_collector = state.metrics_collector.clone();
-    let metrics_registry = state.metrics_registry.clone();
+    // Clone metrics and telemetry buffer before moving state into routes
+    let metrics_collector_for_tasks = state.metrics_collector.clone();
+    let metrics_registry_for_tasks = state.metrics_registry.clone();
+    let telemetry_buffer_for_kernel_latency = state.telemetry_buffer.clone();
 
-    // Build router with UI
-    let api_routes = routes::build(state);
-    let ui_routes = assets::routes();
-
-    let app = axum::Router::new()
-        .merge(ui_routes)
-        .nest("/api", api_routes);
-
-    // Start real-time metrics update task
+    // Start real-time metrics update task (before moving state)
     {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        let metrics_registry_clone = metrics_registry_for_tasks.clone();
         async fn update_metrics(
             metrics_collector: &Arc<adapteros_telemetry::MetricsCollector>,
             metrics_registry: &Arc<adapteros_telemetry::MetricsRegistry>,
@@ -1073,17 +1071,173 @@ async fn main() -> Result<()> {
         }
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30)); // Update every 30 seconds
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1)); // Update every 1 second for real-time metrics
             loop {
                 interval.tick().await;
 
-                if let Err(e) = update_metrics(&metrics_collector, &metrics_registry).await {
+                if let Err(e) =
+                    update_metrics(&metrics_collector_clone, &metrics_registry_clone).await
+                {
                     error!("Failed to update metrics: {}", e);
                 }
             }
         });
-        info!("Real-time metrics update task started");
+        info!("Real-time metrics update task started (1s interval)");
     }
+
+    // Background task to aggregate kernel latency from telemetry events (before moving state)
+    {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        let telemetry_buffer_clone = telemetry_buffer_for_kernel_latency.clone();
+        let _ = spawn_deterministic("Kernel latency aggregator".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5)); // Aggregate every 5 seconds
+            loop {
+                interval.tick().await;
+
+                // Query telemetry for recent inference.step events with kernel latency
+                use adapteros_telemetry::TelemetryFilters;
+                use chrono::{Duration as ChronoDuration, Utc};
+
+                let end_time = Utc::now();
+                let start_time = end_time - ChronoDuration::seconds(5);
+
+                // Query for inference.step events (kernel latency) and router.decision events (router latency)
+                let step_filters = TelemetryFilters {
+                    limit: Some(1000),
+                    event_type: Some("inference.step".to_string()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    ..Default::default()
+                };
+
+                let router_filters = TelemetryFilters {
+                    limit: Some(1000),
+                    event_type: Some("router.decision".to_string()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    ..Default::default()
+                };
+
+                let step_events = telemetry_buffer_clone.query(&step_filters);
+                let router_events = telemetry_buffer_clone.query(&router_filters);
+
+                // Aggregate kernel latency per tenant
+                let mut kernel_latency_by_tenant: std::collections::HashMap<String, Vec<f64>> =
+                    std::collections::HashMap::new();
+                let mut router_latency_by_tenant: std::collections::HashMap<String, Vec<f64>> =
+                    std::collections::HashMap::new();
+
+                for event in step_events.iter() {
+                    if let Some(ref metadata) = event.metadata {
+                        // Extract kernel latency
+                        if let Some(latency_us) =
+                            metadata.get("kernel_latency_us").and_then(|v| v.as_u64())
+                        {
+                            let latency_secs = latency_us as f64 / 1_000_000.0;
+                            let tenant_id = event
+                                .tenant_id
+                                .as_ref()
+                                .map(|s| s.as_str())
+                                .unwrap_or("default");
+                            kernel_latency_by_tenant
+                                .entry(tenant_id.to_string())
+                                .or_insert_with(Vec::new)
+                                .push(latency_secs);
+                        }
+
+                        // Extract router latency (also in inference.step events)
+                        if let Some(latency_us) =
+                            metadata.get("router_latency_us").and_then(|v| v.as_u64())
+                        {
+                            let latency_secs = latency_us as f64 / 1_000_000.0;
+                            let tenant_id = event
+                                .tenant_id
+                                .as_ref()
+                                .map(|s| s.as_str())
+                                .unwrap_or("default");
+                            router_latency_by_tenant
+                                .entry(tenant_id.to_string())
+                                .or_insert_with(Vec::new)
+                                .push(latency_secs);
+                        }
+                    }
+                }
+
+                // Also check router.decision events
+                for event in router_events.iter() {
+                    if let Some(ref metadata) = event.metadata {
+                        if let Some(latency_us) =
+                            metadata.get("router_latency_us").and_then(|v| v.as_u64())
+                        {
+                            let latency_secs = latency_us as f64 / 1_000_000.0;
+                            let tenant_id = event
+                                .tenant_id
+                                .as_ref()
+                                .map(|s| s.as_str())
+                                .unwrap_or("default");
+                            router_latency_by_tenant
+                                .entry(tenant_id.to_string())
+                                .or_insert_with(Vec::new)
+                                .push(latency_secs);
+                        }
+                    }
+                }
+
+                // Record aggregated kernel latencies to metrics collector
+                for (tenant_id, latencies) in kernel_latency_by_tenant.iter() {
+                    let avg_latency = latencies.iter().sum::<f64>() / latencies.len() as f64;
+                    if latencies.len() > 0 {
+                        metrics_collector_clone.record_kernel_latency(
+                            "metal",
+                            tenant_id,
+                            avg_latency,
+                        );
+                    }
+                }
+
+                // Record aggregated router latencies to metrics collector
+                for (tenant_id, latencies) in router_latency_by_tenant.iter() {
+                    let avg_latency = latencies.iter().sum::<f64>() / latencies.len() as f64;
+                    if latencies.len() > 0 {
+                        metrics_collector_clone.record_router_latency(tenant_id, avg_latency);
+                    }
+                }
+            }
+        });
+        info!("Kernel and router latency aggregator started");
+    }
+
+    // Background task to update queue depth metrics periodically
+    {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        let db_for_queues = db.clone().into_inner();
+        let _ = spawn_deterministic("Queue depth monitor".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5)); // Update every 5 seconds
+            loop {
+                interval.tick().await;
+
+                // Count queued jobs per tenant
+                if let Ok(count) = db_for_queues.count_queued_jobs().await {
+                    // Update request queue depth (aggregate across all tenants for now)
+                    metrics_collector_clone.update_queue_depth("request", "default", count as f64);
+                }
+
+                // Note: Adapter and kernel queue depths would need worker-level metrics
+                // For now, we set them to 0 and they'll be updated when worker metrics are available
+                metrics_collector_clone.update_queue_depth("adapter", "default", 0.0);
+                metrics_collector_clone.update_queue_depth("kernel", "default", 0.0);
+            }
+        });
+        info!("Queue depth monitor started");
+    }
+
+    // Build router with UI (after spawning background tasks)
+    let api_routes = routes::build(state);
+    let ui_routes = assets::routes();
+
+    let app = axum::Router::new()
+        .merge(ui_routes)
+        .nest("/api", api_routes);
 
     // Choose serving mode: UDS (M1+) or TCP (dev)
     // In production_mode, UDS is required and TCP is blocked
