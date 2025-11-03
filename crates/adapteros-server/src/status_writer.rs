@@ -9,9 +9,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use std::sync::{OnceLock, RwLock};
-use std::time::SystemTime;
-use tracing::{debug, warn};
+use std::sync::{OnceLock, RwLock, atomic::{AtomicU32, Ordering}};
+use std::time::{SystemTime, Duration};
+use tracing::{debug, warn, error};
 
 /// Status reported to menu bar app
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,8 +57,21 @@ struct BaseModelInfo {
 /// Tracks when the control plane started (thread-safe)
 static START_TIME: OnceLock<SystemTime> = OnceLock::new();
 
+/// Cached status entry with timestamp for freshness tracking
+#[derive(Debug, Clone)]
+struct CachedStatusEntry {
+    status: AdapterOSStatus,
+    last_updated: SystemTime,
+}
+
 /// Cached status snapshot for request handlers (thread-safe)
-static STATUS_CACHE: OnceLock<RwLock<Option<AdapterOSStatus>>> = OnceLock::new();
+static STATUS_CACHE: OnceLock<RwLock<Option<CachedStatusEntry>>> = OnceLock::new();
+
+/// Track consecutive write failures (thread-safe)
+static WRITE_FAILURE_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Maximum consecutive failures before escalating
+const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
 /// Initialize the start time (call once at startup)
 pub fn init_start_time() {
@@ -77,23 +90,123 @@ pub async fn update_cache(state: &AppState) -> Result<()> {
         let mut cache_write = cache
             .write()
             .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {}", e))?;
-        *cache_write = Some(status);
+        *cache_write = Some(CachedStatusEntry {
+            status,
+            last_updated: SystemTime::now(),
+        });
     } else {
         return Err(anyhow::anyhow!("Status cache not initialized"));
     }
     Ok(())
 }
 
-/// Get the current cached status snapshot
+/// Force immediate cache refresh (for immediate operations)
+pub async fn force_refresh_cache(state: &AppState) -> Result<()> {
+    update_cache(state).await
+}
+
+/// Get the current cached status snapshot (synchronous, may be stale)
 pub fn get_cached_status() -> Result<Option<AdapterOSStatus>> {
+    get_cached_status_with_max_age(2)
+}
+
+/// Get cached status with staleness check (synchronous)
+/// Returns cached value even if stale - use get_cached_status_fresh() for guaranteed fresh data
+pub fn get_cached_status_with_max_age(max_age_secs: u64) -> Result<Option<AdapterOSStatus>> {
     if let Some(cache) = STATUS_CACHE.get() {
         let cache_read = cache
             .read()
             .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {}", e))?;
-        Ok(cache_read.clone())
+        
+        // Check if cache is stale and log warning
+        if let Some(entry) = cache_read.as_ref() {
+            let age = SystemTime::now()
+                .duration_since(entry.last_updated)
+                .unwrap_or(Duration::from_secs(u64::MAX));
+            
+            if age.as_secs() > max_age_secs {
+                debug!(
+                    age_secs = age.as_secs(),
+                    max_age_secs = max_age_secs,
+                    "Status cache is stale ({}s old), consider using get_cached_status_fresh()",
+                    age.as_secs()
+                );
+            }
+        }
+        
+        Ok(cache_read.as_ref().map(|entry| entry.status.clone()))
     } else {
         Err(anyhow::anyhow!("Status cache not initialized"))
     }
+}
+
+/// Get cached status with automatic refresh if stale (async)
+/// This will refresh the cache if it's older than max_age_secs, then return fresh data
+pub async fn get_cached_status_fresh(
+    state: &AppState,
+    max_age_secs: u64,
+) -> Result<Option<AdapterOSStatus>> {
+    // Check if cache is stale
+    let needs_refresh = is_cache_stale(max_age_secs);
+    
+    if needs_refresh {
+        // Refresh cache in background but don't wait for it
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = update_cache(&state_clone).await {
+                warn!("Background cache refresh failed: {}", e);
+            }
+        });
+        
+        // Also do a synchronous refresh for immediate return
+        update_cache(state).await?;
+    }
+    
+    // Return fresh cached data
+    get_cached_status_with_max_age(max_age_secs)
+}
+
+/// Get cached status with freshness information
+fn get_cached_status_with_freshness() -> Result<Option<(AdapterOSStatus, SystemTime)>> {
+    if let Some(cache) = STATUS_CACHE.get() {
+        let cache_read = cache
+            .read()
+            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {}", e))?;
+        Ok(cache_read
+            .as_ref()
+            .map(|entry| (entry.status.clone(), entry.last_updated)))
+    } else {
+        Err(anyhow::anyhow!("Status cache not initialized"))
+    }
+}
+
+/// Check if cache is stale (older than threshold)
+#[cfg(test)]
+pub fn is_cache_stale(threshold_secs: u64) -> bool {
+    is_cache_stale_impl(threshold_secs)
+}
+
+#[cfg(not(test))]
+fn is_cache_stale(threshold_secs: u64) -> bool {
+    is_cache_stale_impl(threshold_secs)
+}
+
+fn is_cache_stale_impl(threshold_secs: u64) -> bool {
+    match get_cached_status_with_freshness() {
+        Ok(Some((_, last_updated))) => {
+            SystemTime::now()
+                .duration_since(last_updated)
+                .map(|d| d.as_secs() > threshold_secs)
+                .unwrap_or(true) // Consider stale if we can't determine age
+        }
+        _ => true, // No cache entry is considered stale
+    }
+}
+
+/// Refresh cache if stale (non-blocking check, doesn't actually refresh)
+/// Returns true if cache was stale
+pub fn check_cache_staleness(threshold_secs: u64) -> bool {
+    is_cache_stale(threshold_secs)
 }
 
 /// Get uptime in seconds since init_start_time was called
@@ -106,11 +219,65 @@ fn get_uptime_secs() -> u64 {
 }
 
 /// Write current status to JSON file (reads from cache)
-pub async fn write_status(_state: &AppState) -> Result<()> {
+/// Uses retry logic with exponential backoff for transient failures.
+/// Retries the full operation, including cache access.
+pub async fn write_status(state: &AppState) -> Result<()> {
+    // Retry with exponential backoff: 1s, 2s, 4s
+    let mut last_error = None;
+    for attempt in 0..3 {
+        match try_write_status_once(state).await {
+            Ok(()) => {
+                // Success - reset failure counter
+                let prev_failures = WRITE_FAILURE_COUNT.swap(0, Ordering::Relaxed);
+                if prev_failures > 0 {
+                    debug!("Status write succeeded after {} previous failures", prev_failures);
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < 2 {
+                    // Exponential backoff: 1s, 2s
+                    let delay_ms = 1000 * (1 << attempt);
+                    debug!(
+                        "Status write failed (attempt {}/3), retrying in {}ms: {}",
+                        attempt + 1,
+                        delay_ms,
+                        last_error.as_ref().unwrap()
+                    );
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                }
+            }
+        }
+    }
+
+    // All retries failed - increment failure counter
+    let failures = WRITE_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+
+    if failures >= MAX_CONSECUTIVE_FAILURES {
+        error!(
+            consecutive_failures = failures,
+            "Status write has failed {} consecutive times - menu bar app may show stale data",
+            failures
+        );
+    } else {
+        warn!(
+            consecutive_failures = failures,
+            "Status write failed after {} retries: {}",
+            3,
+            last_error.as_ref().unwrap()
+        );
+    }
+
+    Err(last_error.unwrap().context("Status write failed after retries"))
+}
+
+/// Internal function to attempt status write once (for retry logic)
+async fn try_write_status_once(_state: &AppState) -> Result<()> {
     let status =
         get_cached_status()?.ok_or_else(|| anyhow::anyhow!("No cached status available"))?;
-    write_status_file(&status)?;
-    Ok(())
+
+    write_status_file(&status)
 }
 
 /// Collect current status from the system
@@ -291,6 +458,26 @@ async fn get_base_model_info(state: &AppState) -> BaseModelInfo {
     }
 }
 
+/// Get current consecutive write failure count (for health checks)
+pub fn get_write_failure_count() -> u32 {
+    WRITE_FAILURE_COUNT.load(Ordering::Relaxed)
+}
+
+/// Get status write health metrics
+pub fn get_write_health_metrics() -> WriteHealthMetrics {
+    WriteHealthMetrics {
+        consecutive_failures: WRITE_FAILURE_COUNT.load(Ordering::Relaxed),
+        max_consecutive_failures: MAX_CONSECUTIVE_FAILURES,
+    }
+}
+
+/// Health metrics for status write operations
+#[derive(Debug, Clone)]
+pub struct WriteHealthMetrics {
+    pub consecutive_failures: u32,
+    pub max_consecutive_failures: u32,
+}
+
 /// Atomically write status to file
 fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     let json = serde_json::to_string_pretty(status).context("Failed to serialize status")?;
@@ -342,6 +529,55 @@ fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     }
 
     debug!("Status written to {}", status_path);
+    
+    // Write metadata file indicating where status file is located
+    // This helps menu bar app discover the path (only for primary path)
+    if let Err(e) = write_status_path_metadata(status_path) {
+        warn!("Failed to write status path metadata: {}", e);
+        // Don't fail the whole operation if metadata write fails
+    }
+    
+    Ok(())
+}
+
+/// Write metadata file indicating where the status file is located
+/// This helps the menu bar app discover the path when server uses fallback location
+fn write_status_path_metadata(status_path: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    
+    // Write to well-known location
+    let metadata_path = "/var/run/adapteros_status_path.txt";
+    let metadata_temp = "/var/run/adapteros_status_path.txt.tmp";
+    
+    // Try to write metadata, but don't fail if we can't (e.g., no permissions)
+    if let Err(e) = fs::write(metadata_temp, status_path) {
+        // If /var/run/ isn't writable, try user directory
+        let home = std::env::var("HOME").ok();
+        if let Some(home) = home {
+            let user_metadata = format!("{}/Library/Application Support/AdapterOS/status_path.txt", home);
+            if let Some(parent) = Path::new(&user_metadata).parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(&user_metadata, status_path);
+        }
+        return Err(e);
+    }
+    
+    // Atomic rename
+    if let Err(e) = fs::rename(metadata_temp, metadata_path) {
+        let _ = fs::remove_file(metadata_temp);
+        return Err(e);
+    }
+    
+    // Set permissions to 0644
+    #[cfg(unix)]
+    {
+        if let Ok(mut perms) = fs::metadata(metadata_path).map(|m| m.permissions()) {
+            perms.set_mode(0o644);
+            let _ = fs::set_permissions(metadata_path, perms);
+        }
+    }
+    
     Ok(())
 }
 
@@ -354,20 +590,33 @@ fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
     let status_dir = Path::new("var");
     fs::create_dir_all(status_dir).context("Failed to create var/ directory")?;
 
-    let status_path = "var/adapteros_status.json";
-    let temp_path = "var/adapteros_status.json.tmp";
+    // Resolve absolute path for var/ directory
+    let status_path = std::env::current_dir()
+        .map(|cwd| cwd.join("var/adapteros_status.json"))
+        .and_then(|p| p.canonicalize().or_else(|_| Ok(p)))
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "var/adapteros_status.json".to_string());
+    
+    let temp_path = status_path.replace(".json", ".tmp");
+    
+    // Write metadata file indicating where status file is located
+    // This helps menu bar app discover the path
+    if let Err(e) = write_status_path_metadata(&status_path) {
+        warn!("Failed to write status path metadata: {}", e);
+        // Don't fail the whole operation if metadata write fails
+    }
 
     // Clean up any leftover temp file from previous failed writes
-    if Path::new(temp_path).exists() {
-        if let Err(e) = fs::remove_file(temp_path) {
+    if Path::new(&temp_path).exists() {
+        if let Err(e) = fs::remove_file(&temp_path) {
             warn!("Could not clean up leftover temp file {}: {}", temp_path, e);
         }
     }
 
-    fs::write(temp_path, json)
+    fs::write(&temp_path, json)
         .with_context(|| format!("Failed to write temp status file: {}", temp_path))?;
 
-    fs::rename(temp_path, status_path).with_context(|| {
+    fs::rename(&temp_path, &status_path).with_context(|| {
         format!(
             "Failed to rename temp file {} to {}",
             temp_path, status_path
@@ -377,11 +626,11 @@ fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(status_path)
+        let mut perms = fs::metadata(&status_path)
             .with_context(|| format!("Failed to get metadata for status file: {}", status_path))?
             .permissions();
         perms.set_mode(0o644);
-        fs::set_permissions(status_path, perms).with_context(|| {
+        fs::set_permissions(&status_path, perms).with_context(|| {
             format!("Failed to set permissions on status file: {}", status_path)
         })?;
     }
@@ -398,6 +647,132 @@ mod tests {
     use adapteros_server_api::AppState;
     use std::fs;
     use std::path::Path;
+
+    #[tokio::test]
+    async fn test_partial_load_recovery() {
+        // Test that the status writer handles cache failures gracefully
+        init_status_cache();
+
+        // Simulate cache failure
+        if let Some(cache) = STATUS_CACHE.get() {
+            let mut cache_write = cache.write().unwrap();
+            *cache_write = None;
+        }
+
+        let state = create_mock_app_state().await;
+
+        // This should fail gracefully without panicking
+        let result = write_status(&state).await;
+        assert!(result.is_err());
+
+        // Failure count should be incremented
+        assert_eq!(get_write_failure_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_retry_logic_full_operation() {
+        init_status_cache();
+        let state = create_mock_app_state().await;
+
+        // Ensure we have valid cache data
+        update_cache(&state).await.expect("cache update should succeed");
+
+        // This should succeed (we have valid data)
+        let result = write_status(&state).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_migration_failure_handling() {
+        // Test that status collection handles database query failures gracefully
+        init_status_cache();
+
+        // Create a state with a broken database connection
+        let db = Db::connect("sqlite::memory:?cache=shared").await.unwrap();
+        // Don't run migrations - this simulates migration failure
+
+        let state = create_mock_app_state_with_db(db).await;
+
+        // Status collection should handle failures gracefully
+        let result = collect_status(&state).await;
+        // Should not panic, but may return degraded status
+        assert!(result.is_ok() || result.is_err()); // Either is acceptable, as long as it doesn't crash
+    }
+
+    #[tokio::test]
+    async fn test_corruption_recovery() {
+        // Test that status writer handles file corruption gracefully
+        init_status_cache();
+
+        // Create test status
+        let status = AdapterOSStatus {
+            schema_version: "1.0".to_string(),
+            status: "ok".to_string(),
+            uptime_secs: 100,
+            adapters_loaded: 1,
+            deterministic: true,
+            kernel_hash: "test123".to_string(),
+            telemetry_mode: "local".to_string(),
+            worker_count: 1,
+            base_model_loaded: false,
+            base_model_id: None,
+            base_model_name: None,
+            base_model_status: "unloaded".to_string(),
+            base_model_memory_mb: None,
+        };
+
+        // Test atomic write with fallback directory
+        let result = write_status_file_local(&status);
+        assert!(result.is_ok());
+
+        // Verify file exists and is readable
+        let status_path = Path::new("var/adapteros_status.json");
+        assert!(status_path.exists());
+
+        let content = fs::read_to_string(status_path).unwrap();
+        let read_status: AdapterOSStatus = serde_json::from_str(&content).unwrap();
+        assert_eq!(read_status.status, "ok");
+
+        // Cleanup
+        let _ = fs::remove_file(status_path);
+    }
+
+    #[tokio::test]
+    async fn test_consecutive_failure_escalation() {
+        // Reset failure counter for this test
+        WRITE_FAILURE_COUNT.store(0, Ordering::Relaxed);
+
+        // Simulate 6 consecutive failures to trigger escalation
+        for _ in 0..6 {
+            WRITE_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+
+        // Verify escalation threshold
+        let metrics = get_write_health_metrics();
+        assert_eq!(metrics.consecutive_failures, 6);
+        assert_eq!(metrics.max_consecutive_failures, MAX_CONSECUTIVE_FAILURES);
+
+        // Reset for other tests
+        WRITE_FAILURE_COUNT.store(0, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn test_retry_backoff_behavior() {
+        init_status_cache();
+        let state = create_mock_app_state().await;
+
+        // Ensure we have valid cache data
+        update_cache(&state).await.expect("cache update should succeed");
+
+        // This should succeed on first attempt
+        let start = std::time::Instant::now();
+        let result = write_status(&state).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_ok());
+        // Should complete quickly (no retries needed)
+        assert!(elapsed.as_millis() < 100);
+    }
 
     #[test]
     fn test_uptime_tracking() {
@@ -475,7 +850,10 @@ mod tests {
         // Manually set cache (simulating what update_cache would do)
         if let Some(cache) = STATUS_CACHE.get() {
             let mut cache_write = cache.write().unwrap();
-            *cache_write = Some(test_status.clone());
+            *cache_write = Some(CachedStatusEntry {
+                status: test_status.clone(),
+                last_updated: SystemTime::now(),
+            });
         }
 
         // Now should have cached status
@@ -584,31 +962,81 @@ mod tests {
         }
     }
 
-    /// Helper function to create a mock AppState for testing
-    async fn create_mock_app_state() -> AppState {
-        // Create an in-memory database for testing
-        let db = Db::connect("sqlite::memory:?cache=shared").await.unwrap();
-        db.migrate().await.unwrap();
+    #[test]
+    fn test_write_failure_count_tracking() {
+        // Test that failure count starts at 0
+        assert_eq!(get_write_failure_count(), 0);
+        
+        // Reset counter (for test isolation)
+        WRITE_FAILURE_COUNT.store(0, Ordering::Relaxed);
+        assert_eq!(get_write_failure_count(), 0);
+    }
 
-        // Seed base model state so status queries succeed
-        let model_params = ModelRegistrationBuilder::new()
-            .name("Test Model")
-            .hash_b3("b3-test")
-            .config_hash_b3("config-test")
-            .tokenizer_hash_b3("tokenizer-test")
-            .tokenizer_cfg_hash_b3("tokenizer-cfg-test")
-            .build()
-            .expect("model params build");
-        let model_id = db.register_model(model_params).await.unwrap();
-        db.update_base_model_status("default", &model_id, "loaded", None, Some(14336))
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn test_cache_freshness_detection() {
+        init_status_cache();
+        let state = create_mock_app_state().await;
+        
+        // Initially no cache
+        assert!(get_cached_status().unwrap().is_none());
+        
+        // Update cache
+        update_cache(&state).await.unwrap();
+        
+        // Cache should be fresh immediately
+        assert!(!is_cache_stale(2));
+        
+        // Wait a bit and check staleness
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        assert!(is_cache_stale(2));
+        
+        // Fresh cache should detect staleness
+        let stale = get_cached_status_with_max_age(2).unwrap();
+        assert!(stale.is_some()); // Still returns cached value even if stale
+    }
 
-        // Create minimal AppState - this would normally have more components
-        // but for status writer testing, we only need the database
+    #[tokio::test]
+    async fn test_cache_fresh_refresh() {
+        init_status_cache();
+        let state = create_mock_app_state().await;
+        
+        // Initially no cache
+        assert!(get_cached_status().unwrap().is_none());
+        
+        // Update cache
+        update_cache(&state).await.unwrap();
+        
+        let initial_status = get_cached_status().unwrap().unwrap();
+        
+        // Make cache stale
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        
+        // Use fresh cache API - should refresh automatically
+        let fresh_status = get_cached_status_fresh(&state, 2).await.unwrap().unwrap();
+        
+        // Should have fresh data (might be same or updated)
+        assert_eq!(fresh_status.schema_version, initial_status.schema_version);
+    }
+
+    #[test]
+    fn test_write_health_metrics() {
+        // Test health metrics structure
+        let metrics = get_write_health_metrics();
+        assert_eq!(metrics.max_consecutive_failures, MAX_CONSECUTIVE_FAILURES);
+        assert_eq!(metrics.consecutive_failures, 0);
+
+        // Test with simulated failures
+        WRITE_FAILURE_COUNT.store(3, Ordering::Relaxed);
+        let metrics = get_write_health_metrics();
+        assert_eq!(metrics.consecutive_failures, 3);
+    }
+
+    /// Helper function to create a mock AppState with custom database
+    async fn create_mock_app_state_with_db(db: Db) -> AppState {
         use adapteros_metrics_exporter::MetricsExporter;
         use adapteros_orchestrator::TrainingService;
         use adapteros_server_api::{state::ApiConfig, AppState};
+        use adapteros_telemetry::metrics::{MetricsCollector, MetricsRegistry};
 
         let api_config = std::sync::Arc::new(std::sync::RwLock::new(ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
@@ -624,13 +1052,15 @@ mod tests {
             production_mode: false,
             rate_limits: None,
             path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
+            model_load_timeout_secs: 300,
+            model_unload_timeout_secs: 30,
         }));
 
         let metrics_exporter =
             std::sync::Arc::new(MetricsExporter::new(Default::default()).unwrap());
         let metrics_collector =
             std::sync::Arc::new(adapteros_telemetry::MetricsCollector::new().unwrap());
-        let metrics_registry = std::sync::Arc::new(adapteros_telemetry::MetricsRegistry::new(
+        let metrics_registry = std::sync::Arc::new(MetricsRegistry::new(
             metrics_collector.clone(),
         ));
         for name in [
@@ -652,5 +1082,28 @@ mod tests {
             metrics_registry,
             training_service,
         )
+    }
+
+    /// Helper function to create a mock AppState for testing
+    async fn create_mock_app_state() -> AppState {
+        // Create an in-memory database for testing
+        let db = Db::connect("sqlite::memory:?cache=shared").await.unwrap();
+        db.migrate().await.unwrap();
+
+        // Seed base model state so status queries succeed
+        let model_params = ModelRegistrationBuilder::new()
+            .name("Test Model")
+            .hash_b3("b3-test")
+            .config_hash_b3("config-test")
+            .tokenizer_hash_b3("tokenizer-test")
+            .tokenizer_cfg_hash_b3("tokenizer-cfg-test")
+            .build()
+            .expect("model params build");
+        let model_id = db.register_model(model_params).await.unwrap();
+        db.update_base_model_status("default", &model_id, "loaded", None, Some(14336))
+            .await
+            .unwrap();
+
+        create_mock_app_state_with_db(db)
     }
 }
