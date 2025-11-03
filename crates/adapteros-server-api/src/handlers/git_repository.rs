@@ -4,6 +4,7 @@
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
 use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
+use crate::types::ScanStatusResponse;
 use adapteros_api_types::training::TrainingConfigRequest;
 use adapteros_core::error::AosError;
 use adapteros_db::users::Role;
