@@ -286,8 +286,8 @@ pub async fn load_model(
 
     // Check if model exists
     let model_check = sqlx::query!(
-        "SELECT bms.model_id, m.name as model_name FROM base_model_status bms 
-         JOIN models m ON bms.model_id = m.id 
+        "SELECT bms.model_id, m.name as model_name FROM base_model_status bms
+         JOIN models m ON bms.model_id = m.id
          WHERE bms.model_id = ? AND bms.tenant_id = ?",
         model_id,
         tenant_id
@@ -296,22 +296,32 @@ pub async fn load_model(
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
+        let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
         )
     })?;
 
     let model_name = if let Some(row) = model_check {
         row.model_name
     } else {
+        let technical_msg = format!("Model '{}' not found in database for tenant '{}'. Import the model first using POST /v1/models/import", model_id, tenant_id);
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new(
-                format!("Model '{}' not found in database for tenant '{}'. Import the model first using POST /v1/models/import", model_id, tenant_id)
-            ).with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly("NOT_FOUND", &technical_msg)),
         ));
     };
+
+    // Start operation tracking
+    state.operation_tracker.start_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load)).await
+        .map_err(|e| {
+            error!("Failed to start operation tracking: {:?}", e);
+            (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", "Another operation is already in progress for this model")),
+            )
+        })?;
 
     // Update status to loading
     let now = chrono::Utc::now().to_rfc3339();
@@ -325,9 +335,12 @@ pub async fn load_model(
     .await
     .map_err(|e| {
         error!("Failed to update model status: {}", e);
+        // Clean up operation tracking on error
+        let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load), false).await;
+        let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
         )
     })?;
 
@@ -343,8 +356,35 @@ pub async fn load_model(
                             model_path
                         ))
                     } else {
-                        let mut guard = rt.lock().await;
-                        guard.load_model(tenant_id, &model_id, &model_path)
+                        // Add retry logic for transient failures during model loading
+                        let mut attempts = 0;
+                        let max_attempts = 3;
+                        let base_delay = std::time::Duration::from_millis(500);
+
+                        loop {
+                            attempts += 1;
+
+                            let mut guard = rt.lock().await;
+                            match guard.load_model(tenant_id, &model_id, &model_path) {
+                                Ok(()) => break Ok(()),
+                                Err(e) => {
+                                    if attempts >= max_attempts {
+                                        let technical_msg = format!("Model loading failed after {} attempts: {}", max_attempts, e);
+                                        break Err(technical_msg);
+                                    }
+
+                                    // Check if this is a retryable error
+                                    if e.contains("temporarily") || e.contains("timeout") || e.contains("busy") {
+                                        warn!("Model loading attempt {} failed, retrying in {:?}: {}", attempts, base_delay, e);
+                                        tokio::time::sleep(base_delay).await;
+                                        continue;
+                                    } else {
+                                        // Not a retryable error, fail immediately
+                                        break Err(e);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Err(_) => Err(
@@ -382,11 +422,15 @@ pub async fn load_model(
             .await
             .map_err(|e| {
                 error!("Failed to update loaded status: {}", e);
+                let technical_msg = format!("{}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+                    Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
                 )
             })?;
+
+            // Complete operation tracking
+            let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load), true).await;
 
             // Emit telemetry
             info!(
@@ -411,7 +455,9 @@ pub async fn load_model(
         }
         Err(e) => {
             // Mark as error state
-            let error_msg = format!("Failed to load model: {}", e);
+            // Complete operation tracking with failure
+            let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load), false).await;
+
             error!(
                 model_id = %model_id,
                 tenant_id = %tenant_id,
@@ -430,15 +476,16 @@ pub async fn load_model(
             .await
             .map_err(|db_err| {
                 error!("Failed to update error status: {}", db_err);
+                let technical_msg = format!("{}", db_err);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+                    Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
                 )
             })?;
 
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&error_msg).with_code("LOAD_FAILED")),
+                Json(ErrorResponse::new_user_friendly("LOAD_FAILED", &e)),
             ))
         }
     }
@@ -483,18 +530,29 @@ pub async fn unload_model(
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
+        let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
         )
     })?;
 
     if exists.is_none() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "Model not found")),
         ));
     }
+
+    // Start operation tracking
+    state.operation_tracker.start_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Unload)).await
+        .map_err(|e| {
+            error!("Failed to start operation tracking: {:?}", e);
+            (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", "Another operation is already in progress for this model")),
+            )
+        })?;
 
     // Update to unloading state
     sqlx::query!(
@@ -507,9 +565,12 @@ pub async fn unload_model(
     .await
     .map_err(|e| {
         error!("Failed to update status: {}", e);
+        // Clean up operation tracking on error
+        let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Unload), false).await;
+        let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
         )
     })?;
 
@@ -534,11 +595,15 @@ pub async fn unload_model(
     .await
     .map_err(|e| {
         error!("Failed to update unloaded status: {}", e);
+        let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
         )
     })?;
+
+    // Complete operation tracking
+    let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Unload), true).await;
 
     info!(
         event = "model.unload",
@@ -548,6 +613,63 @@ pub async fn unload_model(
     );
 
     Ok(StatusCode::OK)
+}
+
+/// Cancel a model operation (load/unload)
+#[cfg_attr(feature = "openapi", utoipa::path(
+    post,
+    path = "/v1/models/{model_id}/cancel",
+    params(
+        ("model_id" = String, Path, description = "Model ID to cancel operation for")
+    ),
+    responses(
+        (status = 200, description = "Operation cancelled successfully"),
+        (status = 404, description = "No ongoing operation found"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "models"
+))]
+pub async fn cancel_model_operation(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    if claims.role != "admin" && claims.role != "operator" {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
+        ));
+    }
+
+    let tenant_id = &claims.tenant_id;
+
+    // Attempt to cancel the operation
+    match state.operation_tracker.cancel_model_operation(&model_id, tenant_id).await {
+        Ok(()) => {
+            info!(
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                "Successfully cancelled model operation"
+            );
+            Ok(StatusCode::OK)
+        }
+        Err(crate::operation_tracker::OperationCancellationError::OperationNotFound) => {
+            let technical_msg = format!("No ongoing operation found for model '{}' in tenant '{}'", model_id, tenant_id);
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new_user_friendly("NOT_FOUND", &technical_msg)),
+            ))
+        }
+        Err(_) => {
+            let technical_msg = "Failed to cancel operation";
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("INTERNAL_ERROR", technical_msg)),
+            ))
+        }
+    }
 }
 
 /// Get import status
@@ -1518,7 +1640,7 @@ pub async fn model_runtime_health(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("operator or admin role required").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
         ));
     }
 
@@ -1540,9 +1662,10 @@ pub async fn model_runtime_health(
     .await
     .map_err(|e| {
         error!("Failed to query model states: {}", e);
+        let technical_msg = format!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
         )
     })?;
 

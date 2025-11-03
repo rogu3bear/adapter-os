@@ -14,6 +14,43 @@ use std::str::FromStr;
 use url::form_urlencoded;
 use uuid::Uuid;
 
+/// Simple bearer token authentication for metrics endpoint
+pub async fn metrics_auth_middleware(
+    State(state): State<AppState>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let bearer_token = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|header| header.strip_prefix("Bearer "));
+
+    let expected_token = {
+        let config = state.config.read().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("configuration error").with_code("CONFIG_ERROR")),
+            )
+        })?;
+        config.metrics.bearer_token.clone()
+    };
+
+    match bearer_token {
+        Some(token) if token == expected_token => {
+            // Token matches, proceed
+            Ok(next.run(req).await)
+        }
+        _ => {
+            // Invalid or missing token
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new("invalid or missing bearer token").with_code("UNAUTHORIZED")),
+            ))
+        }
+    }
+}
+
 /// Extract and validate JWT from Authorization header, cookies, or query parameters
 pub async fn auth_middleware(
     State(state): State<AppState>,
