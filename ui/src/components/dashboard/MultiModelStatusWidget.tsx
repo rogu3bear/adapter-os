@@ -55,6 +55,7 @@ export const MultiModelStatusWidget: React.FC = () => {
     () => apiClient.getAllModelsStatus(),
     'slow',
     {
+      operationName: 'MultiModelStatusWidget.getAllModelsStatus',
       showLoadingIndicator: false,
       onError: (err) => {
         logger.error('Failed to fetch all models status', { component: 'MultiModelStatusWidget' }, err);

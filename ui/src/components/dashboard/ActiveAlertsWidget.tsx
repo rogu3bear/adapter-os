@@ -75,6 +75,7 @@ export function ActiveAlertsWidget() {
     },
     'fast', // 2000ms polling interval for real-time updates
     {
+      operationName: 'ActiveAlertsWidget.listAlerts',
       enabled: !!selectedTenant,
       showLoadingIndicator: false,
       onError: (err) => {
@@ -144,7 +145,7 @@ export function ActiveAlertsWidget() {
           </div>
         ) : error ? (
           <div className="text-center py-8">
-            <AlertTriangle className="h-8 w-8 text-orange-600 mx-auto mb-2 opacity-50" aria-hidden="true" />
+            <AlertTriangle className="h-8 w-8 text-gray-500 mx-auto mb-2 opacity-50" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">Failed to load alerts</p>
             {!selectedTenant && (
               <p className="text-xs text-muted-foreground mt-1">Please select a tenant</p>
@@ -152,14 +153,14 @@ export function ActiveAlertsWidget() {
           </div>
         ) : alerts.length === 0 ? (
           <div className="text-center py-8">
-            <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-2 opacity-20" aria-hidden="true" />
+            <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-2 opacity-20" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">No active alerts</p>
           </div>
         ) : (
           <>
             {criticalCount > 0 && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-center gap-2 text-red-900">
+              <div className="p-3 bg-gray-100 border border-gray-300 rounded-lg">
+                <div className="flex items-center gap-2 text-gray-800">
                   <AlertTriangle className="h-5 w-5" aria-hidden="true" />
                   <span className="font-medium text-sm">
                     {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} require immediate attention

@@ -135,7 +135,7 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
     box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent);
-    transition: box-shadow 0.15s ease-in-out;
+    transition: box-shadow var(--transition-base, 0.15s) var(--transition-timing, ease-in-out);
   }
   
   input:focus-visible,
@@ -143,7 +143,7 @@
   select:focus-visible {
     border-color: var(--ring);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 20%, transparent);
-    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    transition: border-color var(--transition-base, 0.15s) var(--transition-timing, ease-in-out), box-shadow var(--transition-base, 0.15s) var(--transition-timing, ease-in-out);
   }
 }
 

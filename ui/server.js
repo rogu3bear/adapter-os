@@ -8,6 +8,10 @@ const app = express();
 const PORT = 3301;
 const API_PROXY_TARGET = process.env.API_PROXY_TARGET || 'http://localhost:3300';
 
+// Simple shared secret authentication for localhost communication
+const SHARED_SECRET = process.env.SERVICE_PANEL_SECRET || 'adapteros-local-dev';
+const AUTH_TOKEN = Buffer.from(`service-panel:${SHARED_SECRET}`).toString('base64');
+
 // Middleware
 app.use(cors());
 app.use(
@@ -27,6 +31,29 @@ app.use(
     }
   })
 );
+
+// Authentication middleware for service management endpoints
+app.use('/api/services', (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    return res.status(401).json({
+      error: 'Authentication required',
+      message: 'Basic authentication required for service management'
+    });
+  }
+
+  const token = authHeader.substring(6); // Remove 'Basic '
+  if (token !== AUTH_TOKEN) {
+    return res.status(403).json({
+      error: 'Authentication failed',
+      message: 'Invalid authentication token'
+    });
+  }
+
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'dist-service-panel')));
 
 // Store running processes
@@ -34,6 +61,18 @@ const runningProcesses = new Map();
 
 // Service configurations - what actually works
 const serviceConfigs = {
+  'service-panel': {
+    name: 'Service Panel',
+    startCommand: 'cd /Users/star/Dev/adapter-os/ui && SERVICE_PANEL_SECRET=adapteros-local-dev pnpm service-panel',
+    stopCommand: 'pkill -f "node server.js"',
+    statusCommand: 'pgrep -f "node server.js" >/dev/null && echo "running" || echo "stopped"',
+    healthCommand: 'curl -f http://localhost:3301/health >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
+    port: 3301,
+    category: 'management',
+    essential: true,
+    dependencies: [],
+    startupOrder: 0
+  },
   'backend-server': {
     name: 'Backend Server',
     startCommand: 'cd /Users/star/Dev/adapter-os && cargo run -p adapteros-server --bin adapteros-server -- --config configs/cp.toml --skip-pf-check --single-writer',

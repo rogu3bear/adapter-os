@@ -58,11 +58,11 @@ export function ErrorRecovery({
   const getIcon = () => {
     switch (displayVariant) {
       case 'warning':
-        return <AlertTriangle className="h-5 w-5 text-amber-600" />;
+        return <AlertTriangle className="h-5 w-5 text-gray-500" />;
       case 'info':
-        return <AlertTriangle className="h-5 w-5 text-blue-600" />;
+        return <AlertTriangle className="h-5 w-5 text-gray-400" />;
       default:
-        return <AlertTriangle className="h-5 w-5 text-red-600" />;
+        return <AlertTriangle className="h-5 w-5 text-gray-700" />;
     }
   };
 

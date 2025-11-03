@@ -237,10 +237,10 @@ export function AdapterLifecycleManager({
   const getStateIcon = (state: AdapterState) => {
     switch (state) {
       case 'unloaded': return <Square className="h-4 w-4 text-gray-500" />;
-      case 'cold': return <Snowflake className="h-4 w-4 text-blue-500" />;
-      case 'warm': return <Thermometer className="h-4 w-4 text-orange-500" />;
-      case 'hot': return <Flame className="h-4 w-4 text-red-500" />;
-      case 'resident': return <Anchor className="h-4 w-4 text-purple-500" />;
+      case 'cold': return <Snowflake className="h-4 w-4 text-gray-400" />;
+      case 'warm': return <Thermometer className="h-4 w-4 text-gray-500" />;
+      case 'hot': return <Flame className="h-4 w-4 text-gray-600" />;
+      case 'resident': return <Anchor className="h-4 w-4 text-gray-600" />;
       default: return <Activity className="h-4 w-4 text-gray-500" />;
     }
   };

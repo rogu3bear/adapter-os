@@ -61,6 +61,7 @@ function SystemHealthWidget() {
     () => apiClient.getSystemMetrics(),
     'normal',
     {
+      operationName: 'SystemHealthWidget.getSystemMetrics',
       showLoadingIndicator: false,
       onSuccess: (data) => {
         const metrics = data as MetricsSnapshotResponse;
@@ -222,7 +223,19 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
     return null;
   }
 
-  const layout = dashboardLayouts[effectiveUser.role];
+  // Get layout for the user's role (validation happens in auth provider)
+  let layout = dashboardLayouts[effectiveUser.role];
+
+  // Safety check - this should never happen with proper role validation
+  if (!layout) {
+    logger.error('Critical: Valid user role has no dashboard layout', {
+      component: 'Dashboard',
+      userRole: effectiveUser.role,
+      availableLayouts: Object.keys(dashboardLayouts)
+    });
+    // Emergency fallback to prevent crash
+    layout = dashboardLayouts.viewer;
+  }
 
   // Global shortcuts for search/help (announced via live region)
   const announce = useAnnounce();

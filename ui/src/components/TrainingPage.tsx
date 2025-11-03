@@ -23,7 +23,7 @@ import { useProgressOperation } from '../hooks/useProgressOperation';
 
 export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {}) {
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
-  const { data: trainingJobs = [], isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
+  const { data, isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
     () => apiClient.listTrainingJobs(),
     'fast', // Training progress needs frequent updates
     {
@@ -33,6 +33,9 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
       }
     }
   );
+
+  // Handle null data case from usePolling hook - use established pattern
+  const trainingJobs = data ?? [];
 
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -45,10 +48,10 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'running': return <Activity className="h-4 w-4 text-blue-500 animate-pulse" />;
-      case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'failed': return <XCircle className="h-4 w-4 text-red-500" />;
-      case 'queued': return <Clock className="h-4 w-4 text-yellow-500" />;
+      case 'running': return <Activity className="h-4 w-4 text-gray-400 animate-pulse" />;
+      case 'completed': return <CheckCircle className="h-4 w-4 text-gray-600" />;
+      case 'failed': return <XCircle className="h-4 w-4 text-gray-700" />;
+      case 'queued': return <Clock className="h-4 w-4 text-gray-500" />;
       default: return <AlertTriangle className="h-4 w-4 text-gray-500" />;
     }
   };

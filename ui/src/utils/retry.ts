@@ -30,15 +30,17 @@ export interface RetryConfig {
   retryableErrors?: (error: any) => boolean; // Custom function to determine if error is retryable
 }
 
-export interface RetryResult<T> {
-  success: true;
-  value: T;
-  attempts: number;
-} | {
-  success: false;
-  error: any;
-  attempts: number;
-}
+export type RetryResult<T> =
+  | {
+      success: true;
+      value: T;
+      attempts: number;
+    }
+  | {
+      success: false;
+      error: any;
+      attempts: number;
+    };
 
 // Default retry configuration
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {

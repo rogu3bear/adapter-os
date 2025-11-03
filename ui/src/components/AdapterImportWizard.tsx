@@ -90,7 +90,7 @@ export function AdapterImportWizard({ onComplete, onCancel, tenantId }: AdapterI
           >
             {state.filePreview ? (
               <div className="space-y-2">
-                <FileCheck className="h-12 w-12 text-green-500 mx-auto" />
+                <FileCheck className="h-12 w-12 text-gray-600 mx-auto" />
                 <p className="font-medium">{state.filePreview.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {(state.filePreview.size / 1024 / 1024).toFixed(2)} MB
