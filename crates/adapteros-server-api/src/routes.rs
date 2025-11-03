@@ -262,9 +262,13 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/auth/dev-bypass", post(handlers::auth_dev_bypass))
         .route("/v1/meta", get(handlers::meta));
 
-    // Metrics endpoint (custom auth, not JWT)
+    // Metrics endpoint (bearer token auth)
     let metrics_route = Router::new()
         .route("/metrics", get(handlers::metrics_handler))
+        .layer(middleware::from_fn_with_state(
+            middleware::metrics_auth_middleware,
+            state.clone(),
+        ))
         .with_state(state.clone());
 
     // OpenAI-compatible endpoints (dual auth: API key or JWT)

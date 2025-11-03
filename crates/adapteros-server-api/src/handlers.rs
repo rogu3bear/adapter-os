@@ -7,6 +7,7 @@ use crate::state::{AppState, JwtMode, TrainingSessionMetadata};
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
+use adapteros_lora_lifecycle::state::AdapterState;
 use adapteros_orchestrator::training::TrainingJobBuilder;
 use adapteros_system_metrics::monitoring_types::{
     AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
@@ -365,8 +366,92 @@ fn map_db_commit_to_response(commit: Commit) -> Result<CommitResponse, AosError>
     })
 }
 
-/// Check model runtime health summary for health endpoint
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use std::time::{Duration, Instant};
+
+/// Cached health check result to avoid expensive database queries on every request
+#[derive(Debug)]
+struct HealthCache {
+    result: ModelRuntimeHealth,
+    timestamp: Instant,
+    ttl: Duration,
+}
+
+impl HealthCache {
+    fn new(ttl_seconds: u64) -> Self {
+        Self {
+            result: ModelRuntimeHealth {
+                total_models: 0,
+                loaded_count: 0,
+                healthy: true,
+                inconsistencies_count: 0,
+            },
+            timestamp: Instant::now() - Duration::from_secs(ttl_seconds + 1), // Force initial refresh
+            ttl: Duration::from_secs(ttl_seconds),
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.timestamp.elapsed() > self.ttl
+    }
+
+    fn get(&self) -> Option<&ModelRuntimeHealth> {
+        if self.is_expired() {
+            None
+        } else {
+            Some(&self.result)
+        }
+    }
+
+    fn update(&mut self, result: ModelRuntimeHealth) {
+        self.result = result;
+        self.timestamp = Instant::now();
+    }
+}
+
+/// Global health cache - in production this should be per-tenant or have better isolation
+static HEALTH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HealthCache>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HealthCache::new(30)))); // 30 second cache
+
+/// Check model runtime health summary for health endpoint with caching
 async fn check_model_runtime_health_summary(state: &AppState) -> Result<ModelRuntimeHealth, anyhow::Error> {
+    let start_time = std::time::Instant::now();
+
+    // Check cache first
+    let cache_hit = {
+        let cache = HEALTH_CACHE.read().await;
+        if let Some(cached) = cache.get() {
+            // Record cache hit metric
+            if let Some(ref metrics) = state.metrics_collector {
+                metrics.record_inference_latency("health", "cache_hit", start_time.elapsed().as_secs_f64());
+            }
+            return Ok(cached.clone());
+        }
+        false
+    };
+
+    // Cache miss - compute fresh result
+    let result = check_model_runtime_health_uncached(state).await?;
+    let duration = start_time.elapsed().as_secs_f64();
+
+    // Record metrics
+    if let Some(ref metrics) = state.metrics_collector {
+        metrics.record_inference_latency("health", "cache_miss", duration);
+        // Could add custom counter for cache misses if needed
+    }
+
+    // Update cache
+    {
+        let mut cache = HEALTH_CACHE.write().await;
+        cache.update(result.clone());
+    }
+
+    Ok(result)
+}
+
+/// Uncached version of model runtime health check
+async fn check_model_runtime_health_uncached(state: &AppState) -> Result<ModelRuntimeHealth, anyhow::Error> {
     let Some(rt) = &state.model_runtime else {
         return Ok(ModelRuntimeHealth {
             total_models: 0,
@@ -374,7 +459,7 @@ async fn check_model_runtime_health_summary(state: &AppState) -> Result<ModelRun
             healthy: true,
             inconsistencies_count: 0,
         });
-    };
+    }
 
     // Get all models from database
     let db_models = sqlx::query!(
@@ -6464,6 +6549,13 @@ pub async fn load_adapter(
         }
     }
 
+    // Check for concurrent operations using OperationTracker
+    if let Err(conflict) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse::new("operation in progress").with_code("OPERATION_IN_PROGRESS")),
+        ));
+    }
 
     // Update adapter state to 'loading'
     state
@@ -6486,7 +6578,7 @@ pub async fn load_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(OperationConflict { .. }) = state.operation_tracker.start_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Load)).await {
+    if let Err(OperationConflict { .. }) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load).await {
         return Err((
             StatusCode::CONFLICT,
             Json(
@@ -6545,8 +6637,9 @@ pub async fn load_adapter(
             Some(format!("Validating adapter file ({:.1} MB)", expected_file_size as f64 / 1024.0 / 1024.0)),
         ).await;
 
-        match loader.load_adapter_async(adapter_idx, &id_to_use).await {
-            Ok(handle) => {
+        if state.lifecycle_manager.is_some() {
+            match loader.load_adapter_async(adapter_idx, &id_to_use, Some(&tenant_id)).await {
+                Ok(handle) => {
                 // Update progress: file loaded, updating state (90%)
                 state.operation_tracker.update_adapter_progress(
                     &adapter_id,
@@ -6601,11 +6694,11 @@ pub async fn load_adapter(
                 }
 
                 // Complete operation tracking
-                state.operation_tracker.complete_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Load), true).await;
+                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load, true).await;
             }
             Err(e) => {
                 // Complete operation tracking with failure
-                state.operation_tracker.complete_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Load), false).await;
+                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Load, false).await;
                 // Rollback state on error
                 state
                     .db
@@ -6613,10 +6706,7 @@ pub async fn load_adapter(
                     .await
                     .ok();
 
-                // Complete operation tracking on failure
-                if let Some(ref operation_tracker) = state.operation_tracker {
-                    // Operation cleanup handled by main handler
-                }
+                // Operation cleanup handled by main handler
 
                 // Record failure metrics
                 let load_duration = load_start.elapsed().as_secs_f64();
@@ -6640,7 +6730,7 @@ pub async fn load_adapter(
                 ));
             }
         }
-    } else {
+        } else {
         // No lifecycle manager - just simulate for testing
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
@@ -6668,15 +6758,12 @@ pub async fn load_adapter(
 
         // Record simulated load metrics
         let load_duration = load_start.elapsed().as_secs_f64();
-        if let Some(ref metrics) = state.metrics_collector {
-            state.metrics_collector.record_adapter_load_latency(
-                &adapter_id,
-                &tenant_id,
-                load_duration,
-                "success",
-            );
-        }
-    }
+        state.metrics_collector.record_adapter_load_latency(
+            &adapter_id,
+            &tenant_id,
+            load_duration,
+            "success",
+        );
 
     // Return the adapter with updated stats
     let (total, selected, avg_gate) = state
@@ -6777,7 +6864,7 @@ pub async fn unload_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(OperationConflict { .. }) = state.operation_tracker.start_operation(&adapter_id, &tenant_id, crate::operation_tracker::OperationType::Adapter(crate::operation_tracker::AdapterOperationType::Unload)).await {
+    if let Err(OperationConflict { .. }) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload).await {
         return Err((
             StatusCode::CONFLICT,
             Json(
@@ -6859,7 +6946,7 @@ pub async fn unload_adapter(
             }
             Err(e) => {
                 // Complete operation tracking with failure
-                state.operation_tracker.complete_operation(&adapter_id, &tenant_id, ModelOperationType::Unload, false).await;
+                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload, false).await;
                 // Rollback state on error
                 state
                     .db
@@ -6867,21 +6954,16 @@ pub async fn unload_adapter(
                     .await
                     .ok();
 
-                // Complete operation tracking on failure
-                if let Some(ref operation_tracker) = state.operation_tracker {
-                    // Operation cleanup handled by main handler
-                }
+                // Operation cleanup handled by main handler
 
                 // Record failure metrics
                 let unload_duration = unload_start.elapsed().as_secs_f64();
-                {
-                    state.metrics_collector.record_adapter_unload_latency(
-                        &adapter_id,
-                        &tenant_id,
-                        unload_duration,
-                        "failure",
-                    );
-                }
+                state.metrics_collector.record_adapter_unload_latency(
+                    &adapter_id,
+                    &tenant_id,
+                    unload_duration,
+                    "failure",
+                );
 
                 tracing::error!("Failed to unload adapter {}: {}", adapter_id, e);
                 return Err((
@@ -6923,14 +7005,12 @@ pub async fn unload_adapter(
 
         // Record simulated unload metrics
         let unload_duration = unload_start.elapsed().as_secs_f64();
-        if let Some(ref metrics) = state.metrics_collector {
-            state.metrics_collector.record_adapter_unload_latency(
-                &adapter_id,
-                &tenant_id,
-                unload_duration,
-                "success",
-            );
-        }
+        state.metrics_collector.record_adapter_unload_latency(
+            &adapter_id,
+            &tenant_id,
+            unload_duration,
+            "success",
+        );
     }
 
     Ok(StatusCode::OK)
@@ -9236,7 +9316,7 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                         // Try SQLite datetime format: "YYYY-MM-DD HH:MM:SS"
                         chrono::NaiveDateTime::parse_from_str(updated_at, "%Y-%m-%d %H:%M:%S")
                             .map(|dt| dt.and_utc())
-                            .map_err(|_| chrono::ParseError::TooShort)
+                            .map_err(|e| e)
                     })
                     .or_else(|_| {
                         // Try ISO8601 without timezone
@@ -9322,7 +9402,7 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                 let lifecycle_mgr = lifecycle.lock().await;
                 let adapter_idx = adapter.id.parse::<u16>().unwrap_or(0);
 
-                if !lifecycle_mgr.is_loaded(adapter_idx) {
+                if lifecycle_mgr.get_state(adapter_idx).map_or(true, |state| state == crate::lifecycle_state::AdapterState::Unloaded) {
                     // Adapter marked as warm but not loaded in LifecycleManager
                     let alert_request = adapteros_db::process_monitoring::CreateAlertRequest {
                         rule_id: format!("state_divergence_warm_{}", adapter.adapter_id),
