@@ -20,6 +20,7 @@ import {
   BarChart3,
   Building,
   Users,
+  Grid3x3,
 } from 'lucide-react';
 
 import DashboardPage from '@/pages/DashboardPage';
@@ -43,6 +44,7 @@ import AdminPage from '@/pages/AdminPage';
 import ReportsPage from '@/pages/ReportsPage';
 import TrainerPage from '@/pages/TrainerPage';
 import PersonasPage from '@/pages/PersonasPage';
+import ManagementPage from '@/pages/ManagementPage';
 
 export interface RouteConfig {
   path: string;
@@ -66,13 +68,22 @@ export const routes: RouteConfig[] = [
     navOrder: 1,
   },
   {
+    path: '/management',
+    component: ManagementPage,
+    requiresAuth: true,
+    navGroup: 'Home',
+    navTitle: 'Management Panel',
+    navIcon: Grid3x3,
+    navOrder: 2,
+  },
+  {
     path: '/workflow',
     component: WorkflowPage,
     requiresAuth: true,
     navGroup: 'Home',
     navTitle: 'Getting Started',
     navIcon: Compass,
-    navOrder: 2,
+    navOrder: 3,
   },
   {
     path: '/personas',
@@ -81,7 +92,7 @@ export const routes: RouteConfig[] = [
     navGroup: 'Home',
     navTitle: 'Persona Demo',
     navIcon: Users,
-    navOrder: 3,
+    navOrder: 4,
   },
   {
     path: '/trainer',
