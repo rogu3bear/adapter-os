@@ -134,7 +134,7 @@ pub async fn serve_uds_with_worker<K: FusedKernels + 'static, P: AsRef<Path>>(
 
     // Create router with middleware
     let app = Router::new()
-        .route("/inference", post(inference_handler::<K>))
+        .route("/inference", post(inference_handler))
         // Accept both GET and POST for health to match clients; include policy info
         .route("/health", post(health_handler::<K>))
         .route("/health", get(health_handler::<K>))
