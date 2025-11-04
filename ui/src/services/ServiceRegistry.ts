@@ -1,5 +1,6 @@
 import { Service, ServiceManagerConfig } from '../types/service-lifecycle';
 import { ServiceLifecycleManager } from './ServiceLifecycleManager';
+import { logger } from '../utils/logger';
 
 // Service Registry - Factory for creating predefined AdapterOS services
 export class ServiceRegistry {
@@ -48,11 +49,17 @@ export class ServiceRegistry {
             retryCount: 3,
             preStart: async (service) => {
               // Validate database schema and migrations
-              console.log(`Validating database for ${service.id}`);
+              logger.info('Validating database service', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             postStart: async (service) => {
               // Run health checks and connection tests
-              console.log(`Database ${service.id} started successfully`);
+              logger.info('Database service started successfully', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             }
           }
         ],
@@ -122,16 +129,25 @@ export class ServiceRegistry {
             retryCount: 2,
             preStart: async (service) => {
               // Pre-flight checks: ports, permissions, config validation
-              console.log(`Preparing backend server ${service.id}`);
+              logger.info('Preparing backend server', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             postStart: async (service) => {
               // Wait for server to be ready, run initial health checks
               await new Promise(resolve => setTimeout(resolve, 2000));
-              console.log(`Backend server ${service.id} ready`);
+              logger.info('Backend server ready', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             onHealthCheck: async (service, status) => {
               if (status === 'critical') {
-                console.warn(`Backend server ${service.id} health critical`);
+                logger.warn('Backend server health critical', {
+                  component: 'ServiceRegistry',
+                  serviceId: service.id
+                });
               }
             }
           }
@@ -285,10 +301,16 @@ export class ServiceRegistry {
             retryCount: 2,
             preStart: async (service) => {
               // Validate supervisor configuration
-              console.log(`Initializing supervisor ${service.id}`);
+              logger.info('Initializing supervisor', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             onFailure: async (service, error) => {
-              console.error(`Supervisor failure: ${error.message}`);
+              logger.error('Supervisor failure', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              }, error instanceof Error ? error : new Error(String(error)));
               // Could trigger alerts or failover procedures
             }
           }
@@ -353,10 +375,16 @@ export class ServiceRegistry {
             retryCount: 1,
             preStart: async (service) => {
               // Security pre-flight checks
-              console.log(`Initializing security daemon ${service.id}`);
+              logger.info('Initializing security daemon', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             onFailure: async (service, error) => {
-              console.error(`Security daemon failure: ${error.message}`);
+              logger.error('Security daemon failure', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              }, error instanceof Error ? error : new Error(String(error)));
               // Critical security failure - could shutdown system
             }
           }
@@ -425,14 +453,23 @@ export class ServiceRegistry {
             retryCount: 2,
             preStart: async (service) => {
               // Model loading, GPU initialization
-              console.log(`Setting up inference worker ${service.id}`);
+              logger.info('Setting up inference worker', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             postStart: async (service) => {
               // Warm-up inferences, validate model
-              console.log(`Inference worker ${service.id} ready`);
+              logger.info('Inference worker ready', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             },
             onFailure: async (service, error) => {
-              console.error(`Inference worker failure: ${error.message}`);
+              logger.error('Inference worker failure', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              }, error instanceof Error ? error : new Error(String(error)));
               // Could trigger model reloading or failover
             }
           }
@@ -517,7 +554,10 @@ export class ServiceRegistry {
             timeout: 8000,
             retryCount: 2,
             preStart: async (service) => {
-              console.log(`Starting telemetry exporter ${service.id}`);
+              logger.info('Starting telemetry exporter', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             }
           }
         ],
@@ -580,7 +620,10 @@ export class ServiceRegistry {
             timeout: 5000,
             retryCount: 1,
             preStart: async (service) => {
-              console.log(`Starting metrics collector ${service.id}`);
+              logger.info('Starting metrics collector', {
+                component: 'ServiceRegistry',
+                serviceId: service.id
+              });
             }
           }
         ],

@@ -226,7 +226,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, []); // fetchNotifications is stable, no need to re-subscribe
+  }, [fetchNotifications]);
 
   useEffect(() => {
     if (!enabled) {
@@ -352,7 +352,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       clearFallback();
       stopSSE();
     };
-  }, [enabled, workspaceId, useSSE]); // Removed fetchNotifications from deps
+  }, [enabled, workspaceId, useSSE, fetchNotifications]);
 
   return {
     notifications,

@@ -370,10 +370,9 @@ export function useProgressOperation(operationId?: string): UseProgressOperation
 
   // Cleanup on unmount
   useEffect(() => {
+    const cancelPolling = pollingRef.current;
     return () => {
-      if (pollingRef.current) {
-        pollingRef.current();
-      }
+      cancelPolling?.();
     };
   }, []);
 

@@ -8,6 +8,7 @@ import { CheckCircle, XCircle, AlertTriangle, Download, Code } from 'lucide-reac
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import type { OpenAIModelInfo, ModelValidationResponse } from '../api/types';
+import { logger } from '../utils/logger';
 
 interface ModelInfo extends OpenAIModelInfo {
   validation?: ModelValidationResponse;
@@ -47,7 +48,11 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
               return { modelId: model.id, validation, error: null };
             } catch (error) {
               // Log error but continue with fallback
-              console.warn(`Failed to validate model ${model.id}:`, error);
+              logger.warn('Failed to validate model', {
+                component: 'ModelSelector',
+                modelId: model.id,
+                error: error instanceof Error ? error.message : String(error)
+              });
               return {
                 modelId: model.id,
                 validation: {

@@ -293,7 +293,7 @@ export function usePolling<T>(
         circuitBreakerTimeoutRef.current = null;
       }
     };
-  }, [fetchData, intervalMs, enabled]);
+  }, [fetchData, intervalMs, enabled, enableCircuitBreaker, circuitBreakerResetMs]);
 
   return { data, isLoading, lastUpdated, error, refetch };
 }

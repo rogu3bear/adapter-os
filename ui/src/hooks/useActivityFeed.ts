@@ -449,7 +449,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       clearReconnectTimer();
       stopSSE();
     };
-  }, [enabled, useSSE, mapEventType, mapSeverity]); // Removed fetchEvents and other deps
+  }, [enabled, useSSE, mapEventType, mapSeverity, fetchEvents]);
 
   return {
     events,

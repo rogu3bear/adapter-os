@@ -582,7 +582,9 @@ export interface AdapterEvictionEvent {
 export interface Repository {
   id: string;
   url: string;
+  url_is_fallback?: boolean;
   branch: string;
+  path?: string;
   last_scan?: string;
   commit_count: number;
 }

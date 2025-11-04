@@ -35,20 +35,21 @@ export function RetryNotification({
   const [isCancelled, setIsCancelled] = useState(false);
 
   useEffect(() => {
-    if (timeRemaining <= 0) return;
+    setTimeRemaining(delayMs);
+    if (delayMs <= 0) {
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setTimeRemaining(prev => {
-        const newTime = prev - 100;
-        if (newTime <= 0) {
-          clearInterval(interval);
-          return 0;
-        }
-        return newTime;
-      });
+    let remaining = delayMs;
+    const interval = window.setInterval(() => {
+      remaining = Math.max(remaining - 100, 0);
+      setTimeRemaining(prev => Math.max(prev - 100, 0));
+      if (remaining <= 0) {
+        window.clearInterval(interval);
+      }
     }, 100);
 
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [delayMs]);
 
   const progressPercent = ((maxAttempts - attempt + 1) / maxAttempts) * 100;
