@@ -1,90 +1,144 @@
-import React from 'react';
-import type { UserRole } from '@/api/types';
+import { routes, canAccessRoute, type RouteConfig } from '@/config/routes';
 import type { LucideIcon } from 'lucide-react';
-import { routes, type RouteConfig, canAccessRoute } from '@/config/routes';
 
 export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+  disabled?: boolean;
+  external?: boolean;
 }
 
 export interface NavGroup {
   title: string;
   items: NavItem[];
-  roles?: UserRole[];
+  roles?: string[];
+  order?: number;
 }
 
 /**
- * Generate navigation groups from route configuration
- * Filters routes by user role and groups by navGroup
+ * Generate navigation groups from centralized route configuration
+ * Filters routes by user role and organizes them into logical groups
  */
-export function generateNavigationGroups(userRole?: UserRole): NavGroup[] {
-  // Filter routes that have navigation metadata and are accessible
-  const navRoutes = routes.filter(route => 
-    route.navGroup && 
-    route.navTitle && 
-    route.navIcon &&
-    canAccessRoute(route, userRole)
-  );
+export function generateNavigationGroups(userRole?: string): NavGroup[] {
+  const groupsMap = new Map<string, NavGroup>();
 
-  // Group routes by navGroup
-  const groupMap = new Map<string, RouteConfig[]>();
-  
-  for (const route of navRoutes) {
-    const group = route.navGroup!;
-    if (!groupMap.has(group)) {
-      groupMap.set(group, []);
+  // Process each route from the central config
+  for (const route of routes) {
+    // Skip routes without navigation metadata
+    if (!route.navGroup || !route.navTitle) {
+      continue;
     }
-    groupMap.get(group)!.push(route);
-  }
 
-  // Convert to NavGroup array and sort
-  const navGroups: NavGroup[] = [];
-  
-  for (const [groupTitle, groupRoutes] of groupMap.entries()) {
-    // Sort routes by navOrder
-    groupRoutes.sort((a, b) => (a.navOrder ?? 0) - (b.navOrder ?? 0));
-    
-    // Find if any route in this group has role restrictions
-    const restrictedRoles = new Set<UserRole>();
-    for (const route of groupRoutes) {
-      if (route.requiredRoles) {
-        route.requiredRoles.forEach(role => restrictedRoles.add(role));
-      }
+    // Check if user can access this route
+    if (!canAccessRoute(route, userRole)) {
+      continue;
     }
-    
-    const navItems: NavItem[] = groupRoutes.map(route => ({
+
+    const groupKey = route.navGroup;
+    const group = groupsMap.get(groupKey) || {
+      title: groupKey,
+      items: [],
+      roles: route.requiredRoles,
+      order: 0,
+    };
+
+    // Add the route to the group
+    group.items.push({
       to: route.path,
-      label: route.navTitle!,
-      icon: route.navIcon!,
-    }));
-
-    navGroups.push({
-      title: groupTitle,
-      items: navItems,
-      roles: restrictedRoles.size > 0 ? Array.from(restrictedRoles) : undefined,
+      label: route.navTitle,
+      icon: route.navIcon,
+      disabled: route.disabled,
+      external: route.external,
     });
+
+    groupsMap.set(groupKey, group);
   }
 
-  // Sort groups by title (or could use a predefined order)
-  navGroups.sort((a, b) => {
-    const order = ['Home', 'ML Pipeline', 'Monitoring', 'Operations', 'Communication', 'Compliance', 'Administration'];
-    const aIndex = order.indexOf(a.title);
-    const bIndex = order.indexOf(b.title);
-    if (aIndex >= 0 && bIndex >= 0) return aIndex - bIndex;
-    if (aIndex >= 0) return -1;
-    if (bIndex >= 0) return 1;
+  // Convert map to array and sort
+  const groups = Array.from(groupsMap.values());
+
+  // Sort groups by predefined order (Home first, then alphabetical)
+  const groupOrder = ['Home', 'ML Pipeline', 'Monitoring', 'Operations', 'Communication', 'Compliance', 'Administration'];
+  groups.sort((a, b) => {
+    const aIndex = groupOrder.indexOf(a.title);
+    const bIndex = groupOrder.indexOf(b.title);
+
+    // Known groups get priority based on order array
+    if (aIndex !== -1 && bIndex !== -1) {
+      return aIndex - bIndex;
+    }
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+
+    // Alphabetical fallback
     return a.title.localeCompare(b.title);
   });
 
-  return navGroups;
+  // Sort items within each group by navOrder
+  for (const group of groups) {
+    group.items.sort((a, b) => {
+      const aRoute = routes.find(r => r.path === a.to);
+      const bRoute = routes.find(r => r.path === b.to);
+      const aOrder = aRoute?.navOrder ?? 999;
+      const bOrder = bRoute?.navOrder ?? 999;
+      return aOrder - bOrder;
+    });
+  }
+
+  return groups;
 }
 
 /**
- * Check if a navigation group should be visible based on user role
+ * Check if a navigation group should be shown to a user
+ * Handles role-based access control for entire navigation groups
  */
-export function shouldShowNavGroup(group: NavGroup, userRole?: UserRole): boolean {
-  if (!group.roles || group.roles.length === 0) return true;
-  return userRole ? group.roles.includes(userRole) : false;
+export function shouldShowNavGroup(group: NavGroup, userRole?: string): boolean {
+  // If group has no role restrictions, show to everyone
+  if (!group.roles || group.roles.length === 0) {
+    return true;
+  }
+
+  // If user has no role, hide restricted groups
+  if (!userRole) {
+    return false;
+  }
+
+  // Check if user's role is in the allowed roles
+  return group.roles.includes(userRole);
+}
+
+/**
+ * Get all accessible routes for a user role
+ * Useful for command palette and search functionality
+ */
+export function getAccessibleRoutes(userRole?: string): RouteConfig[] {
+  return routes.filter(route => canAccessRoute(route, userRole));
+}
+
+/**
+ * Find a route by path
+ */
+export function findRouteByPath(path: string): RouteConfig | undefined {
+  return routes.find(route => route.path === path);
+}
+
+/**
+ * Get navigation breadcrumbs for a path
+ */
+export function getBreadcrumbs(path: string): Array<{ label: string; to?: string }> {
+  const route = findRouteByPath(path);
+  if (!route) return [];
+
+  const breadcrumbs = [];
+
+  // Add group breadcrumb if available
+  if (route.navGroup) {
+    breadcrumbs.push({ label: route.navGroup });
+  }
+
+  // Add page breadcrumb
+  breadcrumbs.push({ label: route.navTitle, to: route.path });
+
+  return breadcrumbs;
 }

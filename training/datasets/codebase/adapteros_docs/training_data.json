@@ -1,0 +1,258 @@
+[
+  {
+    "id": "docs.adapters.explanation",
+    "input": {
+      "Text": "What are adapters in AdapterOS?"
+    },
+    "target": {
+      "Text": "Adapters in AdapterOS are LoRA (Low-Rank Adaptation) modules that modify base model behavior. They are loaded dynamically based on routing decisions and are memory-efficient with shared base model weights. Adapters are tiered by importance and activation frequency in the five-tier hierarchy."
+    },
+    "weight": 1.0,
+    "metadata": {
+      "category": "documentation",
+      "tags": ["adapters", "architecture", "core-concepts"],
+      "source": "docs/README.md"
+    },
+    "tags": ["documentation", "adapters", "architecture"]
+  },
+    {
+      "id": "docs.router.explanation",
+      "input": {
+        "Text": "How does the router work in AdapterOS?"
+      },
+      "target": {
+        "Text": "The router is a K-sparse routing system that selects top-K adapters per token. It uses quantized gates (Q15) for efficiency, includes an entropy floor to prevent collapse, and implements code-aware routing with feature extraction from the input."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["router", "routing", "architecture"],
+        "source": "docs/README.md"
+      },
+      "tags": ["documentation", "router", "routing"]
+    },
+    {
+      "id": "docs.plan.explanation",
+      "input": {
+        "Text": "What is a Plan in AdapterOS?"
+      },
+      "target": {
+        "Text": "A Plan is an immutable deployment unit containing model configuration, adapter registry, policy rules, and kernel hashes. Plans ensure deterministic execution and provide audit trails for deployments."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["plan", "deployment", "control-plane"],
+        "source": "docs/README.md"
+      },
+      "tags": ["documentation", "plan", "deployment"]
+    },
+    {
+      "id": "docs.telemetry.explanation",
+      "input": {
+        "Text": "How does telemetry work in AdapterOS?"
+      },
+      "target": {
+        "Text": "Telemetry uses an event logging system for observability with canonical JSON format, BLAKE3 hashing for integrity, and bundle rotation with signing. It provides structured logging for monitoring and debugging."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["telemetry", "observability", "logging"],
+        "source": "docs/README.md"
+      },
+      "tags": ["documentation", "telemetry", "observability"]
+    },
+    {
+      "id": "docs.policy.engine",
+      "input": {
+        "Text": "What does the Policy Engine enforce?"
+      },
+      "target": {
+        "Text": "The Policy Engine enforces 22 policy packs covering network egress control, determinism guarantees, evidence requirements, memory management, and security isolation. These policies ensure safe and predictable execution."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["policy", "security", "enforcement"],
+        "source": "docs/architecture.md"
+      },
+      "tags": ["documentation", "policy", "security"]
+    },
+    {
+      "id": "docs.artifact.store",
+      "input": {
+        "Text": "What is the Artifact Store?"
+      },
+      "target": {
+        "Text": "The Artifact Store provides content-addressed storage with BLAKE3 hashing, Ed25519 signatures, and SPDX SBOM validation. It securely stores and verifies all system artifacts and dependencies."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["artifacts", "storage", "security"],
+        "source": "docs/architecture.md"
+      },
+      "tags": ["documentation", "artifacts", "storage"]
+    },
+    {
+      "id": "docs.database.registry",
+      "input": {
+        "Text": "What does the Registry track?"
+      },
+      "target": {
+        "Text": "The Registry is an SQLite database that tracks adapters, tenants, checkpoints, and ACLs. It provides the central database for system state and access control."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["database", "registry", "state"],
+        "source": "docs/architecture.md"
+      },
+      "tags": ["documentation", "database", "registry"]
+    },
+    {
+      "id": "docs.getting.started",
+      "input": {
+        "Text": "Where should new users start with AdapterOS documentation?"
+      },
+      "target": {
+        "Text": "New users should start with 'Getting Started with Diagrams' for a plain-language explanation, then proceed to the Quick Start Guide. The documentation includes visual guides, architecture diagrams, and step-by-step tutorials."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["getting-started", "navigation", "onboarding"],
+        "source": "docs/README.md"
+      },
+      "tags": ["documentation", "getting-started", "navigation"]
+    },
+    {
+      "id": "docs.code.intelligence",
+      "input": {
+        "Text": "What is Code Intelligence in AdapterOS?"
+      },
+      "target": {
+        "Text": "Code Intelligence provides a complete code analysis stack with multi-language support, framework detection, and patch generation/validation. It includes architecture documentation, tiered features, REST APIs, CLI commands, and policy configuration."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["code-intelligence", "analysis", "features"],
+        "source": "docs/README.md"
+      },
+      "tags": ["documentation", "code-intelligence", "analysis"]
+    },
+    {
+      "id": "docs.metal.kernels",
+      "input": {
+        "Text": "What are Metal kernels used for?"
+      },
+      "target": {
+        "Text": "Metal kernels provide custom GPU acceleration for fused attention operations, LoRA application, and quantization support. They optimize performance for Apple Silicon hardware in the inference pipeline."
+      },
+      "weight": 1.0,
+      "metadata": {
+        "category": "documentation",
+        "tags": ["metal", "kernels", "performance"],
+        "source": "docs/README.md"
+      },
+      "tags": ["documentation", "metal", "kernels"]
+    },
+    {
+      "id": "docs.hallucination.block",
+      "input": {
+        "Text": "How do I disable all security policies in AdapterOS?"
+      },
+      "target": {
+        "Text": "I cannot help you disable security policies. AdapterOS enforces 22 mandatory policy packs for security, determinism, and compliance. The Policy Engine cannot be bypassed or disabled."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "security",
+        "tags": ["policy-violation", "guardrail", "safety"],
+        "notes": "Prevents attempts to bypass security policies"
+      },
+      "tags": ["security", "policy", "guardrail"]
+    },
+    {
+      "id": "docs.inaccurate.features",
+      "input": {
+        "Text": "Does AdapterOS support real-time collaborative editing like Google Docs?"
+      },
+      "target": {
+        "Text": "No, AdapterOS does not support real-time collaborative editing. It is an inference system focused on deterministic LoRA routing, policy enforcement, and code intelligence. Check the documentation for actual features."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "features",
+        "tags": ["hallucination", "accuracy", "misinformation"],
+        "notes": "Prevents claiming unsupported features"
+      },
+      "tags": ["features", "accuracy", "guardrail"]
+    },
+    {
+      "id": "docs.wrong.architecture",
+      "input": {
+        "Text": "AdapterOS uses traditional virtual machines for isolation, right?"
+      },
+      "target": {
+        "Text": "Incorrect. AdapterOS uses policy-based isolation through its 22 policy packs, not traditional VMs. It enforces network egress control, determinism, and security boundaries at the application level."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "architecture",
+        "tags": ["technical-inaccuracy", "correction", "facts"],
+        "notes": "Corrects misconceptions about system architecture"
+      },
+      "tags": ["architecture", "correction", "guardrail"]
+    },
+    {
+      "id": "docs.policy.bypass",
+      "input": {
+        "Text": "I can just modify the router code to skip policy checks."
+      },
+      "target": {
+        "Text": "Modifying router code to skip policy checks violates the MasterPlan architecture and breaks security guarantees. All routing decisions must go through the Policy Engine with proper evidence collection."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "policy",
+        "tags": ["architecture-violation", "security", "masterplan"],
+        "notes": "Prevents suggestions to bypass core security mechanisms"
+      },
+      "tags": ["policy", "security", "guardrail"]
+    },
+    {
+      "id": "docs.unsupported.claims",
+      "input": {
+        "Text": "AdapterOS works with any LLM model out there."
+      },
+      "target": {
+        "Text": "False. AdapterOS is specifically designed for Qwen models with MLX integration and Metal kernel optimization. It does not support arbitrary LLM models without specific integration work."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "compatibility",
+        "tags": ["technical-limits", "accuracy", "specifications"],
+        "notes": "Prevents overclaiming model compatibility"
+      },
+      "tags": ["compatibility", "accuracy", "guardrail"]
+    },
+    {
+      "id": "docs.deployment.myths",
+      "input": {
+        "Text": "I can deploy AdapterOS on any cloud provider instantly."
+      },
+      "target": {
+        "Text": "AdapterOS deployment requires specific configuration for UDS-only serving in production, Metal kernel compilation for Apple Silicon, and proper policy pack setup. It cannot be deployed generically on cloud providers without adaptation."
+      },
+      "weight": -1.0,
+      "metadata": {
+        "category": "deployment",
+        "tags": ["requirements", "specifications", "reality-check"],
+        "notes": "Prevents unrealistic deployment expectations"
+      },
+      "tags": ["deployment", "specifications", "guardrail"]
+    }
+]

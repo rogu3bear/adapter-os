@@ -376,16 +376,48 @@ impl CommitDaemon {
 
     /// Store commit record in database
     async fn store_commit_record(
-        _db: &adapteros_db::Db,
+        db: &adapteros_db::Db,
         batch: &ChangeBatch,
         commit_id: &str,
     ) -> Result<()> {
-        // TODO: Implement database storage for commit records
-        // This will be implemented when the database schema is ready
-        debug!(
-            "Would store commit {} for adapter {} in database",
-            commit_id, batch.adapter_id
+        let commit_sha = commit_id;
+        let message = Self::generate_commit_message(batch);
+        let files_changed = batch.changes.len() as i64;
+
+        // Use adapter_id as session_id for now
+        let session_id = &batch.adapter_id;
+
+        // Store commit record
+        let commit_record_id = uuid::Uuid::now_v7().to_string();
+        db.create_git_adapter_commit(
+            &commit_record_id,
+            session_id,
+            commit_sha,
+            &message,
+            files_changed,
+        ).await.map_err(|e| {
+            AosError::Database(format!("Failed to store commit record: {}", e))
+        })?;
+
+        // Store file change events
+        for change in &batch.changes {
+            let event_id = uuid::Uuid::now_v7().to_string();
+            db.create_file_change_event(
+                &event_id,
+                Some(&batch.adapter_id),
+                &batch.repo_id,
+                &change.file_path,
+                &format!("{:?}", change.change_type),
+            ).await.map_err(|e| {
+                AosError::Database(format!("Failed to store file change event: {}", e))
+            })?;
+        }
+
+        info!(
+            "Stored commit {} with {} file changes for adapter {}",
+            commit_sha, files_changed, batch.adapter_id
         );
+
         Ok(())
     }
 }

@@ -1,294 +1,333 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import apiClient from '@/api/client';
-import type { User, UserRole } from '@/api/types';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { apiClient } from '../api/client';
+import type { User, LoginRequest } from '../api/types';
+import { logger, toError } from '../utils/logger';
 
-// Theme
-type Theme = 'light' | 'dark';
-
-interface ThemeContextValue {
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-  toggleTheme: () => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
-
-function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('light');
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('aos_theme');
-      if (saved === 'light' || saved === 'dark') {
-        setThemeState(saved);
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    // Apply theme only on client to avoid SSR/layout thrash
-    const root = document.documentElement;
-    if (theme === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
-    try {
-      localStorage.setItem('aos_theme', theme);
-    } catch {}
-  }, [theme]);
-
-  const setTheme = useCallback((t: Theme) => setThemeState(t), []);
-  const toggleTheme = useCallback(() => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark')), []);
-
-  const value = useMemo(() => ({ theme, setTheme, toggleTheme }), [theme, setTheme, toggleTheme]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
-  return ctx;
-}
-
-// Auth
+// Auth Context
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
-  login: (credentials: { email: string; password: string }) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   refreshSession: () => Promise<void>;
   logoutAllSessions: () => Promise<void>;
-  updateProfile: (updates: { displayName?: string }) => Promise<void>;
+  updateProfile: (updates: { display_name?: string; avatar_url?: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-// Valid user roles - centralized definition
-const VALID_USER_ROLES: UserRole[] = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'];
-
-function validateAndNormalizeUserRole(role: string): UserRole {
-  // Check if the role is valid
-  if (VALID_USER_ROLES.includes(role as UserRole)) {
-    return role as UserRole;
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within CoreProviders');
   }
-
-  // Log invalid role for debugging
-  console.warn('Invalid user role received from server, defaulting to viewer', {
-    receivedRole: role,
-    validRoles: VALID_USER_ROLES,
-    component: 'AuthProvider'
-  });
-
-  // Default to viewer role for security (most restrictive)
-  return 'viewer';
+  return context;
 }
 
-function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+// Theme Context
+type Theme = 'light' | 'dark' | 'system';
 
-  const buildUser = useCallback((data: {
-    user_id: string;
-    email?: string;
-    display_name?: string;
-    role: string;
-    tenant_id?: string;
-    permissions?: string[];
-    last_login_at?: string;
-    mfa_enabled?: boolean;
-    token_last_rotated_at?: string;
-  }, fallbackEmail?: string): User => {
-    const email = data.email || fallbackEmail || '';
-    const derivedDisplayName = email ? email.split('@')[0] : 'User';
-
-    return {
-      id: data.user_id,
-      email,
-      display_name: data.display_name || derivedDisplayName,
-      role: validateAndNormalizeUserRole(data.role),
-      tenant_id: data.tenant_id || 'default',
-      permissions: data.permissions ?? [],
-      last_login_at: data.last_login_at,
-      mfa_enabled: data.mfa_enabled,
-      token_last_rotated_at: data.token_last_rotated_at,
-    };
-  }, []);
-
-  const verifyAuth = useCallback(async () => {
-    try {
-      const currentUser = await apiClient.getCurrentUser();
-      setUser(buildUser(currentUser));
-    } catch (error: any) {
-      // If 401, try refresh if available
-      if (error.message?.includes('401')) {
-        try {
-          // Attempt refresh - assuming server supports /v1/auth/refresh
-          const refreshedUser = await apiClient.refreshSession();
-          setUser(buildUser(refreshedUser));
-        } catch {
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-    }
-  }, [buildUser]);
-
-  useEffect(() => {
-    void verifyAuth().finally(() => setIsLoading(false));
-  }, [verifyAuth]);
-
-  const login = useCallback(async (credentials: { email: string; password: string }) => {
-    const response = await apiClient.login(credentials);
-    setUser(buildUser({
-      user_id: response.user_id,
-      email: response.email ?? credentials.email,
-      display_name: response.display_name,
-      role: response.role,
-      tenant_id: response.tenant_id,
-      permissions: response.permissions,
-      last_login_at: response.last_login_at,
-      token_last_rotated_at: response.token_last_rotated_at,
-    }, credentials.email));
-  }, [buildUser]);
-
-  const logout = useCallback(async () => {
-    try { await apiClient.logout(); } catch {}
-    setUser(null);
-  }, []);
-
-  const refreshUser = useCallback(async () => {
-    try {
-      const currentUser = await apiClient.getCurrentUser();
-      setUser(buildUser(currentUser));
-    } catch (error) {
-      setUser(null);
-      throw error;
-    }
-  }, [buildUser]);
-
-  const refreshSession = useCallback(async () => {
-    try {
-      const refreshed = await apiClient.refreshSession();
-      setUser(buildUser(refreshed));
-    } catch (error) {
-      setUser(null);
-      throw error;
-    }
-  }, [buildUser]);
-
-  const logoutAllSessions = useCallback(async () => {
-    await apiClient.logoutAllSessions();
-    try {
-      const currentUser = await apiClient.getCurrentUser();
-      setUser(buildUser(currentUser));
-    } catch {
-      // If current session invalidated, ensure state cleared
-      setUser(null);
-    }
-  }, [buildUser]);
-
-  const updateProfile = useCallback(async (updates: { displayName?: string }) => {
-    const payload: { display_name?: string } = {};
-    if (updates.displayName !== undefined) {
-      payload.display_name = updates.displayName;
-    }
-    const updated = await apiClient.updateUserProfile(payload);
-    setUser(buildUser(updated));
-  }, [buildUser]);
-
-  const value = useMemo(
-    () => ({
-      user,
-      isLoading,
-      login,
-      logout,
-      refreshUser,
-      refreshSession,
-      logoutAllSessions,
-      updateProfile,
-    }),
-    [user, isLoading, login, logout, refreshUser, refreshSession, logoutAllSessions, updateProfile]
-  );
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+interface ThemeContextValue {
+  theme: Theme;
+  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
 }
 
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+
+export function useTheme(): ThemeContextValue {
+  const context = useContext(ThemeContext);
+  if (!context) {
+    throw new Error('useTheme must be used within CoreProviders');
+  }
+  return context;
 }
 
-// Route guard component
-export function RequireAuth({ children }: { children: React.ReactNode }) {
+// Resize Context
+interface ResizeContextValue {
+  getLayout: (storageKey: string) => number[] | null;
+  setLayout: (storageKey: string, sizes: number[]) => void;
+}
+
+const ResizeContext = createContext<ResizeContextValue | undefined>(undefined);
+
+export function useResize(): ResizeContextValue {
+  const context = useContext(ResizeContext);
+  if (!context) {
+    throw new Error('useResize must be used within CoreProviders');
+  }
+  return context;
+}
+
+// RequireAuth Component
+interface RequireAuthProps {
+  children: ReactNode;
+  fallback?: ReactNode;
+}
+
+export function RequireAuth({ children, fallback }: RequireAuthProps) {
   const { user, isLoading } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!isLoading && !user) {
-      navigate('/login', { replace: true });
-    }
-  }, [user, isLoading, navigate]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+    return fallback || <div>Loading...</div>;
   }
 
   if (!user) {
-    return null;
+    return fallback || <div>Authentication required</div>;
   }
 
   return <>{children}</>;
 }
 
-// Resize persistence
-interface ResizeContextValue {
-  getLayout: (key: string) => number[] | undefined;
-  setLayout: (key: string, layout: number[]) => void;
-}
+// Auth Provider Component
+function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const isRefreshingRef = useRef(false);
 
-const ResizeContext = createContext<ResizeContextValue | undefined>(undefined);
+  const refreshUser = useCallback(async () => {
+    // Prevent concurrent refresh calls
+    if (isRefreshingRef.current) {
+      return;
+    }
 
-function ResizeProvider({ children }: { children: React.ReactNode }) {
-  const getLayout = useCallback((key: string) => {
+    isRefreshingRef.current = true;
     try {
-      const raw = localStorage.getItem(`aos_layout_${key}`);
-      return raw ? (JSON.parse(raw) as number[]) : undefined;
-    } catch {
-      return undefined;
+      const userInfo = await apiClient.getCurrentUser();
+      setUser({
+        id: userInfo.user_id,
+        email: userInfo.email,
+        display_name: userInfo.display_name || userInfo.email,
+        role: userInfo.role as User['role'],
+        tenant_id: userInfo.tenant_id || '',
+        permissions: userInfo.permissions || [],
+        last_login_at: userInfo.last_login_at,
+        mfa_enabled: userInfo.mfa_enabled,
+        token_last_rotated_at: userInfo.token_last_rotated_at,
+      });
+    } catch (error) {
+      setUser(null);
+      logger.error('Failed to fetch user', { component: 'AuthProvider' }, toError(error));
+    } finally {
+      isRefreshingRef.current = false;
     }
   }, []);
 
-  const setLayout = useCallback((key: string, layout: number[]) => {
-    try { localStorage.setItem(`aos_layout_${key}`, JSON.stringify(layout)); } catch {}
+  const login = useCallback(async (credentials: LoginRequest) => {
+    try {
+      await apiClient.login(credentials);
+      await refreshUser();
+    } catch (error) {
+      logger.error('Login failed', { component: 'AuthProvider' }, toError(error));
+      throw error; // Re-throw so caller can handle
+    }
+  }, [refreshUser]);
+
+  const logout = useCallback(async () => {
+    try {
+      await apiClient.logout();
+    } catch (error) {
+      logger.error('Logout error', { component: 'AuthProvider' }, toError(error));
+    } finally {
+      setUser(null);
+    }
   }, []);
 
-  const value = useMemo(() => ({ getLayout, setLayout }), [getLayout, setLayout]);
+  const refreshSession = useCallback(async () => {
+    try {
+      await apiClient.refreshSession();
+      await refreshUser();
+    } catch (error) {
+      logger.error('Session refresh error', { component: 'AuthProvider' }, toError(error));
+      setUser(null);
+    }
+  }, [refreshUser]);
+
+  const logoutAllSessions = useCallback(async () => {
+    try {
+      await apiClient.logoutAllSessions();
+      setUser(null);
+    } catch (error) {
+      logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
+    }
+  }, []);
+
+  const updateProfile = useCallback(async (updates: { display_name?: string; avatar_url?: string }) => {
+    try {
+      await apiClient.updateUserProfile(updates);
+      // Refresh user to get latest data
+      await refreshUser();
+    } catch (error) {
+      logger.error('Failed to update profile', { component: 'AuthProvider' }, toError(error));
+      throw error;
+    }
+  }, [refreshUser]);
+
+  useEffect(() => {
+    refreshUser().finally(() => setIsLoading(false));
+  }, [refreshUser]);
+
+  const value: AuthContextValue = {
+    user,
+    isLoading,
+    login,
+    logout,
+    refreshUser,
+    refreshSession,
+    logoutAllSessions,
+    updateProfile,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// Theme Provider Component
+function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      const stored = localStorage.getItem('theme');
+      if (stored === 'light' || stored === 'dark' || stored === 'system') {
+        return stored;
+      }
+    } catch (error) {
+      logger.warn('Failed to read theme from localStorage', { component: 'ThemeProvider' });
+    }
+    return 'system';
+  });
+
+  // Apply theme immediately and listen to system preference changes
+  useEffect(() => {
+    const applyTheme = () => {
+      const root = document.documentElement;
+      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      
+      if (isDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+
+    // Listen to system preference changes when theme is 'system'
+    if (theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applyTheme();
+      
+      // Modern browsers
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
+      } 
+      // Fallback for older browsers
+      else if (mediaQuery.addListener) {
+        mediaQuery.addListener(handleChange);
+        return () => mediaQuery.removeListener(handleChange);
+      }
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => {
+      const next = prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light';
+      try {
+        localStorage.setItem('theme', next);
+      } catch (error) {
+        logger.warn('Failed to save theme to localStorage', { component: 'ThemeProvider' });
+      }
+      return next;
+    });
+  }, []);
+
+  const setTheme = useCallback((newTheme: Theme) => {
+    if (newTheme !== 'light' && newTheme !== 'dark' && newTheme !== 'system') {
+      logger.warn('Invalid theme value', { component: 'ThemeProvider', theme: newTheme });
+      return;
+    }
+    setThemeState(newTheme);
+    try {
+      localStorage.setItem('theme', newTheme);
+    } catch (error) {
+      logger.warn('Failed to save theme to localStorage', { component: 'ThemeProvider' });
+    }
+  }, []);
+
+  const value: ThemeContextValue = {
+    theme,
+    toggleTheme,
+    setTheme,
+  };
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+// Resize Provider Component
+function ResizeProvider({ children }: { children: ReactNode }) {
+  const getLayout = useCallback((storageKey: string): number[] | null => {
+    try {
+      const stored = localStorage.getItem(`resize:layout:${storageKey}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.every((n) => typeof n === 'number')) {
+          return parsed;
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to load layout', { component: 'ResizeProvider', storageKey });
+    }
+    return null;
+  }, []);
+
+  const setLayout = useCallback((storageKey: string, sizes: number[]) => {
+    // Validate sizes array
+    if (!Array.isArray(sizes) || sizes.length === 0 || !sizes.every((n) => typeof n === 'number' && n >= 0 && n <= 100)) {
+      logger.warn('Invalid layout sizes', { component: 'ResizeProvider', storageKey, sizes });
+      return;
+    }
+
+    try {
+      localStorage.setItem(`resize:layout:${storageKey}`, JSON.stringify(sizes));
+    } catch (error) {
+      // Handle quota exceeded or other storage errors
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        logger.warn('Storage quota exceeded, clearing old layouts', { component: 'ResizeProvider' });
+        // Clear old layout entries (keep last 10)
+        try {
+          const keys = Object.keys(localStorage).filter((k) => k.startsWith('resize:layout:'));
+          if (keys.length > 10) {
+            keys.slice(0, keys.length - 10).forEach((k) => localStorage.removeItem(k));
+            // Retry saving
+            localStorage.setItem(`resize:layout:${storageKey}`, JSON.stringify(sizes));
+          }
+        } catch (retryError) {
+          logger.warn('Failed to save layout after cleanup', { component: 'ResizeProvider', storageKey });
+        }
+      } else {
+        logger.warn('Failed to save layout', { component: 'ResizeProvider', storageKey });
+      }
+    }
+  }, []);
+
+  const value: ResizeContextValue = {
+    getLayout,
+    setLayout,
+  };
+
   return <ResizeContext.Provider value={value}>{children}</ResizeContext.Provider>;
 }
 
-export function useResize() {
-  const ctx = useContext(ResizeContext);
-  if (!ctx) throw new Error('useResize must be used within ResizeProvider');
-  return ctx;
-}
-
-/**
- * CoreProviders - Fundamental providers with no dependencies
- * Groups: Theme, Auth, Resize
- */
-export function CoreProviders({ children }: { children: React.ReactNode }) {
+// Core Providers Component
+export function CoreProviders({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <ThemeProvider>
         <ResizeProvider>
           {children}
         </ResizeProvider>
-      </AuthProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </AuthProvider>
   );
 }
+

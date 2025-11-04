@@ -5,7 +5,7 @@ enum StatusReadError: Error, Equatable {
     case fileMissing
     case permissionDenied
     case decodeFailed
-    case validationFailed(String)  // Includes reason for validation failure
+    case readError(String)
     case unknown
 }
 
@@ -90,6 +90,17 @@ final class StatusReader {
             }
         }
         return nil
+    }
+
+    /// Initialize with fallback to local test data
+    convenience init() {
+        // Check for local test data first, then system location
+        let localPath = Bundle.main.bundlePath + "/../../../var/adapteros_status.json"
+        if FileManager.default.fileExists(atPath: localPath) {
+            self.init(filePath: localPath)
+        } else {
+            self.init(filePath: "/var/run/adapteros_status.json")
+        }
     }
 
     /// Read and decode status. Throws mapped StatusReadError.

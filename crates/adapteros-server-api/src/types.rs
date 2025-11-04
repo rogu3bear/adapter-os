@@ -1,5 +1,5 @@
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -105,20 +105,6 @@ pub struct OperationProgressEvent {
 }
 
 
-impl IntoResponse for ErrorResponse {
-    fn into_response(self) -> Response {
-        let status = match self.code.as_str() {
-            "NOT_FOUND" => StatusCode::NOT_FOUND,
-            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
-            "FORBIDDEN" => StatusCode::FORBIDDEN,
-            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
-            "CONFLICT" => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        (status, axum::Json(self)).into_response()
-    }
-}
 
 
 // ============================================================================
@@ -1972,6 +1958,14 @@ pub struct GitStatusResponse {
     pub modified_files: Vec<String>,
     pub staged_files: Vec<String>,
     pub untracked_files: Vec<String>,
+}
+
+/// Repository scan status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ScanStatusResponse {
+    pub status: String,
+    pub commits_processed: i64,
+    pub last_commit: Option<String>,
 }
 
 /// Log file information response

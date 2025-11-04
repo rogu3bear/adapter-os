@@ -53,10 +53,6 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::debug_routing,
         handlers::get_routing_history,
         handlers::routing_decisions,
-        handlers::get_prompt_orchestration_config,
-        handlers::update_prompt_orchestration_config,
-        handlers::analyze_prompt,
-        handlers::get_prompt_orchestration_metrics,
         // Contacts and Streams handlers - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         handlers::list_contacts,
         handlers::create_contact,
@@ -537,16 +533,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/policy",
             put(handlers::update_adapter_policy),
         )
-        // TODO: Fix category policy handlers
-        // .route(
-        //     "/v1/adapters/category-policies",
-        //     get(handlers::get_category_policies),
-        // )
-        // .route(
-        //     "/v1/adapters/category-policies/:category",
-        //     get(handlers::get_category_policy)
-        //         .put(handlers::update_category_policy),
-        // )
         .route(
             "/v1/adapters/:adapter_id/manifest",
             get(handlers::download_adapter_manifest),
@@ -775,6 +761,11 @@ pub fn build(state: AppState) -> Router {
         // Code intelligence routes (compiled only with "cdp" feature)
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
+        .route("/v1/repositories/register", post(handlers::git_repository::register_git_repository))
+        .route("/v1/repositories/:repo_id/scan", post(handlers::git_repository::trigger_repository_scan))
+        .route("/v1/repositories/:repo_id/status", get(handlers::git_repository::get_repository_status))
+        .route("/v1/repositories/:repo_id/analysis", get(handlers::git_repository::get_repository_analysis))
+        .route("/v1/repositories/:repo_id", delete(handlers::git_repository::unregister_repository))
         // Metrics routes
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
@@ -811,23 +802,6 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/routing/debug", post(handlers::debug_routing))
         .route("/v1/routing/history", get(handlers::get_routing_history))
         .route("/v1/routing/decisions", get(handlers::routing_decisions))
-        // Prompt orchestration routes
-        .route(
-            "/v1/prompt-orchestration/config",
-            get(handlers::get_prompt_orchestration_config),
-        )
-        .route(
-            "/v1/prompt-orchestration/config",
-            put(handlers::update_prompt_orchestration_config),
-        )
-        .route(
-            "/v1/prompt-orchestration/analyze",
-            post(handlers::analyze_prompt),
-        )
-        .route(
-            "/v1/prompt-orchestration/metrics",
-            get(handlers::get_prompt_orchestration_metrics),
-        )
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
