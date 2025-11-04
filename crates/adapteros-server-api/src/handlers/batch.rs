@@ -128,7 +128,7 @@ pub async fn batch_infer(
             prompt: item.request.prompt.clone(),
             max_tokens: item.request.max_tokens.unwrap_or(100),
             require_evidence: item.request.require_evidence.unwrap_or(false),
-            adapter_hints: None,
+            adapter_hints: None, // No pre-routing for batch infer endpoint
             router_features: None,
         };
 

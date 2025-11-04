@@ -1106,17 +1106,17 @@ async fn main() -> Result<()> {
             .clone()
             .unwrap_or_default();
 
+        // Create broadcast channel for file change events
+        let (file_change_tx, _) = tokio::sync::broadcast::channel::<
+            adapteros_api_types::git::FileChangeEvent,
+        >(1000);
+
         match adapteros_git::GitSubsystem::new(git_config, db.clone()).await {
             Ok(mut git_subsystem) => {
                 // Start git subsystem
                 if let Err(e) = git_subsystem.start().await {
                     error!("Failed to start Git subsystem: {}", e);
                 } else {
-                    // Create broadcast channel for file change events
-                    let (file_change_tx, _) = tokio::sync::broadcast::channel::<
-                        adapteros_api_types::git::FileChangeEvent,
-                    >(1000);
-
                     state = state.with_git(Arc::new(git_subsystem), Arc::new(file_change_tx));
                     info!("Git subsystem started successfully");
                 }

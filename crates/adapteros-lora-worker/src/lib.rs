@@ -282,7 +282,32 @@ impl<K: FusedKernels> Worker<K> {
 
         // Enforce determinism policy using backend attestation
         let attestation = kernels.attest_determinism()?;
-        policy.validate_backend_determinism(&attestation)?;
+        // Create policy validator from manifest config
+        let determinism_validator = adapteros_policy::packs::determinism::DeterminismPolicy::new(
+            adapteros_policy::packs::determinism::DeterminismConfig {
+                require_metallib_embed: policy.determinism_policy().require_metallib_embed,
+                require_kernel_hash_match: policy.determinism_policy().require_kernel_hash_match,
+                rng: adapteros_policy::packs::determinism::RngSeedingMethod::HkdfSeeded,
+                retrieval_tie_break: vec![],
+                epsilon_bounds: adapteros_policy::packs::determinism::EpsilonBounds {
+                    logits_epsilon: 1e-6,
+                    embeddings_epsilon: 1e-5,
+                    attention_epsilon: 1e-6,
+                    gates_epsilon: 1e-4,
+                },
+                toolchain_requirements: adapteros_policy::packs::determinism::ToolchainRequirements {
+                    rust_version: "1.75.0".to_string(),
+                    metal_sdk_version: "3.0".to_string(),
+                    kernel_compiler_version: "1.0".to_string(),
+                    allowed_compiler_flags: vec![
+                        "-O2".to_string(),
+                        "-ffast-math".to_string(),
+                    ],
+                },
+                min_router_entropy: 0.1,
+            }
+        );
+        determinism_validator.validate_backend_attestation(&attestation)?;
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }

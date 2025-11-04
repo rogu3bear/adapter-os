@@ -1,18 +1,20 @@
 import { useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { buildBreadcrumbChain, type BreadcrumbItem } from '@/utils/breadcrumbs';
+import { getBreadcrumbs } from '@/utils/navigation';
+
+export interface BreadcrumbItem {
+  label: string;
+  to?: string;
+}
 
 /**
- * Stateless hook that derives breadcrumbs from current URL pathname
- * Computed on-demand from route configuration - no persistence needed
+ * Hook to generate breadcrumbs based on current route
+ * Automatically updates when location changes
  */
 export function useBreadcrumbs(): BreadcrumbItem[] {
   const location = useLocation();
 
-  const breadcrumbs = useMemo(() => {
-    return buildBreadcrumbChain(location.pathname);
+  return useMemo(() => {
+    return getBreadcrumbs(location.pathname);
   }, [location.pathname]);
-
-  return breadcrumbs;
 }
-

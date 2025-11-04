@@ -4882,7 +4882,7 @@ pub async fn infer_stream(
             prompt: req.prompt.clone(),
             max_tokens: req.max_tokens.unwrap_or(100),
             require_evidence: req.require_evidence.unwrap_or(false),
-            adapter_hints: None,
+            adapter_hints: None, // No pre-routing for basic infer endpoint
             router_features: None,
         };
         tokio::spawn(async move {

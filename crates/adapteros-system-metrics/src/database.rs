@@ -104,15 +104,15 @@ impl SystemMetricsDb {
                 memory_usage: row.get("memory_usage"),
                 disk_read_bytes: row.get("disk_read_bytes"),
                 disk_write_bytes: row.get("disk_write_bytes"),
-                disk_usage_percent: 0.0, // Not in schema yet - default to 0
+                disk_usage_percent: row.get("disk_usage_percent"),
                 network_rx_bytes: row.get("network_rx_bytes"),
                 network_tx_bytes: row.get("network_tx_bytes"),
-                network_rx_packets: 0,       // Not in schema yet - default to 0
-                network_tx_packets: 0,       // Not in schema yet - default to 0
-                network_bandwidth_mbps: 0.0, // Not in schema yet - default to 0
+                network_rx_packets: row.get("network_rx_packets"),
+                network_tx_packets: row.get("network_tx_packets"),
+                network_bandwidth_mbps: row.get("network_bandwidth_mbps"),
                 gpu_utilization: row.get("gpu_utilization"),
                 gpu_memory_used: row.get("gpu_memory_used"),
-                gpu_memory_total: None, // Not in schema yet - default to None
+                gpu_memory_total: row.get("gpu_memory_total"),
                 uptime_seconds: row.get("uptime_seconds"),
                 process_count: row.get::<i64, _>("process_count") as i32,
                 load_1min: row.get("load_1min"),

@@ -95,6 +95,16 @@ struct StatusMenuView: View {
                 Label("Open Dashboard", systemImage: "safari")
             }
 
+            if let status = viewModel.status,
+               status.base_model_loaded == true,
+               let modelName = status.base_model_name {
+                Button {
+                    Task { await viewModel.unloadModel() }
+                } label: {
+                    Label("Unload Model (\(modelName))", systemImage: "minus.circle")
+                }
+            }
+
             Button {
                 Task { await viewModel.refresh() }
             } label: {

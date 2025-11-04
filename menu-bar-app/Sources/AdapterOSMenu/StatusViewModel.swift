@@ -20,9 +20,11 @@ class StatusViewModel: ObservableObject {
     @Published var lastUpdate: Date?
     
     // MARK: - Private State
-    
-    private let reader = StatusReader()
+
+    private let statusPath = "/var/run/adapteros_status.json"
+    private let reader = StatusReader() // Will check local var/ first, then /var/run
     private let metricsCollector = SystemMetricsCollector()
+    private let serviceClient = ServicePanelClient()
     private var pollTimerCancellable: AnyCancellable?
     private var metricsTimerCancellable: AnyCancellable?
     private var vnodeSource: DispatchSourceFileSystemObject?
@@ -176,6 +178,24 @@ class StatusViewModel: ObservableObject {
         }
     }
     
+    func unloadModel() async {
+        guard let status = status, let modelId = status.base_model_id else {
+            Logger.shared.warning("No model loaded to unload")
+            return
+        }
+
+        do {
+            _ = try await serviceClient.unloadModel(modelId)
+            Logger.shared.info("Model unloaded successfully", context: ["model_id": modelId])
+
+            // Refresh status to show unloaded state
+            await refresh()
+        } catch {
+            Logger.shared.error("Failed to unload model", error: error, context: ["model_id": modelId])
+            lastError = StatusReadError.readError("Failed to unload model: \(error.localizedDescription)")
+        }
+    }
+
     func quit() {
         NSApplication.shared.terminate(nil)
     }
