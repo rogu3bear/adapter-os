@@ -251,18 +251,25 @@ impl GitSubsystem {
 
     pub async fn get_status(&self) -> Result<GitStatusResponse> {
         let active_sessions = self.branch_manager.list_active_sessions().await.len() as u32;
-        let repositories_tracked = self
+        let repositories = self
             .db
             .list_git_repositories()
             .await
-            .map(|repos| repos.len() as u32)
-            .unwrap_or(0);
+            .unwrap_or_default();
+        let repositories_tracked = repositories.len() as u32;
+
+        // Find the most recent last_scan timestamp across all repositories
+        let last_scan = repositories
+            .iter()
+            .filter_map(|repo| repo.last_scan.as_ref())
+            .max()
+            .cloned();
 
         Ok(GitStatusResponse {
             enabled: self.enabled,
             active_sessions,
             repositories_tracked,
-            last_scan: None, // TODO: Implement last scan tracking
+            last_scan,
         })
     }
 
@@ -292,7 +299,9 @@ impl GitSubsystem {
                 })?.unwrap_or("unknown").to_string();
 
                 let is_current = branch.is_head();
-                let last_commit = if let Some(ref_) = branch.into_reference().target() {
+                let branch_ref = branch.into_reference();
+                let branch_oid = branch_ref.target();
+                let last_commit = if let Some(ref_) = branch_oid {
                     if let Ok(commit) = repo.find_commit(ref_) {
                         commit.summary().unwrap_or("No message").to_string()
                     } else {
@@ -302,12 +311,19 @@ impl GitSubsystem {
                     "unknown".to_string()
                 };
 
+                // Calculate ahead/behind counts
+                let (ahead, behind) = if let Some(oid) = branch_oid {
+                    Self::calculate_ahead_behind(&repo, oid)?
+                } else {
+                    (0, 0)
+                };
+
                 branches.push(crate::GitBranchInfo {
                     name,
                     is_current,
                     last_commit,
-                    ahead: 0, // TODO: Calculate ahead/behind
-                    behind: 0, // TODO: Calculate ahead/behind
+                    ahead,
+                    behind,
                 });
             }
 
@@ -315,6 +331,41 @@ impl GitSubsystem {
         })
         .await
         .map_err(|e| AosError::Git(format!("Branch listing task join error: {}", e)))?
+    }
+
+    /// Calculate ahead/behind counts for a branch compared to its upstream or default branch
+    fn calculate_ahead_behind(repo: &git2::Repository, branch_oid: git2::Oid) -> Result<(u32, u32)> {
+        // Try to find an upstream branch to compare against
+        // First, look for origin/main, then origin/master
+        let upstream_refs = ["refs/remotes/origin/main", "refs/remotes/origin/master"];
+
+        for upstream_ref in &upstream_refs {
+            if let Ok(upstream_ref_obj) = repo.find_reference(upstream_ref) {
+                if let Some(upstream_oid) = upstream_ref_obj.target() {
+                    if let Ok(upstream_commit) = repo.find_commit(upstream_oid) {
+                        // Calculate ahead/behind
+                        let (ahead, behind) = repo.graph_ahead_behind(branch_oid, upstream_commit.id())
+                            .map_err(|e| AosError::Git(format!("Failed to calculate ahead/behind: {}", e)))?;
+
+                        return Ok((ahead as u32, behind as u32));
+                    }
+                }
+            }
+        }
+
+        // If no upstream found, compare against HEAD if it's different
+        if let Ok(head_ref) = repo.head() {
+            if let Some(head_oid) = head_ref.target() {
+                if head_oid != branch_oid {
+                    let (ahead, behind) = repo.graph_ahead_behind(branch_oid, head_oid)
+                        .map_err(|e| AosError::Git(format!("Failed to calculate ahead/behind vs HEAD: {}", e)))?;
+                    return Ok((ahead as u32, behind as u32));
+                }
+            }
+        }
+
+        // No comparison possible, return 0,0
+        Ok((0, 0))
     }
 
     /// Get reference to the branch manager
