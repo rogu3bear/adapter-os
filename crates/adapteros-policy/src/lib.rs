@@ -267,6 +267,7 @@ impl PolicyEngine {
                 "fixed_seed" => crate::packs::determinism::RngSeedingMethod::FixedSeed(42),
                 _ => crate::packs::determinism::RngSeedingMethod::HkdfSeeded,
             },
+            min_router_entropy: 0.1, // Default minimum entropy threshold
             retrieval_tie_break: self.policies.determinism.retrieval_tie_break
                 .iter()
                 .map(|s| match s.as_str() {
