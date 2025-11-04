@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
+import { logger } from '../utils/logger';
 
 interface AuthConfig {
   production_mode: boolean;
@@ -59,7 +60,7 @@ export function AuthenticationSettings() {
       setConfig(configResponse);
       setSessions(sessionsResponse);
     } catch (error) {
-      console.error('Failed to load auth data:', error);
+      logger.error('Failed to load auth data', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
       toast.error('Failed to load authentication settings');
     } finally {
       setIsRefreshing(false);
@@ -81,7 +82,7 @@ export function AuthenticationSettings() {
       setConfig(newConfig);
       toast.success('Authentication settings updated');
     } catch (error) {
-      console.error('Failed to update config:', error);
+      logger.error('Failed to update auth config', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
       toast.error('Failed to update authentication settings');
     } finally {
       setIsLoading(false);
@@ -96,7 +97,7 @@ export function AuthenticationSettings() {
       toast.success('API token rotated successfully');
       await loadData(); // Refresh data
     } catch (error) {
-      console.error('Failed to rotate token:', error);
+      logger.error('Failed to rotate API token', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
       toast.error('Failed to rotate token');
     } finally {
       setIsLoading(false);
@@ -116,7 +117,7 @@ export function AuthenticationSettings() {
       // Note: This will likely cause the current session to be invalidated
       // The UI should handle this by redirecting to login
     } catch (error) {
-      console.error('Failed to logout all sessions:', error);
+      logger.error('Failed to logout all sessions', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
       toast.error('Failed to logout all sessions');
     } finally {
       setIsLoading(false);
@@ -137,7 +138,7 @@ export function AuthenticationSettings() {
       toast.success('Session revoked');
       await loadData(); // Refresh data
     } catch (error) {
-      console.error('Failed to revoke session:', error);
+      logger.error('Failed to revoke session', { component: 'AuthenticationSettings', sessionId }, error instanceof Error ? error : new Error(String(error)));
       toast.error('Failed to revoke session');
     } finally {
       setIsLoading(false);

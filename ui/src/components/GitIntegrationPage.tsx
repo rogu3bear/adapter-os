@@ -26,6 +26,34 @@ import { logger } from '../utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
+// Helper function to format repository URLs for display
+// Handles cases where the URL is actually a repo_id fallback
+function formatRepositoryUrl(url: string, isFallback?: boolean): string {
+  // If explicitly marked as not a fallback, show the URL as-is
+  if (isFallback === false) {
+    return url;
+  }
+
+  // If explicitly marked as a fallback, format it nicely
+  if (isFallback === true) {
+    return `Repository: ${url}`;
+  }
+
+  // Fallback logic for backward compatibility (if isFallback is undefined)
+  // If it looks like a proper URL (starts with http/https), show it as-is
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+
+  // If it looks like a git URL (ends with .git), show it as-is
+  if (url.endsWith('.git')) {
+    return url;
+  }
+
+  // Otherwise, it's likely a repo_id fallback, format it nicely
+  return `Repository: ${url}`;
+}
+
 interface GitIntegrationPageProps {
   selectedTenant: string;
 }
@@ -344,7 +372,9 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <GitBranch className="w-4 h-4 text-muted-foreground" />
-                        <span className="font-mono text-sm">{repo.url}</span>
+                        <span className="font-mono text-sm" title={repo.url}>
+                          {formatRepositoryUrl(repo.url, repo.url_is_fallback)}
+                        </span>
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">

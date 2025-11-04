@@ -331,7 +331,7 @@ export function useMessages(options: UseMessagesOptions): UseMessagesReturn {
       clearFallback();
       stopSSE();
     };
-  }, [enabled, workspaceId, useSSE]); // Removed fetchMessages from deps
+  }, [enabled, workspaceId, useSSE, fetchMessages]);
 
   return {
     messages,

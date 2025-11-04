@@ -9,6 +9,7 @@ import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
+import { logger } from '../utils/logger';
 import {
   Brain,
   Zap,
@@ -145,7 +146,7 @@ export default function PromptOrchestrationPanel() {
         setConfig(data);
       }
     } catch (error) {
-      console.error('Failed to load orchestration config:', error);
+      logger.error('Failed to load orchestration config', { component: 'PromptOrchestrationPanel' }, error instanceof Error ? error : new Error(String(error)));
     }
   }, []);
 
@@ -161,10 +162,10 @@ export default function PromptOrchestrationPanel() {
 
       if (response.ok) {
         // Show success message
-        console.log('Configuration saved successfully');
+        logger.info('Configuration saved successfully', { component: 'PromptOrchestrationPanel' });
       }
     } catch (error) {
-      console.error('Failed to save config:', error);
+      logger.error('Failed to save orchestration config', { component: 'PromptOrchestrationPanel' }, error instanceof Error ? error : new Error(String(error)));
     }
     setIsLoading(false);
   };
@@ -186,7 +187,7 @@ export default function PromptOrchestrationPanel() {
         setTestResult(result);
       }
     } catch (error) {
-      console.error('Failed to analyze prompt:', error);
+      logger.error('Failed to analyze prompt', { component: 'PromptOrchestrationPanel' }, error instanceof Error ? error : new Error(String(error)));
     }
     setIsLoading(false);
   };

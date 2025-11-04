@@ -13,6 +13,7 @@ import {
   RestartOptions,
   ServiceManagerConfig
 } from '../types/service-lifecycle';
+import { logger } from '../utils/logger';
 
 export class ServiceLifecycleManager {
   private services: Map<string, Service> = new Map();
@@ -671,7 +672,7 @@ export class ServiceLifecycleManager {
         this.events = state.events || [];
       }
     } catch (error) {
-      console.error('Failed to load persisted state:', error);
+      logger.error('Failed to load persisted service lifecycle state', { component: 'ServiceLifecycleManager' }, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -686,7 +687,7 @@ export class ServiceLifecycleManager {
       };
       localStorage.setItem('service-lifecycle-state', JSON.stringify(state));
     } catch (error) {
-      console.error('Failed to persist state:', error);
+      logger.error('Failed to persist service lifecycle state', { component: 'ServiceLifecycleManager' }, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -708,7 +709,11 @@ export class ServiceLifecycleManager {
 
     // Alert thresholds
     if (failedServices >= this.config.monitoring.alertThresholds.maxFailures) {
-      console.warn(`High failure rate: ${failedServices} services failed`);
+      logger.warn('High failure rate detected', {
+        component: 'ServiceLifecycleManager',
+        failedServices,
+        totalServices: services.length
+      });
     }
   }
 
@@ -749,7 +754,7 @@ export class ServiceLifecycleManager {
       try {
         await this.startService(service.id);
       } catch (error) {
-        console.error(`Failed to start service ${service.id}:`, error);
+        logger.error('Failed to start service during bulk start', { component: 'ServiceLifecycleManager', serviceId: service.id }, error instanceof Error ? error : new Error(String(error)));
       }
     }
   }
@@ -763,7 +768,7 @@ export class ServiceLifecycleManager {
       try {
         await this.stopService(service.id);
       } catch (error) {
-        console.error(`Failed to stop service ${service.id}:`, error);
+        logger.error('Failed to stop service during bulk stop', { component: 'ServiceLifecycleManager', serviceId: service.id }, error instanceof Error ? error : new Error(String(error)));
       }
     }
   }

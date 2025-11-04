@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import ServicePanel from './components/ServicePanel';
 import './index.css';
+import { logger } from './utils/logger';
 
 // Simple error boundary for the service panel
 class ErrorBoundary extends React.Component<
@@ -18,7 +19,10 @@ class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Service Panel Error:', error, errorInfo);
+    logger.error('Service panel error', {
+      component: 'ServicePanelErrorBoundary',
+      errorInfo
+    }, error);
   }
 
   render() {

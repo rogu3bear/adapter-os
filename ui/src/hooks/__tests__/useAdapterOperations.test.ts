@@ -32,7 +32,7 @@ vi.mock('../../utils/logger', () => ({
 // Mock ErrorRecoveryTemplates
 vi.mock('../../components/ui/error-recovery', () => ({
   ErrorRecoveryTemplates: {
-    genericError: vi.fn(() => <div>Error Recovery</div>),
+    genericError: vi.fn(() => 'Error Recovery'),
   },
 }));
 

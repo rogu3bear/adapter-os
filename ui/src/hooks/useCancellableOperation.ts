@@ -182,7 +182,6 @@ export function useCancellableOperations() {
 
   const register = useCallback(<T = any>(id: string): UseCancellableOperationReturn<T> => {
     if (!operations.current.has(id)) {
-      // eslint-disable-next-line react-hooks/rules-of-hooks
       const operation = useCancellableOperation<T>();
       operations.current.set(id, operation);
     }

@@ -27,6 +27,7 @@ import { ServiceCard } from './ServiceCard';
 import { TerminalOutput } from './TerminalOutput';
 import PromptOrchestrationPanel from './PromptOrchestrationPanel';
 import { AuthenticationSettings } from './AuthenticationSettings';
+import { logger } from '../utils/logger';
 
 // Simple service interface
 interface SimpleService {
@@ -73,10 +74,13 @@ export default function ServicePanel() {
         }
       } else {
         setGlobalStatus('error');
-        console.error('Failed to load services:', response.status);
+        logger.error('Failed to load services', {
+          component: 'ServicePanel',
+          status: response.status
+        });
       }
     } catch (error) {
-      console.error('Failed to load services:', error);
+      logger.error('Failed to load services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
       setGlobalStatus('error');
     }
   }, []);
@@ -90,7 +94,7 @@ export default function ServicePanel() {
         setEssentialServices(data.essentialServices);
       }
     } catch (error) {
-      console.error('Failed to load essential services:', error);
+      logger.error('Failed to load essential services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
     }
   }, []);
 
@@ -119,10 +123,14 @@ export default function ServicePanel() {
         await loadServices(); // Refresh services
       } else {
         const error = await response.json();
-        console.error('Failed to start service:', error);
+        logger.error('Failed to start service', {
+          component: 'ServicePanel',
+          serviceId: service.id,
+          error
+        });
       }
     } catch (error) {
-      console.error('Error starting service:', error);
+      logger.error('Error starting service', { component: 'ServicePanel', serviceId: service.id }, error instanceof Error ? error : new Error(String(error)));
     }
     setIsLoading(false);
   };
@@ -140,10 +148,14 @@ export default function ServicePanel() {
         await loadServices(); // Refresh services
       } else {
         const error = await response.json();
-        console.error('Failed to stop service:', error);
+        logger.error('Failed to stop service', {
+          component: 'ServicePanel',
+          serviceId: service.id,
+          error
+        });
       }
     } catch (error) {
-      console.error('Error stopping service:', error);
+      logger.error('Error stopping service', { component: 'ServicePanel', serviceId: service.id }, error instanceof Error ? error : new Error(String(error)));
     }
     setIsLoading(false);
   };
@@ -159,14 +171,20 @@ export default function ServicePanel() {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Essential services start result:', data);
+        logger.info('Essential services start result', {
+          component: 'ServicePanel',
+          result: data
+        });
         await loadServices(); // Refresh services
       } else {
         const error = await response.json();
-        console.error('Failed to start essential services:', error);
+        logger.error('Failed to start essential services', {
+          component: 'ServicePanel',
+          error
+        });
       }
     } catch (error) {
-      console.error('Error starting essential services:', error);
+      logger.error('Error starting essential services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
     }
     setEssentialOperation('idle');
   };
@@ -182,14 +200,20 @@ export default function ServicePanel() {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Essential services stop result:', data);
+        logger.info('Essential services stop result', {
+          component: 'ServicePanel',
+          result: data
+        });
         await loadServices(); // Refresh services
       } else {
         const error = await response.json();
-        console.error('Failed to stop essential services:', error);
+        logger.error('Failed to stop essential services', {
+          component: 'ServicePanel',
+          error
+        });
       }
     } catch (error) {
-      console.error('Error stopping essential services:', error);
+      logger.error('Error stopping essential services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
     }
     setEssentialOperation('idle');
   };
