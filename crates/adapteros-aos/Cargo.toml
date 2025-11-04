@@ -14,7 +14,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 memmap2 = "0.9"
 parking_lot = { workspace = true }
-lru = "0.12"
+lru = "0.16"
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
