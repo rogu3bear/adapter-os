@@ -186,11 +186,10 @@ pub async fn list_git_branches(
 pub async fn file_changes_stream(
     State(state): State<AppState>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    let file_change_tx = state.file_change_tx.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let mut rx = file_change_tx.subscribe();
+    let file_change_tx = state.file_change_tx.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?.clone();
 
     let stream = stream::unfold((), move |_| {
-        let mut rx = rx.clone();
+        let mut rx = file_change_tx.subscribe();
         async move {
             match rx.recv().await {
                 Ok(file_change_event) => {

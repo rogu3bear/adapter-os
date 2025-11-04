@@ -3,8 +3,10 @@
 //! Implements git repository registration, analysis, and training pipeline integration.
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
-use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
+use crate::handlers::{require_any_role, AppState, ErrorResponse};
+use crate::auth::Claims;
 use crate::types::ScanStatusResponse;
+use adapteros_api_types::repositories::RegisterRepositoryRequest;
 use adapteros_api_types::training::TrainingConfigRequest;
 use adapteros_core::error::AosError;
 use adapteros_db::users::Role;
@@ -23,15 +25,6 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use glob;
-
-/// Git repository registration request
-#[derive(Debug, Deserialize)]
-pub struct RegisterRepositoryRequest {
-    pub repo_id: String,
-    pub path: String,
-    pub branch: Option<String>,
-    pub description: Option<String>,
-}
 
 /// Git repository registration response
 #[derive(Debug, Serialize)]
@@ -144,31 +137,33 @@ pub async fn register_git_repository(
 
     // Evidence: docs/code-intelligence/code-policies.md:82-84
     // Policy: Path validation and security checks
-    let config = state.config.read().map_err(|e| {
-        tracing::error!("Failed to read config: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Configuration access failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("Failed to read path policy configuration"),
-            ),
-        )
-    })?;
-    let path_policy = PathPolicy::from_config(&config.path_policy).map_err(|e| {
-        tracing::error!("Invalid path policy configuration: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Invalid path policy configuration")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(format!(
-                        "Failed to create path validation patterns: {}",
-                        e
-                    )),
-            ),
-        )
-    })?;
+    let path_policy = {
+        let config = state.config.read().map_err(|e| {
+            tracing::error!("Failed to read config: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Configuration access failed")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Failed to read path policy configuration"),
+                ),
+            )
+        })?;
+        PathPolicy::from_config(&config.path_policy).map_err(|e| {
+            tracing::error!("Invalid path policy configuration: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Invalid path policy configuration")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(format!(
+                            "Failed to create path validation patterns: {}",
+                            e
+                        )),
+                ),
+            )
+        })?
+    }; // config lock is dropped here
 
     // Validate repository path
     let path_validator = PathValidator::new(&path_policy);
@@ -277,7 +272,7 @@ pub async fn register_git_repository(
             &repo_id,
             &request.repo_id,
             &request.path,
-            &request.branch.unwrap_or_else(|| "main".to_string()),
+            &request.default_branch,
             &analysis_json,
             &claims.sub,
         )
@@ -858,25 +853,27 @@ pub async fn trigger_repository_scan(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
+    let repo_id_clone = repo_id.clone();
     // Check if repository exists
     let repo = state
         .db
         .get_git_repository(&repo_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error checking repository {}: {}", repo_id, e);
+            tracing::error!("Database error checking repository {}: {}", repo_id_clone, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
             )
         })?
         .ok_or_else(|| {
+            let repo_id_for_error = repo_id.clone();
             (
                 StatusCode::NOT_FOUND,
                 Json(
                     ErrorResponse::new("Repository not found")
                         .with_code("NOT_FOUND")
-                        .with_string_details(repo_id),
+                        .with_string_details(repo_id_for_error),
                 ),
             )
         })?;
@@ -956,25 +953,27 @@ pub async fn unregister_repository(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
+    let repo_id_clone = repo_id.clone();
     // Check if repository exists
     let _repo = state
         .db
         .get_git_repository(&repo_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error checking repository {}: {}", repo_id, e);
+            tracing::error!("Database error checking repository {}: {}", repo_id_clone, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
             )
         })?
         .ok_or_else(|| {
+            let repo_id_for_error = repo_id.clone();
             (
                 StatusCode::NOT_FOUND,
                 Json(
                     ErrorResponse::new("Repository not found")
                         .with_code("NOT_FOUND")
-                        .with_string_details(repo_id),
+                        .with_string_details(repo_id_for_error),
                 ),
             )
         })?;
