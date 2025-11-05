@@ -7,22 +7,28 @@
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
-use sqlx::{Row, SqlitePool};
+use sqlx::{AnyPool, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Database operations for system metrics
 pub struct SystemMetricsDb {
-    pool: SqlitePool,
+    pool: AnyPool,
 }
 
 // Migrations are available via embedded macro
-#[allow(dead_code)] // TODO: Implement database migrations in future iteration
 const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 impl SystemMetricsDb {
     /// Create a new system metrics database
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: AnyPool) -> Self {
         Self { pool }
+    }
+
+    /// Run database migrations
+    pub async fn run_migrations(&self) -> Result<()> {
+        MIGRATIONS.run(&self.pool).await
+            .map_err(|e| AosError::Database(format!("Failed to run system metrics migrations: {}", e)))?;
+        Ok(())
     }
 
     /// Store system metrics record
@@ -59,7 +65,7 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
 
-        Ok(result.last_insert_rowid())
+        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
     }
 
     /// Get system metrics history
@@ -80,8 +86,9 @@ impl SystemMetricsDb {
         let rows = sqlx::query(
             r#"
             SELECT id, timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                   network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
-                   uptime_seconds, process_count, load_1min, load_5min, load_15min
+                   disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                   network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                   gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
             FROM system_metrics
             WHERE timestamp >= ?
             ORDER BY timestamp DESC
@@ -151,7 +158,7 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store health check: {}", e)))?;
 
-        Ok(result.last_insert_rowid())
+        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
     }
 
     /// Store threshold violation
@@ -183,7 +190,7 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
 
-        Ok(result.last_insert_rowid())
+        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
     }
 
     /// Get unresolved threshold violations
@@ -389,10 +396,10 @@ pub struct ThresholdViolationRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::SqlitePool;
+    use sqlx::AnyPool;
 
-    async fn create_test_pool() -> SqlitePool {
-        SqlitePool::connect(":memory:")
+    async fn create_test_pool() -> AnyPool {
+        AnyPool::connect("sqlite::memory:")
             .await
             .expect("Failed to create test pool")
     }
@@ -409,15 +416,15 @@ mod tests {
             memory_usage: 60.0,
             disk_read_bytes: 1000,
             disk_write_bytes: 2000,
-            disk_usage_percent: 45.0,
+            disk_usage_percent: 75.0,
             network_rx_bytes: 3000,
             network_tx_bytes: 4000,
-            network_rx_packets: 100,
+            network_rx_packets: 150,
             network_tx_packets: 200,
-            network_bandwidth_mbps: 1.0,
+            network_bandwidth_mbps: 10.5,
             gpu_utilization: Some(70.0),
             gpu_memory_used: Some(5000),
-            gpu_memory_total: Some(8000),
+            gpu_memory_total: Some(8192),
             uptime_seconds: 3600,
             process_count: 100,
             load_1min: 1.5,

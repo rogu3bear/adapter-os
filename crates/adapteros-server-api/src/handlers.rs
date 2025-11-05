@@ -5606,7 +5606,12 @@ pub async fn acknowledge_process_alert(
             )
         })?;
 
-    Ok(Json(map_alert_to_response(alert)))
+    let response = map_alert_to_response(alert.clone());
+    
+    // Broadcast the updated alert
+    let _ = state.alert_tx.send(response.clone());
+
+    Ok(Json(response))
 }
 
 /// List process anomalies
@@ -12109,9 +12114,24 @@ pub async fn list_monitoring_rules(
     let tenant_id = params.get("tenant_id");
     let is_active = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
 
-    // TODO: System metrics not yet implemented for PostgreSQL
-    // Return empty list for now during database migration
-    let rules = Vec::new();
+    // Query monitoring rules from database
+    let rules = adapteros_system_metrics::ProcessMonitoringRule::list(
+        state.db.pool(),
+        tenant_id.map(|s| s.as_str()),
+        is_active,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to list monitoring rules: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to list monitoring rules")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let response: Vec<MonitoringRuleResponse> = rules
         .into_iter()
@@ -12912,47 +12932,54 @@ pub async fn alerts_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
-        tokio::time::sleep(Duration::from_secs(2)).await;
+    // Fetch recent alerts for initial backlog
+    let filters = adapteros_system_metrics::AlertFilters {
+        tenant_id: None,
+        worker_id: None,
+        status: None,
+        severity: None,
+        start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
+        end_time: None,
+        limit: Some(50),
+    };
 
-        // Fetch recent alerts
-        let filters = adapteros_system_metrics::AlertFilters {
-            tenant_id: None,
-            worker_id: None,
-            status: None,
-            severity: None,
-            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
-            end_time: None,
-            limit: Some(50),
+    let backlog_alerts: Vec<crate::types::ProcessAlertResponse> = 
+        match state.db.list_process_alerts(filters).await {
+            Ok(alerts) => alerts.into_iter().map(map_alert_to_response).collect(),
+            Err(e) => {
+                tracing::warn!("Failed to fetch alerts for SSE backlog: {}", e);
+                Vec::new()
+            }
         };
 
-        let alerts =
-            match adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters).await {
-                Ok(alerts) => alerts,
+    // Send backlog alerts
+    let backlog_stream = stream::iter(backlog_alerts.into_iter().map(|alert| {
+        match serde_json::to_string(&alert) {
+            Ok(json) => Ok(Event::default().event("alert").data(json)),
+            Err(e) => {
+                tracing::warn!("Failed to serialize backlog alert: {}", e);
+                Ok(Event::default().event("error").data(format!("{{\"error\": \"serialization failed\"}}")))
+            }
+        }
+    }));
+
+    // Real-time alert stream from broadcast channel
+    let rx = state.alert_tx.subscribe();
+    let realtime_stream = BroadcastStream::new(rx).filter_map(|res| async move {
+        match res {
+            Ok(alert) => match serde_json::to_string(&alert) {
+                Ok(json) => Some(Ok(Event::default().event("alert").data(json))),
                 Err(e) => {
-                    tracing::warn!("Failed to fetch alerts for SSE: {}", e);
-                    return Some((
-                        Ok(Event::default()
-                            .event("error")
-                            .data(format!("{{\"error\": \"{}\"}}", e))),
-                        state,
-                    ));
+                    tracing::warn!("Failed to serialize alert: {}", e);
+                    None
                 }
-            };
-
-        let alert_data = serde_json::json!({
-            "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "count": alerts.len()
-        });
-
-        Some((
-            Ok(Event::default()
-                .event("alerts")
-                .data(serde_json::to_string(&alert_data).unwrap_or_else(|_| "{}".to_string()))),
-            state,
-        ))
+            },
+            Err(_) => None,
+        }
     });
+
+    // Combine backlog and real-time streams
+    let stream = backlog_stream.chain(realtime_stream);
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }

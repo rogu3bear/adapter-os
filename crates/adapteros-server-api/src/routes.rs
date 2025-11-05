@@ -432,6 +432,10 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
         .route(
+            "/v1/monitoring/alerts/stream",
+            get(handlers::alerts_stream),
+        )
+        .route(
             "/v1/monitoring/alerts/:alert_id/acknowledge",
             post(handlers::acknowledge_process_alert),
         )
