@@ -11,6 +11,7 @@ pub mod types;
 pub mod uds_client;
 pub mod validation;
 
+pub use adapteros_api_types::*;
 pub use state::{AppState, CryptoState};
 pub use types::*;
 pub use uds_client::{UdsClient, UdsClientError};

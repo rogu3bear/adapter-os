@@ -11,6 +11,9 @@ pub mod wasm;
 
 use adapteros_api_types::telemetry::TelemetryBundleResponse;
 use anyhow::Result;
+// First export API types
+pub use adapteros_api_types::*;
+// Then export client-specific types (these will override API types where they conflict)
 pub use types::*;
 
 #[cfg(not(target_arch = "wasm32"))]
