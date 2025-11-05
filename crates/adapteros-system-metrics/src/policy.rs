@@ -285,7 +285,15 @@ mod tests {
                 tx_packets: 10,
                 bandwidth_mbps: 1.0,
             },
-            gpu_metrics: GpuMetrics::default(),
+            gpu_metrics: GpuMetrics {
+                utilization: Some(45.0),
+                memory_used: Some(1024 * 1024 * 1024),  // 1 GB
+                memory_total: Some(8 * 1024 * 1024 * 1024),  // 8 GB
+                temperature: None,
+                power_usage: None,
+                mlx_memory_used: None,
+                mlx_utilization: None,
+            },
             timestamp: SystemTime::now(),
         }
     }

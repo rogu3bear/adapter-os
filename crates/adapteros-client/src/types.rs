@@ -1,5 +1,4 @@
-// Re-export types from shared API types crate
-pub use adapteros_api_types::*;
+// Note: adapteros_api_types::* is re-exported at crate level through lib.rs
 
 // Additional client-specific types not covered by shared types
 use serde::{Deserialize, Serialize};
@@ -33,14 +32,14 @@ pub enum MemoryPressureLevel {
     Critical,
 }
 
-/// Training session request
+/// Training session request (UI/client specific)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StartTrainingRequest {
+pub struct StartTrainingSessionRequest {
     pub repository_path: String,
     pub adapter_name: String,
-    pub description: String,
+    pub description: Option<String>,
     pub training_config: serde_json::Value,
-    pub tenant_id: String,
+    pub tenant_id: Option<String>,
 }
 
 /// Training session response
@@ -80,12 +79,7 @@ pub struct TelemetryEvent {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpawnWorkerRequest {
-    pub tenant_id: String,
-    pub plan_id: String,
-    pub node_id: String,
-}
+// Note: SpawnWorkerRequest is now imported from adapteros_api_types
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromoteCPRequest {
