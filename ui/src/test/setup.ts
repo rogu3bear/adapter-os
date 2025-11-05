@@ -95,6 +95,7 @@ const defaultApiMock = {
   getSystemMetrics: vi.fn().mockResolvedValue(null),
   subscribeToMetrics: vi.fn(() => () => {}),
   getTelemetryEvents: vi.fn().mockResolvedValue([]),
+  getRecentActivityEvents: vi.fn().mockResolvedValue([]),
   listActivityEvents: vi.fn().mockResolvedValue([]),
   subscribeToActivity: vi.fn(() => () => {}),
   listAlerts: vi.fn().mockResolvedValue([]),

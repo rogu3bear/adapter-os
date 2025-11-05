@@ -79,9 +79,11 @@ where
 
                 // Calculate next delay with exponential backoff and jitter
                 let base_delay = current_delay.as_millis() as f64;
-                let jitter_offset = base_delay * config.jitter * (rand::random::<f64>() - 0.5) * 2.0;
+                let jitter_offset =
+                    base_delay * config.jitter * (rand::random::<f64>() - 0.5) * 2.0;
                 let next_delay = ((base_delay + jitter_offset) * config.backoff_multiplier) as u64;
-                current_delay = Duration::from_millis(next_delay.min(config.max_delay.as_millis() as u64));
+                current_delay =
+                    Duration::from_millis(next_delay.min(config.max_delay.as_millis() as u64));
 
                 warn!(
                     attempt = attempt,
@@ -254,7 +256,8 @@ mod tests {
             },
             &config,
             Duration::from_secs(1),
-        ).await;
+        )
+        .await;
 
         assert!(matches!(result, RetryResult::Success(_)));
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
@@ -284,7 +287,8 @@ mod tests {
             },
             &config,
             Duration::from_secs(1),
-        ).await;
+        )
+        .await;
 
         assert!(matches!(result, RetryResult::Success(_)));
         assert_eq!(call_count.load(Ordering::SeqCst), 3);
@@ -310,7 +314,8 @@ mod tests {
             },
             &config,
             Duration::from_secs(1),
-        ).await;
+        )
+        .await;
 
         assert!(matches!(result, RetryResult::Failed(_)));
         assert_eq!(call_count.load(Ordering::SeqCst), 3);
@@ -321,20 +326,32 @@ mod tests {
         let circuit_breaker = CircuitBreaker::new(2, 1, Duration::from_millis(100));
 
         // First failure
-        let result1 = circuit_breaker.execute(|| async { Err::<(), _>("failure") }).await;
-        assert!(matches!(result1, Err(CircuitBreakerError::OperationFailed(_))));
+        let result1 = circuit_breaker
+            .execute(|| async { Err::<(), _>("failure") })
+            .await;
+        assert!(matches!(
+            result1,
+            Err(CircuitBreakerError::OperationFailed(_))
+        ));
 
         // Second failure - should open circuit
-        let result2 = circuit_breaker.execute(|| async { Err::<(), _>("failure") }).await;
-        assert!(matches!(result2, Err(CircuitBreakerError::OperationFailed(_))));
+        let result2 = circuit_breaker
+            .execute(|| async { Err::<(), _>("failure") })
+            .await;
+        assert!(matches!(
+            result2,
+            Err(CircuitBreakerError::OperationFailed(_))
+        ));
 
         // Third attempt - should be rejected by open circuit
-        let result3 = circuit_breaker.execute(|| async { Err::<(), &str>("failure") }).await;
+        let result3 = circuit_breaker
+            .execute(|| async { Err::<(), &str>("failure") })
+            .await;
         assert!(matches!(result3, Err(CircuitBreakerError::CircuitOpen)));
 
         // Wait for timeout and try success
         tokio::time::sleep(Duration::from_millis(150)).await;
-        let result4 = circuit_breaker.execute(|| async { Ok(()) }).await;
+        let result4: Result<(), CircuitBreakerError<&str>> = circuit_breaker.execute(|| async { Ok(()) }).await;
         assert!(matches!(result4, Ok(())));
     }
 }

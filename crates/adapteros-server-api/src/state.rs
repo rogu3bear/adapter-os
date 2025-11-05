@@ -1,5 +1,69 @@
 use crate::types::ReplayVerificationResponse;
 use adapteros_crypto::Keypair;
+/// Repository paths configuration
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+pub struct RepositoryPathsConfig {
+    /// Subdirectory under bundles_root where repositories are stored
+    /// Defaults to "repos" for backward compatibility
+    #[serde(default = "default_repos_subdirectory")]
+    pub subdirectory: String,
+    /// Whether to include tenant_id in repository paths
+    /// Defaults to true for multi-tenant isolation
+    #[serde(default = "default_true")]
+    pub include_tenant_in_path: bool,
+}
+
+fn default_repos_subdirectory() -> String {
+    "repos".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Security configuration for API operations
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+pub struct SecurityConfig {
+    /// Maximum model file size in bytes
+    #[serde(default = "default_max_model_size")]
+    pub max_model_size_bytes: u64,
+    /// Maximum config file size in bytes
+    #[serde(default = "default_max_config_size")]
+    pub max_config_size_bytes: u64,
+    /// Maximum tokenizer file size in bytes
+    #[serde(default = "default_max_tokenizer_size")]
+    pub max_tokenizer_size_bytes: u64,
+}
+
+/// MLX-specific configuration
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct MlxConfig {
+    /// Whether lazy loading is enabled
+    #[serde(default)]
+    pub lazy_loading: bool,
+    /// Maximum number of cached models
+    #[serde(default = "default_max_cached_models")]
+    pub max_cached_models: usize,
+    /// Cache eviction policy
+    #[serde(default)]
+    pub cache_eviction_policy: String,
+}
+
+fn default_max_model_size() -> u64 {
+    10 * 1024 * 1024 * 1024 // 10GB
+}
+
+fn default_max_config_size() -> u64 {
+    100 * 1024 * 1024 // 100MB
+}
+
+fn default_max_tokenizer_size() -> u64 {
+    1 * 1024 * 1024 * 1024 // 1GB
+}
+
+fn default_max_cached_models() -> usize {
+    3
+}
 use adapteros_db::{self as db, Db};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_router::Router;
@@ -57,6 +121,9 @@ pub struct ApiConfig {
     /// Path policy configuration for repository validation
     #[serde(default)]
     pub path_policy: PathPolicyConfig,
+    /// Repository storage path configuration
+    #[serde(default)]
+    pub repository_paths: RepositoryPathsConfig,
     /// Production mode flag - when true, dev bypass is disabled
     #[serde(default = "default_false")]
     pub production_mode: bool,
@@ -69,6 +136,12 @@ pub struct ApiConfig {
     /// Model operation retry configuration
     #[serde(default)]
     pub operation_retry: OperationRetryConfig,
+    /// Security configuration
+    #[serde(default)]
+    pub security: SecurityConfig,
+    /// MLX configuration
+    #[serde(default)]
+    pub mlx: Option<MlxConfig>,
 }
 
 fn default_model_load_timeout_secs() -> u64 {
@@ -413,7 +486,7 @@ impl AppState {
         Self {
             db,
             jwt_secret: Arc::new(jwt_secret),
-            config,
+            config: config.clone(),
             metrics_exporter,
             metrics_collector,
             metrics_registry,
@@ -436,16 +509,21 @@ impl AppState {
                 let max_config_size = config_guard.security.max_config_size_bytes;
                 let max_tokenizer_size = config_guard.security.max_tokenizer_size_bytes;
 
-                let lazy_loading_enabled = config_guard.mlx.as_ref()
+                let lazy_loading_enabled = config_guard
+                    .mlx
+                    .as_ref()
                     .map(|mlx| mlx.lazy_loading)
                     .unwrap_or(false);
-                let max_cached_models = config_guard.mlx.as_ref()
+                let max_cached_models = config_guard
+                    .mlx
+                    .as_ref()
                     .map(|mlx| mlx.max_cached_models)
                     .unwrap_or(3);
-                let cache_eviction_policy = config_guard.mlx.as_ref()
-                    .unwrap_or(&crate::config::MlxConfig::default())
-                    .cache_eviction_policy
-                    .clone();
+                let cache_eviction_policy = config_guard
+                    .mlx
+                    .as_ref()
+                    .map(|mlx| mlx.cache_eviction_policy.clone())
+                    .unwrap_or_else(|| "lru".to_string());
 
                 drop(config_guard);
 
@@ -509,7 +587,10 @@ impl AppState {
         self
     }
 
-    pub fn with_metrics_server(mut self, metrics_server: Arc<adapteros_telemetry::MetricsServer>) -> Self {
+    pub fn with_metrics_server(
+        mut self,
+        metrics_server: Arc<adapteros_telemetry::MetricsServer>,
+    ) -> Self {
         self.metrics_server = Some(metrics_server);
         self
     }
@@ -590,9 +671,12 @@ mod tests {
                 allowlist: default_path_allowlist(),
                 denylist: default_path_denylist(),
             },
+            repository_paths: RepositoryPathsConfig::default(),
             model_load_timeout_secs: default_model_load_timeout_secs(),
             model_unload_timeout_secs: default_model_unload_timeout_secs(),
             operation_retry: OperationRetryConfig::default(),
+            security: SecurityConfig::default(),
+            mlx: None,
         };
         let config = Arc::new(RwLock::new(api_config));
 
@@ -742,9 +826,12 @@ mod tests {
                 allowlist: default_path_allowlist(),
                 denylist: default_path_denylist(),
             },
+            repository_paths: RepositoryPathsConfig::default(),
             model_load_timeout_secs: default_model_load_timeout_secs(),
             model_unload_timeout_secs: default_model_unload_timeout_secs(),
             operation_retry: OperationRetryConfig::default(),
+            security: SecurityConfig::default(),
+            mlx: None,
         };
         let config = Arc::new(RwLock::new(api_config));
 

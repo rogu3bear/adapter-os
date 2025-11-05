@@ -498,6 +498,12 @@ class ApiClient {
     });
   }
 
+  async deletePlan(planId: string): Promise<void> {
+    return this.request<void>(`/v1/plans/${planId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async exportPlanManifest(planId: string): Promise<Blob> {
     const url = `${this.baseUrl}/v1/plans/${planId}/manifest`;
     const response = await fetch(url, { credentials: 'include' });
@@ -1593,6 +1599,18 @@ class ApiClient {
     return this.request<types.ActivityEvent[]>(`/v1/activity${query}`);
   }
 
+  async getRecentActivityEvents(params?: { event_types?: string[]; limit?: number }): Promise<types.RecentActivityEvent[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) {
+      queryParams.append('limit', params.limit.toString());
+    }
+    params?.event_types?.forEach((eventType) => {
+      queryParams.append('event_types[]', eventType);
+    });
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.RecentActivityEvent[]>(`/v1/telemetry/events/recent${query}`);
+  }
+
   async createActivityEvent(data: types.CreateActivityEventRequest): Promise<types.ActivityEvent> {
     return this.request<types.ActivityEvent>('/v1/activity', {
       method: 'POST',
@@ -2205,6 +2223,16 @@ class ApiClient {
       clearReconnectTimer();
       cleanupEventSource();
     };
+  }
+
+  /**
+   * Get current system status including service information
+   * Citation: crates/adapteros-server/src/status_writer.rs L135-144
+   */
+  async getStatus(): Promise<types.AdapterOSStatus> {
+    return this.request<types.AdapterOSStatus>('/v1/status', {
+      method: 'GET',
+    });
   }
 }
 

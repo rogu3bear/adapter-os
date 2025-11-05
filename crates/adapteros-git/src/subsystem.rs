@@ -251,11 +251,7 @@ impl GitSubsystem {
 
     pub async fn get_status(&self) -> Result<GitStatusResponse> {
         let active_sessions = self.branch_manager.list_active_sessions().await.len() as u32;
-        let repositories = self
-            .db
-            .list_git_repositories()
-            .await
-            .unwrap_or_default();
+        let repositories = self.db.list_git_repositories().await.unwrap_or_default();
         let repositories_tracked = repositories.len() as u32;
 
         // Find the most recent last_scan timestamp across all repositories
@@ -279,24 +275,29 @@ impl GitSubsystem {
 
         task::spawn_blocking(move || -> Result<Vec<crate::GitBranchInfo>> {
             let repo = git2::Repository::open(&repo_path).map_err(|e| {
-                AosError::Git(format!("Failed to open repository {}: {}", repo_path.display(), e))
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
             })?;
 
             let mut branches = Vec::new();
 
             // Local branches
-            let local_branches = repo.branches(Some(BranchType::Local)).map_err(|e| {
-                AosError::Git(format!("Failed to list local branches: {}", e))
-            })?;
+            let local_branches = repo
+                .branches(Some(BranchType::Local))
+                .map_err(|e| AosError::Git(format!("Failed to list local branches: {}", e)))?;
 
             for branch_result in local_branches {
-                let (branch, _) = branch_result.map_err(|e| {
-                    AosError::Git(format!("Failed to get branch: {}", e))
-                })?;
+                let (branch, _) = branch_result
+                    .map_err(|e| AosError::Git(format!("Failed to get branch: {}", e)))?;
 
-                let name = branch.name().map_err(|e| {
-                    AosError::Git(format!("Failed to get branch name: {}", e))
-                })?.unwrap_or("unknown").to_string();
+                let name = branch
+                    .name()
+                    .map_err(|e| AosError::Git(format!("Failed to get branch name: {}", e)))?
+                    .unwrap_or("unknown")
+                    .to_string();
 
                 let is_current = branch.is_head();
                 let branch_ref = branch.into_reference();
@@ -334,7 +335,10 @@ impl GitSubsystem {
     }
 
     /// Calculate ahead/behind counts for a branch compared to its upstream or default branch
-    fn calculate_ahead_behind(repo: &git2::Repository, branch_oid: git2::Oid) -> Result<(u32, u32)> {
+    fn calculate_ahead_behind(
+        repo: &git2::Repository,
+        branch_oid: git2::Oid,
+    ) -> Result<(u32, u32)> {
         // Try to find an upstream branch to compare against
         // First, look for origin/main, then origin/master
         let upstream_refs = ["refs/remotes/origin/main", "refs/remotes/origin/master"];
@@ -344,8 +348,11 @@ impl GitSubsystem {
                 if let Some(upstream_oid) = upstream_ref_obj.target() {
                     if let Ok(upstream_commit) = repo.find_commit(upstream_oid) {
                         // Calculate ahead/behind
-                        let (ahead, behind) = repo.graph_ahead_behind(branch_oid, upstream_commit.id())
-                            .map_err(|e| AosError::Git(format!("Failed to calculate ahead/behind: {}", e)))?;
+                        let (ahead, behind) = repo
+                            .graph_ahead_behind(branch_oid, upstream_commit.id())
+                            .map_err(|e| {
+                                AosError::Git(format!("Failed to calculate ahead/behind: {}", e))
+                            })?;
 
                         return Ok((ahead as u32, behind as u32));
                     }
@@ -357,8 +364,13 @@ impl GitSubsystem {
         if let Ok(head_ref) = repo.head() {
             if let Some(head_oid) = head_ref.target() {
                 if head_oid != branch_oid {
-                    let (ahead, behind) = repo.graph_ahead_behind(branch_oid, head_oid)
-                        .map_err(|e| AosError::Git(format!("Failed to calculate ahead/behind vs HEAD: {}", e)))?;
+                    let (ahead, behind) =
+                        repo.graph_ahead_behind(branch_oid, head_oid).map_err(|e| {
+                            AosError::Git(format!(
+                                "Failed to calculate ahead/behind vs HEAD: {}",
+                                e
+                            ))
+                        })?;
                     return Ok((ahead as u32, behind as u32));
                 }
             }

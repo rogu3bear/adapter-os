@@ -4,7 +4,6 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{PgPool, SqlitePool};
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
 use std::str::FromStr;
 
 // PostgreSQL backend for production
@@ -108,20 +107,12 @@ impl Db {
 
     /// Run database migrations (SQLite)
     pub async fn migrate(&self) -> Result<()> {
-        let migrations_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+        // Use embedded migrations from the crate's migrations directory
+        const MIGRATIONS: Migrator = sqlx::migrate!("./migrations");
 
-        let migrator = Migrator::new(migrations_dir.as_path())
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load migrations from {}",
-                    migrations_dir.display()
-                )
-            })?;
+        tracing::info!("Running database migrations with embedded migrations");
 
-        tracing::info!(path = %migrations_dir.display(), "Running database migrations");
-
-        match migrator.run(&self.pool).await {
+        match MIGRATIONS.run(&self.pool).await {
             Ok(_) => {
                 tracing::info!("Database migrations applied successfully");
             }

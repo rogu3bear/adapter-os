@@ -88,6 +88,15 @@ pub enum RequestType {
 
     /// User operation
     UserOperation,
+
+    /// Network operation
+    NetworkOperation,
+
+    /// File operation
+    FileOperation,
+
+    /// Database operation
+    DatabaseOperation,
 }
 
 /// Policy context

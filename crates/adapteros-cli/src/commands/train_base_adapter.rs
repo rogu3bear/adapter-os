@@ -10,7 +10,10 @@ use adapteros_lora_worker::training::{
     LoRAQuantizer, MicroLoRATrainer, TrainingConfig as LoRAWorkerTrainingConfig,
 };
 use adapteros_single_file_adapter::{
-    format::{AdapterWeights, LineageInfo, WeightGroup, WeightGroupType, WeightMetadata, WeightGroupConfig},
+    format::{
+        AdapterWeights, LineageInfo, WeightGroup, WeightGroupConfig, WeightGroupType,
+        WeightMetadata,
+    },
     SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig as SingleFileTrainingConfig,
 };
 use clap::Args;
@@ -109,14 +112,13 @@ impl TrainBaseAdapterArgs {
             })?
         };
 
-        let manifest_str = std::fs::read_to_string(&self.manifest)
-            .map_err(|e| {
-                AosError::Io(format!(
-                    "Failed to read dataset manifest {}: {}",
-                    self.manifest.display(),
-                    e
-                ))
-            })?;
+        let manifest_str = std::fs::read_to_string(&self.manifest).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read dataset manifest {}: {}",
+                self.manifest.display(),
+                e
+            ))
+        })?;
 
         let manifest: DatasetManifest = serde_json::from_str(&manifest_str).map_err(|e| {
             AosError::Parse(format!(
@@ -127,14 +129,37 @@ impl TrainBaseAdapterArgs {
         })?;
 
         let total_examples = examples.len();
-        let positive_examples = examples.iter().filter(|example| example.weight > 0.0).count();
-        let negative_examples = examples.iter().filter(|example| example.weight < 0.0).count();
-        let zero_weight_examples = total_examples.saturating_sub(positive_examples + negative_examples);
+        let positive_examples = examples
+            .iter()
+            .filter(|example| example.weight > 0.0)
+            .count();
+        let negative_examples = examples
+            .iter()
+            .filter(|example| example.weight < 0.0)
+            .count();
+        let zero_weight_examples =
+            total_examples.saturating_sub(positive_examples + negative_examples);
         let total_weight: f32 = examples.iter().map(|example| example.weight).sum();
-        let min_input = examples.iter().map(|example| example.input.len()).min().unwrap_or(0);
-        let max_input = examples.iter().map(|example| example.input.len()).max().unwrap_or(0);
-        let min_target = examples.iter().map(|example| example.target.len()).min().unwrap_or(0);
-        let max_target = examples.iter().map(|example| example.target.len()).max().unwrap_or(0);
+        let min_input = examples
+            .iter()
+            .map(|example| example.input.len())
+            .min()
+            .unwrap_or(0);
+        let max_input = examples
+            .iter()
+            .map(|example| example.input.len())
+            .max()
+            .unwrap_or(0);
+        let min_target = examples
+            .iter()
+            .map(|example| example.target.len())
+            .min()
+            .unwrap_or(0);
+        let max_target = examples
+            .iter()
+            .map(|example| example.target.len())
+            .max()
+            .unwrap_or(0);
         let total_input_tokens: usize = examples.iter().map(|example| example.input.len()).sum();
         let total_target_tokens: usize = examples.iter().map(|example| example.target.len()).sum();
 
@@ -165,8 +190,9 @@ impl TrainBaseAdapterArgs {
             weight_group_config: WeightGroupConfig::default(),
         };
 
-        let mut trainer = MicroLoRATrainer::new(config.clone())
-            .map_err(|e| AosError::Training(format!("Failed to initialize MicroLoRA trainer: {}", e)))?;
+        let mut trainer = MicroLoRATrainer::new(config.clone()).map_err(|e| {
+            AosError::Training(format!("Failed to initialize MicroLoRA trainer: {}", e))
+        })?;
 
         let result = trainer
             .train_with_callback(&examples, |epoch, loss| {
@@ -196,14 +222,19 @@ impl TrainBaseAdapterArgs {
 
         if has_non_finite {
             return Err(AosError::Training(
-                "Training produced non-finite weights; inspect dataset and trainer output".to_string(),
+                "Training produced non-finite weights; inspect dataset and trainer output"
+                    .to_string(),
             ));
         }
 
         let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
 
         std::fs::create_dir_all(&self.output_dir).map_err(|e| {
-            AosError::Io(format!("Failed to create output directory {}: {}", self.output_dir.display(), e))
+            AosError::Io(format!(
+                "Failed to create output directory {}: {}",
+                self.output_dir.display(),
+                e
+            ))
         })?;
 
         let packager = AdapterPackager::new(&self.output_dir);
@@ -216,27 +247,53 @@ impl TrainBaseAdapterArgs {
         if let Some(ref description) = manifest.description {
             manifest_metadata.insert("dataset_description".to_string(), description.clone());
         }
-        manifest_metadata.insert("manifest_path".to_string(), self.manifest.display().to_string());
-        manifest_metadata.insert("tokenizer_path".to_string(), self.tokenizer.display().to_string());
-        manifest_metadata.insert("manifest_entries".to_string(), manifest.entries.len().to_string());
+        manifest_metadata.insert(
+            "manifest_path".to_string(),
+            self.manifest.display().to_string(),
+        );
+        manifest_metadata.insert(
+            "tokenizer_path".to_string(),
+            self.tokenizer.display().to_string(),
+        );
+        manifest_metadata.insert(
+            "manifest_entries".to_string(),
+            manifest.entries.len().to_string(),
+        );
         manifest_metadata.insert("total_examples".to_string(), total_examples.to_string());
-        manifest_metadata.insert("positive_examples".to_string(), positive_examples.to_string());
-        manifest_metadata.insert("negative_examples".to_string(), negative_examples.to_string());
-        manifest_metadata.insert("zero_weight_examples".to_string(), zero_weight_examples.to_string());
+        manifest_metadata.insert(
+            "positive_examples".to_string(),
+            positive_examples.to_string(),
+        );
+        manifest_metadata.insert(
+            "negative_examples".to_string(),
+            negative_examples.to_string(),
+        );
+        manifest_metadata.insert(
+            "zero_weight_examples".to_string(),
+            zero_weight_examples.to_string(),
+        );
         manifest_metadata.insert("total_weight".to_string(), format!("{:.6}", total_weight));
-        manifest_metadata.insert("input_token_sum".to_string(), total_input_tokens.to_string());
-        manifest_metadata.insert("target_token_sum".to_string(), total_target_tokens.to_string());
+        manifest_metadata.insert(
+            "input_token_sum".to_string(),
+            total_input_tokens.to_string(),
+        );
+        manifest_metadata.insert(
+            "target_token_sum".to_string(),
+            total_target_tokens.to_string(),
+        );
 
         // Package adapter
         let base_model = "qwen2.5-7b".to_string();
         let mut packaged = packager
             .package(&self.adapter_id, &quantized, &config, &base_model)
             .await
-            .map_err(|e| AosError::Training(format!("Packaging adapter artifacts failed: {}", e)))?;
+            .map_err(|e| {
+                AosError::Training(format!("Packaging adapter artifacts failed: {}", e))
+            })?;
 
         // Update manifest with metadata
         packaged.manifest.metadata = manifest_metadata;
-        
+
         // Save updated manifest
         let manifest_path = self.output_dir.join(&self.adapter_id).join("manifest.json");
         let manifest_json = serde_json::to_string_pretty(&packaged.manifest)?;
@@ -294,16 +351,21 @@ impl TrainBaseAdapterArgs {
             let adapter = SingleFileAdapter::create(
                 self.adapter_id.clone(),
                 adapter_weights,
-                examples.into_iter().map(|ex| adapteros_single_file_adapter::TrainingExample {
-                    input: ex.input,
-                    target: ex.target,
-                    metadata: ex.metadata,
-                    weight: ex.weight,
-                }).collect(),
+                examples
+                    .into_iter()
+                    .map(|ex| adapteros_single_file_adapter::TrainingExample {
+                        input: ex.input,
+                        target: ex.target,
+                        metadata: ex.metadata,
+                        weight: ex.weight,
+                    })
+                    .collect(),
                 aos_config.clone(),
                 lineage,
             )
-            .map_err(|e| AosError::Training(format!("Failed to create SingleFileAdapter: {}", e)))?;
+            .map_err(|e| {
+                AosError::Training(format!("Failed to create SingleFileAdapter: {}", e))
+            })?;
 
             let aos_path = self.output_dir.join(format!("{}.aos", self.adapter_id));
             SingleFileAdapterPackager::save(&adapter, &aos_path)
@@ -323,4 +385,3 @@ impl TrainBaseAdapterArgs {
         Ok(())
     }
 }
-

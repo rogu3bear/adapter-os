@@ -170,15 +170,16 @@ impl BranchManager {
             .insert(session.id.clone(), session.clone());
 
         // Store session in database
-        self.db.create_git_session(
-            &session.id,
-            &session.adapter_id,
-            &session.repo_id,
-            &session.branch_name,
-            &session.base_commit_sha,
-        ).await.map_err(|e| {
-            AosError::Database(format!("Failed to store git session: {}", e))
-        })?;
+        self.db
+            .create_git_session(
+                &session.id,
+                &session.adapter_id,
+                &session.repo_id,
+                &session.branch_name,
+                &session.base_commit_sha,
+            )
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to store git session: {}", e)))?;
 
         Ok(session)
     }
@@ -249,14 +250,15 @@ impl BranchManager {
         session.ended_at = Some(chrono::Utc::now());
 
         // Update session in database
-        let status = if merge_commit_sha.is_some() { "merged" } else { "abandoned" };
-        self.db.update_git_session_status(
-            session_id,
-            status,
-            merge_commit_sha.as_deref(),
-        ).await.map_err(|e| {
-            AosError::Database(format!("Failed to update git session: {}", e))
-        })?;
+        let status = if merge_commit_sha.is_some() {
+            "merged"
+        } else {
+            "abandoned"
+        };
+        self.db
+            .update_git_session_status(session_id, status, merge_commit_sha.as_deref())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update git session: {}", e)))?;
 
         Ok(merge_commit_sha)
     }
@@ -389,8 +391,10 @@ impl BranchManager {
 
     /// Load active sessions from database
     async fn load_active_sessions(&self) -> Result<()> {
-        let active_sessions = self.db.list_active_git_sessions().await
-            .map_err(|e| AosError::Database(format!("Failed to load active sessions: {}", e)))?;
+        let active_sessions =
+            self.db.list_active_git_sessions().await.map_err(|e| {
+                AosError::Database(format!("Failed to load active sessions: {}", e))
+            })?;
 
         let mut sessions = self.active_sessions.write().await;
         for db_session in active_sessions {
@@ -400,8 +404,9 @@ impl BranchManager {
                 repo_id: db_session.repo_id,
                 branch_name: db_session.branch_name,
                 base_commit_sha: db_session.base_commit_sha,
-                started_at: db_session.started_at.parse()
-                    .map_err(|e| AosError::Database(format!("Failed to parse started_at: {}", e)))?,
+                started_at: db_session.started_at.parse().map_err(|e| {
+                    AosError::Database(format!("Failed to parse started_at: {}", e))
+                })?,
                 ended_at: db_session.ended_at.and_then(|s| s.parse().ok()),
                 status: match db_session.status.as_str() {
                     "active" => SessionStatus::Active,

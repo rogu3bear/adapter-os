@@ -10,8 +10,11 @@
 
 use crate::{
     auth::Claims,
+    errors::ErrorResponseExt,
     state::AppState,
-    types::{ErrorResponse, ModelValidationResponse},
+    types::{
+        ErrorResponse, ModelInconsistency, ModelRuntimeHealthResponse, ModelValidationResponse,
+    },
 };
 use axum::{
     body::Body,
@@ -114,7 +117,10 @@ pub async fn import_model(
     if claims.role != "admin" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "admin role required",
+            )),
         ));
     }
 
@@ -127,50 +133,50 @@ pub async fn import_model(
     let tokenizer_exists = std::path::Path::new(&req.tokenizer_path).exists();
 
     if !weights_exists {
+        let technical_message = format!(
+            "Model weights file not found at path: {}. Please ensure the file exists and the path is correct. \
+            Check that the file path is absolute and accessible to the server process. \
+            Ensure the file has not been moved or deleted.",
+            req.weights_path
+        );
+
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new_user_friendly(
-                StatusCode::BAD_REQUEST,
                 "WEIGHTS_FILE_NOT_FOUND",
-                &format!(
-                    "Model weights file not found at path: {}. Please ensure the file exists and the path is correct. \
-                    Check that the file path is absolute and accessible to the server process. \
-                    Ensure the file has not been moved or deleted.",
-                    req.weights_path
-                ),
-                None
+                technical_message,
             )),
         ));
     }
     if !config_exists {
+        let technical_message = format!(
+            "Model configuration file not found at path: {}. Please ensure the file exists and is valid JSON. \
+            The config.json file is required for model import. \
+            Verify the file exists and contains valid model configuration.",
+            req.config_path
+        );
+
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new_user_friendly(
-                StatusCode::BAD_REQUEST,
                 "CONFIG_FILE_NOT_FOUND",
-                &format!(
-                    "Model configuration file not found at path: {}. Please ensure the file exists and is valid JSON. \
-                    The config.json file is required for model import. \
-                    Verify the file exists and contains valid model configuration.",
-                    req.config_path
-                ),
-                None
+                technical_message,
             )),
         ));
     }
     if !tokenizer_exists {
+        let technical_message = format!(
+            "Tokenizer file not found at path: {}. Please ensure the file exists and is valid JSON. \
+            The tokenizer.json file is required for text processing. \
+            Ensure the file exists and matches the model architecture.",
+            req.tokenizer_path
+        );
+
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new_user_friendly(
-                StatusCode::BAD_REQUEST,
                 "TOKENIZER_FILE_NOT_FOUND",
-                &format!(
-                    "Tokenizer file not found at path: {}. Please ensure the file exists and is valid JSON. \
-                    The tokenizer.json file is required for text processing. \
-                    Ensure the file exists and matches the model architecture.",
-                    req.tokenizer_path
-                ),
-                None
+                technical_message,
             )),
         ));
     }
@@ -231,22 +237,22 @@ pub async fn import_model(
     .flatten();
 
     if let Some(model) = existing_model {
-            // Ensure base_model_status record exists for this tenant
-            let status_exists = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM base_model_status WHERE model_id = ? AND tenant_id = ?",
-            )
-            .bind(&model.id)
-            .bind(tenant_id)
-            .fetch_one(state.db.pool())
-            .await
-            .map_err(|e| {
-                warn!("Failed to check base_model_status: {}", e);
-            })
-            .unwrap_or(0);
+        // Ensure base_model_status record exists for this tenant
+        let status_exists = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM base_model_status WHERE model_id = ? AND tenant_id = ?",
+        )
+        .bind(&model.id)
+        .bind(tenant_id)
+        .fetch_one(state.db.pool())
+        .await
+        .map_err(|e| {
+            warn!("Failed to check base_model_status: {}", e);
+        })
+        .unwrap_or(0);
 
-            if status_exists == 0 {
-                // Create base_model_status record
-                let _ = sqlx::query!(
+        if status_exists == 0 {
+            // Create base_model_status record
+            let _ = sqlx::query!(
                     "INSERT INTO base_model_status (tenant_id, model_id, status, import_id) VALUES (?, ?, 'unloaded', ?)",
                     tenant_id,
                     model.id,
@@ -308,7 +314,10 @@ pub async fn load_model(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "operator or admin role required",
+            )),
         ));
     }
 
@@ -339,17 +348,32 @@ pub async fn load_model(
         let technical_msg = format!("Model '{}' not found in database for tenant '{}'. Import the model first using POST /v1/models/import", model_id, tenant_id);
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new_user_friendly("NOT_FOUND", &technical_msg)),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                &technical_msg,
+            )),
         ));
     };
 
     // Start operation tracking
-    state.operation_tracker.start_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load)).await
+    state
+        .operation_tracker
+        .start_operation(
+            &model_id,
+            tenant_id,
+            crate::operation_tracker::OperationType::Model(
+                crate::operation_tracker::ModelOperationType::Load,
+            ),
+        )
+        .await
         .map_err(|e| {
             error!("Failed to start operation tracking: {:?}", e);
             (
                 StatusCode::CONFLICT,
-                Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", "Another operation is already in progress for this model")),
+                Json(ErrorResponse::new_user_friendly(
+                    "OPERATION_IN_PROGRESS",
+                    "Another operation is already in progress for this model",
+                )),
             )
         })?;
 
@@ -433,13 +457,13 @@ pub async fn load_model(
     };
 
     // Handle load result - only mark as loaded if successful
-                        match load_result {
-                            Ok(()) => {
+    match load_result {
+        Ok(()) => {
             // Update to loaded state
-                                let loaded_at = chrono::Utc::now().to_rfc3339();
+            let loaded_at = chrono::Utc::now().to_rfc3339();
             let memory_mb: i32 = 8192; // TODO: Get actual memory usage
 
-                                sqlx::query!(
+            sqlx::query!(
                                     "UPDATE base_model_status SET status = 'loaded', loaded_at = ?, memory_usage_mb = ?, updated_at = ? WHERE model_id = ? AND tenant_id = ?",
                                     loaded_at,
                                     memory_mb,
@@ -459,19 +483,29 @@ pub async fn load_model(
             })?;
 
             // Complete operation tracking
-            let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load), true).await;
+            let _ = state
+                .operation_tracker
+                .complete_operation(
+                    &model_id,
+                    tenant_id,
+                    crate::operation_tracker::OperationType::Model(
+                        crate::operation_tracker::ModelOperationType::Load,
+                    ),
+                    true,
+                )
+                .await;
 
             // Emit telemetry
-                                info!(
-                                    event = "model.load",
-                                    model_id = %model_id,
-                                    tenant_id = %tenant_id,
-                                    memory_mb = %memory_mb,
-                                    "Base model loaded"
-                                );
+            info!(
+                event = "model.load",
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                memory_mb = %memory_mb,
+                "Base model loaded"
+            );
 
-                                // Track onboarding journey step
-                                let _ = track_journey_step(&state, tenant_id, &claims.sub, "model_loaded").await;
+            // Track onboarding journey step
+            let _ = track_journey_step(&state, tenant_id, &claims.sub, "model_loaded").await;
 
             Ok(Json(ModelStatusResponse {
                 model_id: model_id.clone(),
@@ -485,7 +519,17 @@ pub async fn load_model(
         Err(e) => {
             // Mark as error state
             // Complete operation tracking with failure
-            let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Load), false).await;
+            let _ = state
+                .operation_tracker
+                .complete_operation(
+                    &model_id,
+                    tenant_id,
+                    crate::operation_tracker::OperationType::Model(
+                        crate::operation_tracker::ModelOperationType::Load,
+                    ),
+                    false,
+                )
+                .await;
 
             error!(
                 model_id = %model_id,
@@ -542,7 +586,10 @@ pub async fn unload_model(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "operator or admin role required",
+            )),
         ));
     }
 
@@ -569,22 +616,37 @@ pub async fn unload_model(
     if exists.is_none() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "Model not found")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "Model not found",
+            )),
         ));
     }
 
     // Start operation tracking
-    state.operation_tracker.start_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Unload)).await
-            .map_err(|e| {
+    state
+        .operation_tracker
+        .start_operation(
+            &model_id,
+            tenant_id,
+            crate::operation_tracker::OperationType::Model(
+                crate::operation_tracker::ModelOperationType::Unload,
+            ),
+        )
+        .await
+        .map_err(|e| {
             error!("Failed to start operation tracking: {:?}", e);
-                (
+            (
                 StatusCode::CONFLICT,
-                Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", "Another operation is already in progress for this model")),
-                )
-            })?;
+                Json(ErrorResponse::new_user_friendly(
+                    "OPERATION_IN_PROGRESS",
+                    "Another operation is already in progress for this model",
+                )),
+            )
+        })?;
 
     // Update to unloading state
-        sqlx::query!(
+    sqlx::query!(
             "UPDATE base_model_status SET status = 'unloading', updated_at = ? WHERE model_id = ? AND tenant_id = ?",
             now,
             model_id,
@@ -604,15 +666,15 @@ pub async fn unload_model(
 
     // Unload from runtime (if available)
     if let Some(rt) = &state.model_runtime {
-            let mut guard = rt.lock().await;
+        let mut guard = rt.lock().await;
         if let Err(e) = guard.unload_model(tenant_id, &model_id) {
             warn!("Runtime unload failed: {}", e);
         }
     }
 
     // Update to unloaded
-        let unloaded_at = chrono::Utc::now().to_rfc3339();
-                sqlx::query!(
+    let unloaded_at = chrono::Utc::now().to_rfc3339();
+    sqlx::query!(
                     "UPDATE base_model_status SET status = 'unloaded', unloaded_at = ?, loaded_at = NULL, memory_usage_mb = NULL, updated_at = ? WHERE model_id = ? AND tenant_id = ?",
                     unloaded_at,
                     unloaded_at,
@@ -631,7 +693,17 @@ pub async fn unload_model(
                 })?;
 
     // Complete operation tracking
-    let _ = state.operation_tracker.complete_operation(&model_id, tenant_id, crate::operation_tracker::OperationType::Model(crate::operation_tracker::ModelOperationType::Unload), true).await;
+    let _ = state
+        .operation_tracker
+        .complete_operation(
+            &model_id,
+            tenant_id,
+            crate::operation_tracker::OperationType::Model(
+                crate::operation_tracker::ModelOperationType::Unload,
+            ),
+            true,
+        )
+        .await;
 
     info!(
         event = "model.unload",
@@ -665,36 +737,65 @@ pub async fn cancel_model_operation(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Require operator or admin role
     if claims.role != "admin" && claims.role != "operator" {
-                return Err((
+        return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "operator or admin role required",
+            )),
         ));
     }
 
     let tenant_id = &claims.tenant_id;
 
     // Attempt to cancel the operation
-    match state.operation_tracker.cancel_model_operation(&model_id, tenant_id).await {
+    match state
+        .operation_tracker
+        .cancel_model_operation(&model_id, tenant_id)
+        .await
+    {
         Ok(()) => {
-    info!(
-        model_id = %model_id,
-        tenant_id = %tenant_id,
-                "Successfully cancelled model operation"
-    );
-    Ok(StatusCode::OK)
+            info!(
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                        "Successfully cancelled model operation"
+            );
+            Ok(StatusCode::OK)
         }
         Err(crate::operation_tracker::OperationCancellationError::OperationNotFound) => {
-            let technical_msg = format!("No ongoing operation found for model '{}' in tenant '{}'", model_id, tenant_id);
+            let technical_msg = format!(
+                "No ongoing operation found for model '{}' in tenant '{}'",
+                model_id, tenant_id
+            );
             Err((
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new_user_friendly("NOT_FOUND", &technical_msg)),
+                Json(ErrorResponse::new_user_friendly(
+                    "NOT_FOUND",
+                    &technical_msg,
+                )),
+            ))
+        }
+        Err(crate::operation_tracker::OperationCancellationError::OperationAlreadyCompleted) => {
+            let technical_msg = format!(
+                "Operation for model '{}' in tenant '{}' already completed",
+                model_id, tenant_id
+            );
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new_user_friendly(
+                    "OPERATION_COMPLETED",
+                    &technical_msg,
+                )),
             ))
         }
         Err(_) => {
             let technical_msg = "Failed to cancel operation";
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("INTERNAL_ERROR", technical_msg)),
+                Json(ErrorResponse::new_user_friendly(
+                    "INTERNAL_ERROR",
+                    technical_msg,
+                )),
             ))
         }
     }
@@ -775,7 +876,10 @@ pub async fn get_model_status(
     if claims.role != "admin" && claims.role != "operator" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "operator or admin role required",
+            )),
         ));
     }
 
@@ -814,7 +918,10 @@ pub async fn get_model_status(
         }
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "model not found or not loaded")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "model not found or not loaded",
+            )),
         )),
     }
 }
@@ -842,7 +949,10 @@ pub async fn download_model(
     if claims.role != "admin" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "admin role required",
+            )),
         ));
     }
 
@@ -869,7 +979,10 @@ pub async fn download_model(
     let model_info = model_info.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "model not found or access denied")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "model not found or access denied",
+            )),
         )
     })?;
 
@@ -898,7 +1011,10 @@ pub async fn download_model(
     let import_record = import_record.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "no completed imports found for model")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "no completed imports found for model",
+            )),
         )
     })?;
 
@@ -961,7 +1077,10 @@ pub async fn download_model(
     if artifacts.is_empty() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new_user_friendly("NOT_FOUND", "no downloadable artifacts available")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "no downloadable artifacts available",
+            )),
         ));
     }
 
@@ -1122,7 +1241,10 @@ fn generate_download_token(
         );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("TOKEN_ERROR", "failed to generate download token")),
+            Json(ErrorResponse::new_user_friendly(
+                "TOKEN_ERROR",
+                "failed to generate download token",
+            )),
         )
     })?;
 
@@ -1149,7 +1271,10 @@ pub async fn download_model_artifact(
     if claims.role != "admin" {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "admin role required")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "admin role required",
+            )),
         ));
     }
 
@@ -1580,6 +1705,134 @@ async fn track_journey_step(
     Ok(())
 }
 
+/// Get model runtime health status
+#[cfg_attr(feature = "openapi", utoipa::path(
+    get,
+    path = "/v1/models/health",
+    responses(
+        (status = 200, description = "Health check response", body = ModelRuntimeHealthResponse),
+        (status = 500, description = "Health check failed")
+    ),
+    tag = "models"
+))]
+pub async fn model_runtime_health(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<ModelRuntimeHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if claims.role != "admin" && claims.role != "operator" {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "operator or admin role required",
+            )),
+        ));
+    }
+
+    let Some(rt) = &state.model_runtime else {
+        return Ok(Json(ModelRuntimeHealthResponse {
+            status: "unhealthy".to_string(),
+            total_models: 0,
+            loaded_count: 0,
+            inconsistencies: vec![],
+            checked_at: chrono::Utc::now().to_rfc3339(),
+        }));
+    };
+
+    let db_models = sqlx::query!("SELECT tenant_id, model_id, status FROM base_model_status")
+        .fetch_all(state.db.pool())
+        .await
+        .map_err(|e| {
+            error!("Failed to query model states: {}", e);
+            let technical_msg = format!("{}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
+            )
+        })?;
+
+    let guard = rt.lock().await;
+    let runtime_models = guard.get_all_loaded_models();
+    drop(guard);
+
+    let mut inconsistencies = Vec::new();
+    let runtime_model_set: std::collections::HashSet<(String, String)> =
+        runtime_models.iter().cloned().collect();
+
+    for db_model in &db_models {
+        let tenant_id = &db_model.tenant_id;
+        let model_id = &db_model.model_id;
+        let db_status = &db_model.status;
+
+        let runtime_loaded = runtime_model_set.contains(&(tenant_id.clone(), model_id.clone()));
+
+        match db_status.as_str() {
+            "active" => {
+                if !runtime_loaded {
+                    inconsistencies.push(ModelInconsistency {
+                        model_id: model_id.clone(),
+                        tenant_id: tenant_id.clone(),
+                        issue: "Model marked active in DB but not loaded in runtime".to_string(),
+                        runtime_status: "not_loaded".to_string(),
+                    });
+                }
+            }
+            "inactive" | "failed" => {
+                if runtime_loaded {
+                    inconsistencies.push(ModelInconsistency {
+                        model_id: model_id.clone(),
+                        tenant_id: tenant_id.clone(),
+                        issue: "Model marked inactive/failed in DB but loaded in runtime"
+                            .to_string(),
+                        runtime_status: "loaded".to_string(),
+                    });
+                }
+            }
+            _ => {
+                inconsistencies.push(ModelInconsistency {
+                    model_id: model_id.clone(),
+                    tenant_id: tenant_id.clone(),
+                    issue: format!("Unknown model status: {}", db_status),
+                    runtime_status: if runtime_loaded {
+                        "loaded"
+                    } else {
+                        "not_loaded"
+                    }
+                    .to_string(),
+                });
+            }
+        }
+    }
+
+    for (tenant_id, model_id) in &runtime_models {
+        let in_db = db_models
+            .iter()
+            .any(|db| &db.tenant_id == tenant_id && &db.model_id == model_id);
+        if !in_db {
+            inconsistencies.push(ModelInconsistency {
+                model_id: model_id.clone(),
+                tenant_id: tenant_id.clone(),
+                issue: "Model loaded in runtime but not found in database".to_string(),
+                runtime_status: "loaded".to_string(),
+            });
+        }
+    }
+
+    let status = if inconsistencies.is_empty() {
+        "healthy"
+    } else {
+        "unhealthy"
+    };
+
+    Ok(Json(ModelRuntimeHealthResponse {
+        status: status.to_string(),
+        total_models: db_models.len() as i32,
+        loaded_count: runtime_models.len() as i32,
+        inconsistencies,
+        checked_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1596,177 +1849,6 @@ mod tests {
         };
 
         assert_eq!(req.model_name, "test-model");
-    }
-
-/// Cancel a model operation (load/unload)
-#[utoipa::path(
-    post,
-    path = "/v1/models/{model_id}/cancel",
-    params(
-        ("model_id" = String, Path, description = "Model ID")
-    ),
-    responses(
-        (status = 200, description = "Operation cancelled successfully"),
-        (status = 404, description = "Operation not found"),
-        (status = 500, description = "Internal server error")
-    ),
-    tag = "models"
-)]
-pub async fn cancel_model_operation(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(model_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
-        ));
-    }
-
-    let tenant_id = &claims.tenant_id;
-
-    // Use operation tracker to cancel the operation
-    match state.operation_tracker.cancel_model_operation(&model_id, tenant_id).await {
-        Ok(()) => Ok(StatusCode::OK),
-        Err(crate::operation_tracker::OperationCancellationError::NotFound) => {
-            Err((
-            StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("operation not found").with_code("NOT_FOUND")),
-            ))
-        }
-        Err(crate::operation_tracker::OperationCancellationError::NotCancellable) => {
-            Err((
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("operation cannot be cancelled").with_code("NOT_CANCELLABLE")),
-            ))
-        }
-        Err(_) => {
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("failed to cancel operation").with_code("INTERNAL_ERROR")),
-            ))
-        }
-    }
-}
-
-/// Get model runtime health status
-#[utoipa::path(
-    get,
-    path = "/v1/models/health",
-    responses(
-        (status = 200, description = "Health check response", body = ModelRuntimeHealthResponse),
-        (status = 500, description = "Health check failed")
-    ),
-    tag = "models"
-)]
-pub async fn model_runtime_health(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<ModelRuntimeHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly("UNAUTHORIZED", "operator or admin role required")),
-        ));
-    }
-
-    let Some(rt) = &state.model_runtime else {
-        return Ok(Json(ModelRuntimeHealthResponse {
-            status: "unhealthy".to_string(),
-            total_models: 0,
-            loaded_count: 0,
-            inconsistencies: vec![],
-            checked_at: chrono::Utc::now().to_rfc3339(),
-        }));
-    };
-
-    // Get all models from database
-    let db_models = sqlx::query!(
-        "SELECT tenant_id, model_id, status FROM base_model_status"
-    )
-    .fetch_all(state.db.pool())
-    .await
-    .map_err(|e| {
-        error!("Failed to query model states: {}", e);
-        let technical_msg = format!("{}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
-        )
-    })?;
-
-    // Get all loaded models from runtime
-    let guard = rt.lock().await;
-    let runtime_models = guard.get_all_loaded_models();
-    drop(guard);
-
-    let mut inconsistencies = Vec::new();
-    let mut runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models.iter().cloned().collect();
-
-    // Check each DB model
-    for db_model in &db_models {
-        let tenant_id = &db_model.tenant_id;
-        let model_id = &db_model.model_id;
-        let db_status = &db_model.status;
-
-        let runtime_loaded = runtime_model_set.contains(&(tenant_id.clone(), model_id.clone()));
-
-        match db_status.as_str() {
-            "active" => {
-                if !runtime_loaded {
-                inconsistencies.push(ModelInconsistency {
-                    model_id: model_id.clone(),
-                    tenant_id: tenant_id.clone(),
-                        issue: "Model marked active in DB but not loaded in runtime".to_string(),
-                    runtime_status: "not_loaded".to_string(),
-                });
-            }
-            }
-            "inactive" | "failed" => {
-                if runtime_loaded {
-                inconsistencies.push(ModelInconsistency {
-                    model_id: model_id.clone(),
-                    tenant_id: tenant_id.clone(),
-                        issue: "Model marked inactive/failed in DB but loaded in runtime".to_string(),
-                    runtime_status: "loaded".to_string(),
-                    });
-                }
-            }
-            _ => {
-                inconsistencies.push(ModelInconsistency {
-                    model_id: model_id.clone(),
-                    tenant_id: tenant_id.clone(),
-                    issue: format!("Unknown model status: {}", db_status),
-                    runtime_status: if runtime_loaded { "loaded" } else { "not_loaded" }.to_string(),
-                });
-            }
-        }
-    }
-
-    // Check for models loaded in runtime but not in database
-    for (tenant_id, model_id) in &runtime_models {
-        let in_db = db_models.iter().any(|db| &db.tenant_id == tenant_id && &db.model_id == model_id);
-        if !in_db {
-        inconsistencies.push(ModelInconsistency {
-            model_id: model_id.clone(),
-            tenant_id: tenant_id.clone(),
-                issue: "Model loaded in runtime but not found in database".to_string(),
-            runtime_status: "loaded".to_string(),
-            });
-        }
-    }
-
-    let status = if inconsistencies.is_empty() { "healthy" } else { "unhealthy" };
-
-    Ok(Json(ModelRuntimeHealthResponse {
-        status: status.to_string(),
-        total_models: db_models.len() as i32,
-        loaded_count: runtime_models.len() as i32,
-        inconsistencies,
-        checked_at: chrono::Utc::now().to_rfc3339(),
-    }))
     }
 
     #[test]

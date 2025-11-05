@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/providers/CoreProviders';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import * as types from '@/api/types';
 import {
   Users,
   UserPlus,
@@ -47,7 +48,7 @@ export function WorkspaceMembers({ workspaceId }: WorkspaceMembersProps) {
     removeWorkspaceMember,
   } = useWorkspaces({ enabled: false }); // We'll call manually
 
-  const [members, setMembers] = useState<any[]>([]); // TODO: Use proper type
+  const [members, setMembers] = useState<types.WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

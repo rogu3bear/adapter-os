@@ -1,11 +1,10 @@
 use adapteros_verify::StrictnessLevel;
 use anyhow::{Context, Result};
+use hex;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
-use tokio::fs as tokio_fs;
+use std::path::PathBuf;
 use tracing::{debug, info, warn};
-use hex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -141,6 +140,22 @@ fn default_false() -> bool {
     false
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RepositoryPathsConfig {
+    /// Subdirectory under bundles_root where repositories are stored
+    /// Defaults to "repos" for backward compatibility
+    #[serde(default = "default_repos_subdirectory")]
+    pub subdirectory: String,
+    /// Whether to include tenant_id in repository paths
+    /// Defaults to true for multi-tenant isolation
+    #[serde(default = "default_true")]
+    pub include_tenant_in_path: bool,
+}
+
+fn default_repos_subdirectory() -> String {
+    "repos".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathsConfig {
     pub artifacts_root: String,
@@ -148,6 +163,9 @@ pub struct PathsConfig {
     pub adapters_root: String,
     #[serde(default = "default_plan_dir")]
     pub plan_dir: String,
+    /// Repository storage configuration
+    #[serde(default)]
+    pub repositories: RepositoryPathsConfig,
 }
 
 fn default_plan_dir() -> String {
@@ -320,14 +338,16 @@ impl Config {
 
         // Check readability
         fs::metadata(&canonical).with_context(|| {
-            format!("{} path {} is not accessible", description, canonical.display())
+            format!(
+                "{} path {} is not accessible",
+                description,
+                canonical.display()
+            )
         })?;
 
         canonical
             .to_str()
-            .ok_or_else(|| {
-                anyhow::anyhow!("{} path contains invalid UTF-8: {}", description, path)
-            })
+            .ok_or_else(|| anyhow::anyhow!("{} path contains invalid UTF-8: {}", description, path))
             .map(|s| s.to_string())
     }
 
@@ -364,14 +384,16 @@ impl Config {
 
         // Check readability
         fs::metadata(&canonical).with_context(|| {
-            format!("{} file {} is not accessible", description, canonical.display())
+            format!(
+                "{} file {} is not accessible",
+                description,
+                canonical.display()
+            )
         })?;
 
         canonical
             .to_str()
-            .ok_or_else(|| {
-                anyhow::anyhow!("{} file contains invalid UTF-8: {}", description, path)
-            })
+            .ok_or_else(|| anyhow::anyhow!("{} file contains invalid UTF-8: {}", description, path))
             .map(|s| s.to_string())
     }
 
@@ -388,7 +410,6 @@ impl Config {
     /// Paths are canonicalized in-place to ensure consistent resolution regardless of
     /// working directory changes. This prevents runtime failures due to relative path issues.
     pub fn validate(&mut self) -> Result<()> {
-
         // Validate file size limits
         if self.server.max_adapter_size_bytes == 0 {
             return Err(anyhow::anyhow!(
@@ -449,14 +470,12 @@ impl Config {
                 })?;
             }
             // Canonicalize parent and reconstruct path
-            let canonical_parent = parent
-                .canonicalize()
-                .with_context(|| {
-                    format!(
-                        "Failed to canonicalize database parent directory: {}",
-                        parent.display()
-                    )
-                })?;
+            let canonical_parent = parent.canonicalize().with_context(|| {
+                format!(
+                    "Failed to canonicalize database parent directory: {}",
+                    parent.display()
+                )
+            })?;
             let db_file_name = db_full_path
                 .file_name()
                 .ok_or_else(|| anyhow::anyhow!("Database path has no filename"))?;
@@ -484,7 +503,12 @@ impl Config {
                 self.security.global_seed.len()
             ));
         }
-        if !self.security.global_seed.chars().all(|c| c.is_ascii_hexdigit()) {
+        if !self
+            .security
+            .global_seed
+            .chars()
+            .all(|c| c.is_ascii_hexdigit())
+        {
             return Err(anyhow::anyhow!(
                 "global_seed must contain only hexadecimal characters"
             ));
@@ -503,24 +527,24 @@ impl Config {
 
         // Validate and canonicalize file paths
         if let Some(ref jwt_secret_file) = self.security.jwt_secret_file {
-            self.security.jwt_secret_file = Some(
-                Self::validate_and_canonicalize_file(jwt_secret_file, "jwt_secret_file")?,
-            );
+            self.security.jwt_secret_file = Some(Self::validate_and_canonicalize_file(
+                jwt_secret_file,
+                "jwt_secret_file",
+            )?);
         }
 
         if let Some(ref jwt_public_key_pem_file) = self.security.jwt_public_key_pem_file {
-            self.security.jwt_public_key_pem_file = Some(
-                Self::validate_and_canonicalize_file(
-                    jwt_public_key_pem_file,
-                    "jwt_public_key_pem_file",
-                )?,
-            );
+            self.security.jwt_public_key_pem_file = Some(Self::validate_and_canonicalize_file(
+                jwt_public_key_pem_file,
+                "jwt_public_key_pem_file",
+            )?);
         }
 
         if let Some(ref jwt_signing_key_path) = self.security.jwt_signing_key_path {
-            self.security.jwt_signing_key_path = Some(
-                Self::validate_and_canonicalize_file(jwt_signing_key_path, "jwt_signing_key_path")?,
-            );
+            self.security.jwt_signing_key_path = Some(Self::validate_and_canonicalize_file(
+                jwt_signing_key_path,
+                "jwt_signing_key_path",
+            )?);
         }
 
         // Validate MLX model path if MLX is enabled
@@ -534,9 +558,7 @@ impl Config {
                         model_path_buf
                     } else {
                         std::env::current_dir()
-                            .map_err(|e| {
-                                anyhow::anyhow!("Failed to get current directory: {}", e)
-                            })?
+                            .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?
                             .join(model_path_buf)
                     };
 
@@ -594,9 +616,7 @@ impl Config {
                         model_path_buf
                     } else {
                         std::env::current_dir()
-                            .map_err(|e| {
-                                anyhow::anyhow!("Failed to get current directory: {}", e)
-                            })?
+                            .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?
                             .join(model_path_buf)
                     };
 
@@ -647,14 +667,11 @@ impl Config {
                     }
 
                     // Canonicalize and update model path in config
-                    let canonical_model_path = full_model_path
-                        .canonicalize()
-                        .with_context(|| {
+                    let canonical_model_path =
+                        full_model_path.canonicalize().with_context(|| {
                             format!("Failed to canonicalize MLX model path: {}", config_path)
                         })?;
-                    mlx_config.model_path = canonical_model_path
-                        .to_str()
-                        .map(|s| s.to_string());
+                    mlx_config.model_path = canonical_model_path.to_str().map(|s| s.to_string());
                     mlx_config.model_path.clone()
                 } else {
                     None
@@ -675,7 +692,10 @@ impl Config {
                 if golden_gate.enabled {
                     if let Some(ref bundle_path) = golden_gate.bundle_path {
                         // Validate bundle path exists if explicitly set
-                        Self::validate_and_canonicalize_file(bundle_path, "golden_gate.bundle_path")?;
+                        Self::validate_and_canonicalize_file(
+                            bundle_path,
+                            "golden_gate.bundle_path",
+                        )?;
                     }
                 }
             }
@@ -706,14 +726,12 @@ impl Config {
 
             // Canonicalize UDS socket path (store parent + filename)
             if let Some(parent) = uds_full_path.parent() {
-                let canonical_parent = parent
-                    .canonicalize()
-                    .with_context(|| {
-                        format!(
-                            "Failed to canonicalize UDS socket parent directory: {}",
-                            parent.display()
-                        )
-                    })?;
+                let canonical_parent = parent.canonicalize().with_context(|| {
+                    format!(
+                        "Failed to canonicalize UDS socket parent directory: {}",
+                        parent.display()
+                    )
+                })?;
                 let socket_name = uds_full_path
                     .file_name()
                     .ok_or_else(|| anyhow::anyhow!("UDS socket path has no filename"))?;
@@ -726,9 +744,7 @@ impl Config {
                 );
             } else {
                 // Root path, canonicalize directly
-                self.server.uds_socket = Some(
-                    Self::canonicalize_path(uds_socket, "uds_socket")?,
-                );
+                self.server.uds_socket = Some(Self::canonicalize_path(uds_socket, "uds_socket")?);
             }
         }
 
@@ -740,9 +756,7 @@ impl Config {
                 ));
             }
             if self.security.jwt_mode.as_deref() != Some("eddsa") {
-                return Err(anyhow::anyhow!(
-                    "production_mode requires jwt_mode='eddsa'"
-                ));
+                return Err(anyhow::anyhow!("production_mode requires jwt_mode='eddsa'"));
             }
             if !self.security.require_pf_deny {
                 return Err(anyhow::anyhow!(
@@ -815,7 +829,11 @@ impl Config {
                 Ok(_) => {
                     // Clean up test file
                     let _ = tokio::fs::remove_file(&test_file).await;
-                    debug!("✅ Directory '{}' is writable: {}", dir_name, path.display());
+                    debug!(
+                        "✅ Directory '{}' is writable: {}",
+                        dir_name,
+                        path.display()
+                    );
                 }
                 Err(e) => {
                     return Err(anyhow::anyhow!(
@@ -837,7 +855,8 @@ impl Config {
         if let Some(ref jwt_secret_file) = self.security.jwt_secret_file {
             let path = PathBuf::from(jwt_secret_file);
             if path.exists() {
-                self.validate_secure_file_permissions(&path, "jwt_secret_file").await?;
+                self.validate_secure_file_permissions(&path, "jwt_secret_file")
+                    .await?;
             }
         }
 
@@ -845,7 +864,8 @@ impl Config {
         if let Some(ref jwt_signing_key) = self.security.jwt_signing_key_path {
             let path = PathBuf::from(jwt_signing_key);
             if path.exists() {
-                self.validate_secure_file_permissions(&path, "jwt_signing_key_path").await?;
+                self.validate_secure_file_permissions(&path, "jwt_signing_key_path")
+                    .await?;
             }
         }
 
@@ -853,10 +873,15 @@ impl Config {
     }
 
     /// Validate that a security-critical file has appropriate permissions
-    async fn validate_secure_file_permissions(&self, path: &PathBuf, file_name: &str) -> Result<()> {
+    async fn validate_secure_file_permissions(
+        &self,
+        path: &PathBuf,
+        file_name: &str,
+    ) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
-        let metadata = tokio::fs::metadata(path).await
+        let metadata = tokio::fs::metadata(path)
+            .await
             .with_context(|| format!("Failed to read metadata for {}", file_name))?;
 
         let permissions = metadata.permissions();
@@ -885,7 +910,8 @@ impl Config {
         info!("Testing database connectivity...");
 
         // Create a temporary database connection to test
-        let db = Database::new(&self.db.path).await
+        let db = adapteros_db::Db::connect(&self.db.path)
+            .await
             .with_context(|| format!("Failed to connect to database at {}", self.db.path))?;
 
         // Test a simple query
@@ -895,7 +921,9 @@ impl Config {
             .context("Failed to execute test query on database")?;
 
         if result.0 != 1 {
-            return Err(anyhow::anyhow!("Database test query returned unexpected result"));
+            return Err(anyhow::anyhow!(
+                "Database test query returned unexpected result"
+            ));
         }
 
         info!("✅ Database connectivity verified");
@@ -930,8 +958,8 @@ impl Config {
         }
 
         // Check if global seed has good entropy (not all zeros, not sequential)
-        let seed_bytes = hex::decode(&self.security.global_seed)
-            .context("Invalid hex in global seed")?;
+        let seed_bytes =
+            hex::decode(&self.security.global_seed).context("Invalid hex in global seed")?;
 
         if seed_bytes.iter().all(|&b| b == 0) {
             return Err(anyhow::anyhow!("Global seed cannot be all zeros"));
@@ -1060,7 +1088,8 @@ mod tests {
         fs::create_dir_all(temp_path.join("alerts")).expect("create alerts dir");
 
         // Create a config file
-        let config_content = format!(r#"
+        let config_content = format!(
+            r#"
 [server]
 port = 8080
 bind = "127.0.0.1"
@@ -1088,6 +1117,7 @@ rotate_size_mb = 10
             temp_path.display(),
             temp_path.display(),
             temp_path.display(),
+            temp_path.display(),
             temp_path.display()
         );
 
@@ -1101,11 +1131,26 @@ rotate_size_mb = 10
         config.validate().expect("config validation should pass");
 
         // Check that paths were canonicalized
-        assert!(config.paths.adapters_root.starts_with('/'), "adapters_root should be absolute");
-        assert!(config.paths.artifacts_root.starts_with('/'), "artifacts_root should be absolute");
-        assert!(config.paths.bundles_root.starts_with('/'), "bundles_root should be absolute");
-        assert!(config.paths.plan_dir.starts_with('/'), "plan_dir should be absolute");
-        assert!(config.alerting.alert_dir.starts_with('/'), "alert_dir should be absolute");
+        assert!(
+            config.paths.adapters_root.starts_with('/'),
+            "adapters_root should be absolute"
+        );
+        assert!(
+            config.paths.artifacts_root.starts_with('/'),
+            "artifacts_root should be absolute"
+        );
+        assert!(
+            config.paths.bundles_root.starts_with('/'),
+            "bundles_root should be absolute"
+        );
+        assert!(
+            config.paths.plan_dir.starts_with('/'),
+            "plan_dir should be absolute"
+        );
+        assert!(
+            config.alerting.alert_dir.starts_with('/'),
+            "alert_dir should be absolute"
+        );
     }
 
     #[test]
@@ -1115,7 +1160,8 @@ rotate_size_mb = 10
 
         // Don't create the adapters directory
 
-        let config_content = format!(r#"
+        let config_content = format!(
+            r#"
 [server]
 port = 8080
 
@@ -1153,9 +1199,15 @@ rotate_size_mb = 10
 
         // Validation should fail because missing_adapters directory doesn't exist
         let result = config.validate();
-        assert!(result.is_err(), "validation should fail for missing directory");
+        assert!(
+            result.is_err(),
+            "validation should fail for missing directory"
+        );
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("missing_adapters"), "error should mention missing directory");
+        assert!(
+            error_msg.contains("missing_adapters"),
+            "error should mention missing directory"
+        );
     }
 
     #[test]
@@ -1166,7 +1218,8 @@ rotate_size_mb = 10
         // Create required directories
         fs::create_dir_all(temp_path.join("adapters")).expect("create adapters dir");
 
-        let config_content = format!(r#"
+        let config_content = format!(
+            r#"
 [server]
 port = 8080
 
@@ -1204,8 +1257,14 @@ rotate_size_mb = 10
 
         // Validation should fail because JWT secret is too short
         let result = config.validate();
-        assert!(result.is_err(), "validation should fail for short jwt_secret");
+        assert!(
+            result.is_err(),
+            "validation should fail for short jwt_secret"
+        );
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("jwt_secret"), "error should mention jwt_secret");
+        assert!(
+            error_msg.contains("jwt_secret"),
+            "error should mention jwt_secret"
+        );
     }
 }

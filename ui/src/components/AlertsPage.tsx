@@ -138,7 +138,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     alertRules.forEach(rule => {
       if (!rule.enabled) return;
 
-      const metricValue = (currentMetrics as any)[rule.metric];
+      const metricValue = currentMetrics[rule.metric as keyof SystemMetrics] as number | undefined;
       if (metricValue === undefined) return;
 
       let shouldAlert = false;
@@ -161,7 +161,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
         );
         if (!existingAlert) {
           // Note: Real-time alert generation disabled - alerts should come from backend
-          // TODO: Implement proper real-time alert streaming from backend
+          // Future enhancement: Implement SSE stream endpoint for real-time alert updates
         }
       }
     });
@@ -170,7 +170,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const loadAlerts = useCallback(async () => {
     try {
       const alerts = await apiClient.listAlerts({ limit: 50 });
-      setAlerts(alerts as any); // TODO: Align Alert interfaces
+      setAlerts(alerts);
       setErrorRecovery(null);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load alerts';

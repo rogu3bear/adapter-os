@@ -1511,8 +1511,13 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // CodeGraph & Call Graph
-        Commands::CallgraphExport { codegraph_db, output: output_path, format } => {
-            let format = format.parse::<export_callgraph::ExportFormat>()
+        Commands::CallgraphExport {
+            codegraph_db,
+            output: output_path,
+            format,
+        } => {
+            let format = format
+                .parse::<export_callgraph::ExportFormat>()
                 .map_err(|e| anyhow::anyhow!("Invalid format '{}': {}", format, e))?;
             export_callgraph::export_callgraph(&codegraph_db, &output_path, format, output).await?;
         }
@@ -1845,7 +1850,8 @@ fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, 
 
     // Try to map common error patterns to user-friendly messages
     let user_friendly_msg = if error_msg.contains("Connection refused") {
-        "Database connection failed. Please check if the database is running and accessible.".to_string()
+        "Database connection failed. Please check if the database is running and accessible."
+            .to_string()
     } else if error_msg.contains("Permission denied") {
         "Permission denied. Please check file permissions and user access rights.".to_string()
     } else if error_msg.contains("No such file") {
@@ -1853,7 +1859,10 @@ fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, 
     } else if error_msg.contains("timeout") {
         "Operation timed out. This may be due to system load or network issues.".to_string()
     } else if let Some(code) = error_code {
-        format!("An error occurred ({}). See: aosctl explain {} (event: {})", code, code, event_id)
+        format!(
+            "An error occurred ({}). See: aosctl explain {} (event: {})",
+            code, code, event_id
+        )
     } else {
         format!("An unexpected error occurred. Event ID: {}", event_id)
     };

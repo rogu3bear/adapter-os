@@ -9,7 +9,7 @@
 // Status: Complete - All CLI commands implemented
 // Dependencies: SingleFileAdapter, Database, Lifecycle Management
 // Last Updated: 2024-01-15
-// 
+//
 // COORDINATION NOTES:
 // - This file affects: CLI interface, user workflows, automation
 // - Changes require: Updates to SingleFileAdapter and Database schemas
@@ -22,9 +22,9 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    AOS_FORMAT_VERSION, CompressionLevel, LoadOptions, PackageOptions,
+    get_compatibility_report, migrate_file, CompressionLevel, LoadOptions, PackageOptions,
     SingleFileAdapterLoader, SingleFileAdapterPackager, SingleFileAdapterValidator,
-    get_compatibility_report, migrate_file,
+    AOS_FORMAT_VERSION,
 };
 use adapteros_single_file_adapter::{TrainingConfig, TrainingExample};
 use clap::{Parser, Subcommand};
@@ -60,39 +60,39 @@ pub struct CreateArgs {
     /// Source adapter directory or weights file
     #[arg(long)]
     pub source: PathBuf,
-    
+
     /// Output .aos file path
     #[arg(long)]
     pub output: PathBuf,
-    
+
     /// Training data JSONL file
     #[arg(long)]
     pub training_data: Option<PathBuf>,
-    
+
     /// Adapter ID
     #[arg(long)]
     pub adapter_id: String,
-    
+
     /// Adapter version
     #[arg(long, default_value = "1.0.0")]
     pub version: String,
-    
+
     /// Training configuration TOML file
     #[arg(long)]
     pub config: Option<PathBuf>,
-    
+
     /// Sign the .aos file with Ed25519
     #[arg(long)]
     pub sign: bool,
-    
+
     /// Compression level (store, fast, best)
     #[arg(long, default_value = "fast")]
     pub compression: String,
-    
+
     /// Format version (zip or aos2)
     #[arg(long, default_value = "zip")]
     pub format: String,
-    
+
     /// Hex-encoded signing key (generates new key if not provided)
     #[arg(long)]
     pub signing_key: Option<String>,
@@ -103,11 +103,11 @@ pub struct LoadArgs {
     /// Path to .aos file
     #[arg(long)]
     pub path: PathBuf,
-    
+
     /// Adapter ID for registry
     #[arg(long)]
     pub adapter_id: Option<String>,
-    
+
     /// Control plane base URL
     #[arg(long, default_value = "http://127.0.0.1:8080/api")]
     pub base_url: String,
@@ -118,7 +118,7 @@ pub struct VerifyArgs {
     /// Path to .aos file
     #[arg(long)]
     pub path: PathBuf,
-    
+
     /// Output format (text, json)
     #[arg(long, default_value = "text")]
     pub format: String,
@@ -129,11 +129,11 @@ pub struct ExtractArgs {
     /// Path to .aos file
     #[arg(long)]
     pub path: PathBuf,
-    
+
     /// Output directory
     #[arg(long)]
     pub output_dir: PathBuf,
-    
+
     /// Components to extract (weights, training_data, config, lineage, manifest, signature, all)
     #[arg(long, default_value = "all")]
     pub components: String,
@@ -144,7 +144,7 @@ pub struct InfoArgs {
     /// Path to .aos file
     #[arg(long)]
     pub path: PathBuf,
-    
+
     /// Output format (text, json)
     #[arg(long, default_value = "text")]
     pub format: String,
@@ -155,7 +155,7 @@ pub struct MigrateArgs {
     /// Path to .aos file to migrate
     #[arg(long)]
     pub path: PathBuf,
-    
+
     /// Create backup before migrating
     #[arg(long, default_value = "true")]
     pub backup: bool,
@@ -166,15 +166,15 @@ pub struct ConvertArgs {
     /// Path to source .aos file
     #[arg(long)]
     pub input: PathBuf,
-    
+
     /// Path to output .aos file
     #[arg(long)]
     pub output: PathBuf,
-    
+
     /// Target format (zip or aos2)
     #[arg(long, default_value = "aos2")]
     pub format: String,
-    
+
     /// Verify converted file
     #[arg(long, default_value = "true")]
     pub verify: bool,
@@ -194,18 +194,18 @@ pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
 
 async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     output.info("Creating .aos adapter file...");
-    
+
     // Load weights from source
     let _weights = tokio::fs::read(&args.source)
         .await
         .map_err(|e| AosError::Io(format!("Failed to read source adapter file: {}", e)))?;
-    
+
     // Load training data if provided
     let training_data = if let Some(training_path) = &args.training_data {
         let training_str = tokio::fs::read_to_string(training_path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to read training data file: {}", e)))?;
-        
+
         {
             let mut examples = Vec::new();
             for (idx, line) in training_str.lines().enumerate() {
@@ -213,8 +213,13 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
                 if trimmed.is_empty() {
                     continue;
                 }
-                let example: TrainingExample = serde_json::from_str(trimmed)
-                    .map_err(|e| AosError::Parse(format!("Failed to parse training data line {}: {}", idx + 1, e)))?;
+                let example: TrainingExample = serde_json::from_str(trimmed).map_err(|e| {
+                    AosError::Parse(format!(
+                        "Failed to parse training data line {}: {}",
+                        idx + 1,
+                        e
+                    ))
+                })?;
                 examples.push(example);
             }
             examples
@@ -222,7 +227,7 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     } else {
         vec![]
     };
-    
+
     // Load config if provided
     let config = if let Some(config_path) = &args.config {
         let config_str = tokio::fs::read_to_string(config_path)
@@ -238,10 +243,11 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
             batch_size: 8,
             epochs: 4,
             hidden_dim: 3584,
-            weight_group_config: adapteros_single_file_adapter::format::WeightGroupConfig::default(),
+            weight_group_config: adapteros_single_file_adapter::format::WeightGroupConfig::default(
+            ),
         }
     };
-    
+
     // Create lineage info
     let lineage = adapteros_single_file_adapter::LineageInfo {
         adapter_id: args.adapter_id.clone(),
@@ -252,21 +258,26 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         quality_delta: 0.0,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    
+
     // Parse compression level
     let compression = match args.compression.to_lowercase().as_str() {
         "store" => CompressionLevel::Store,
         "fast" => CompressionLevel::Fast,
         "best" => CompressionLevel::Best,
         _ => {
-            output.warning(&format!("Unknown compression level '{}', using 'fast'", args.compression));
+            output.warning(&format!(
+                "Unknown compression level '{}', using 'fast'",
+                args.compression
+            ));
             CompressionLevel::Fast
         }
     };
-    
+
     // Create adapter weights structure (simplified - in production would parse from source)
-    use adapteros_single_file_adapter::{AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata};
-    
+    use adapteros_single_file_adapter::{
+        AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata,
+    };
+
     // For now, create a placeholder adapter - in production this would parse weights properly
     // This is a simplified implementation
     let adapter_weights = AdapterWeights {
@@ -294,7 +305,7 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         },
         combined: None,
     };
-    
+
     // Note: SingleFileAdapter::create expects weights as Vec<u8> (raw bytes), but we need AdapterWeights
     // This is a simplified implementation - in production, weights would be parsed from the source file
     // For now, we'll create an adapter with empty weight structures as a placeholder
@@ -305,35 +316,43 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         config,
         lineage,
     )?;
-    
+
     // Sign if requested
     if args.sign {
         let keypair = if let Some(key_hex) = args.signing_key {
             let key_bytes = hex::decode(&key_hex)
                 .map_err(|e| AosError::Parse(format!("Failed to decode signing key hex: {}", e)))?;
             if key_bytes.len() != 32 {
-                return Err(AosError::Crypto(format!("Invalid key length: {}", key_bytes.len())));
+                return Err(AosError::Crypto(format!(
+                    "Invalid key length: {}",
+                    key_bytes.len()
+                )));
             }
             let mut key_array = [0u8; 32];
             key_array.copy_from_slice(&key_bytes);
             Keypair::from_bytes(&key_array)
         } else {
             let kp = Keypair::generate();
-            output.info(&format!("Generated signing key: {}", hex::encode(kp.to_bytes())));
+            output.info(&format!(
+                "Generated signing key: {}",
+                hex::encode(kp.to_bytes())
+            ));
             output.warning("Save this key to sign future versions!");
             kp
         };
-        
+
         adapter.sign(&keypair)?;
-        output.info(&format!("Signed adapter with key ID: {}", 
-            adapter.signature_info().unwrap().0));
+        output.info(&format!(
+            "Signed adapter with key ID: {}",
+            adapter.signature_info().unwrap().0
+        ));
     }
-    
+
     // Save to .aos file
     let format = args.format.to_lowercase();
     match format.as_str() {
         "aos2" => {
-            use adapteros_single_file_adapter::{Aos2Packager, Aos2PackageOptions};
+            use adapteros_single_file_adapter::{Aos2PackageOptions, Aos2Packager};
             let options = Aos2PackageOptions {
                 compress_metadata: true,
                 compress_weights: false,
@@ -355,40 +374,48 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
             SingleFileAdapterPackager::save_with_options(&adapter, &args.output, options).await?;
         }
     }
-    
+
     output.success(&format!("Created .aos adapter: {}", args.output.display()));
     output.info(&format!("  Format version: {}", AOS_FORMAT_VERSION));
     output.info(&format!("  Compression: {}", args.compression));
     output.info(&format!("  Signed: {}", adapter.is_signed()));
-    output.info(&format!("  Size: {} bytes", tokio::fs::metadata(&args.output).await?.len()));
+    output.info(&format!(
+        "  Size: {} bytes",
+        tokio::fs::metadata(&args.output).await?.len()
+    ));
     Ok(())
 }
 
 async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
     output.info("Loading .aos adapter file...");
-    
+
     // Load and validate .aos file
     let adapter = SingleFileAdapterLoader::load(&args.path).await?;
-    
+
     // Verify integrity
     if !adapter.verify()? {
-        return Err(AosError::Training("Adapter integrity verification failed".to_string()));
+        return Err(AosError::Training(
+            "Adapter integrity verification failed".to_string(),
+        ));
     }
-    
+
     // TODO: Register with control plane
     output.info("AOS adapter loaded successfully");
     output.info(&format!("Adapter ID: {}", adapter.manifest.adapter_id));
     output.info(&format!("Version: {}", adapter.manifest.version));
-    output.info(&format!("Training examples: {}", adapter.training_data.len()));
-    
+    output.info(&format!(
+        "Training examples: {}",
+        adapter.training_data.len()
+    ));
+
     Ok(())
 }
 
 async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
     output.info("Verifying .aos adapter file...");
-    
+
     let result = SingleFileAdapterValidator::validate(&args.path).await?;
-    
+
     match args.format.as_str() {
         "json" => {
             let json_result = serde_json::json!({
@@ -396,7 +423,9 @@ async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
                 "errors": result.errors,
                 "warnings": result.warnings
             });
-            output.json(&json_result).map_err(|e| AosError::Io(format!("Failed to serialize JSON: {}", e)))?;
+            output
+                .json(&json_result)
+                .map_err(|e| AosError::Io(format!("Failed to serialize JSON: {}", e)))?;
         }
         _ => {
             if result.is_valid {
@@ -404,41 +433,44 @@ async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
             } else {
                 output.error("AOS adapter verification failed");
             }
-            
+
             for error in &result.errors {
                 output.error(&format!("Error: {}", error));
             }
-            
+
             for warning in &result.warnings {
                 output.warning(&format!("Warning: {}", warning));
             }
         }
     }
-    
+
     Ok(())
 }
 
 async fn extract_aos(args: ExtractArgs, output: &OutputWriter) -> Result<()> {
     output.info("Extracting components from .aos adapter file...");
-    
+
     // Load .aos file
     let adapter = SingleFileAdapterLoader::load(&args.path).await?;
-    
+
     // Create output directory
     tokio::fs::create_dir_all(&args.output_dir).await?;
-    
+
     let components: Vec<&str> = args.components.split(',').map(|s| s.trim()).collect();
     let extract_all = components.contains(&"all");
-    
+
     if extract_all || components.contains(&"weights") {
         // Note: This extracts weight metadata, not the actual weight tensors
         // Full weight extraction would require serializing the weight groups
         let weights_path = args.output_dir.join("weights.json");
         let weights_json = serde_json::to_string_pretty(&adapter.weights)?;
         tokio::fs::write(&weights_path, weights_json).await?;
-        output.info(&format!("Extracted weights metadata: {}", weights_path.display()));
+        output.info(&format!(
+            "Extracted weights metadata: {}",
+            weights_path.display()
+        ));
     }
-    
+
     if extract_all || components.contains(&"training_data") {
         let training_path = args.output_dir.join("training_data.jsonl");
         let mut training_file = tokio::fs::File::create(&training_path).await?;
@@ -447,9 +479,12 @@ async fn extract_aos(args: ExtractArgs, output: &OutputWriter) -> Result<()> {
             tokio::io::AsyncWriteExt::write_all(&mut training_file, line.as_bytes()).await?;
             tokio::io::AsyncWriteExt::write_all(&mut training_file, b"\n").await?;
         }
-        output.info(&format!("Extracted training data: {}", training_path.display()));
+        output.info(&format!(
+            "Extracted training data: {}",
+            training_path.display()
+        ));
     }
-    
+
     if extract_all || components.contains(&"config") {
         let config_path = args.output_dir.join("config.toml");
         let config_str = toml::to_string(&adapter.config)
@@ -457,42 +492,45 @@ async fn extract_aos(args: ExtractArgs, output: &OutputWriter) -> Result<()> {
         tokio::fs::write(&config_path, config_str).await?;
         output.info(&format!("Extracted config: {}", config_path.display()));
     }
-    
+
     if extract_all || components.contains(&"lineage") {
         let lineage_path = args.output_dir.join("lineage.json");
         let lineage_str = serde_json::to_string_pretty(&adapter.lineage)?;
         tokio::fs::write(&lineage_path, lineage_str).await?;
         output.info(&format!("Extracted lineage: {}", lineage_path.display()));
     }
-    
+
     if extract_all || components.contains(&"manifest") {
         let manifest_path = args.output_dir.join("manifest.json");
         let manifest_str = serde_json::to_string_pretty(&adapter.manifest)?;
         tokio::fs::write(&manifest_path, manifest_str).await?;
         output.info(&format!("Extracted manifest: {}", manifest_path.display()));
     }
-    
+
     if extract_all || components.contains(&"signature") {
         if let Some(signature) = &adapter.signature {
             let signature_path = args.output_dir.join("signature.json");
             let signature_str = serde_json::to_string_pretty(signature)?;
             tokio::fs::write(&signature_path, signature_str).await?;
-            output.info(&format!("Extracted signature: {}", signature_path.display()));
+            output.info(&format!(
+                "Extracted signature: {}",
+                signature_path.display()
+            ));
         } else {
             output.warning("No signature present in adapter");
         }
     }
-    
+
     output.success("Extraction completed");
     Ok(())
 }
 
 async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
     output.info("Reading .aos adapter information...");
-    
+
     // Load manifest only (fast)
     let manifest = SingleFileAdapterLoader::load_manifest_only(&args.path).await?;
-    
+
     // Load full adapter to check signature
     let adapter = SingleFileAdapterLoader::load_with_options(
         &args.path,
@@ -503,13 +541,13 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
         },
     )
     .await?;
-    
+
     // Get compatibility info
     let compat = get_compatibility_report(manifest.format_version);
-    
+
     // Get file size
     let file_size = tokio::fs::metadata(&args.path).await?.len();
-    
+
     match args.format.as_str() {
         "json" => {
             let mut info = serde_json::json!({
@@ -538,30 +576,43 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
                 },
                 "training_examples": adapter.training_data.len(),
             });
-            
+
             if let Some((key_id, timestamp)) = adapter.signature_info() {
                 info["signature"] = serde_json::json!({
                     "key_id": key_id,
                     "timestamp": timestamp,
                 });
             }
-            
-            output.json(&info).map_err(|e| AosError::Io(format!("Failed to serialize JSON: {}", e)))?;
+
+            output
+                .json(&info)
+                .map_err(|e| AosError::Io(format!("Failed to serialize JSON: {}", e)))?;
         }
         _ => {
             output.info(&format!("Adapter ID: {}", manifest.adapter_id));
             output.info(&format!("Version: {}", manifest.version));
             output.info(&format!("Format Version: {}", manifest.format_version));
             output.info(&format!("Base Model: {}", manifest.base_model));
-            output.info(&format!("Rank: {}, Alpha: {}", manifest.rank, manifest.alpha));
-            output.info(&format!("Category: {}, Scope: {}, Tier: {}", 
-                manifest.category, manifest.scope, manifest.tier));
+            output.info(&format!(
+                "Rank: {}, Alpha: {}",
+                manifest.rank, manifest.alpha
+            ));
+            output.info(&format!(
+                "Category: {}, Scope: {}, Tier: {}",
+                manifest.category, manifest.scope, manifest.tier
+            ));
             output.info(&format!("Compression: {}", manifest.compression_method));
-            output.info(&format!("Training Examples: {}", adapter.training_data.len()));
+            output.info(&format!(
+                "Training Examples: {}",
+                adapter.training_data.len()
+            ));
             output.info(&format!("File Size: {} bytes", file_size));
             output.info(&format!("Weights Hash: {}", manifest.weights_hash));
-            output.info(&format!("Training Data Hash: {}", manifest.training_data_hash));
-            
+            output.info(&format!(
+                "Training Data Hash: {}",
+                manifest.training_data_hash
+            ));
+
             if adapter.is_signed() {
                 let (key_id, timestamp) = adapter.signature_info().unwrap();
                 output.success("Signature: Present and verified");
@@ -570,7 +621,7 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
             } else {
                 output.warning("Signature: Not present");
             }
-            
+
             if compat.is_compatible {
                 output.success(&format!(
                     "Compatibility: Compatible (file v{}, current v{})",
@@ -595,15 +646,15 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 
 async fn migrate_aos(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
     output.info("Migrating .aos adapter to current format...");
-    
+
     let result = migrate_file(&args.path).await?;
-    
+
     if result.original_version == result.new_version {
         output.success("Adapter already at current format version");
         output.info(&format!("  Format version: {}", result.new_version));
@@ -612,38 +663,46 @@ async fn migrate_aos(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
             "Migrated from v{} to v{}",
             result.original_version, result.new_version
         ));
-        output.info(&format!("  Changes applied: {}", result.changes_applied.len()));
+        output.info(&format!(
+            "  Changes applied: {}",
+            result.changes_applied.len()
+        ));
         for change in &result.changes_applied {
             output.info(&format!("    - {}", change));
         }
-        
+
         if args.backup {
             let backup_path = args.path.with_extension("aos.bak");
             output.info(&format!("  Backup saved: {}", backup_path.display()));
         }
     }
-    
+
     Ok(())
 }
 
 async fn convert_aos(args: ConvertArgs, output: &OutputWriter) -> Result<()> {
     output.info("Converting .aos adapter file...");
-    
+
     // Load source adapter
     let adapter = SingleFileAdapterLoader::load(&args.input).await?;
-    
+
     // Verify source if requested
     if !adapter.verify()? {
-        return Err(AosError::Training("Source adapter verification failed".to_string()));
+        return Err(AosError::Training(
+            "Source adapter verification failed".to_string(),
+        ));
     }
-    
-    output.info(&format!("Loaded adapter: {} v{}", adapter.manifest.adapter_id, adapter.manifest.version));
-    
+
+    output.info(&format!(
+        "Loaded adapter: {} v{}",
+        adapter.manifest.adapter_id, adapter.manifest.version
+    ));
+
     // Convert to target format
     let target_format = args.format.to_lowercase();
     match target_format.as_str() {
         "aos2" => {
-            use adapteros_single_file_adapter::{Aos2Packager, Aos2PackageOptions};
+            use adapteros_single_file_adapter::{Aos2PackageOptions, Aos2Packager};
             output.info("Converting to AOS 2.0 format...");
             let options = Aos2PackageOptions::default();
             Aos2Packager::save_with_options(&adapter, &args.output, options).await?;
@@ -654,25 +713,41 @@ async fn convert_aos(args: ConvertArgs, output: &OutputWriter) -> Result<()> {
             SingleFileAdapterPackager::save_with_options(&adapter, &args.output, options).await?;
         }
         _ => {
-            return Err(AosError::Parse(format!("Unknown target format: {} (use 'zip' or 'aos2')", args.format)));
+            return Err(AosError::Parse(format!(
+                "Unknown target format: {} (use 'zip' or 'aos2')",
+                args.format
+            )));
         }
     }
-    
+
     // Verify converted file if requested
     if args.verify {
         output.info("Verifying converted file...");
         let converted = SingleFileAdapterLoader::load(&args.output).await?;
         if !converted.verify()? {
-            return Err(AosError::Training("Converted adapter verification failed".to_string()));
+            return Err(AosError::Training(
+                "Converted adapter verification failed".to_string(),
+            ));
         }
         output.success("Converted adapter verified successfully");
     }
-    
-    output.success(&format!("Converted adapter saved to: {}", args.output.display()));
+
+    output.success(&format!(
+        "Converted adapter saved to: {}",
+        args.output.display()
+    ));
     let input_size = tokio::fs::metadata(&args.input).await?.len();
     let output_size = tokio::fs::metadata(&args.output).await?.len();
-    output.info(&format!("  Source: {} ({} bytes)", args.input.display(), input_size));
-    output.info(&format!("  Output: {} ({} bytes)", args.output.display(), output_size));
-    
+    output.info(&format!(
+        "  Source: {} ({} bytes)",
+        args.input.display(),
+        input_size
+    ));
+    output.info(&format!(
+        "  Output: {} ({} bytes)",
+        args.output.display(),
+        output_size
+    ));
+
     Ok(())
 }

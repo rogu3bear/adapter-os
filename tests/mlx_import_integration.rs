@@ -46,7 +46,7 @@ fn test_mlx_import_command_not_available_without_feature() {
     // When feature is not enabled, import should fail with feature error
     // Note: This test may not run if extended-tests feature is required
     // but mlx-ffi-backend is not enabled
-    
+
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let test_weights = temp_dir.path().join("weights.safetensors");
     let test_config = temp_dir.path().join("config.json");
@@ -58,9 +58,10 @@ fn test_mlx_import_command_not_available_without_feature() {
     fs::write(&test_weights, b"dummy weights data").expect("Failed to write weights");
     fs::write(&test_config, r#"{"model_type": "test_model"}"#).expect("Failed to write config");
     fs::write(&test_tokenizer, r#"{"test": "tokenizer_data"}"#).expect("Failed to write tokenizer");
-    fs::write(&test_tokenizer_cfg, r#"{"test": "tokenizer_config"}"#).expect("Failed to write tokenizer config");
+    fs::write(&test_tokenizer_cfg, r#"{"test": "tokenizer_config"}"#)
+        .expect("Failed to write tokenizer config");
     fs::write(&test_license, "Test license content").expect("Failed to write license");
-    
+
     let output = Command::new("cargo")
         .args(&[
             "run",
@@ -86,13 +87,13 @@ fn test_mlx_import_command_not_available_without_feature() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Should fail with feature error message
     assert!(
         !output.status.success(),
         "Import should fail without mlx-ffi-backend feature"
     );
-    
+
     // Error should mention feature requirement
     assert!(
         stderr.contains("mlx-ffi-backend") || stdout.contains("mlx-ffi-backend"),
@@ -152,11 +153,13 @@ fn test_mlx_import_validates_files_exist() {
     // Should mention file not found or similar error
     let error_message = format!("stderr: {}\nstdout: {}", stderr, stdout);
     assert!(
-        stderr.contains("not found") || stdout.contains("not found") ||
-        stderr.contains("does not exist") || stdout.contains("does not exist") ||
-        stderr.contains("No such file") || stdout.contains("No such file"),
+        stderr.contains("not found")
+            || stdout.contains("not found")
+            || stderr.contains("does not exist")
+            || stdout.contains("does not exist")
+            || stderr.contains("No such file")
+            || stdout.contains("No such file"),
         "Error should mention file not found. {}",
         error_message
     );
 }
-

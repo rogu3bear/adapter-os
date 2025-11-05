@@ -8,6 +8,7 @@
 //! - CLAUDE.md L142: "Policy Engine: Enforces 20 policy packs"
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
+use crate::unified_enforcement as unified;
 use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -423,7 +424,7 @@ impl PolicyPackManager {
 
         // Initialize determinism policy pack for direct attestation validation
         self.determinism_pack = Some(crate::packs::determinism::DeterminismPolicy::new(
-            crate::packs::determinism::DeterminismConfig::default()
+            crate::packs::determinism::DeterminismConfig::default(),
         ));
 
         // Register all policy pack validators
@@ -641,10 +642,14 @@ impl PolicyPackManager {
     }
 
     /// Validate a request against all active policy packs
+    ///
+    /// Optimized with short-circuiting: stops validation early if a critical violation
+    /// is found that would block the request regardless of other packs.
     pub fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let start_time = std::time::Instant::now();
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
+        let mut found_critical_blocker = false;
 
         debug!(
             request_id = %request.request_id,
@@ -653,7 +658,18 @@ impl PolicyPackManager {
         );
 
         // Validate against each active policy pack
+        // Stop early if we find a critical blocker violation
         for (pack_id, validator) in &self.packs {
+            if found_critical_blocker {
+                // Short-circuit: critical blocker found, skip remaining validations
+                debug!(
+                    request_id = %request.request_id,
+                    policy_pack = %pack_id.name(),
+                    "Skipping validation due to critical blocker violation"
+                );
+                continue;
+            }
+
             if let Some(config) = self.configs.get(pack_id) {
                 if !config.enabled {
                     continue;
@@ -661,6 +677,22 @@ impl PolicyPackManager {
 
                 match validator.validate(request) {
                     Ok(result) => {
+                        // Check for critical blockers that would stop all processing
+                        for violation in &result.violations {
+                            if matches!(
+                                violation.severity,
+                                ViolationSeverity::Critical | ViolationSeverity::Blocker
+                            ) && matches!(
+                                config.enforcement_level,
+                                EnforcementLevel::Critical | EnforcementLevel::Error
+                            ) {
+                                found_critical_blocker = true;
+                                violations.push(violation.clone());
+                                // Continue to collect all violations but mark as blocker found
+                                break;
+                            }
+                        }
+
                         violations.extend(result.violations);
                         warnings.extend(result.warnings);
                     }
@@ -671,15 +703,43 @@ impl PolicyPackManager {
                             "Policy pack validation failed"
                         );
 
-                        violations.push(PolicyViolation {
+                        let violation = PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: pack_id.name().to_string(),
                             severity: ViolationSeverity::Error,
-                            message: format!("Policy pack validation failed: {}", e),
-                            details: Some(serde_json::json!({"error": e.to_string()})),
-                            remediation: Some(vec!["Check policy pack configuration".to_string()]),
+                            message: format!(
+                                "Policy pack '{}' validation failed: {}. This may indicate a configuration issue or missing dependency.",
+                                pack_id.name(),
+                                e
+                            ),
+                            details: Some(serde_json::json!({
+                                "error": e.to_string(),
+                                "policy_pack": pack_id.name(),
+                                "request_id": request.request_id,
+                                "request_type": format!("{:?}", request.request_type),
+                                "suggestion": "Check policy pack configuration and ensure all dependencies are available",
+                                "context": {
+                                    "component": request.context.component,
+                                    "operation": request.context.operation,
+                                }
+                            })),
+                            remediation: Some(vec![
+                                format!("Verify {} policy pack is properly initialized and configured", pack_id.name()),
+                                "Check system logs for detailed error information".to_string(),
+                                "Ensure all required dependencies and resources are available".to_string(),
+                                format!("Review {} policy pack documentation for configuration requirements", pack_id.name()),
+                            ]),
                             timestamp: Utc::now(),
-                        });
+                        };
+
+                        if matches!(
+                            config.enforcement_level,
+                            EnforcementLevel::Critical | EnforcementLevel::Error
+                        ) {
+                            found_critical_blocker = true;
+                        }
+
+                        violations.push(violation);
                     }
                 }
             }
@@ -779,13 +839,136 @@ impl PolicyPackManager {
         Ok(())
     }
 
+    /// Configure policy packs from manifest policies
+    ///
+    /// This integrates manifest-based policy configuration with the pack-based system,
+    /// ensuring that manifest policies are properly reflected in pack configurations.
+    pub fn configure_from_manifest(
+        &mut self,
+        policies: &adapteros_manifest::Policies,
+    ) -> Result<()> {
+
+        info!("Configuring policy packs from manifest policies");
+
+        // Configure Egress pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Egress) {
+            config.config = serde_json::json!({
+                "mode": policies.egress.mode,
+                "serve_requires_pf": policies.egress.serve_requires_pf,
+                "allow_tcp": policies.egress.allow_tcp,
+                "allow_udp": policies.egress.allow_udp,
+                "uds_paths": policies.egress.uds_paths,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Determinism pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Determinism) {
+            config.config = serde_json::json!({
+                "require_metallib_embed": policies.determinism.require_metallib_embed,
+                "require_kernel_hash_match": policies.determinism.require_kernel_hash_match,
+                "rng": policies.determinism.rng,
+                "retrieval_tie_break": policies.determinism.retrieval_tie_break,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Evidence pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Evidence) {
+            config.config = serde_json::json!({
+                "require_open_book": policies.evidence.require_open_book,
+                "min_spans": policies.evidence.min_spans,
+                "prefer_latest_revision": policies.evidence.prefer_latest_revision,
+                "warn_on_superseded": policies.evidence.warn_on_superseded,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Refusal pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Refusal) {
+            config.config = serde_json::json!({
+                "abstain_threshold": policies.refusal.abstain_threshold,
+                "missing_fields_templates": policies.refusal.missing_fields_templates,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Numeric pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::NumericUnits) {
+            config.config = serde_json::json!({
+                "canonical_units": policies.numeric.canonical_units,
+                "max_rounding_error": policies.numeric.max_rounding_error,
+                "require_units_in_trace": policies.numeric.require_units_in_trace,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure RAG pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::RagIndex) {
+            config.config = serde_json::json!({
+                "index_scope": policies.rag.index_scope,
+                "doc_tags_required": policies.rag.doc_tags_required,
+                "embedding_model_hash": policies.rag.embedding_model_hash.to_string(),
+                "topk": policies.rag.topk,
+                "order": policies.rag.order,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Isolation pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Isolation) {
+            config.config = serde_json::json!({
+                "process_model": policies.isolation.process_model,
+                "uds_root": policies.isolation.uds_root,
+                "forbid_shm": policies.isolation.forbid_shm,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Performance pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Performance) {
+            config.config = serde_json::json!({
+                "latency_p95_ms": policies.performance.latency_p95_ms,
+                "router_overhead_pct_max": policies.performance.router_overhead_pct_max,
+                "throughput_tokens_per_s_min": policies.performance.throughput_tokens_per_s_min,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Memory pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Memory) {
+            config.config = serde_json::json!({
+                "min_headroom_pct": policies.memory.min_headroom_pct,
+                "evict_order": policies.memory.evict_order,
+                "k_reduce_before_evict": policies.memory.k_reduce_before_evict,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        // Configure Artifacts pack
+        if let Some(config) = self.configs.get_mut(&PolicyPackId::Artifacts) {
+            config.config = serde_json::json!({
+                "require_signature": policies.artifacts.require_signature,
+                "require_sbom": policies.artifacts.require_sbom,
+                "cas_only": policies.artifacts.cas_only,
+            });
+            config.last_updated = Utc::now();
+        }
+
+        info!("Policy packs configured from manifest");
+        Ok(())
+    }
+
     /// Get all policy pack configurations
     pub fn get_all_configs(&self) -> &HashMap<PolicyPackId, PolicyPackConfig> {
         &self.configs
     }
 
     /// Get a policy pack validator by ID
-    pub fn get_validator(&self, pack_id: &PolicyPackId) -> Option<&(dyn PolicyPackValidator + Send + Sync)> {
+    pub fn get_validator(
+        &self,
+        pack_id: &PolicyPackId,
+    ) -> Option<&(dyn PolicyPackValidator + Send + Sync)> {
         self.packs.get(pack_id).map(|v| v.as_ref())
     }
 
@@ -796,7 +979,11 @@ impl PolicyPackManager {
     ) -> Result<()> {
         self.determinism_pack
             .as_ref()
-            .ok_or_else(|| adapteros_core::AosError::PolicyViolation("Determinism policy pack not initialized".to_string()))?
+            .ok_or_else(|| {
+                adapteros_core::AosError::PolicyViolation(
+                    "Determinism policy pack not initialized".to_string(),
+                )
+            })?
             .validate_backend_attestation(report)
     }
 
@@ -2286,6 +2473,269 @@ impl PolicyPackValidator for FullPackValidator {
 
     fn policy_pack_name(&self) -> &'static str {
         "Full Pack Example"
+    }
+}
+
+impl PolicyPackManager {
+    fn enforcement_level_for_violation(&self, violation: &PolicyViolation) -> EnforcementLevel {
+        if let Some(pack_id) = PolicyPackId::from_name(&violation.policy_pack) {
+            if let Some(config) = self.configs.get(&pack_id) {
+                return config.enforcement_level.clone();
+            } else {
+                warn!(policy_pack = %violation.policy_pack, "No configuration found for policy pack");
+            }
+        } else {
+            warn!(policy_pack = %violation.policy_pack, "Unknown policy pack name");
+        }
+
+        EnforcementLevel::Error
+    }
+
+    fn violation_is_blocking(&self, violation: &PolicyViolation) -> bool {
+        if matches!(
+            violation.severity,
+            ViolationSeverity::Critical | ViolationSeverity::Blocker
+        ) {
+            return true;
+        }
+
+        matches!(
+            self.enforcement_level_for_violation(violation),
+            EnforcementLevel::Error | EnforcementLevel::Critical
+        )
+    }
+}
+
+fn convert_unified_request(request: &unified::PolicyRequest) -> PolicyRequest {
+    PolicyRequest {
+        request_id: request.request_id.clone(),
+        request_type: map_unified_request_type(&request.request_type),
+        tenant_id: request.tenant_id.clone(),
+        user_id: request.user_id.clone(),
+        context: convert_unified_context(&request.context, None),
+        metadata: request.metadata.clone(),
+    }
+}
+
+fn convert_unified_operation(operation: &unified::Operation) -> PolicyRequest {
+    PolicyRequest {
+        request_id: operation.operation_id.clone(),
+        request_type: map_operation_type_to_request_type(&operation.operation_type),
+        tenant_id: None,
+        user_id: None,
+        context: convert_unified_context(&operation.context, Some(&operation.parameters)),
+        metadata: operation.metadata.clone(),
+    }
+}
+
+fn convert_unified_context(
+    context: &unified::PolicyContext,
+    parameters: Option<&HashMap<String, serde_json::Value>>,
+) -> PolicyContext {
+    let mut merged = match &context.data {
+        Some(serde_json::Value::Object(map)) => map.clone(),
+        Some(other) => {
+            let mut map = serde_json::Map::new();
+            map.insert("value".to_string(), other.clone());
+            map
+        }
+        None => serde_json::Map::new(),
+    };
+
+    if let Some(params) = parameters {
+        if !params.is_empty() {
+            let mut param_map = serde_json::Map::new();
+            for (key, value) in params {
+                param_map.insert(key.clone(), value.clone());
+            }
+            merged.insert(
+                "parameters".to_string(),
+                serde_json::Value::Object(param_map),
+            );
+        }
+    }
+
+    PolicyContext {
+        component: context.component.clone(),
+        operation: context.operation.clone(),
+        data: if merged.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(merged))
+        },
+        priority: convert_unified_priority(&context.priority),
+    }
+}
+
+fn convert_unified_priority(priority: &unified::Priority) -> Priority {
+    match priority {
+        unified::Priority::Low => Priority::Low,
+        unified::Priority::Normal => Priority::Normal,
+        unified::Priority::High => Priority::High,
+        unified::Priority::Critical => Priority::Critical,
+    }
+}
+
+fn map_unified_request_type(request_type: &unified::RequestType) -> RequestType {
+    match request_type {
+        unified::RequestType::Inference => RequestType::Inference,
+        unified::RequestType::AdapterOperation => RequestType::AdapterOperation,
+        unified::RequestType::MemoryOperation => RequestType::MemoryOperation,
+        unified::RequestType::TrainingOperation => RequestType::TrainingOperation,
+        unified::RequestType::PolicyUpdate => RequestType::PolicyUpdate,
+        unified::RequestType::SystemOperation => RequestType::SystemOperation,
+        unified::RequestType::UserOperation => RequestType::UserOperation,
+        unified::RequestType::NetworkOperation => RequestType::NetworkOperation,
+        unified::RequestType::FileOperation => RequestType::FileOperation,
+        unified::RequestType::DatabaseOperation => RequestType::DatabaseOperation,
+    }
+}
+
+fn map_operation_type_to_request_type(operation_type: &unified::OperationType) -> RequestType {
+    match operation_type {
+        unified::OperationType::LoadAdapter
+        | unified::OperationType::EvictAdapter
+        | unified::OperationType::PinAdapter => RequestType::AdapterOperation,
+        unified::OperationType::StartTraining | unified::OperationType::StopTraining => {
+            RequestType::TrainingOperation
+        }
+        unified::OperationType::AllocateMemory | unified::OperationType::DeallocateMemory => {
+            RequestType::MemoryOperation
+        }
+        unified::OperationType::PerformInference => RequestType::Inference,
+        unified::OperationType::UpdatePolicy => RequestType::PolicyUpdate,
+        unified::OperationType::SystemOperation => RequestType::SystemOperation,
+    }
+}
+
+fn convert_validation_result(result: PolicyValidationResult) -> unified::PolicyValidationResult {
+    unified::PolicyValidationResult {
+        valid: result.valid,
+        violations: result.violations,
+        warnings: result.warnings,
+        timestamp: result.timestamp,
+        duration_ms: result.duration_ms,
+    }
+}
+
+fn compliance_status_for_config(config: &PolicyPackConfig) -> unified::ComplianceStatus {
+    if !config.enabled {
+        unified::ComplianceStatus::Warning
+    } else {
+        unified::ComplianceStatus::Compliant
+    }
+}
+
+fn overall_compliance_score(configs: &HashMap<PolicyPackId, PolicyPackConfig>) -> f64 {
+    if configs.is_empty() {
+        return 1.0;
+    }
+
+    let enabled = configs.values().filter(|cfg| cfg.enabled).count() as f64;
+    enabled / configs.len() as f64
+}
+
+#[allow(async_fn_in_trait)]
+impl unified::PolicyEnforcer for PolicyPackManager {
+    async fn validate_request(
+        &self,
+        request: &unified::PolicyRequest,
+    ) -> Result<unified::PolicyValidationResult> {
+        let internal_request = convert_unified_request(request);
+        let result = PolicyPackManager::validate_request(self, &internal_request)?;
+        Ok(convert_validation_result(result))
+    }
+
+    async fn is_operation_allowed(&self, operation: &unified::Operation) -> Result<bool> {
+        let internal_request = convert_unified_operation(operation);
+        let validation = PolicyPackManager::validate_request(self, &internal_request)?;
+        Ok(!validation
+            .violations
+            .iter()
+            .any(|violation| self.violation_is_blocking(violation)))
+    }
+
+    async fn get_violations(
+        &self,
+        operation: &unified::Operation,
+    ) -> Result<Vec<unified::PolicyViolation>> {
+        let internal_request = convert_unified_operation(operation);
+        let validation = PolicyPackManager::validate_request(self, &internal_request)?;
+        Ok(validation.violations)
+    }
+
+    async fn enforce_policy(
+        &self,
+        operation: &unified::Operation,
+    ) -> Result<unified::PolicyEnforcementResult> {
+        let internal_request = convert_unified_operation(operation);
+        let validation = PolicyPackManager::validate_request(self, &internal_request)?;
+        let mut actions = Vec::new();
+
+        let blocking = validation
+            .violations
+            .iter()
+            .any(|violation| self.violation_is_blocking(violation));
+
+        if blocking {
+            actions.push(unified::EnforcementAction::Deny);
+        } else {
+            actions.push(unified::EnforcementAction::Allow);
+        }
+
+        for violation in &validation.violations {
+            actions.push(unified::EnforcementAction::LogViolation {
+                violation: violation.clone(),
+            });
+
+            if matches!(
+                self.enforcement_level_for_violation(violation),
+                EnforcementLevel::Critical
+            ) || matches!(
+                violation.severity,
+                ViolationSeverity::Critical | ViolationSeverity::Blocker
+            ) {
+                actions.push(unified::EnforcementAction::SendAlert {
+                    alert_type: violation.policy_pack.clone(),
+                    message: violation.message.clone(),
+                });
+            }
+        }
+
+        let allowed = !blocking;
+
+        Ok(unified::PolicyEnforcementResult {
+            allowed,
+            actions,
+            violations: validation.violations,
+            timestamp: validation.timestamp,
+            duration_ms: validation.duration_ms,
+        })
+    }
+
+    async fn get_compliance_report(&self) -> Result<unified::PolicyComplianceReport> {
+        let mut compliance = HashMap::new();
+
+        for (id, config) in &self.configs {
+            compliance.insert(
+                id.name().to_string(),
+                unified::PolicyPackCompliance {
+                    policy_pack: id.name().to_string(),
+                    compliance_score: if config.enabled { 1.0 } else { 0.0 },
+                    violation_count: 0,
+                    last_violation: None,
+                    status: compliance_status_for_config(config),
+                },
+            );
+        }
+
+        Ok(unified::PolicyComplianceReport {
+            compliance_score: overall_compliance_score(&self.configs),
+            policy_pack_compliance: compliance,
+            recent_violations: Vec::new(),
+            compliance_trends: Vec::new(),
+            timestamp: Utc::now(),
+        })
     }
 }
 

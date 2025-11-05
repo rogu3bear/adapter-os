@@ -15,8 +15,13 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
-use adapteros_single_file_adapter::format::{AdapterWeights, LineageInfo, WeightGroup, WeightGroupType, WeightMetadata, WeightGroupConfig};
-use adapteros_single_file_adapter::{SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig as SingleFileTrainingConfig, TrainingExample};
+use adapteros_single_file_adapter::format::{
+    AdapterWeights, LineageInfo, WeightGroup, WeightGroupConfig, WeightGroupType, WeightMetadata,
+};
+use adapteros_single_file_adapter::{
+    SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig as SingleFileTrainingConfig,
+    TrainingExample,
+};
 
 #[derive(Debug, Parser, Clone)]
 pub struct TrainBaseAdapterArgs {
@@ -262,17 +267,26 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
     );
 
     let packaged = packager
-        .package_with_metadata(&args.adapter_id, &quantized, &config, "qwen2.5-7b", manifest_metadata)
+        .package_with_metadata(
+            &args.adapter_id,
+            &quantized,
+            &config,
+            "qwen2.5-7b",
+            manifest_metadata,
+        )
         .await
         .context("packaging adapter artifacts")?;
 
     if args.output_format == "aos" {
-        let training_data: Vec<TrainingExample> = examples.iter().map(|ex| TrainingExample {
-            input: ex.input.clone(),
-            target: ex.target.clone(),
-            metadata: ex.metadata.clone(),
-            weight: ex.weight,
-        }).collect();
+        let training_data: Vec<TrainingExample> = examples
+            .iter()
+            .map(|ex| TrainingExample {
+                input: ex.input.clone(),
+                target: ex.target.clone(),
+                metadata: ex.metadata.clone(),
+                weight: ex.weight,
+            })
+            .collect();
 
         let aos_config = SingleFileTrainingConfig {
             rank: args.rank,
@@ -324,12 +338,15 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         let adapter = SingleFileAdapter::create(
             args.adapter_id.clone(),
             adapter_weights,
-            training_data.into_iter().map(|ex| TrainingExample {
-                input: ex.input,
-                target: ex.target,
-                metadata: ex.metadata,
-                weight: ex.weight,
-            }).collect(),
+            training_data
+                .into_iter()
+                .map(|ex| TrainingExample {
+                    input: ex.input,
+                    target: ex.target,
+                    metadata: ex.metadata,
+                    weight: ex.weight,
+                })
+                .collect(),
             aos_config.clone(),
             lineage,
         )

@@ -1,0 +1,190 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use adapteros_core::{AosError, Result};
+use adapteros_system_metrics::SystemMetricsCollector;
+use adapteros_telemetry::metrics::{
+    MetricsCollector, MetricsRegistry, MetricsServer, SystemMetricsProvider, SystemMetricsSnapshot,
+};
+use async_trait::async_trait;
+use clap::Parser;
+use tokio::sync::Mutex;
+use tokio::time::interval;
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+/// System metrics provider implementation using SystemMetricsCollector
+#[derive(Debug, Default)]
+struct TelemetrySystemMetricsProvider {
+    collector: Mutex<SystemMetricsCollector>,
+}
+
+impl TelemetrySystemMetricsProvider {
+    fn new() -> Self {
+        Self {
+            collector: Mutex::new(SystemMetricsCollector::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl SystemMetricsProvider for TelemetrySystemMetricsProvider {
+    async fn collect_system_metrics(&self) -> SystemMetricsSnapshot {
+        let mut collector = self.collector.lock().await;
+        let metrics = collector.collect_metrics();
+
+        // sysinfo reports memory in kibibytes
+        let used_memory_kib = collector.used_memory();
+        let memory_usage_mb = (used_memory_kib as f64) / 1024.0;
+
+        SystemMetricsSnapshot {
+            cpu_usage_percent: metrics.cpu_usage,
+            memory_usage_mb,
+            disk_io_utilization: metrics.disk_io.usage_percent as f64,
+            network_bandwidth_mbps: metrics.network_io.bandwidth_mbps as f64,
+            gpu_utilization: metrics.gpu_metrics.utilization,
+            gpu_memory_used_mb: metrics
+                .gpu_metrics
+                .memory_used
+                .map(|bytes| bytes as f64 / 1_048_576.0),
+            gpu_temperature: metrics.gpu_metrics.temperature,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+#[command(name = "adapteros-metrics-collector")]
+#[command(about = "AdapterOS standalone metrics collector", long_about = None)]
+struct Cli {
+    /// Port to expose Prometheus metrics on
+    #[arg(long, default_value_t = 9090)]
+    metrics_port: u16,
+
+    /// Interval, in seconds, for refreshing metrics cache
+    #[arg(long, default_value_t = 10)]
+    collection_interval_secs: u64,
+
+    /// Disable system metrics provider integration
+    #[arg(long, default_value_t = false)]
+    disable_system_metrics: bool,
+
+    /// Enable time series recording for dashboard metrics
+    #[arg(long, default_value_t = true)]
+    enable_time_series: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    init_tracing();
+
+    let cli = Cli::parse();
+
+    info!(
+        port = cli.metrics_port,
+        interval_secs = cli.collection_interval_secs,
+        enable_time_series = cli.enable_time_series,
+        "Starting adapteros-metrics-collector"
+    );
+
+    if cli.collection_interval_secs == 0 {
+        return Err(AosError::Config(
+            "collection_interval_secs must be greater than 0".to_string(),
+        ));
+    }
+
+    let system_provider = if cli.disable_system_metrics {
+        None
+    } else {
+        Some(Box::new(TelemetrySystemMetricsProvider::new()) as Box<_>)
+    };
+
+    let metrics_collector = Arc::new(MetricsCollector::new_with_system_provider(system_provider)?);
+    metrics_collector.update_cache().await?;
+
+    let metrics_registry = if cli.enable_time_series {
+        let registry = Arc::new(MetricsRegistry::new(Arc::clone(&metrics_collector)));
+
+        for name in [
+            "inference_latency_p95_ms",
+            "queue_depth",
+            "tokens_per_second",
+            "memory_usage_mb",
+        ] {
+            registry.get_or_create_series(name.to_string(), 1_000, 3_600);
+        }
+
+        Some(registry)
+    } else {
+        None
+    };
+
+    let metrics_server = Arc::new(MetricsServer::new(
+        Arc::clone(&metrics_collector),
+        cli.metrics_port,
+    ));
+
+    let server_handle = tokio::spawn(run_metrics_server(metrics_server));
+
+    let periodic_handle = tokio::spawn(run_periodic_updates(
+        Arc::clone(&metrics_collector),
+        metrics_registry.clone(),
+        Duration::from_secs(cli.collection_interval_secs),
+    ));
+
+    tokio::select! {
+        server_result = server_handle => {
+            if let Err(join_err) = server_result {
+                error!(error = %join_err, "Metrics server task panicked");
+            }
+        }
+        periodic_result = periodic_handle => {
+            if let Err(join_err) = periodic_result {
+                error!(error = %join_err, "Periodic metrics task panicked");
+            }
+        }
+        _ = tokio::signal::ctrl_c() => {
+            info!("Shutdown signal received");
+        }
+    }
+
+    info!("Shutting down metrics collector");
+    Ok(())
+}
+
+fn init_tracing() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "adapteros_metrics_collector=info".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+}
+
+async fn run_metrics_server(server: Arc<MetricsServer>) {
+    if let Err(err) = server.start().await {
+        error!(error = %err, "Metrics server exited with error");
+    }
+}
+
+async fn run_periodic_updates(
+    collector: Arc<MetricsCollector>,
+    metrics_registry: Option<Arc<MetricsRegistry>>,
+    interval_duration: Duration,
+) {
+    let mut ticker = interval(interval_duration);
+
+    loop {
+        ticker.tick().await;
+
+        if let Err(err) = collector.update_cache().await {
+            error!(error = %err, "Failed to update metrics cache");
+        }
+
+        if let Some(ref registry) = metrics_registry {
+            if let Err(err) = registry.record_snapshot().await {
+                error!(error = %err, "Failed to record metrics snapshot");
+            }
+        }
+    }
+}

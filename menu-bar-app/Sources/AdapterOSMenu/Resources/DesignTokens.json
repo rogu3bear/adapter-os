@@ -1,0 +1,30 @@
+{
+  "colors": {
+    "ok": "#34C759",
+    "degraded": "#FF9500",
+    "error": "#FF3B30",
+    "surface": null
+  },
+  "fonts": {
+    "header": {
+      "name": "system",
+      "size": 16,
+      "weight": null,
+      "monospaced": false
+    },
+    "metrics": {
+      "name": "system",
+      "size": 12,
+      "weight": null,
+      "monospaced": true
+    }
+  },
+  "spacing": {
+    "xs": 2,
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "xl": 16
+  }
+}
+

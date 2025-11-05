@@ -4,7 +4,7 @@
 //!
 //! Citations
 //! - Hook: ui/src/hooks/useActivityFeed.ts
-//! - API: getTelemetryEvents ui/src/api/client.ts
+//! - API: getRecentActivityEvents ui/src/api/client.ts
 //! - Time: useRelativeTime utilities ui/src/hooks/useTimestamp.ts
 
 import React from 'react';

@@ -9,9 +9,33 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use std::sync::{OnceLock, RwLock, atomic::{AtomicU32, Ordering}};
-use std::time::{SystemTime, Duration};
-use tracing::{debug, warn, error};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    OnceLock, RwLock,
+};
+use std::time::{Duration, SystemTime};
+use tracing::{debug, error, warn};
+
+/// Status of a managed service
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceStatus {
+    /// Service identifier
+    pub id: String,
+    /// Human-readable service name
+    pub name: String,
+    /// Current state: "stopped" | "starting" | "running" | "stopping" | "failed" | "restarting"
+    pub state: String,
+    /// Process ID if running
+    pub pid: Option<u32>,
+    /// Port number if applicable
+    pub port: Option<u16>,
+    /// Health status: "unknown" | "healthy" | "unhealthy" | "checking"
+    pub health_status: String,
+    /// Number of restart attempts
+    pub restart_count: u32,
+    /// Last error message if any
+    pub last_error: Option<String>,
+}
 
 /// Status reported to menu bar app
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +66,8 @@ pub struct AdapterOSStatus {
     pub base_model_status: String,
     /// Base model memory usage in MB (optional)
     pub base_model_memory_mb: Option<usize>,
+    /// Service status information from supervisor (optional)
+    pub services: Option<Vec<ServiceStatus>>,
 }
 
 /// Base model information for status reporting
@@ -117,13 +143,13 @@ pub fn get_cached_status_with_max_age(max_age_secs: u64) -> Result<Option<Adapte
         let cache_read = cache
             .read()
             .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {}", e))?;
-        
+
         // Check if cache is stale and log warning
         if let Some(entry) = cache_read.as_ref() {
             let age = SystemTime::now()
                 .duration_since(entry.last_updated)
                 .unwrap_or(Duration::from_secs(u64::MAX));
-            
+
             if age.as_secs() > max_age_secs {
                 debug!(
                     age_secs = age.as_secs(),
@@ -133,7 +159,7 @@ pub fn get_cached_status_with_max_age(max_age_secs: u64) -> Result<Option<Adapte
                 );
             }
         }
-        
+
         Ok(cache_read.as_ref().map(|entry| entry.status.clone()))
     } else {
         Err(anyhow::anyhow!("Status cache not initialized"))
@@ -148,7 +174,7 @@ pub async fn get_cached_status_fresh(
 ) -> Result<Option<AdapterOSStatus>> {
     // Check if cache is stale
     let needs_refresh = is_cache_stale(max_age_secs);
-    
+
     if needs_refresh {
         // Refresh cache in background but don't wait for it
         let state_clone = state.clone();
@@ -157,11 +183,11 @@ pub async fn get_cached_status_fresh(
                 warn!("Background cache refresh failed: {}", e);
             }
         });
-        
+
         // Also do a synchronous refresh for immediate return
         update_cache(state).await?;
     }
-    
+
     // Return fresh cached data
     get_cached_status_with_max_age(max_age_secs)
 }
@@ -230,7 +256,10 @@ pub async fn write_status(state: &AppState) -> Result<()> {
                 // Success - reset failure counter
                 let prev_failures = WRITE_FAILURE_COUNT.swap(0, Ordering::Relaxed);
                 if prev_failures > 0 {
-                    debug!("Status write succeeded after {} previous failures", prev_failures);
+                    debug!(
+                        "Status write succeeded after {} previous failures",
+                        prev_failures
+                    );
                 }
                 return Ok(());
             }
@@ -269,7 +298,9 @@ pub async fn write_status(state: &AppState) -> Result<()> {
         );
     }
 
-    Err(last_error.unwrap().context("Status write failed after retries"))
+    Err(last_error
+        .unwrap()
+        .context("Status write failed after retries"))
 }
 
 /// Internal function to attempt status write once (for retry logic)
@@ -330,6 +361,9 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
     // Get base model information from training service
     let base_model_info = get_base_model_info(state).await;
 
+    // Query service supervisor for service status
+    let services = query_service_status().await;
+
     Ok(AdapterOSStatus {
         schema_version: "1.0".to_string(),
         status,
@@ -344,6 +378,7 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
         base_model_name: base_model_info.name,
         base_model_status: base_model_info.status,
         base_model_memory_mb: base_model_info.memory_mb,
+        services,
     })
 }
 
@@ -400,6 +435,76 @@ async fn check_deterministic_mode() -> Option<bool> {
     // Check if metallib exists (indicates deterministic kernels)
     let metallib_path = Path::new("metal/mplora_kernels.metallib");
     Some(metallib_path.exists())
+}
+
+/// Query service status from supervisor API
+async fn query_service_status() -> Option<Vec<ServiceStatus>> {
+    // Try to connect to service supervisor
+    let supervisor_url =
+        std::env::var("SUPERVISOR_API_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(500)) // Short timeout to avoid blocking status updates
+        .build()
+        .ok()?;
+
+    let response = match client
+        .get(format!("{}/api/services", supervisor_url))
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            debug!("Failed to query supervisor API: {}", e);
+            return None;
+        }
+    };
+
+    if !response.status().is_success() {
+        debug!("Supervisor API returned status: {}", response.status());
+        return None;
+    }
+
+    let services_response: serde_json::Value = match response.json().await {
+        Ok(json) => json,
+        Err(e) => {
+            debug!("Failed to parse supervisor response: {}", e);
+            return None;
+        }
+    };
+
+    // Parse the services array from the response
+    let services = services_response
+        .get("services")?
+        .as_array()?
+        .iter()
+        .filter_map(|service| {
+            Some(ServiceStatus {
+                id: service.get("id")?.as_str()?.to_string(),
+                name: service.get("name")?.as_str()?.to_string(),
+                state: service.get("state")?.as_str()?.to_string(),
+                pid: service
+                    .get("pid")
+                    .and_then(|p| p.as_u64())
+                    .map(|p| p as u32),
+                port: service
+                    .get("port")
+                    .and_then(|p| p.as_u64())
+                    .map(|p| p as u16),
+                health_status: service.get("health_status")?.as_str()?.to_string(),
+                restart_count: service
+                    .get("restart_count")
+                    .and_then(|r| r.as_u64())
+                    .unwrap_or(0) as u32,
+                last_error: service
+                    .get("last_error")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string()),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Some(services)
 }
 
 /// Get base model information from training service
@@ -529,14 +634,14 @@ fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     }
 
     debug!("Status written to {}", status_path);
-    
+
     // Write metadata file indicating where status file is located
     // This helps menu bar app discover the path (only for primary path)
     if let Err(e) = write_status_path_metadata(status_path) {
         warn!("Failed to write status path metadata: {}", e);
         // Don't fail the whole operation if metadata write fails
     }
-    
+
     Ok(())
 }
 
@@ -544,17 +649,20 @@ fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
 /// This helps the menu bar app discover the path when server uses fallback location
 fn write_status_path_metadata(status_path: &str) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    
+
     // Write to well-known location
     let metadata_path = "/var/run/adapteros_status_path.txt";
     let metadata_temp = "/var/run/adapteros_status_path.txt.tmp";
-    
+
     // Try to write metadata, but don't fail if we can't (e.g., no permissions)
     if let Err(e) = fs::write(metadata_temp, status_path) {
         // If /var/run/ isn't writable, try user directory
         let home = std::env::var("HOME").ok();
         if let Some(home) = home {
-            let user_metadata = format!("{}/Library/Application Support/AdapterOS/status_path.txt", home);
+            let user_metadata = format!(
+                "{}/Library/Application Support/AdapterOS/status_path.txt",
+                home
+            );
             if let Some(parent) = Path::new(&user_metadata).parent() {
                 let _ = fs::create_dir_all(parent);
             }
@@ -562,13 +670,13 @@ fn write_status_path_metadata(status_path: &str) -> Result<()> {
         }
         return Err(e);
     }
-    
+
     // Atomic rename
     if let Err(e) = fs::rename(metadata_temp, metadata_path) {
         let _ = fs::remove_file(metadata_temp);
         return Err(e);
     }
-    
+
     // Set permissions to 0644
     #[cfg(unix)]
     {
@@ -577,7 +685,7 @@ fn write_status_path_metadata(status_path: &str) -> Result<()> {
             let _ = fs::set_permissions(metadata_path, perms);
         }
     }
-    
+
     Ok(())
 }
 
@@ -596,9 +704,9 @@ fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
         .and_then(|p| p.canonicalize().or_else(|_| Ok(p)))
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "var/adapteros_status.json".to_string());
-    
+
     let temp_path = status_path.replace(".json", ".tmp");
-    
+
     // Write metadata file indicating where status file is located
     // This helps menu bar app discover the path
     if let Err(e) = write_status_path_metadata(&status_path) {
@@ -675,7 +783,9 @@ mod tests {
         let state = create_mock_app_state().await;
 
         // Ensure we have valid cache data
-        update_cache(&state).await.expect("cache update should succeed");
+        update_cache(&state)
+            .await
+            .expect("cache update should succeed");
 
         // This should succeed (we have valid data)
         let result = write_status(&state).await;
@@ -716,6 +826,7 @@ mod tests {
             worker_count: 1,
             base_model_loaded: false,
             base_model_id: None,
+            services: None,
             base_model_name: None,
             base_model_status: "unloaded".to_string(),
             base_model_memory_mb: None,
@@ -762,7 +873,9 @@ mod tests {
         let state = create_mock_app_state().await;
 
         // Ensure we have valid cache data
-        update_cache(&state).await.expect("cache update should succeed");
+        update_cache(&state)
+            .await
+            .expect("cache update should succeed");
 
         // This should succeed on first attempt
         let start = std::time::Instant::now();
@@ -798,6 +911,7 @@ mod tests {
             base_model_name: Some("Qwen 2.5 7B".to_string()),
             base_model_status: "ready".to_string(),
             base_model_memory_mb: Some(14336),
+            services: None,
         };
 
         let json =
@@ -845,6 +959,7 @@ mod tests {
             base_model_name: Some("Test Model".to_string()),
             base_model_status: "ready".to_string(),
             base_model_memory_mb: Some(1024),
+            services: None,
         };
 
         // Manually set cache (simulating what update_cache would do)
@@ -907,6 +1022,7 @@ mod tests {
             base_model_name: Some("Test Model".to_string()),
             base_model_status: "ready".to_string(),
             base_model_memory_mb: Some(1024),
+            services: None,
         };
 
         // Write to temp file
@@ -945,6 +1061,7 @@ mod tests {
             base_model_name: None,
             base_model_status: "error".to_string(),
             base_model_memory_mb: None,
+            services: None,
         };
 
         // This should succeed (writes to local var/ directory in test)
@@ -966,7 +1083,7 @@ mod tests {
     fn test_write_failure_count_tracking() {
         // Test that failure count starts at 0
         assert_eq!(get_write_failure_count(), 0);
-        
+
         // Reset counter (for test isolation)
         WRITE_FAILURE_COUNT.store(0, Ordering::Relaxed);
         assert_eq!(get_write_failure_count(), 0);
@@ -976,20 +1093,20 @@ mod tests {
     async fn test_cache_freshness_detection() {
         init_status_cache();
         let state = create_mock_app_state().await;
-        
+
         // Initially no cache
         assert!(get_cached_status().unwrap().is_none());
-        
+
         // Update cache
         update_cache(&state).await.unwrap();
-        
+
         // Cache should be fresh immediately
         assert!(!is_cache_stale(2));
-        
+
         // Wait a bit and check staleness
         tokio::time::sleep(Duration::from_millis(2100)).await;
         assert!(is_cache_stale(2));
-        
+
         // Fresh cache should detect staleness
         let stale = get_cached_status_with_max_age(2).unwrap();
         assert!(stale.is_some()); // Still returns cached value even if stale
@@ -999,21 +1116,21 @@ mod tests {
     async fn test_cache_fresh_refresh() {
         init_status_cache();
         let state = create_mock_app_state().await;
-        
+
         // Initially no cache
         assert!(get_cached_status().unwrap().is_none());
-        
+
         // Update cache
         update_cache(&state).await.unwrap();
-        
+
         let initial_status = get_cached_status().unwrap().unwrap();
-        
+
         // Make cache stale
         tokio::time::sleep(Duration::from_millis(2100)).await;
-        
+
         // Use fresh cache API - should refresh automatically
         let fresh_status = get_cached_status_fresh(&state, 2).await.unwrap().unwrap();
-        
+
         // Should have fresh data (might be same or updated)
         assert_eq!(fresh_status.schema_version, initial_status.schema_version);
     }
@@ -1036,7 +1153,7 @@ mod tests {
         use adapteros_metrics_exporter::MetricsExporter;
         use adapteros_orchestrator::TrainingService;
         use adapteros_server_api::{state::ApiConfig, AppState};
-        use adapteros_telemetry::metrics::{MetricsCollector, MetricsRegistry};
+        use adapteros_telemetry::metrics::{MetricsRegistry};
 
         let api_config = std::sync::Arc::new(std::sync::RwLock::new(ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
@@ -1046,23 +1163,27 @@ mod tests {
                 telemetry_buffer_capacity: 1024,
                 telemetry_channel_capacity: 256,
                 trace_buffer_capacity: 512,
+                server_port: 9090,
+                server_enabled: false,
             },
             golden_gate: None,
             bundles_root: "var/bundles".to_string(),
             production_mode: false,
             rate_limits: None,
             path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
+            repository_paths: adapteros_server_api::state::RepositoryPathsConfig::default(),
             model_load_timeout_secs: 300,
             model_unload_timeout_secs: 30,
+            operation_retry: adapteros_server_api::state::OperationRetryConfig::default(),
+            security: adapteros_server_api::state::SecurityConfig::default(),
+            mlx: None,
         }));
 
         let metrics_exporter =
             std::sync::Arc::new(MetricsExporter::new(Default::default()).unwrap());
         let metrics_collector =
             std::sync::Arc::new(adapteros_telemetry::MetricsCollector::new().unwrap());
-        let metrics_registry = std::sync::Arc::new(MetricsRegistry::new(
-            metrics_collector.clone(),
-        ));
+        let metrics_registry = std::sync::Arc::new(MetricsRegistry::new(metrics_collector.clone()));
         for name in [
             "inference_latency_p95_ms",
             "queue_depth",
@@ -1104,6 +1225,6 @@ mod tests {
             .await
             .unwrap();
 
-        create_mock_app_state_with_db(db)
+        create_mock_app_state_with_db(db).await
     }
 }

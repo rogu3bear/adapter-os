@@ -1,0 +1,21 @@
+[package]
+name = "adapteros-metrics-collector"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "adapteros-metrics-collector"
+path = "src/main.rs"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-system-metrics = { path = "../adapteros-system-metrics" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+clap = { workspace = true, features = ["derive"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+async-trait = { workspace = true }
+

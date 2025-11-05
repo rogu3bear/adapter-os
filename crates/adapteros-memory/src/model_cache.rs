@@ -9,8 +9,8 @@
 //! - LRU Cache Implementation: Based on adapteros-aos cache.rs pattern【2†adapteros-aos/src/cache.rs:28-148】
 //! - Deterministic Eviction: Uses BLAKE3 hash for tiebreaking【3†adapteros-memory/src/unified_interface.rs:379-397】
 
-use adapteros_core::{AosError, Result};
 use crate::unified_interface::MemoryManager;
+use adapteros_core::{AosError, Result};
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::hash::Hash;
@@ -61,9 +61,9 @@ where
         // Quality score (already normalized)
         let quality_score = self.quality_score;
 
-        recency_score * recency_weight +
-        frequency_score * frequency_weight +
-        quality_score * quality_weight
+        recency_score * recency_weight
+            + frequency_score * frequency_weight
+            + quality_score * quality_weight
     }
 }
 
@@ -123,7 +123,8 @@ where
 
     /// Create a new model cache with custom configuration
     pub fn with_config(config: ModelCacheConfig) -> Self {
-        let capacity = NonZeroUsize::new(config.max_models).unwrap_or(NonZeroUsize::new(10).unwrap());
+        let capacity =
+            NonZeroUsize::new(config.max_models).unwrap_or(NonZeroUsize::new(10).unwrap());
 
         Self {
             cache: RwLock::new(LruCache::new(capacity)),
@@ -135,7 +136,10 @@ where
     }
 
     /// Associate with unified memory manager for coordinated eviction
-    pub fn with_memory_manager(mut self, manager: Arc<super::unified_interface::UnifiedMemoryManager>) -> Self {
+    pub fn with_memory_manager(
+        mut self,
+        manager: Arc<super::unified_interface::UnifiedMemoryManager>,
+    ) -> Self {
         self.memory_manager = Some(manager);
         self
     }
@@ -166,7 +170,14 @@ where
     }
 
     /// Insert a model into cache with eviction if necessary
-    pub fn insert(&self, key: K, model: Arc<T>, memory_bytes: u64, tenant_id: Option<String>, quality_score: f64) -> Result<()> {
+    pub fn insert(
+        &self,
+        key: K,
+        model: Arc<T>,
+        memory_bytes: u64,
+        tenant_id: Option<String>,
+        quality_score: f64,
+    ) -> Result<()> {
         // Check if we need to evict before insertion
         self.evict_for_size(memory_bytes)?;
 
@@ -321,7 +332,9 @@ where
             }
 
             // Check if we have enough room now
-            if current_usage + needed_bytes - evicted_memory <= max_memory && self.is_headroom_sufficient() {
+            if current_usage + needed_bytes - evicted_memory <= max_memory
+                && self.is_headroom_sufficient()
+            {
                 break;
             }
 
@@ -397,36 +410,49 @@ impl ModelCacheMetrics {
     }
 
     fn record_miss(&self) {
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn record_eviction(&self, memory_bytes: u64) {
-        self.evictions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.memory_bytes.fetch_sub(memory_bytes as i64, std::sync::atomic::Ordering::Relaxed);
+        self.evictions
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.memory_bytes
+            .fetch_sub(memory_bytes as i64, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn update_memory(&self, delta: i64) {
-        self.memory_bytes.fetch_add(delta, std::sync::atomic::Ordering::Relaxed);
+        self.memory_bytes
+            .fetch_add(delta, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn reset(&self) {
         self.hits.store(0, std::sync::atomic::Ordering::Relaxed);
         self.misses.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.evictions.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.memory_bytes.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.total_inserts.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.evictions
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.memory_bytes
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.total_inserts
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get hit ratio (0.0 to 1.0)
     pub fn hit_ratio(&self) -> f64 {
         let hits = self.hits.load(std::sync::atomic::Ordering::Relaxed) as f64;
         let total = hits + self.misses.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        if total == 0.0 { 0.0 } else { hits / total }
+        if total == 0.0 {
+            0.0
+        } else {
+            hits / total
+        }
     }
 
     /// Get current memory usage in bytes
     pub fn memory_bytes(&self) -> u64 {
-        self.memory_bytes.load(std::sync::atomic::Ordering::Relaxed).max(0) as u64
+        self.memory_bytes
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .max(0) as u64
     }
 
     /// Get total evictions
@@ -455,7 +481,9 @@ mod tests {
         });
 
         // Insert model
-        cache.insert("key1".to_string(), model, 1024, None, 0.5).unwrap();
+        cache
+            .insert("key1".to_string(), model, 1024, None, 0.5)
+            .unwrap();
 
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.memory_usage(), 1024);
@@ -489,7 +517,9 @@ mod tests {
                 id: format!("model{}", i),
                 data: vec![0.0; 256], // ~1KB each
             });
-            cache.insert(format!("key{}", i), model, 1024, None, 0.1 * i as f64).unwrap();
+            cache
+                .insert(format!("key{}", i), model, 1024, None, 0.1 * i as f64)
+                .unwrap();
         }
 
         // Should have evicted some models to stay under limit
@@ -510,15 +540,30 @@ mod tests {
         let cache = ModelCache::<String, TestModel>::with_config(config);
 
         // Insert models with different quality scores
-        let model1 = Arc::new(TestModel { id: "low_quality".to_string(), data: vec![1.0] });
-        let model2 = Arc::new(TestModel { id: "high_quality".to_string(), data: vec![2.0] });
+        let model1 = Arc::new(TestModel {
+            id: "low_quality".to_string(),
+            data: vec![1.0],
+        });
+        let model2 = Arc::new(TestModel {
+            id: "high_quality".to_string(),
+            data: vec![2.0],
+        });
 
-        cache.insert("low".to_string(), model1, 800, None, 0.1).unwrap();
-        cache.insert("high".to_string(), model2, 800, None, 0.9).unwrap();
+        cache
+            .insert("low".to_string(), model1, 800, None, 0.1)
+            .unwrap();
+        cache
+            .insert("high".to_string(), model2, 800, None, 0.9)
+            .unwrap();
 
         // Add a third model that should trigger eviction of low-quality one
-        let model3 = Arc::new(TestModel { id: "medium".to_string(), data: vec![3.0] });
-        cache.insert("medium".to_string(), model3, 800, None, 0.5).unwrap();
+        let model3 = Arc::new(TestModel {
+            id: "medium".to_string(),
+            data: vec![3.0],
+        });
+        cache
+            .insert("medium".to_string(), model3, 800, None, 0.5)
+            .unwrap();
 
         // High quality model should still be there, low quality should be evicted
         assert!(cache.get(&"high".to_string()).is_some());
@@ -530,10 +575,15 @@ mod tests {
     async fn test_model_cache_metrics() {
         let cache = ModelCache::<String, TestModel>::new();
 
-        let model = Arc::new(TestModel { id: "test".to_string(), data: vec![1.0] });
+        let model = Arc::new(TestModel {
+            id: "test".to_string(),
+            data: vec![1.0],
+        });
 
         // Insert and get (hit)
-        cache.insert("key".to_string(), model, 100, None, 0.5).unwrap();
+        cache
+            .insert("key".to_string(), model, 100, None, 0.5)
+            .unwrap();
         cache.get(&"key".to_string()); // hit
 
         // Try to get non-existent (miss)

@@ -188,9 +188,7 @@ async fn test_runtime_load_succeeds_db_update_fails() -> Result<()> {
 
     // Step 1: Runtime load succeeds
     let mut loader = AdapterLoader::new(temp_dir.clone());
-    let handle = loader
-        .load_adapter_async(0, "failure-adapter-2")
-        .await?;
+    let handle = loader.load_adapter_async(0, "failure-adapter-2").await?;
 
     // Step 2: Simulate DB update failure by using invalid adapter ID
     // (This simulates a scenario where DB update fails)
@@ -335,7 +333,10 @@ async fn test_partial_failure_concurrent_ops() -> Result<()> {
             let mut mock_loader = MockAdapterLoader::new(temp_dir_clone);
             mock_loader.set_fail_load(should_fail);
 
-            match mock_loader.load_adapter_async(idx as u16, &adapter_name).await {
+            match mock_loader
+                .load_adapter_async(idx as u16, &adapter_name)
+                .await
+            {
                 Ok(_handle) => {
                     db_clone
                         .update_adapter_state(&adapter_id_clone, "warm", "loaded_successfully")
@@ -483,7 +484,9 @@ async fn test_memory_consistency_after_failures() -> Result<()> {
 
     // Load adapter
     let mut loader = AdapterLoader::new(temp_dir.clone());
-    let handle = loader.load_adapter_async(0, "memory-consistency-adapter").await?;
+    let handle = loader
+        .load_adapter_async(0, "memory-consistency-adapter")
+        .await?;
 
     db.update_adapter_state(adapter_id, "warm", "loaded_successfully")
         .await?;
@@ -559,7 +562,10 @@ async fn test_multiple_failure_scenarios_sequence() -> Result<()> {
     let mut mock_loader = MockAdapterLoader::new(temp_dir.clone());
     mock_loader.set_fail_load(true);
 
-    match mock_loader.load_adapter_async(0, "sequence-failure-adapter").await {
+    match mock_loader
+        .load_adapter_async(0, "sequence-failure-adapter")
+        .await
+    {
         Ok(_) => panic!("Expected failure"),
         Err(_) => {
             db.update_adapter_state(adapter_id, "cold", "scenario_1_failed")
@@ -622,4 +628,3 @@ async fn test_multiple_failure_scenarios_sequence() -> Result<()> {
     std::fs::remove_dir_all(&temp_dir)?;
     Ok(())
 }
-

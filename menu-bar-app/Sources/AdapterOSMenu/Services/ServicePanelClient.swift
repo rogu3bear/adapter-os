@@ -294,10 +294,10 @@ final class ServicePanelClient {
         operation: String = "default"
     ) async throws -> T {
         let operationConfig = config.config(for: operation)
+        let bodyData = body.flatMap { try? encoder.encode($0) }
 
         // Check cache for GET requests (idempotent operations)
         if method == "GET" && operationConfig.cacheable,
-           let bodyData = body.flatMap({ try? encoder.encode($0) }),
            let cachedData = checkCache(for: endpoint, method: method, body: bodyData) {
             Logger.shared.debug("Cache hit for \(endpoint.path)", context: ["method": method, "operation": operation])
             return try decoder.decode(T.self, from: cachedData)
@@ -313,7 +313,6 @@ final class ServicePanelClient {
 
                     // Cache successful GET responses
                     if method == "GET" && operationConfig.cacheable,
-                       let bodyData = body.flatMap({ try? encoder.encode($0) }),
                        let resultData = try? encoder.encode(result) {
                         cacheResponse(resultData, for: endpoint, method: method, body: bodyData, ttl: operationConfig.cacheTTL)
                     }

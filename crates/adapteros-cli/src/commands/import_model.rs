@@ -109,10 +109,7 @@ pub async fn run(
         std::env::set_var("AOS_MLX_FFI_MODEL", &model_dir_str);
 
         output.success(format!("MLX model '{}' imported successfully", name));
-        output.info(format!(
-            "Model directory: {}",
-            model_dir.display()
-        ));
+        output.info(format!("Model directory: {}", model_dir.display()));
         output.info(format!(
             "AOS_MLX_FFI_MODEL environment variable set to: {}",
             model_dir_str

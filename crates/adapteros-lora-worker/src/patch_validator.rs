@@ -1101,8 +1101,8 @@ mod tests {
     use adapteros_core::B3Hash;
     use adapteros_manifest::{
         ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy,
-        IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies, RagPolicy,
-        RefusalPolicy,
+        IsolationPolicy, LazyLoadingPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy,
+        Policies, RagPolicy, RefusalPolicy,
     };
 
     fn create_mock_policies() -> Policies {
@@ -1162,6 +1162,12 @@ mod tests {
                 require_signature: true,
                 require_sbom: true,
                 cas_only: true,
+            },
+            lazy_loading: LazyLoadingPolicy {
+                enabled: true,
+                max_load_time_secs: 30,
+                max_concurrent_loads: 3,
+                preload_related: false,
             },
         }
     }

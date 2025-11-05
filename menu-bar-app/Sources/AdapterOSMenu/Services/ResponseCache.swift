@@ -7,6 +7,7 @@ final class ResponseCache: NSObject, NSCacheDelegate {
     private let cache = NSCache<NSString, CacheEntry>()
     private let queue = DispatchQueue(label: "com.adapteros.menu.cache", attributes: .concurrent)
     private var entryCount: Int = 0  // Track actual entry count
+    private var totalSizeBytes: Int = 0
 
     private override init() {
         super.init()
@@ -27,6 +28,9 @@ final class ResponseCache: NSObject, NSCacheDelegate {
         // NSCache is evicting an object - decrement our count
         queue.async(flags: .barrier) {
             self.entryCount = max(0, self.entryCount - 1)
+            if let entry = obj as? CacheEntry {
+                self.totalSizeBytes = max(0, self.totalSizeBytes - entry.size)
+            }
         }
     }
 
@@ -39,11 +43,13 @@ final class ResponseCache: NSObject, NSCacheDelegate {
         let data: Data
         let expirationDate: Date
         let eTag: String?
+        let size: Int
 
         init(data: Data, ttl: TimeInterval, eTag: String? = nil) {
             self.data = data
             self.expirationDate = Date().addingTimeInterval(ttl)
             self.eTag = eTag
+            self.size = data.count
         }
 
         var isExpired: Bool {
@@ -54,14 +60,17 @@ final class ResponseCache: NSObject, NSCacheDelegate {
     /// Store response in cache
     func store(_ data: Data, forKey key: String, ttl: TimeInterval = 30.0, eTag: String? = nil) {
         queue.async(flags: .barrier) {
-            let wasNewEntry = self.cache.object(forKey: key as NSString) == nil
+            let existingEntry = self.cache.object(forKey: key as NSString)
             let entry = CacheEntry(data: data, ttl: ttl, eTag: eTag)
             self.cache.setObject(entry, forKey: key as NSString)
             
             // Update entry count
-            if wasNewEntry {
+            if existingEntry == nil {
                 self.entryCount += 1
+            } else if let existingEntry = existingEntry {
+                self.totalSizeBytes = max(0, self.totalSizeBytes - existingEntry.size)
             }
+            self.totalSizeBytes += entry.size
         }
     }
 
@@ -76,6 +85,7 @@ final class ResponseCache: NSObject, NSCacheDelegate {
                 // Remove expired entry
                 cache.removeObject(forKey: key as NSString)
                 entryCount = max(0, entryCount - 1)
+                totalSizeBytes = max(0, totalSizeBytes - entry.size)
             }
         }
 
@@ -111,10 +121,10 @@ final class ResponseCache: NSObject, NSCacheDelegate {
     /// Remove specific key from cache
     func remove(key: String) {
         queue.async(flags: .barrier) {
-            let existed = self.cache.object(forKey: key as NSString) != nil
+            if let existing = self.cache.object(forKey: key as NSString) {
             self.cache.removeObject(forKey: key as NSString)
-            if existed {
                 self.entryCount = max(0, self.entryCount - 1)
+                self.totalSizeBytes = max(0, self.totalSizeBytes - existing.size)
             }
         }
     }
@@ -124,6 +134,7 @@ final class ResponseCache: NSObject, NSCacheDelegate {
         queue.async(flags: .barrier) {
             self.cache.removeAllObjects()
             self.entryCount = 0
+            self.totalSizeBytes = 0
         }
     }
 
@@ -134,11 +145,7 @@ final class ResponseCache: NSObject, NSCacheDelegate {
 
         queue.sync {
             count = entryCount
-            
-            // Calculate approximate total size by summing cached entry sizes
-            // Note: NSCache doesn't expose iteration, so we estimate based on count
-            // In practice, this is approximate since we can't iterate NSCache entries
-            totalSize = count * 1024  // Estimate ~1KB per entry average
+            totalSize = totalSizeBytes
         }
 
         return CacheStatistics(entryCount: count, totalSizeBytes: totalSize)

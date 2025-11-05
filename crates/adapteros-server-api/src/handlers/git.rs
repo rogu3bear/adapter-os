@@ -6,7 +6,6 @@ use axum::{http::StatusCode, Json};
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GitStatusResponse {
@@ -73,7 +72,9 @@ pub async fn git_status(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         )
     })?;
 
@@ -86,10 +87,13 @@ pub async fn git_status(
                 last_scan: git_status.last_scan,
             };
             Ok(Json(status))
-        },
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(format!("Failed to get git status: {}", e)).with_code("INTERNAL_ERROR")),
+            Json(
+                ErrorResponse::new(format!("Failed to get git status: {}", e))
+                    .with_code("INTERNAL_ERROR"),
+            ),
         )),
     }
 }
@@ -101,15 +105,17 @@ pub async fn start_git_session(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         )
     })?;
 
-    match git_subsystem.branch_manager().start_session(
-        req.adapter_id.clone(),
-        req.repo_id.clone(),
-        req.base_branch,
-    ).await {
+    match git_subsystem
+        .branch_manager()
+        .start_session(req.adapter_id.clone(), req.repo_id.clone(), req.base_branch)
+        .await
+    {
         Ok(session) => Ok(Json(StartGitSessionResponse {
             session_id: session.id,
             adapter_id: session.adapter_id,
@@ -120,7 +126,10 @@ pub async fn start_git_session(
         })),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(format!("Failed to start git session: {}", e)).with_code("INTERNAL_ERROR")),
+            Json(
+                ErrorResponse::new(format!("Failed to start git session: {}", e))
+                    .with_code("INTERNAL_ERROR"),
+            ),
         )),
     }
 }
@@ -132,25 +141,31 @@ pub async fn end_git_session(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         )
     })?;
 
-    match git_subsystem.branch_manager().end_session(&session_id, false).await {
+    match git_subsystem
+        .branch_manager()
+        .end_session(&session_id, false)
+        .await
+    {
         Ok(merge_commit_sha) => {
             let status = if merge_commit_sha.is_some() {
                 "merged".to_string()
             } else {
                 "ended".to_string()
             };
-            Ok(Json(EndGitSessionResponse {
-                session_id,
-                status,
-            }))
-        },
+            Ok(Json(EndGitSessionResponse { session_id, status }))
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(format!("Failed to end git session: {}", e)).with_code("INTERNAL_ERROR")),
+            Json(
+                ErrorResponse::new(format!("Failed to end git session: {}", e))
+                    .with_code("INTERNAL_ERROR"),
+            ),
         )),
     }
 }
@@ -161,24 +176,32 @@ pub async fn list_git_branches(
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE")),
+            Json(
+                ErrorResponse::new("Git subsystem not available").with_code("SERVICE_UNAVAILABLE"),
+            ),
         )
     })?;
 
     match git_subsystem.list_branches(None).await {
         Ok(branches) => {
-            let api_branches: Vec<GitBranchInfo> = branches.into_iter().map(|b| GitBranchInfo {
-                name: b.name,
-                is_current: b.is_current,
-                last_commit: b.last_commit,
-                ahead: b.ahead,
-                behind: b.behind,
-            }).collect();
+            let api_branches: Vec<GitBranchInfo> = branches
+                .into_iter()
+                .map(|b| GitBranchInfo {
+                    name: b.name,
+                    is_current: b.is_current,
+                    last_commit: b.last_commit,
+                    ahead: b.ahead,
+                    behind: b.behind,
+                })
+                .collect();
             Ok(Json(api_branches))
-        },
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(format!("Failed to list branches: {}", e)).with_code("INTERNAL_ERROR")),
+            Json(
+                ErrorResponse::new(format!("Failed to list branches: {}", e))
+                    .with_code("INTERNAL_ERROR"),
+            ),
         )),
     }
 }
@@ -186,7 +209,11 @@ pub async fn list_git_branches(
 pub async fn file_changes_stream(
     State(state): State<AppState>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    let file_change_tx = state.file_change_tx.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?.clone();
+    let file_change_tx = state
+        .file_change_tx
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+        .clone();
 
     let stream = stream::unfold((), move |_| {
         let mut rx = file_change_tx.subscribe();

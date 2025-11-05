@@ -7,6 +7,7 @@
 use crate::SystemMetrics;
 use adapteros_core::Result;
 use adapteros_telemetry::TelemetryWriter;
+// Telemetry functionality is now handled by the adapteros-telemetry crate
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};

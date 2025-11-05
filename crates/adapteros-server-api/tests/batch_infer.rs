@@ -5,7 +5,9 @@ use std::time::Duration;
 use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers::batch;
-use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
+use adapteros_server_api::state::{
+    ApiConfig, AppState, MetricsConfig, OperationRetryConfig, RepositoryPathsConfig, SecurityConfig,
+};
 use adapteros_server_api::types::{
     BatchInferItemRequest, BatchInferRequest, InferRequest, WorkerInferRequest,
 };
@@ -57,9 +59,17 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
             telemetry_buffer_capacity: 1000,
             telemetry_channel_capacity: 100,
             trace_buffer_capacity: 100,
+            server_port: 9090,
+            server_enabled: false,
         },
         golden_gate: None,
         bundles_root: "var/bundles".to_string(),
+        repository_paths: RepositoryPathsConfig::default(),
+        model_load_timeout_secs: 300,
+        model_unload_timeout_secs: 30,
+        operation_retry: OperationRetryConfig::default(),
+        security: SecurityConfig::default(),
+        mlx: None,
         production_mode: false,
         rate_limits: None,
         path_policy: adapteros_server_api::state::PathPolicyConfig::default(),

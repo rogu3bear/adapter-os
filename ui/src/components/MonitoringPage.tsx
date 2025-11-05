@@ -6,9 +6,13 @@ import { RealtimeMetrics } from './RealtimeMetrics';
 import { AlertsPage } from './AlertsPage';
 import { DensityControls } from './ui/density-controls';
 import { useDensity } from '../contexts/DensityContext';
+import { useAuth } from '../providers/CoreProviders';
+import { useTenant } from '../layout/LayoutProvider';
 
 export function MonitoringPage() {
   const { density, setDensity } = useDensity();
+  const { user } = useAuth();
+  const { selectedTenant } = useTenant();
   
   return (
     <div className="space-y-6">
@@ -37,7 +41,7 @@ export function MonitoringPage() {
         </TabsContent>
         
         <TabsContent value="metrics">
-          <RealtimeMetrics user={{} as any} selectedTenant="default" />
+          {user && <RealtimeMetrics user={user} selectedTenant={selectedTenant || 'default'} />}
         </TabsContent>
       </Tabs>
     </div>

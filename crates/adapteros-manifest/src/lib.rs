@@ -688,6 +688,12 @@ mod tests {
                     cas_only: true,
                 },
                 drift: DriftPolicy::default(),
+                lazy_loading: LazyLoadingPolicy {
+                    enabled: true,
+                    max_load_time_secs: 30,
+                    max_concurrent_loads: 3,
+                    preload_related: false,
+                },
             },
             seeds: Seeds {
                 global: B3Hash::hash(b"global_seed"),

@@ -77,21 +77,10 @@ impl PostgresDb {
     /// Applies all SQL migrations from the `migrations_postgres/` directory.
     /// Migrations are idempotent and can be run multiple times safely.
     pub async fn migrate(&self) -> Result<()> {
-        use std::path::Path;
-        let migrations_dir =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations_postgres");
+        // Use embedded migrations from the crate's migrations directory
+        const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations_postgres");
 
-        let migrator = sqlx::migrate::Migrator::new(migrations_dir.as_path())
-            .await
-            .map_err(|e| {
-                AosError::Database(format!(
-                    "Failed to load migrations from {}: {}",
-                    migrations_dir.display(),
-                    e
-                ))
-            })?;
-
-        migrator
+        MIGRATIONS
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
@@ -957,6 +946,15 @@ impl PostgresDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list all plans: {}", e)))?;
         Ok(plans)
+    }
+
+    pub async fn delete_plan(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM plans WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete plan: {}", e)))?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn deactivate_all_cp_pointers(&self, tenant_id: &str) -> Result<()> {

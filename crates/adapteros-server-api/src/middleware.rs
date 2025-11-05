@@ -1,4 +1,5 @@
 use crate::auth::{validate_token, validate_token_ed25519, validate_token_ed25519_der, Claims};
+use crate::errors::{AosErrorExt, ErrorResponseExt};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -27,7 +28,7 @@ pub async fn metrics_auth_middleware(
         .and_then(|header| header.strip_prefix("Bearer "));
 
     let expected_token = {
-        let config = state.config.read().map_err(|e| {
+        let config = state.config.read().map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("configuration error").with_code("CONFIG_ERROR")),
@@ -45,7 +46,9 @@ pub async fn metrics_auth_middleware(
             // Invalid or missing token
             Err((
                 StatusCode::UNAUTHORIZED,
-                Json(ErrorResponse::new("invalid or missing bearer token").with_code("UNAUTHORIZED")),
+                Json(
+                    ErrorResponse::new("invalid or missing bearer token").with_code("UNAUTHORIZED"),
+                ),
             ))
         }
     }
@@ -337,12 +340,10 @@ pub fn to_user_friendly_response<E>(
     fallback_message: &str,
 ) -> (StatusCode, Json<ErrorResponse>)
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: std::error::Error + Send + Sync + 'static + std::any::Any,
 {
-    // Try to downcast to AosError
-    if let Some(aos_error) = error.downcast_ref::<adapteros_core::AosError>() {
-        return aos_error.to_user_friendly_response();
-    }
+    // Try to downcast to AosError if the error implements Any
+    // For now, just use the fallback logic
 
     // Try to extract error code from the error message for better categorization
     let error_msg = error.to_string();

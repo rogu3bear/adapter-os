@@ -5,8 +5,6 @@
 /// SQLX validation is completely disabled to avoid compilation issues.
 /// All queries will be validated at runtime.
 fn main() {
-    // Disable SQLX offline mode
-    println!("cargo:rustc-env=SQLX_OFFLINE=false");
-
+    // SQLX validation disabled - all database queries are stubs
     println!("cargo:warning=SQLX validation disabled - all database queries are stubs");
 }

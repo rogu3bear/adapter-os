@@ -10,8 +10,15 @@ use adapteros_server_api::state::AppState;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
+    Router as AxumRouter,
 };
 use tower::ServiceExt;
+use std::sync::{Arc, RwLock};
+
+use adapteros_db::users::Role;
+use jsonwebtoken::{encode, EncodingKey, Header};
+use adapteros_server_api::auth::Claims;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tokio::test]
 async fn test_simplified_navigation_structure() {
@@ -132,22 +139,23 @@ async fn test_policy_packs_consolidation() {
 }
 
 async fn create_test_app_state() -> AppState {
+    use adapteros_api_types::telemetry::LogBuffer;
     use adapteros_core::AosError;
     use adapteros_db::Database;
+    use adapteros_lora_router::Router;
     use adapteros_metrics_exporter::MetricsExporter;
-    use adapteros_telemetry::{MetricsCollector, MetricsRegistry, UnifiedTelemetryEvent};
-    use adapteros_server_api::operation_tracker::OperationTracker;
     use adapteros_orchestrator::TrainingService;
     use adapteros_policy::PolicyPackManager;
-    use adapteros_lora_router::Router;
+    use adapteros_server_api::operation_tracker::OperationTracker;
+    use adapteros_telemetry::{MetricsCollector, MetricsRegistry, UnifiedTelemetryEvent};
     use adapteros_trace::TraceBuffer;
-    use adapteros_api_types::telemetry::LogBuffer;
     use std::collections::HashMap;
     use tokio::sync::broadcast;
     use tokio::sync::RwLock as AsyncRwLock;
 
     // Create in-memory database for testing
-    let db = Database::new_in_memory().await
+    let db = Database::new_in_memory()
+        .await
         .expect("Failed to create test database");
 
     // Create test JWT secret
@@ -213,17 +221,16 @@ async fn create_test_app_state() -> AppState {
     ));
 
     // Create test policy manager
-    let policy_manager = Arc::new(PolicyPackManager::new(vec![]).expect("Failed to create test policy manager"));
+    let policy_manager =
+        Arc::new(PolicyPackManager::new(vec![]).expect("Failed to create test policy manager"));
 
     // Create test router
-    let router = Arc::new(Router::new(
-        adapteros_lora_router::RouterConfig {
-            k_sparse: 3,
-            quantization: adapteros_lora_router::QuantizationConfig::Q15,
-            cache_enabled: false,
-            max_cache_size: 100,
-        }
-    ));
+    let router = Arc::new(Router::new(adapteros_lora_router::RouterConfig {
+        k_sparse: 3,
+        quantization: adapteros_lora_router::QuantizationConfig::Q15,
+        cache_enabled: false,
+        max_cache_size: 100,
+    }));
 
     // Create test telemetry buffer
     let telemetry_buffer = Arc::new(LogBuffer::new(1000));
@@ -274,6 +281,46 @@ async fn create_test_app_state() -> AppState {
     }
 
     state
+}
+
+async fn create_test_app() -> AxumRouter {
+    let state = create_test_app_state().await;
+    build(state)
+}
+
+async fn make_request_with_role(
+    app: AxumRouter,
+    uri: &str,
+    role: Role,
+) -> axum::response::Response {
+    let iat = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let exp = iat + 3600; // Expires in 1 hour
+
+    let claims = Claims {
+        sub: "test_user".to_string(),
+        role: role.to_string(),
+        iat: iat as usize,
+        exp: exp as usize,
+    };
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(b"test_jwt_secret_key_for_integration_tests_only"),
+    )
+    .unwrap();
+
+    app.oneshot(
+        Request::builder()
+            .uri(uri)
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 use adapteros_api_types::{HealthResponse, ModelRuntimeHealth};
-use adapteros_telemetry::MetricsCollector;
 use adapteros_server_api::{handlers, state::AppState};
+use adapteros_telemetry::MetricsCollector;
 use axum_test::TestServer;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -40,7 +40,9 @@ async fn test_metrics_collector_prometheus_output() {
     collector.update_queue_depth("request", "tenant1", 5.0);
 
     // Render to Prometheus format
-    let output = collector.render_prometheus().expect("Failed to render metrics");
+    let output = collector
+        .render_prometheus()
+        .expect("Failed to render metrics");
     let output_str = String::from_utf8(output).expect("Invalid UTF-8");
 
     // Check that it contains expected metrics
@@ -104,9 +106,13 @@ mod integration_tests {
             adapteros_db::Database::Sqlite(pool),
             b"test_jwt_secret_32_chars_long_______".to_vec(),
             config,
-            Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).unwrap()),
+            Arc::new(
+                adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).unwrap(),
+            ),
             Arc::new(MetricsCollector::new().unwrap()),
-            Arc::new(adapteros_telemetry::MetricsRegistry::new(Arc::new(MetricsCollector::new().unwrap()))),
+            Arc::new(adapteros_telemetry::MetricsRegistry::new(Arc::new(
+                MetricsCollector::new().unwrap(),
+            ))),
             Arc::new(adapteros_orchestrator::TrainingService::new()),
             None,
         );

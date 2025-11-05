@@ -1,6 +1,6 @@
 [package]
 name = "adapter-os"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -27,6 +27,7 @@ members = [
     "crates/adapteros-lora-rag",
     "crates/adapteros-lora-worker",
     "crates/adapteros-telemetry",
+    "crates/adapteros-telemetry-types",
     "crates/adapteros-policy",
     "crates/adapteros-config",
     "crates/adapteros-cli",
@@ -40,6 +41,7 @@ members = [
     "crates/adapteros-node",
     "crates/adapteros-chat",
     "crates/adapteros-metrics-exporter",
+    "crates/adapteros-metrics-collector",
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
     "crates/adapteros-lora-lifecycle",
@@ -73,7 +75,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"

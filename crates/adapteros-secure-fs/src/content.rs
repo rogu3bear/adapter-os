@@ -29,11 +29,9 @@ pub fn validate_json_content(content: &str, file_name: &str) -> Result<()> {
 
     // Attempt to parse as JSON to validate structure
     // We don't need the parsed value, just validation that it's valid JSON
-    serde_json::from_str::<serde_json::Value>(content)
-        .map_err(|e| AosError::Validation(format!(
-            "File '{}' contains invalid JSON: {}",
-            file_name, e
-        )))?;
+    serde_json::from_str::<serde_json::Value>(content).map_err(|e| {
+        AosError::Validation(format!("File '{}' contains invalid JSON: {}", file_name, e))
+    })?;
 
     Ok(())
 }
@@ -57,11 +55,12 @@ where
     validate_json_content(content, file_name)?;
 
     // Parse into the target type
-    serde_json::from_str(content)
-        .map_err(|e| AosError::Validation(format!(
+    serde_json::from_str(content).map_err(|e| {
+        AosError::Validation(format!(
             "Failed to parse '{}' into expected type: {}",
             file_name, e
-        )))
+        ))
+    })
 }
 
 /// Validate model configuration JSON with semantic checks
@@ -112,7 +111,7 @@ pub fn validate_model_config_json(content: &str) -> Result<()> {
             }
         } else {
             return Err(AosError::Validation(
-                "config.json vocab_size must be a positive integer".to_string()
+                "config.json vocab_size must be a positive integer".to_string(),
             ));
         }
     }
@@ -127,7 +126,7 @@ pub fn validate_model_config_json(content: &str) -> Result<()> {
             }
         } else {
             return Err(AosError::Validation(
-                "config.json hidden_size must be a positive integer".to_string()
+                "config.json hidden_size must be a positive integer".to_string(),
             ));
         }
     }
@@ -142,7 +141,7 @@ pub fn validate_model_config_json(content: &str) -> Result<()> {
             }
         } else {
             return Err(AosError::Validation(
-                "config.json num_layers must be a positive integer".to_string()
+                "config.json num_layers must be a positive integer".to_string(),
             ));
         }
     }
@@ -157,7 +156,7 @@ pub fn validate_model_config_json(content: &str) -> Result<()> {
             }
         } else {
             return Err(AosError::Validation(
-                "config.json num_attention_heads must be a positive integer".to_string()
+                "config.json num_attention_heads must be a positive integer".to_string(),
             ));
         }
     }
@@ -193,7 +192,7 @@ pub fn validate_tokenizer_config_json(content: &str) -> Result<()> {
 
     if !has_common_fields {
         return Err(AosError::Validation(
-            "tokenizer.json does not appear to contain valid tokenizer configuration".to_string()
+            "tokenizer.json does not appear to contain valid tokenizer configuration".to_string(),
         ));
     }
 
@@ -202,8 +201,14 @@ pub fn validate_tokenizer_config_json(content: &str) -> Result<()> {
         if let Some(model_type) = model.get("type") {
             if let Some(type_str) = model_type.as_str() {
                 let valid_types = vec![
-                    "BPE", "WordPiece", "Unigram", "BBPE",
-                    "GPT2", "Llama", "Qwen2", "T5"
+                    "BPE",
+                    "WordPiece",
+                    "Unigram",
+                    "BBPE",
+                    "GPT2",
+                    "Llama",
+                    "Qwen2",
+                    "T5",
                 ];
                 if !valid_types.contains(&type_str) {
                     return Err(AosError::Validation(format!(
@@ -304,7 +309,10 @@ mod tests {
 
         let result = validate_model_config_json(invalid_config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing required field"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing required field"));
     }
 
     #[test]
@@ -319,7 +327,10 @@ mod tests {
 
         let result = validate_model_config_json(invalid_config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("out of reasonable range"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("out of reasonable range"));
     }
 
     #[test]
@@ -346,7 +357,10 @@ mod tests {
 
         let result = validate_tokenizer_config_json(invalid_tokenizer);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unknown model type"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown model type"));
     }
 
     #[test]
@@ -357,6 +371,9 @@ mod tests {
 
         let result = validate_tokenizer_config_json(invalid_tokenizer);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("does not appear to contain valid tokenizer"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("does not appear to contain valid tokenizer"));
     }
 }

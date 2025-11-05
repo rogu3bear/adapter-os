@@ -392,7 +392,7 @@ export default function ServicePanel() {
                   service={{
                     ...service,
                     icon: getServiceIcon(service.category),
-                    status: service.status as any,
+                    status: service.status,
                     description: `${service.name} service`
                   }}
                   onStart={() => handleStartService(service)}
@@ -418,7 +418,7 @@ export default function ServicePanel() {
                   service={{
                     ...service,
                     icon: getServiceIcon(service.category),
-                    status: service.status as any,
+                    status: service.status,
                     description: `${service.name} service`
                   }}
                   onStart={() => handleStartService(service)}

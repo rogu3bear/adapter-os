@@ -164,8 +164,8 @@ fn test_mlx_backend_available_with_feature() {
             let err_msg = format!("{:?}", e);
             // Should not fail with feature flag error
             assert!(
-                !err_msg.contains("requires --features mlx-ffi-backend") &&
-                !err_msg.contains("requires --features experimental-backends"),
+                !err_msg.contains("requires --features mlx-ffi-backend")
+                    && !err_msg.contains("requires --features experimental-backends"),
                 "Should not require feature flag when mlx-ffi-backend is enabled. Error: {}",
                 err_msg
             );

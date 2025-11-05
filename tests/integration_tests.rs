@@ -197,7 +197,10 @@ async fn test_profile_update_flow() -> Result<()> {
         .update_profile(&login_response.token, update_request)
         .await?;
     assert_eq!(profile_response.email, "admin@example.com");
-    assert_eq!(profile_response.display_name, Some("Test Admin".to_string()));
+    assert_eq!(
+        profile_response.display_name,
+        Some("Test Admin".to_string())
+    );
 
     Ok(())
 }
@@ -279,9 +282,8 @@ async fn test_auth_performance_characteristics() -> Result<()> {
 
     // Benchmark token refresh performance with statistical analysis
     println!("  Benchmarking token refresh performance...");
-    let refresh_stats = benchmark_endpoint(|| async {
-        client.refresh_token(&token).await
-    }, 25).await?;
+    let refresh_stats =
+        benchmark_endpoint(|| async { client.refresh_token(&token).await }, 25).await?;
 
     println!("  Token refresh performance:");
     println!("    Mean: {:.2}ms", refresh_stats.mean_ms);
@@ -293,9 +295,8 @@ async fn test_auth_performance_characteristics() -> Result<()> {
 
     // Benchmark token metadata retrieval
     println!("  Benchmarking token metadata retrieval...");
-    let metadata_stats = benchmark_endpoint(|| async {
-        client.get_token_metadata(&token).await
-    }, 25).await?;
+    let metadata_stats =
+        benchmark_endpoint(|| async { client.get_token_metadata(&token).await }, 25).await?;
 
     println!("  Token metadata performance:");
     println!("    Mean: {:.2}ms", metadata_stats.mean_ms);
@@ -306,17 +307,41 @@ async fn test_auth_performance_characteristics() -> Result<()> {
     println!("    Iterations: {}", metadata_stats.iterations);
 
     // Performance assertions with statistical confidence
-    assert!(refresh_stats.p95_ms < 750.0, "Token refresh P95 too slow: {:.2}ms", refresh_stats.p95_ms);
-    assert!(metadata_stats.p95_ms < 150.0, "Token metadata P95 too slow: {:.2}ms", metadata_stats.p95_ms);
-    assert!(refresh_stats.mean_ms < 500.0, "Token refresh mean too slow: {:.2}ms", refresh_stats.mean_ms);
-    assert!(metadata_stats.mean_ms < 100.0, "Token metadata mean too slow: {:.2}ms", metadata_stats.mean_ms);
+    assert!(
+        refresh_stats.p95_ms < 750.0,
+        "Token refresh P95 too slow: {:.2}ms",
+        refresh_stats.p95_ms
+    );
+    assert!(
+        metadata_stats.p95_ms < 150.0,
+        "Token metadata P95 too slow: {:.2}ms",
+        metadata_stats.p95_ms
+    );
+    assert!(
+        refresh_stats.mean_ms < 500.0,
+        "Token refresh mean too slow: {:.2}ms",
+        refresh_stats.mean_ms
+    );
+    assert!(
+        metadata_stats.mean_ms < 100.0,
+        "Token metadata mean too slow: {:.2}ms",
+        metadata_stats.mean_ms
+    );
 
     // Check for excessive variance (indicates inconsistent performance)
     let refresh_cv = refresh_stats.std_dev_ms / refresh_stats.mean_ms;
     let metadata_cv = metadata_stats.std_dev_ms / metadata_stats.mean_ms;
 
-    assert!(refresh_cv < 0.5, "Token refresh too variable (CV: {:.2})", refresh_cv);
-    assert!(metadata_cv < 0.3, "Token metadata too variable (CV: {:.2})", metadata_cv);
+    assert!(
+        refresh_cv < 0.5,
+        "Token refresh too variable (CV: {:.2})",
+        refresh_cv
+    );
+    assert!(
+        metadata_cv < 0.3,
+        "Token metadata too variable (CV: {:.2})",
+        metadata_cv
+    );
 
     println!("✓ Auth performance characteristics within acceptable limits");
     println!("  Performance is consistent and within thresholds");
@@ -334,14 +359,18 @@ async fn test_auth_performance_characteristics() -> Result<()> {
                 .await?;
             client.get_user_info(&login_response.token).await
         },
-        3,  // 3 concurrent clients
-        5,  // 5 requests per client
+        3,   // 3 concurrent clients
+        5,   // 5 requests per client
         100, // 100ms delay between requests
-    ).await?;
+    )
+    .await?;
 
     println!("  Load Test Results:");
     println!("    Concurrent Clients: {}", load_stats.concurrent_clients);
-    println!("    Requests per Client: {}", load_stats.requests_per_client);
+    println!(
+        "    Requests per Client: {}",
+        load_stats.requests_per_client
+    );
     println!("    Total Requests: {}", load_stats.total_requests);
     println!("    Successful: {}", load_stats.successful_requests);
     println!("    Failed: {}", load_stats.failed_requests);
@@ -351,9 +380,21 @@ async fn test_auth_performance_characteristics() -> Result<()> {
     println!("    P99 Response Time: {:.2}ms", load_stats.p99_ms);
 
     // Load test assertions
-    assert!(load_stats.failed_requests == 0, "Load test had {} failures", load_stats.failed_requests);
-    assert!(load_stats.throughput_rps > 5.0, "Throughput too low: {:.1} req/sec", load_stats.throughput_rps);
-    assert!(load_stats.p95_ms < 1000.0, "P95 latency too high: {:.2}ms", load_stats.p95_ms);
+    assert!(
+        load_stats.failed_requests == 0,
+        "Load test had {} failures",
+        load_stats.failed_requests
+    );
+    assert!(
+        load_stats.throughput_rps > 5.0,
+        "Throughput too low: {:.1} req/sec",
+        load_stats.throughput_rps
+    );
+    assert!(
+        load_stats.p95_ms < 1000.0,
+        "P95 latency too high: {:.2}ms",
+        load_stats.p95_ms
+    );
 
     println!("✓ Load testing completed successfully");
     Ok(())
@@ -372,7 +413,10 @@ struct BenchmarkStats {
 }
 
 /// Benchmark an async endpoint with statistical analysis
-async fn benchmark_endpoint<F, Fut, T, E>(endpoint_fn: F, iterations: usize) -> Result<BenchmarkStats>
+async fn benchmark_endpoint<F, Fut, T, E>(
+    endpoint_fn: F,
+    iterations: usize,
+) -> Result<BenchmarkStats>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = std::result::Result<T, E>>,

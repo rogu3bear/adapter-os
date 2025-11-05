@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import * as types from '@/api/types';
 import {
   FolderOpen,
   Share,
@@ -45,7 +46,7 @@ export function WorkspaceResources({ workspaceId }: WorkspaceResourcesProps) {
     unshareWorkspaceResource,
   } = useWorkspaces({ enabled: false }); // We'll call manually
 
-  const [resources, setResources] = useState<any[]>([]); // TODO: Use proper type
+  const [resources, setResources] = useState<types.WorkspaceResource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

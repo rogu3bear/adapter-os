@@ -542,7 +542,8 @@ impl MmapAdapterLoader {
             if metadata.len() > max_size_bytes {
                 return Err(AosError::PolicyViolation(format!(
                     "Adapter file size {} bytes exceeds maximum {} bytes",
-                    metadata.len(), max_size_bytes
+                    metadata.len(),
+                    max_size_bytes
                 )));
             }
         }
