@@ -9718,9 +9718,24 @@ pub async fn list_monitoring_rules(
     let tenant_id = params.get("tenant_id");
     let is_active = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
 
-    // TODO: System metrics not yet implemented for PostgreSQL
-    // Return empty list for now during database migration
-    let rules = Vec::new();
+    // Query monitoring rules from database
+    let rules = adapteros_system_metrics::ProcessMonitoringRule::list(
+        state.db.pool(),
+        tenant_id.map(|s| s.as_str()),
+        is_active,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to list monitoring rules: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to list monitoring rules")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let response: Vec<MonitoringRuleResponse> = rules
         .into_iter()
