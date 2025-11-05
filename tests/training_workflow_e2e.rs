@@ -44,7 +44,7 @@ async fn test_training_service_lifecycle() -> Result<()> {
         .config(config.clone())
         .repo_id(Some("test-repo".to_string()))
         .build()?;
-    
+
     let job = service.start_training(params).await?;
     assert_eq!(job.status, TrainingJobStatus::Pending);
     assert_eq!(job.adapter_name, "test-adapter");
@@ -100,7 +100,7 @@ async fn test_training_template_loading() -> Result<()> {
         .config(template_config)
         .template_id(Some("general-code".to_string()))
         .build()?;
-    
+
     let job = service.start_training(params).await?;
     assert_eq!(job.template_id, Some("general-code".to_string()));
     assert_eq!(job.config.rank, 16);
@@ -128,12 +128,12 @@ async fn test_training_metrics_collection() -> Result<()> {
         .adapter_name("metrics-test")
         .config(config)
         .build()?;
-    
+
     let job = service.start_training(params).await?;
 
     // Test: Update progress (simulating training worker)
     service.update_progress(&job.id, 1, 0.5, 100.0).await?;
-    
+
     let updated_job = service.get_job(&job.id).await?;
     assert_eq!(updated_job.current_epoch, 1);
     assert!((updated_job.current_loss - 0.5).abs() < 0.01);
@@ -144,7 +144,7 @@ async fn test_training_metrics_collection() -> Result<()> {
     let db_job = db_arc.get_training_job(&job.id).await?;
     assert!(db_job.is_some());
     let db_job = db_job.unwrap();
-    let progress: adapteros_db::training_jobs::TrainingProgress = 
+    let progress: adapteros_db::training_jobs::TrainingProgress =
         serde_json::from_str(&db_job.progress_json)?;
     assert_eq!(progress.current_epoch, 1);
     assert!((progress.current_loss - 0.5).abs() < 0.01);
@@ -163,8 +163,7 @@ async fn test_training_error_handling() -> Result<()> {
     let service = TrainingService::new_with_db(Arc::new(db), "qwen2.5-7b");
 
     // Test: Invalid configuration rejection (via builder)
-    let result = TrainingJobBuilder::new()
-        .build();
+    let result = TrainingJobBuilder::new().build();
     assert!(result.is_err()); // Missing adapter_name and config
 
     // Test: Start job with valid config
@@ -173,7 +172,7 @@ async fn test_training_error_handling() -> Result<()> {
         .adapter_name("error-test")
         .config(config)
         .build()?;
-    
+
     let job = service.start_training(params).await?;
 
     // Test: Cancellation cleanup
@@ -205,7 +204,7 @@ async fn test_training_error_handling() -> Result<()> {
         .adapter_name("recovery-test")
         .config(config2)
         .build()?;
-    
+
     let job2 = service.start_training(params2).await?;
     assert_eq!(job2.status, TrainingJobStatus::Pending);
     assert_ne!(job2.id, job.id); // Different job ID
@@ -223,7 +222,7 @@ async fn test_training_pause_resume() -> Result<()> {
         .adapter_name("pause-resume-test")
         .config(config)
         .build()?;
-    
+
     let job = service.start_training(params).await?;
 
     // Test: Pause job
@@ -255,7 +254,7 @@ async fn test_training_logs_persistence() -> Result<()> {
         .adapter_name("logs-test")
         .config(config)
         .build()?;
-    
+
     let job = service.start_training(params).await?;
 
     // Wait a bit for logs to be written
@@ -264,7 +263,7 @@ async fn test_training_logs_persistence() -> Result<()> {
     // Test: Get logs
     let logs = service.get_logs(&job.id).await?;
     assert!(!logs.is_empty());
-    
+
     // Verify log content
     let log_text = logs.join("\n");
     assert!(log_text.contains("Training job"));

@@ -43,10 +43,7 @@ pub struct Aos2Packager;
 
 impl Aos2Packager {
     /// Save adapter to AOS 2.0 format
-    pub async fn save<P: AsRef<Path>>(
-        adapter: &SingleFileAdapter,
-        path: P,
-    ) -> Result<()> {
+    pub async fn save<P: AsRef<Path>>(adapter: &SingleFileAdapter, path: P) -> Result<()> {
         Self::save_with_options(adapter, path, Aos2PackageOptions::default()).await
     }
 
@@ -70,7 +67,11 @@ impl Aos2Packager {
         let positive_weights = serialize_weight_group(&adapter.weights.positive)?;
         let negative_weights = serialize_weight_group(&adapter.weights.negative)?;
         let combined_weights = if options.include_combined_weights {
-            adapter.weights.combined.as_ref().and_then(|c| serialize_weight_group(c).ok())
+            adapter
+                .weights
+                .combined
+                .as_ref()
+                .and_then(|c| serialize_weight_group(c).ok())
         } else {
             None
         };
@@ -143,7 +144,7 @@ impl Aos2Packager {
 
         // Calculate offsets with page alignment for weights section
         let weights_offset = align_to_page(Aos2Header::SIZE as u64, PAGE_SIZE);
-        
+
         // Write weights section
         file.seek(SeekFrom::Start(weights_offset))
             .map_err(|e| AosError::Io(format!("Failed to seek to weights section: {}", e)))?;
@@ -177,7 +178,7 @@ impl Aos2Packager {
 
         // Calculate total size and compute checksum
         let total_size = signatures_offset + signatures_size;
-        
+
         // Compute header checksum (excluding the checksum field itself)
         let header_checksum = {
             let temp_header = Aos2Header {
@@ -225,4 +226,3 @@ impl Aos2Packager {
         Ok(())
     }
 }
-

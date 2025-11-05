@@ -10,4 +10,4 @@ utoipa = { version = "4.2", features = ["axum_extras"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 adapteros-core = { path = "../adapteros-core" }
-adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-telemetry-types = { path = "../adapteros-telemetry-types" }

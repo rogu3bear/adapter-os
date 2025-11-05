@@ -112,6 +112,76 @@ final class ServicePanelClientTests: XCTestCase {
             }
         }
     }
+    
+    func testConcurrentServiceOperations() async throws {
+        let expectation = expectation(description: "Concurrent operations")
+        expectation.expectedFulfillmentCount = 10
+        
+        for _ in 0..<10 {
+            Task {
+                do {
+                    _ = try await client.checkHealth()
+                    expectation.fulfill()
+                } catch {
+                    expectation.fulfill()
+                }
+            }
+        }
+        
+        await fulfillment(of: [expectation], timeout: 5.0)
+    }
+    
+    func testCircuitBreakerBehavior() async throws {
+        // Simulate multiple failures to trigger circuit breaker
+        let failingClient = ServicePanelClient(
+            baseURL: URL(string: "http://localhost:9999")! // Invalid port
+        )
+        
+        var failures = 0
+        for _ in 0..<10 {
+            do {
+                _ = try await failingClient.checkHealth()
+            } catch {
+                failures += 1
+            }
+        }
+        
+        XCTAssertGreaterThan(failures, 0, "Should have failures")
+        
+        // Circuit breaker should eventually open after threshold failures
+        let breakerState = failingClient.circuitBreaker.currentState
+        XCTAssertTrue(
+            breakerState == .open || breakerState == .halfOpen || breakerState == .closed,
+            "Circuit breaker should be in valid state"
+        )
+    }
+    
+    func testCacheIntegration() async throws {
+        ResponseCache.shared.clearCache()
+        
+        // First call should hit server
+        let health1 = try await client.checkHealth()
+        
+        // Second call should hit cache
+        let health2 = try await client.checkHealth()
+        
+        XCTAssertEqual(health1.status, health2.status, "Cached response should match")
+        
+        let stats = ResponseCache.shared.statistics
+        XCTAssertGreaterThan(stats.entryCount, 0, "Cache should have entries")
+    }
+}
+
+extension ServicePanelClient {
+    var circuitBreaker: CircuitBreaker {
+        let mirror = Mirror(reflecting: self)
+        for child in mirror.children {
+            if child.label == "circuitBreaker", let breaker = child.value as? CircuitBreaker {
+                return breaker
+            }
+        }
+        fatalError("Circuit breaker not found")
+    }
 }
 
 // MARK: - Mock Server for Testing

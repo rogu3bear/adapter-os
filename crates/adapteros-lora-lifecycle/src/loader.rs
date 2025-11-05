@@ -1,16 +1,16 @@
 //! Hot-swap adapter loading and unloading
 
 use adapteros_core::{AosError, Result};
-use tracing::warn;
 use adapteros_secure_fs::traversal::{
-    check_path_traversal, join_paths_safe, normalize_path,
-    PathValidationConfig, validate_file_path_comprehensive, safe_file_exists, safe_file_metadata
+    check_path_traversal, join_paths_safe, normalize_path, safe_file_exists, safe_file_metadata,
+    validate_file_path_comprehensive, PathValidationConfig,
 };
 use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::warn;
 
 /// Adapter loader for hot-swap operations
 pub struct AdapterLoader {
@@ -59,7 +59,8 @@ impl AdapterLoader {
 
     /// Add or update a per-tenant file size limit
     pub fn set_tenant_limit(&mut self, tenant_id: &str, max_bytes: u64) {
-        self.per_tenant_limits.insert(tenant_id.to_string(), max_bytes);
+        self.per_tenant_limits
+            .insert(tenant_id.to_string(), max_bytes);
     }
 
     /// Enable memory-mapped adapter loading
@@ -97,7 +98,12 @@ impl AdapterLoader {
     }
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
-    pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str, tenant_id: Option<&str>) -> Result<AdapterHandle> {
+    pub fn load_adapter(
+        &mut self,
+        adapter_id: u16,
+        adapter_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<AdapterHandle> {
         let adapter_path = self.resolve_path(adapter_name)?;
 
         // Configure path validation for adapter loading
@@ -199,7 +205,7 @@ impl AdapterLoader {
     ) -> Result<AdapterHandle> {
         // Resolve path with security validation first
         let adapter_path = self.resolve_path(adapter_name)?;
-        
+
         // Prefer memory-mapped .aos path if configured and available
         if self.use_mmap && adapter_path.extension() == Some(OsStr::new("aos")) {
             if let Some(mmap_loader) = self.mmap_loader.clone() {
@@ -208,7 +214,7 @@ impl AdapterLoader {
                     .await;
             }
         }
-        
+
         // Perform the blocking load operation in a blocking task
         let adapter_path_clone = adapter_path.clone();
         let adapter_name_clone = adapter_name.to_string();
@@ -511,7 +517,7 @@ impl AdapterLoader {
                 }
             }
         }
-        
+
         let options = adapteros_single_file_adapter::LoadOptions {
             skip_verification: false,
             skip_signature_check: false,
@@ -613,7 +619,9 @@ impl AdapterLoader {
                     candidates.push(path);
                 }
             }
-            if let Ok(path) = join_paths_safe(&self.base_path, format!("{}.safetensors", adapter_name)) {
+            if let Ok(path) =
+                join_paths_safe(&self.base_path, format!("{}.safetensors", adapter_name))
+            {
                 candidates.push(path);
             }
         }
@@ -623,18 +631,20 @@ impl AdapterLoader {
             Some(path) => path,
             None => {
                 // Default fallback - still needs to be validated
-                join_paths_safe(&self.base_path, format!("{}.aos", &name))
-                    .map_err(|e| AosError::Security(format!("Failed to resolve adapter path: {}", e)))?
+                join_paths_safe(&self.base_path, format!("{}.aos", &name)).map_err(|e| {
+                    AosError::Security(format!("Failed to resolve adapter path: {}", e))
+                })?
             }
         };
 
         // Canonicalize and verify the path is within base_path
-        let canonical_base = self.base_path
+        let canonical_base = self
+            .base_path
             .canonicalize()
             .map_err(|e| AosError::Security(format!("Failed to canonicalize base path: {}", e)))?;
-        
+
         let canonical_resolved = normalize_path(&resolved)?;
-        
+
         // Verify resolved path is within base_path
         if !canonical_resolved.starts_with(&canonical_base) {
             return Err(AosError::Security(format!(

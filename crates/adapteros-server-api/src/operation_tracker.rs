@@ -10,8 +10,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio_util::sync::CancellationToken;
 use tokio::sync::{broadcast, RwLock};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 #[cfg(feature = "metrics")]
@@ -120,7 +120,11 @@ impl OperationTracker {
 
     /// Create a Redis-based distributed operation tracker
     #[cfg(feature = "redis")]
-    pub fn new_redis(redis_url: &str, key_prefix: &str, default_timeout: Duration) -> Result<Self, redis::RedisError> {
+    pub fn new_redis(
+        redis_url: &str,
+        key_prefix: &str,
+        default_timeout: Duration,
+    ) -> Result<Self, redis::RedisError> {
         let client = RedisClient::open(redis_url)?;
         Ok(Self {
             storage: OperationStorage::Redis {
@@ -165,7 +169,8 @@ impl OperationTracker {
         tenant_id: &str,
         operation_type: ModelOperationType,
     ) -> Result<(), OperationConflict> {
-        self.start_operation(model_id, tenant_id, OperationType::Model(operation_type)).await
+        self.start_operation(model_id, tenant_id, OperationType::Model(operation_type))
+            .await
     }
 
     /// Attempt to start an adapter operation, returns true if started successfully
@@ -175,7 +180,12 @@ impl OperationTracker {
         tenant_id: &str,
         operation_type: AdapterOperationType,
     ) -> Result<(), OperationConflict> {
-        self.start_operation(adapter_id, tenant_id, OperationType::Adapter(operation_type)).await
+        self.start_operation(
+            adapter_id,
+            tenant_id,
+            OperationType::Adapter(operation_type),
+        )
+        .await
     }
 
     /// Attempt to start an operation, returns true if started successfully
@@ -204,16 +214,13 @@ impl OperationTracker {
                 );
                 return Ok(());
             } else {
-                // Extract the conflicting operation type for error reporting
-                let conflicting_op = match existing.operation_type {
-                    OperationType::Model(mt) => format!("model_{:?}", mt),
-                    OperationType::Adapter(at) => format!("adapter_{:?}", at),
-                };
                 return Err(OperationConflict {
                     model_id: resource_id.to_string(), // Using model_id field for compatibility
                     tenant_id: tenant_id.to_string(),
                     conflicting_operation: existing.operation_type, // This needs to be updated too
-                    remaining_time: self.default_timeout.saturating_sub(existing.started_at.elapsed()),
+                    remaining_time: self
+                        .default_timeout
+                        .saturating_sub(existing.started_at.elapsed()),
                 });
             }
         }
@@ -259,7 +266,11 @@ impl OperationTracker {
                 OperationType::Model(mt) => format!("model_{:?}", mt),
                 OperationType::Adapter(at) => format!("adapter_{:?}", at),
             };
-            let _ = metrics.record_counter("operation_tracker.operations_started", 1, &[("operation_type", &operation_type_str)]);
+            let _ = metrics.record_counter(
+                "operation_tracker.operations_started",
+                1,
+                &[("operation_type", &operation_type_str)],
+            );
         }
 
         debug!(
@@ -280,7 +291,8 @@ impl OperationTracker {
         progress_pct: f64,
         message: Option<String>,
     ) {
-        self.update_progress(model_id, tenant_id, progress_pct, message).await
+        self.update_progress(model_id, tenant_id, progress_pct, message)
+            .await
     }
 
     /// Update adapter operation progress
@@ -291,7 +303,8 @@ impl OperationTracker {
         progress_pct: f64,
         message: Option<String>,
     ) {
-        self.update_progress(adapter_id, tenant_id, progress_pct, message).await
+        self.update_progress(adapter_id, tenant_id, progress_pct, message)
+            .await
     }
 
     pub async fn update_progress(
@@ -312,11 +325,11 @@ impl OperationTracker {
             // Emit progress event
             if let Some(ref tx) = self.progress_tx {
                 let elapsed = op.started_at.elapsed().as_secs_f64();
-                let (operation_type_str, resource_type) = match op.operation_type {
-                    OperationType::Model(ModelOperationType::Load) => ("load", "model"),
-                    OperationType::Model(ModelOperationType::Unload) => ("unload", "model"),
-                    OperationType::Adapter(AdapterOperationType::Load) => ("load", "adapter"),
-                    OperationType::Adapter(AdapterOperationType::Unload) => ("unload", "adapter"),
+                let operation_type_str = match op.operation_type {
+                    OperationType::Model(ModelOperationType::Load) => "load",
+                    OperationType::Model(ModelOperationType::Unload) => "unload",
+                    OperationType::Adapter(AdapterOperationType::Load) => "load",
+                    OperationType::Adapter(AdapterOperationType::Unload) => "unload",
                 };
 
                 let _ = tx.send(OperationProgressEvent {
@@ -342,7 +355,13 @@ impl OperationTracker {
         operation_type: ModelOperationType,
         success: bool,
     ) {
-        self.complete_operation(model_id, tenant_id, OperationType::Model(operation_type), success).await
+        self.complete_operation(
+            model_id,
+            tenant_id,
+            OperationType::Model(operation_type),
+            success,
+        )
+        .await
     }
 
     /// Complete an adapter operation
@@ -353,7 +372,13 @@ impl OperationTracker {
         operation_type: AdapterOperationType,
         success: bool,
     ) {
-        self.complete_operation(adapter_id, tenant_id, OperationType::Adapter(operation_type), success).await
+        self.complete_operation(
+            adapter_id,
+            tenant_id,
+            OperationType::Adapter(operation_type),
+            success,
+        )
+        .await
     }
 
     pub async fn complete_operation(
@@ -407,10 +432,20 @@ impl OperationTracker {
                     OperationType::Model(mt) => format!("model_{:?}", mt),
                     OperationType::Model(ModelOperationType::Unload) => format!("model_unload",),
                     OperationType::Adapter(AdapterOperationType::Load) => format!("adapter_load"),
-                    OperationType::Adapter(AdapterOperationType::Unload) => format!("adapter_unload"),
+                    OperationType::Adapter(AdapterOperationType::Unload) => {
+                        format!("adapter_unload")
+                    }
                 };
-                let _ = metrics.record_histogram("operation_tracker.operation_duration_ms", duration_ms, &[("operation_type", &operation_type_str)]);
-                let _ = metrics.record_counter("operation_tracker.operations_completed", 1, &[("operation_type", &operation_type_str)]);
+                let _ = metrics.record_histogram(
+                    "operation_tracker.operation_duration_ms",
+                    duration_ms,
+                    &[("operation_type", &operation_type_str)],
+                );
+                let _ = metrics.record_counter(
+                    "operation_tracker.operations_completed",
+                    1,
+                    &[("operation_type", &operation_type_str)],
+                );
             }
 
             debug!(
@@ -423,7 +458,11 @@ impl OperationTracker {
         } else {
             #[cfg(feature = "metrics")]
             if let Some(metrics) = &self.metrics {
-                let _ = metrics.record_counter("operation_tracker.operations_completed_unknown", 1, &[("operation_type", &format!("{:?}", operation_type))]);
+                let _ = metrics.record_counter(
+                    "operation_tracker.operations_completed_unknown",
+                    1,
+                    &[("operation_type", &format!("{:?}", operation_type))],
+                );
             }
 
             warn!(
@@ -436,16 +475,28 @@ impl OperationTracker {
     }
 
     /// Cancel an ongoing model operation
-    pub async fn cancel_model_operation(&self, model_id: &str, tenant_id: &str) -> Result<(), OperationCancellationError> {
+    pub async fn cancel_model_operation(
+        &self,
+        model_id: &str,
+        tenant_id: &str,
+    ) -> Result<(), OperationCancellationError> {
         self.cancel_operation(model_id, tenant_id).await
     }
 
     /// Cancel an ongoing adapter operation
-    pub async fn cancel_adapter_operation(&self, adapter_id: &str, tenant_id: &str) -> Result<(), OperationCancellationError> {
+    pub async fn cancel_adapter_operation(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Result<(), OperationCancellationError> {
         self.cancel_operation(adapter_id, tenant_id).await
     }
 
-    pub async fn cancel_operation(&self, resource_id: &str, tenant_id: &str) -> Result<(), OperationCancellationError> {
+    pub async fn cancel_operation(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+    ) -> Result<(), OperationCancellationError> {
         let key = (resource_id.to_string(), tenant_id.to_string());
         let operations_lock = self.get_operations_write();
         let operations = operations_lock.read().await;
@@ -475,12 +526,12 @@ impl OperationTracker {
                 });
             }
 
-                debug!(
-                    resource_id = %resource_id,
-                    tenant_id = %tenant_id,
-                    operation = ?op.operation_type,
-                    "Cancelled operation"
-                );
+            debug!(
+                resource_id = %resource_id,
+                tenant_id = %tenant_id,
+                operation = ?op.operation_type,
+                "Cancelled operation"
+            );
 
             Ok(())
         } else {
@@ -488,17 +539,44 @@ impl OperationTracker {
         }
     }
 
+    /// Check whether an operation has been cancelled
+    pub async fn is_operation_cancelled(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+    ) -> Option<bool> {
+        let key = (resource_id.to_string(), tenant_id.to_string());
+        let operations_lock = self.get_operations_read();
+        let operations = operations_lock.read().await;
+
+        operations
+            .get(&key)
+            .map(|op| op.cancellation_token.is_cancelled())
+    }
+
     /// Check if a model operation is currently running
-    pub async fn is_model_operation_running(&self, model_id: &str, tenant_id: &str) -> Option<OngoingOperation> {
+    pub async fn is_model_operation_running(
+        &self,
+        model_id: &str,
+        tenant_id: &str,
+    ) -> Option<OngoingOperation> {
         self.is_operation_running(model_id, tenant_id).await
     }
 
     /// Check if an adapter operation is currently running
-    pub async fn is_adapter_operation_running(&self, adapter_id: &str, tenant_id: &str) -> Option<OngoingOperation> {
+    pub async fn is_adapter_operation_running(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Option<OngoingOperation> {
         self.is_operation_running(adapter_id, tenant_id).await
     }
 
-    async fn is_operation_running(&self, resource_id: &str, tenant_id: &str) -> Option<OngoingOperation> {
+    async fn is_operation_running(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+    ) -> Option<OngoingOperation> {
         let operations_lock = self.get_operations_read();
         let operations = operations_lock.read().await;
         let key = (resource_id.to_string(), tenant_id.to_string());
@@ -518,7 +596,7 @@ impl OperationTracker {
         let mut to_remove = Vec::new();
 
         for (key, op) in operations.iter() {
-                if op.started_at.elapsed() > self.default_timeout {
+            if op.started_at.elapsed() > self.default_timeout {
                 warn!(
                     model_id = %key.0,
                     tenant_id = %key.1,
@@ -560,8 +638,12 @@ pub enum OperationCancellationError {
 impl std::fmt::Display for OperationCancellationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OperationCancellationError::OperationNotFound => write!(f, "No ongoing operation found"),
-            OperationCancellationError::OperationAlreadyCompleted => write!(f, "Operation already completed"),
+            OperationCancellationError::OperationNotFound => {
+                write!(f, "No ongoing operation found")
+            }
+            OperationCancellationError::OperationAlreadyCompleted => {
+                write!(f, "Operation already completed")
+            }
         }
     }
 }
@@ -612,11 +694,11 @@ impl OperationTracker {
 
         operations.get(&key).map(|op| {
             let elapsed = op.started_at.elapsed().as_secs_f64();
-            let (operation_type_str, resource_type) = match op.operation_type {
-                OperationType::Model(ModelOperationType::Load) => ("load", "model"),
-                OperationType::Model(ModelOperationType::Unload) => ("unload", "model"),
-                OperationType::Adapter(AdapterOperationType::Load) => ("load", "adapter"),
-                OperationType::Adapter(AdapterOperationType::Unload) => ("unload", "adapter"),
+            let operation_type_str = match op.operation_type {
+                OperationType::Model(ModelOperationType::Load) => "load",
+                OperationType::Model(ModelOperationType::Unload) => "unload",
+                OperationType::Adapter(AdapterOperationType::Load) => "load",
+                OperationType::Adapter(AdapterOperationType::Unload) => "unload",
             };
 
             OperationProgressEvent {
@@ -655,20 +737,50 @@ mod tests {
         let tracker = OperationTracker::new(Duration::from_secs(1));
 
         // Start load operation
-        tracker.start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Load)).await.unwrap();
+        tracker
+            .start_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Load),
+            )
+            .await
+            .unwrap();
 
         // Try to start unload operation - should conflict
-        let conflict = tracker.start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Unload)).await;
+        let conflict = tracker
+            .start_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Unload),
+            )
+            .await;
         assert!(conflict.is_err());
 
         // Try to start same operation again - should allow (for retries)
-        tracker.start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Load)).await.unwrap();
+        tracker
+            .start_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Load),
+            )
+            .await
+            .unwrap();
 
         // Complete operation
-        tracker.complete_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Load), true).await;
+        tracker
+            .complete_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Load),
+                true,
+            )
+            .await;
 
         // Now unload should work
-        tracker.start_operation("model1", "tenant1", ModelOperationType::Unload).await.unwrap();
+        tracker
+            .start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Unload))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -676,12 +788,22 @@ mod tests {
         let tracker = OperationTracker::new(Duration::from_millis(50));
 
         // Start operation
-        tracker.start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Load)).await.unwrap();
+        tracker
+            .start_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Load),
+            )
+            .await
+            .unwrap();
 
         // Wait for timeout
         sleep(Duration::from_millis(100)).await;
 
         // Should allow new operation after cleanup
-        tracker.start_operation("model1", "tenant1", ModelOperationType::Unload).await.unwrap();
+        tracker
+            .start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Unload))
+            .await
+            .unwrap();
     }
 }

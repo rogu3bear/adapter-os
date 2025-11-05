@@ -3,17 +3,23 @@
 //! Provides statistics and information about CodeGraph databases,
 //! including symbol counts, edge counts, and database health metrics.
 
+use crate::output::OutputWriter;
 use adapteros_codegraph::sqlite::CodeGraphDb;
 use adapteros_core::Result;
-use crate::output::OutputWriter;
 
 /// Run the codegraph stats command
 pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Result<()> {
-    output.info(format!("Analyzing CodeGraph database: {}", codegraph_db.display()));
+    output.info(format!(
+        "Analyzing CodeGraph database: {}",
+        codegraph_db.display()
+    ));
 
     // Check if database file exists
     if !codegraph_db.exists() {
-        output.error(format!("Database file does not exist: {}", codegraph_db.display()));
+        output.error(format!(
+            "Database file does not exist: {}",
+            codegraph_db.display()
+        ));
         return Ok(());
     }
 
@@ -27,9 +33,13 @@ pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Res
 
             // Check if file is readable
             match std::fs::File::open(&codegraph_db) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => {
-                    output.error(format!("Cannot read database file: {} (error: {})", codegraph_db.display(), e));
+                    output.error(format!(
+                        "Cannot read database file: {} (error: {})",
+                        codegraph_db.display(),
+                        e
+                    ));
                     return Ok(());
                 }
             }
@@ -37,7 +47,11 @@ pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Res
             output.kv("Database Size", &format_file_size(metadata.len()));
         }
         Err(e) => {
-            output.error(format!("Cannot access database file: {} (error: {})", codegraph_db.display(), e));
+            output.error(format!(
+                "Cannot access database file: {} (error: {})",
+                codegraph_db.display(),
+                e
+            ));
             return Ok(());
         }
     }
@@ -75,15 +89,22 @@ pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Res
     output.kv("Symbols", &stats.symbol_count.to_string());
     output.kv("Call Edges", &stats.edge_count.to_string());
     output.kv("Import Edges", &stats.import_edge_count.to_string());
-    output.kv("Total Edges", &(stats.edge_count + stats.import_edge_count).to_string());
+    output.kv(
+        "Total Edges",
+        &(stats.edge_count + stats.import_edge_count).to_string(),
+    );
 
     // Calculate some derived metrics
     let total_entities = stats.symbol_count + stats.edge_count + stats.import_edge_count;
     output.kv("Total Entities", &total_entities.to_string());
 
     if stats.symbol_count > 0 {
-        let avg_edges_per_symbol = (stats.edge_count + stats.import_edge_count) as f64 / stats.symbol_count as f64;
-        output.kv("Avg Edges per Symbol", &format!("{:.2}", avg_edges_per_symbol));
+        let avg_edges_per_symbol =
+            (stats.edge_count + stats.import_edge_count) as f64 / stats.symbol_count as f64;
+        output.kv(
+            "Avg Edges per Symbol",
+            &format!("{:.2}", avg_edges_per_symbol),
+        );
     } else {
         output.kv("Avg Edges per Symbol", "N/A (no symbols)");
     }
@@ -147,7 +168,10 @@ pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Res
     if health_issues.is_empty() {
         output.success("Statistics retrieved successfully - database appears healthy");
     } else {
-        output.info(format!("Statistics retrieved with {} health issues", health_issues.len()));
+        output.info(format!(
+            "Statistics retrieved with {} health issues",
+            health_issues.len()
+        ));
     }
 
     Ok(())

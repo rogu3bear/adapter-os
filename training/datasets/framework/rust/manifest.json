@@ -16,14 +16,14 @@
       "format": "jsonl",
       "weight": 1.0,
       "role": "positive",
-      "notes": "Rust idioms: ownership, borrowing, error handling, async/await"
+      "notes": "Real Rust code examples: thiserror patterns, async traits, ownership with Arc/RwLock, builder patterns, resource pools"
     },
     {
       "path": "rust-negative-examples.negative.jsonl",
       "format": "jsonl",
       "weight": -1.0,
       "role": "negative",
-      "notes": "Anti-patterns: memory leaks, unsafe misuse, panic in libraries"
+      "notes": "Anti-patterns: unwrap() abuse, blocking in async, panic in libraries, unnecessary cloning, unsafe misuse, incorrect Send/Sync"
     }
   ],
   "provenance": {

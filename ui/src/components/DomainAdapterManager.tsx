@@ -212,9 +212,29 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   const handleTestAdapter = async (adapterId: string, inputData: string) => {
     try {
-      // API call - placeholder implementation
-      // const result = await apiClient.testDomainAdapter(adapterId, inputData);
-      showStatus('Domain adapter test completed.', 'success');
+      setStatusMessage(null);
+      const result = await apiClient.testDomainAdapter(adapterId, inputData);
+      
+      logger.info('Domain adapter test completed', {
+        component: 'DomainAdapterManager',
+        operation: 'testAdapter',
+        adapterId,
+        testId: result.test_id,
+        passed: result.passed,
+        executionTimeMs: result.execution_time_ms,
+      });
+      
+      if (result.passed) {
+        showStatus(
+          `Test passed: ${result.actual_output}${result.expected_output ? ` (expected: ${result.expected_output})` : ''}`,
+          'success'
+        );
+      } else {
+        showStatus(
+          `Test failed: ${result.actual_output}${result.expected_output ? ` (expected: ${result.expected_output})` : ''}`,
+          'warning'
+        );
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to test domain adapter';
       logger.error('Failed to test domain adapter', {
@@ -227,7 +247,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
       setErrorRecovery(
         ErrorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMsg),
-          () => handleTestAdapter(adapterId, 'test_input')
+          () => handleTestAdapter(adapterId, inputData)
         )
       );
     }

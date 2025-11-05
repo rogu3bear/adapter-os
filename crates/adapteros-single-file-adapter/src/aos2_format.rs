@@ -3,7 +3,7 @@
 //! This module provides the AOS 2.0 binary format implementation with
 //! fixed-offset sections for zero-copy weight loading via memory mapping.
 
-use crate::format::{AdapterManifest, SingleFileAdapter, LineageInfo};
+use crate::format::{AdapterManifest, LineageInfo, SingleFileAdapter};
 use crate::training::TrainingConfig;
 use crate::weights::{WeightGroupDiskInfo, WeightGroupsManifest};
 use adapteros_core::{AosError, Result};
@@ -68,9 +68,7 @@ impl Aos2Header {
         if data.len() < Self::SIZE {
             return Err(AosError::Parse("Header too short".to_string()));
         }
-        unsafe {
-            Ok(std::ptr::read(data.as_ptr() as *const Self))
-        }
+        unsafe { Ok(std::ptr::read(data.as_ptr() as *const Self)) }
     }
 }
 
@@ -92,13 +90,14 @@ impl Aos2Adapter {
             .map_err(|e| AosError::Io(format!("Failed to open AOS 2.0 file: {}", e)))?;
 
         let mmap = unsafe {
-            Mmap::map(&file).map_err(|e| {
-                AosError::Io(format!("Failed to memory-map AOS 2.0 file: {}", e))
-            })?
+            Mmap::map(&file)
+                .map_err(|e| AosError::Io(format!("Failed to memory-map AOS 2.0 file: {}", e)))?
         };
 
         if mmap.len() < Aos2Header::SIZE {
-            return Err(AosError::Parse("AOS 2.0 file too short for header".to_string()));
+            return Err(AosError::Parse(
+                "AOS 2.0 file too short for header".to_string(),
+            ));
         }
 
         let header = Aos2Header::from_bytes(&mmap[..Aos2Header::SIZE])?;
@@ -130,13 +129,11 @@ impl Aos2Adapter {
         }
 
         // Load from mmap
-        let weights_data = &self.mmap
-            [self.header.weights_offset as usize
-                ..(self.header.weights_offset + self.header.weights_size) as usize];
+        let weights_data = &self.mmap[self.header.weights_offset as usize
+            ..(self.header.weights_offset + self.header.weights_size) as usize];
 
-        let metadata_data = &self.mmap
-            [self.header.metadata_offset as usize
-               ..(self.header.metadata_offset + self.header.metadata_size) as usize];
+        let metadata_data = &self.mmap[self.header.metadata_offset as usize
+            ..(self.header.metadata_offset + self.header.metadata_size) as usize];
 
         // Decompress metadata
         let metadata_bytes = zstd::decode_all(metadata_data)

@@ -3,9 +3,9 @@
 //! Implements path traversal protection to prevent directory traversal attacks.
 
 use adapteros_core::{AosError, Result};
+use chrono;
 use std::path::{Component, Path, PathBuf};
 use tracing::debug;
-use chrono;
 
 /// Path traversal protection configuration
 #[derive(Debug, Clone)]
@@ -174,13 +174,7 @@ fn check_url_decoded_patterns(path_str: &str) -> Result<()> {
         decoded = new_decoded;
 
         // Check for traversal patterns in each decoded level
-        let traversal_patterns = vec![
-            "../",
-            "..\\",
-            "..",
-            "....//",
-            "....\\\\",
-        ];
+        let traversal_patterns = vec!["../", "..\\", "..", "....//", "....\\\\"];
 
         for pattern in traversal_patterns {
             if decoded.contains(pattern) {
@@ -305,7 +299,10 @@ pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
         current.push(component);
 
         // Skip checking the root and current directory components
-        if matches!(component, std::path::Component::RootDir | std::path::Component::CurDir) {
+        if matches!(
+            component,
+            std::path::Component::RootDir | std::path::Component::CurDir
+        ) {
             continue;
         }
 
@@ -387,8 +384,12 @@ pub fn is_path_within_base(path: impl AsRef<Path>, base: impl AsRef<Path>) -> Re
     check_path_traversal(base)?;
 
     // Canonicalize base path (must exist)
-    let canonical_base = base.canonicalize()
-        .map_err(|e| AosError::Security(format!("Failed to canonicalize base path for validation: {}", e)))?;
+    let canonical_base = base.canonicalize().map_err(|e| {
+        AosError::Security(format!(
+            "Failed to canonicalize base path for validation: {}",
+            e
+        ))
+    })?;
 
     // For path, try to canonicalize but fall back to logical comparison if it doesn't exist
     let canonical_path = match path.canonicalize() {
@@ -408,14 +409,18 @@ pub fn is_path_within_base(path: impl AsRef<Path>, base: impl AsRef<Path>) -> Re
 }
 
 /// Validate path is within allowed base directories
-pub fn validate_path_within_bases(path: impl AsRef<Path>, allowed_bases: &[impl AsRef<Path>]) -> Result<()> {
+pub fn validate_path_within_bases(
+    path: impl AsRef<Path>,
+    allowed_bases: &[impl AsRef<Path>],
+) -> Result<()> {
     let path = path.as_ref();
 
     // Check path traversal first
     check_path_traversal(path)?;
 
     // Canonicalize the path
-    let canonical_path = path.canonicalize()
+    let canonical_path = path
+        .canonicalize()
         .map_err(|e| AosError::Security(format!("Failed to canonicalize path: {}", e)))?;
 
     // Check if path is within any allowed base
@@ -433,13 +438,19 @@ pub fn validate_path_within_bases(path: impl AsRef<Path>, allowed_bases: &[impl 
 }
 
 /// Safe file existence check with path validation
-pub fn safe_file_exists(path: impl AsRef<Path>, allowed_bases: &[impl AsRef<Path>]) -> Result<bool> {
+pub fn safe_file_exists(
+    path: impl AsRef<Path>,
+    allowed_bases: &[impl AsRef<Path>],
+) -> Result<bool> {
     validate_path_within_bases(&path, allowed_bases)?;
     Ok(path.as_ref().exists())
 }
 
 /// Safe file metadata read with path validation
-pub fn safe_file_metadata(path: impl AsRef<Path>, allowed_bases: &[impl AsRef<Path>]) -> Result<std::fs::Metadata> {
+pub fn safe_file_metadata(
+    path: impl AsRef<Path>,
+    allowed_bases: &[impl AsRef<Path>],
+) -> Result<std::fs::Metadata> {
     validate_path_within_bases(&path, allowed_bases)?;
     std::fs::metadata(&path)
         .map_err(|e| AosError::Security(format!("Failed to read file metadata: {}", e)))
@@ -448,7 +459,7 @@ pub fn safe_file_metadata(path: impl AsRef<Path>, allowed_bases: &[impl AsRef<Pa
 /// Safe path normalization with base validation
 pub fn normalize_path_with_base_validation(
     path: impl AsRef<Path>,
-    allowed_bases: &[impl AsRef<Path>]
+    allowed_bases: &[impl AsRef<Path>],
 ) -> Result<PathBuf> {
     let path = path.as_ref();
 
@@ -459,7 +470,8 @@ pub fn normalize_path_with_base_validation(
     check_no_symlinks(path)?;
 
     // Canonicalize the path
-    let normalized = path.canonicalize()
+    let normalized = path
+        .canonicalize()
         .map_err(|e| AosError::Security(format!("Failed to canonicalize path: {}", e)))?;
 
     // Validate against allowed bases
@@ -501,7 +513,7 @@ impl Default for PathValidationConfig {
 /// Validate file path comprehensively
 pub fn validate_file_path_comprehensive(
     path: impl AsRef<Path>,
-    config: &PathValidationConfig
+    config: &PathValidationConfig,
 ) -> Result<()> {
     let path = path.as_ref();
 
@@ -535,7 +547,7 @@ pub fn validate_file_path_comprehensive(
 /// Validate file size limits with streaming support
 pub fn validate_file_size_limits(
     path: impl AsRef<Path>,
-    config: &PathValidationConfig
+    config: &PathValidationConfig,
 ) -> Result<()> {
     let path = path.as_ref();
 
@@ -550,14 +562,16 @@ pub fn validate_file_size_limits(
         // Log security violation
         let _violation_event = log_security_violation(
             "file_size_exceeded_global_limit",
-            &format!("File size {} bytes exceeds global maximum {} bytes", file_size, config.max_file_size_bytes),
+            &format!(
+                "File size {} bytes exceeds global maximum {} bytes",
+                file_size, config.max_file_size_bytes
+            ),
             path,
         );
 
         return Err(AosError::Security(format!(
             "File size {} bytes exceeds global maximum {} bytes",
-            file_size,
-            config.max_file_size_bytes
+            file_size, config.max_file_size_bytes
         )));
     }
 
@@ -573,19 +587,28 @@ pub fn validate_file_size_limits(
 pub fn validate_file_size_per_tenant(
     path: impl AsRef<Path>,
     tenant_id: &str,
-    config: &PathValidationConfig
+    config: &PathValidationConfig,
 ) -> Result<()> {
     let path = path.as_ref();
 
     if let Some(tenant_limit) = config.per_tenant_limits.get(tenant_id) {
-        let metadata = std::fs::metadata(path)
-            .map_err(|e| AosError::Security(format!("Failed to read file metadata for tenant validation: {}", e)))?;
+        let metadata = std::fs::metadata(path).map_err(|e| {
+            AosError::Security(format!(
+                "Failed to read file metadata for tenant validation: {}",
+                e
+            ))
+        })?;
 
         if metadata.len() > *tenant_limit {
             // Log security violation
             let _violation_event = log_security_violation(
                 "file_size_exceeded_tenant_limit",
-                &format!("File size {} bytes exceeds tenant '{}' limit of {} bytes", metadata.len(), tenant_id, tenant_limit),
+                &format!(
+                    "File size {} bytes exceeds tenant '{}' limit of {} bytes",
+                    metadata.len(),
+                    tenant_id,
+                    tenant_limit
+                ),
                 path,
             );
 
@@ -611,7 +634,11 @@ pub struct SecurityViolationEvent {
 }
 
 /// Log security violations and return event information for telemetry
-pub fn log_security_violation(violation_type: &str, details: &str, path: &Path) -> SecurityViolationEvent {
+pub fn log_security_violation(
+    violation_type: &str,
+    details: &str,
+    path: &Path,
+) -> SecurityViolationEvent {
     // Log to tracing for immediate visibility
     tracing::warn!(
         security_violation = %violation_type,
@@ -631,27 +658,38 @@ pub fn log_security_violation(violation_type: &str, details: &str, path: &Path) 
 /// Validate file using streaming approach for large files
 pub fn validate_file_streaming(
     path: impl AsRef<Path>,
-    config: &PathValidationConfig
+    config: &PathValidationConfig,
 ) -> Result<()> {
     let path = path.as_ref();
 
     // Open file for streaming validation
-    let file = std::fs::File::open(path)
-        .map_err(|e| AosError::Security(format!("Failed to open file for streaming validation: {}", e)))?;
+    let file = std::fs::File::open(path).map_err(|e| {
+        AosError::Security(format!(
+            "Failed to open file for streaming validation: {}",
+            e
+        ))
+    })?;
 
     // Read only the header portion for validation
     let mut reader = std::io::BufReader::new(file);
     let mut header_buffer = vec![0u8; config.max_header_size_bytes];
 
-    let bytes_read = std::io::Read::read(&mut reader, &mut header_buffer)
-        .map_err(|e| AosError::Security(format!("Failed to read file header for validation: {}", e)))?;
+    let bytes_read = std::io::Read::read(&mut reader, &mut header_buffer).map_err(|e| {
+        AosError::Security(format!("Failed to read file header for validation: {}", e))
+    })?;
 
     // Basic header validation - ensure it's not all zeros or has expected structure
     // This is a basic check; specific file format validation should be done by the caller
-    let non_zero_bytes = header_buffer.iter().take(bytes_read).filter(|&&b| b != 0).count();
+    let non_zero_bytes = header_buffer
+        .iter()
+        .take(bytes_read)
+        .filter(|&&b| b != 0)
+        .count();
 
     if non_zero_bytes == 0 {
-        return Err(AosError::Security("File header appears to be all zeros".to_string()));
+        return Err(AosError::Security(
+            "File header appears to be all zeros".to_string(),
+        ));
     }
 
     // Check for obviously corrupted data patterns
@@ -665,13 +703,14 @@ pub fn validate_file_streaming(
                                first_four == &[0x50, 0x4B, 0x03, 0x04]; // ZIP signature
 
         if !is_reasonable_data && non_zero_bytes < bytes_read / 2 {
-            return Err(AosError::Security("File header contains suspicious data patterns".to_string()));
+            return Err(AosError::Security(
+                "File header contains suspicious data patterns".to_string(),
+            ));
         }
     }
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -908,7 +947,11 @@ mod tests {
 
         for attack_vector in attack_vectors {
             let result = check_path_traversal(attack_vector);
-            assert!(result.is_err(), "Attack vector '{}' should have been blocked", attack_vector);
+            assert!(
+                result.is_err(),
+                "Attack vector '{}' should have been blocked",
+                attack_vector
+            );
         }
 
         // Test that safe paths are allowed
@@ -916,14 +959,18 @@ mod tests {
             "models/llama2/config.json",
             "adapters/my_adapter/weights.safetensors",
             "relative/path/to/file.txt",
-            "/tmp/safe_temp_file_123.txt",  // /tmp/ is allowed for temp files
-            "/var/folders/safe/path/config.json",  // Non-sensitive /var/ paths
-            "/Users/test/models/config.json",  // Non-sensitive user paths
+            "/tmp/safe_temp_file_123.txt", // /tmp/ is allowed for temp files
+            "/var/folders/safe/path/config.json", // Non-sensitive /var/ paths
+            "/Users/test/models/config.json", // Non-sensitive user paths
         ];
 
         for safe_path in safe_paths {
             let result = check_path_traversal(safe_path);
-            assert!(result.is_ok(), "Safe path '{}' should have been allowed", safe_path);
+            assert!(
+                result.is_ok(),
+                "Safe path '{}' should have been allowed",
+                safe_path
+            );
         }
 
         Ok(())

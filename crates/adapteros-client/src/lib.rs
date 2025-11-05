@@ -39,16 +39,46 @@ pub trait AdapterOSClient {
     fn me(&self) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send;
 
     // Extended Auth Methods
-    fn refresh_token(&self, token: &str) -> impl std::future::Future<Output = Result<String>> + Send;
-    fn list_sessions(&self, token: &str) -> impl std::future::Future<Output = Result<Vec<adapteros_api_types::auth::SessionInfo>>> + Send;
-    fn revoke_session(&self, token: &str, session_id: &str) -> impl std::future::Future<Output = Result<String>> + Send;
+    fn refresh_token(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = Result<String>> + Send;
+    fn list_sessions(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = Result<Vec<adapteros_api_types::auth::SessionInfo>>> + Send;
+    fn revoke_session(
+        &self,
+        token: &str,
+        session_id: &str,
+    ) -> impl std::future::Future<Output = Result<String>> + Send;
     fn logout_all(&self, token: &str) -> impl std::future::Future<Output = Result<String>> + Send;
-    fn rotate_token(&self, token: &str) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::RotateTokenResponse>> + Send;
-    fn get_token_metadata(&self, token: &str) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::TokenMetadata>> + Send;
-    fn update_profile(&self, token: &str, req: adapteros_api_types::auth::UpdateProfileRequest) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::ProfileResponse>> + Send;
-    fn get_auth_config(&self, token: &str) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send;
-    fn update_auth_config(&self, token: &str, req: adapteros_api_types::auth::UpdateAuthConfigRequest) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send;
-    fn get_user_info(&self, token: &str) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send;
+    fn rotate_token(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::RotateTokenResponse>> + Send;
+    fn get_token_metadata(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::TokenMetadata>> + Send;
+    fn update_profile(
+        &self,
+        token: &str,
+        req: adapteros_api_types::auth::UpdateProfileRequest,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::ProfileResponse>> + Send;
+    fn get_auth_config(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send;
+    fn update_auth_config(
+        &self,
+        token: &str,
+        req: adapteros_api_types::auth::UpdateAuthConfigRequest,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send;
+    fn get_user_info(
+        &self,
+        token: &str,
+    ) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send;
 
     // Tenants
     fn list_tenants(&self)

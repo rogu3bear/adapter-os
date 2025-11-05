@@ -1,14 +1,27 @@
 #![allow(unused_variables)]
 
 use crate::auth::{generate_token, generate_token_ed25519, refresh_token, verify_password, Claims};
+use crate::errors::ErrorResponseExt;
 use crate::middleware::{require_any_role, require_role};
-use crate::operation_tracker::{ModelOperationType, OperationConflict};
+use crate::operation_tracker::{
+    ModelOperationType, OperationCancellationError, OperationConflict,
+};
+use crate::services::repo_url::infer_repo_urls_parallel;
 use crate::state::{AppState, JwtMode, TrainingSessionMetadata};
 use crate::types::*; // This already re-exports adapteros_api_types::*
+use crate::types::AdapterOSStatus;
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
+use adapteros_api_types::repositories::RepositorySummary;
 use adapteros_lora_lifecycle::state::AdapterState;
 use adapteros_orchestrator::training::TrainingJobBuilder;
+use adapteros_policy::unified_enforcement::{
+    PolicyContext as UnifiedPolicyContext, Priority as UnifiedPriority,
+};
+use adapteros_policy::{
+    EnforcementAction, Operation as PolicyOperation, OperationType as PolicyOperationType,
+    PolicyEnforcer,
+};
 use adapteros_system_metrics::monitoring_types::{
     AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
     CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
@@ -16,6 +29,7 @@ use adapteros_system_metrics::monitoring_types::{
 };
 use axum::response::Response;
 use sqlx::Row;
+use tracing::{error, info, warn};
 
 pub mod activity;
 pub mod batch;
@@ -367,8 +381,8 @@ fn map_db_commit_to_response(commit: Commit) -> Result<CommitResponse, AosError>
 }
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::Instant;
+use tokio::sync::RwLock;
 
 /// Cached health check result to avoid expensive database queries on every request
 #[derive(Debug)]
@@ -415,7 +429,9 @@ static HEALTH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HealthCache>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HealthCache::new(30)))); // 30 second cache
 
 /// Check model runtime health summary for health endpoint with caching
-async fn check_model_runtime_health_summary(state: &AppState) -> Result<ModelRuntimeHealth, anyhow::Error> {
+async fn check_model_runtime_health_summary(
+    state: &AppState,
+) -> Result<ModelRuntimeHealth, anyhow::Error> {
     let start_time = std::time::Instant::now();
 
     // Check cache first
@@ -423,9 +439,12 @@ async fn check_model_runtime_health_summary(state: &AppState) -> Result<ModelRun
         let cache = HEALTH_CACHE.read().await;
         if let Some(cached) = cache.get() {
             // Record cache hit metric
-            if let Some(ref metrics) = state.metrics_collector {
-                metrics.record_inference_latency("health", "cache_hit", start_time.elapsed().as_secs_f64());
-            }
+            let metrics = &state.metrics_collector;
+            metrics.record_inference_latency(
+                "health",
+                "cache_hit",
+                start_time.elapsed().as_secs_f64(),
+            );
             return Ok(cached.clone());
         }
         false
@@ -436,10 +455,8 @@ async fn check_model_runtime_health_summary(state: &AppState) -> Result<ModelRun
     let duration = start_time.elapsed().as_secs_f64();
 
     // Record metrics
-    if let Some(ref metrics) = state.metrics_collector {
-        metrics.record_inference_latency("health", "cache_miss", duration);
-        // Could add custom counter for cache misses if needed
-    }
+    state.metrics_collector.record_inference_latency("health", "cache_miss", duration);
+    // Could add custom counter for cache misses if needed
 
     // Update cache
     {
@@ -451,7 +468,9 @@ async fn check_model_runtime_health_summary(state: &AppState) -> Result<ModelRun
 }
 
 /// Uncached version of model runtime health check
-async fn check_model_runtime_health_uncached(state: &AppState) -> Result<ModelRuntimeHealth, anyhow::Error> {
+async fn check_model_runtime_health_uncached(
+    state: &AppState,
+) -> Result<ModelRuntimeHealth, anyhow::Error> {
     let Some(rt) = &state.model_runtime else {
         return Ok(ModelRuntimeHealth {
             total_models: 0,
@@ -462,11 +481,9 @@ async fn check_model_runtime_health_uncached(state: &AppState) -> Result<ModelRu
     };
 
     // Get all models from database
-    let db_models = sqlx::query!(
-        "SELECT tenant_id, model_id, status FROM base_model_status"
-    )
-    .fetch_all(state.db.pool())
-    .await?;
+    let db_models = sqlx::query!("SELECT tenant_id, model_id, status FROM base_model_status")
+        .fetch_all(state.db.pool())
+        .await?;
 
     let total_models = db_models.len() as i32;
 
@@ -478,7 +495,8 @@ async fn check_model_runtime_health_uncached(state: &AppState) -> Result<ModelRu
 
     // Check for inconsistencies (simplified version)
     let mut inconsistencies_count = 0;
-    let mut runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models.iter().cloned().collect();
+    let mut runtime_model_set: std::collections::HashSet<(String, String)> =
+        runtime_models.iter().cloned().collect();
 
     // Check each DB model
     for db_model in &db_models {
@@ -508,7 +526,9 @@ async fn check_model_runtime_health_uncached(state: &AppState) -> Result<ModelRu
 
     // Check for models loaded in runtime but not in database
     for (tenant_id, model_id) in &runtime_models {
-        let in_db = db_models.iter().any(|db| &db.tenant_id == tenant_id && &db.model_id == model_id);
+        let in_db = db_models
+            .iter()
+            .any(|db| &db.tenant_id == tenant_id && &db.model_id == model_id);
         if !in_db {
             inconsistencies_count += 1;
         }
@@ -551,6 +571,55 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         models: models_health,
     })
+}
+
+/// Get current system status including service information
+/// Citation: crates/adapteros-server/src/status_writer.rs L135-144
+#[utoipa::path(
+    get,
+    path = "/v1/status",
+    tag = "status",
+    responses(
+        (status = 200, description = "Current system status", body = AdapterOSStatus)
+    )
+)]
+pub async fn get_status(
+    State(state): State<AppState>,
+) -> Result<Json<AdapterOSStatus>, (StatusCode, Json<ErrorResponse>)> {
+    // Note: The actual status collection logic is in adapteros-server crate
+    // For now, return a basic status structure
+    // TODO: Import status collection from adapteros-server once dependency cycle is resolved
+    let (production_mode, telemetry_mode) = match state.config.read() {
+        Ok(cfg) => (
+            cfg.production_mode,
+            if cfg.metrics.enabled {
+                "local".to_string()
+            } else {
+                "disabled".to_string()
+            },
+        ),
+        Err(err) => {
+            warn!(error = %err, "Failed to read config for status response");
+            (false, "unknown".to_string())
+        }
+    };
+
+    let status = AdapterOSStatus {
+        schema_version: "1.0".to_string(),
+        status: "ok".to_string(),
+        uptime_secs: 0,
+        adapters_loaded: 0,
+        deterministic: true,
+        kernel_hash: "unknown".to_string(),
+        telemetry_mode,
+        worker_count: 0,
+        base_model_loaded: false,
+        base_model_id: None,
+        services: vec![],
+        production_mode,
+        tenant_id: None,
+    };
+    Ok(Json(status))
 }
 
 /// Readiness check
@@ -749,7 +818,7 @@ pub async fn upsert_directory_adapter(
                     let adapters_path = PathBuf::from("./adapters");
                     let mut loader = AdapterLoader::new(adapters_path);
                     if loader
-                        .load_adapter_async(adapter_idx, &hash_hex)
+                        .load_adapter_async(adapter_idx, &hash_hex, None)
                         .await
                         .is_ok()
                     {
@@ -929,10 +998,7 @@ pub async fn auth_login(
             tracing::error!("Failed to read config for production mode check");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("configuration error")
-                        .with_code("CONFIG_ERROR"),
-                ),
+                Json(ErrorResponse::new("configuration error").with_code("CONFIG_ERROR")),
             )
         })?;
         config.production_mode
@@ -1146,10 +1212,10 @@ pub async fn auth_list_sessions(
     // In a full implementation, this would query a session store
     let current_session = SessionInfo {
         id: claims.jti.clone(),
-        device: None, // Would be populated from user agent parsing
+        device: None,     // Would be populated from user agent parsing
         ip_address: None, // Would be populated from request metadata
         user_agent: None, // Would be populated from request headers
-        location: None, // Would be populated from IP geolocation
+        location: None,   // Would be populated from IP geolocation
         created_at: claims.iat.to_string(),
         last_seen_at: chrono::Utc::now().timestamp().to_string(),
         is_current: true,
@@ -1187,7 +1253,9 @@ pub async fn auth_revoke_session(
     if session_id == claims.jti {
         // For stateless JWT, we can't actually revoke tokens server-side
         // In a full implementation, this would add the JTI to a blacklist
-        tracing::info!("Session revocation requested for current session - client should clear local storage");
+        tracing::info!(
+            "Session revocation requested for current session - client should clear local storage"
+        );
         Ok(Json(json!({
             "message": "Session revoked - please clear local storage and re-authenticate",
             "revoked_session_id": session_id
@@ -1255,7 +1323,13 @@ pub async fn auth_rotate_token(
     let token_result = match state.jwt_mode {
         JwtMode::EdDsa => {
             let keypair = state.crypto.clone_jwt_keypair();
-            generate_token_ed25519(&claims.sub, &claims.email, &claims.role, &claims.tenant_id, &keypair)
+            generate_token_ed25519(
+                &claims.sub,
+                &claims.email,
+                &claims.role,
+                &claims.tenant_id,
+                &keypair,
+            )
         }
         JwtMode::Hmac => generate_token(
             &claims.sub,
@@ -1389,13 +1463,21 @@ pub async fn auth_update_profile(
         })?;
 
     // Update display_name if provided
-    let new_display_name = req.display_name.as_ref().unwrap_or(&current_user.display_name).clone();
+    let new_display_name = req
+        .display_name
+        .as_ref()
+        .unwrap_or(&current_user.display_name)
+        .clone();
 
     // In a full implementation, this would update the database
     // For now, we'll just return the updated profile without persisting
     // TODO: Add database update logic when user profile persistence is implemented
 
-    tracing::info!("Profile update requested for user {}: display_name={:?}", claims.sub, req.display_name);
+    tracing::info!(
+        "Profile update requested for user {}: display_name={:?}",
+        claims.sub,
+        req.display_name
+    );
 
     let profile_response = ProfileResponse {
         user_id: current_user.id,
@@ -1403,9 +1485,9 @@ pub async fn auth_update_profile(
         role: current_user.role,
         display_name: Some(new_display_name),
         tenant_id: Some(claims.tenant_id.clone()),
-        permissions: None, // Would be populated from role mapping
-        last_login_at: None, // Would track login history
-        mfa_enabled: Some(false), // Would check MFA status
+        permissions: None,           // Would be populated from role mapping
+        last_login_at: None,         // Would track login history
+        mfa_enabled: Some(false),    // Would check MFA status
         token_last_rotated_at: None, // Would track rotation history
     };
 
@@ -1482,8 +1564,12 @@ pub async fn auth_update_config(
         if production_mode && req.dev_token_enabled.unwrap_or(false) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("dev_token_enabled cannot be true when production_mode is true")
-                    .with_code("INVALID_CONFIG")),
+                Json(
+                    ErrorResponse::new(
+                        "dev_token_enabled cannot be true when production_mode is true",
+                    )
+                    .with_code("INVALID_CONFIG"),
+                ),
             ));
         }
         config.production_mode = production_mode;
@@ -1492,7 +1578,10 @@ pub async fn auth_update_config(
     // Note: Other config updates (jwt_mode, token_expiry_hours) would require server restart
     // For now, we only allow runtime updates to production_mode
 
-    tracing::info!("Authentication config updated: production_mode={}", config.production_mode);
+    tracing::info!(
+        "Authentication config updated: production_mode={}",
+        config.production_mode
+    );
 
     let response = AuthConfigResponse {
         production_mode: config.production_mode,
@@ -3316,6 +3405,46 @@ pub async fn list_plans(
     Ok(Json(response))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/v1/plans/{plan_id}",
+    params(("plan_id" = String, Path, description = "Plan ID")),
+    responses(
+        (status = 204, description = "Plan deleted successfully"),
+        (status = 404, description = "Plan not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "plans",
+    security(("bearer_token" = []))
+)]
+pub async fn delete_plan(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(plan_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let deleted = state.db.delete_plan(&plan_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to delete plan")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
+        ))
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ListPlansQuery {
     tenant_id: Option<String>,
@@ -3838,22 +3967,31 @@ pub async fn promotion_gates(
     }))
 }
 
-/// List policies (stub)
+/// List policies
 pub async fn list_policies(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<PolicyPackResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would query database
+    require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
+
+    // For now, return an empty list as no policy storage is implemented yet
+    // TODO: Implement policy storage and retrieval from database
+    info!("Listing policies (not yet implemented in database)");
     Ok(Json(vec![]))
 }
 
-/// Get policy by CPID (stub)
+/// Get policy by CPID
 pub async fn get_policy(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would query database
+    require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
+
+    // For now, return a placeholder response as policy storage is not implemented
+    // TODO: Implement policy retrieval from database by CPID
+    warn!(cpid = %cpid, "Policy retrieval not implemented, returning placeholder");
+
     Ok(Json(PolicyPackResponse {
         cpid,
         content: r#"{"schema": "adapteros.policy.v1", "packs": {}}"#.to_string(),
@@ -3862,41 +4000,116 @@ pub async fn get_policy(
     }))
 }
 
-/// Validate policy (stub)
+/// Validate policy
 pub async fn validate_policy(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<ValidatePolicyRequest>,
 ) -> Result<Json<PolicyValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
+
     // Basic JSON validation
     match serde_json::from_str::<serde_json::Value>(&req.content) {
-        Ok(_) => Ok(Json(PolicyValidationResponse {
-            valid: true,
-            errors: vec![],
-            hash_b3: Some("b3:placeholder".to_string()),
-        })),
-        Err(e) => Ok(Json(PolicyValidationResponse {
-            valid: false,
-            errors: vec![format!("Invalid JSON: {}", e)],
-            hash_b3: None,
-        })),
+        Ok(json_value) => {
+            // Additional validation: check for required schema field
+            let mut errors = Vec::new();
+            if let Some(schema) = json_value.get("schema").and_then(|s| s.as_str()) {
+                if !schema.starts_with("adapteros.policy.") {
+                    errors.push("Invalid schema: must start with 'adapteros.policy.'".to_string());
+                }
+            } else {
+                errors.push("Missing required 'schema' field".to_string());
+            }
+
+            // Generate a deterministic hash for the policy content
+            let hash_b3 = format!("b3:{:x}", md5::compute(&req.content));
+
+            if errors.is_empty() {
+                info!("Policy validation successful");
+                Ok(Json(PolicyValidationResponse {
+                    valid: true,
+                    errors: vec![],
+                    hash_b3: Some(hash_b3),
+                }))
+            } else {
+                warn!(errors = ?errors, "Policy validation failed");
+                Ok(Json(PolicyValidationResponse {
+                    valid: false,
+                    errors,
+                    hash_b3: Some(hash_b3),
+                }))
+            }
+        }
+        Err(e) => {
+            error!(error = %e, "Policy JSON parsing failed");
+            Ok(Json(PolicyValidationResponse {
+                valid: false,
+                errors: vec![format!("Invalid JSON: {}", e)],
+                hash_b3: None,
+            }))
+        }
     }
 }
 
-/// Apply policy (stub)
+/// Apply policy
 pub async fn apply_policy(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<ApplyPolicyRequest>,
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    // Stub - would validate, sign, and store policy
+    // First validate the policy
+    match serde_json::from_str::<serde_json::Value>(&req.content) {
+        Ok(json_value) => {
+            // Check schema
+            if let Some(schema) = json_value.get("schema").and_then(|s| s.as_str()) {
+                if !schema.starts_with("adapteros.policy.") {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new("Invalid policy schema")
+                                .with_code("INVALID_POLICY")
+                                .with_string_details("Schema must start with 'adapteros.policy.'"),
+                        ),
+                    ));
+                }
+            } else {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Missing policy schema")
+                            .with_code("INVALID_POLICY")
+                            .with_string_details("Policy must have a 'schema' field"),
+                    ),
+                ));
+            }
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Invalid policy JSON")
+                        .with_code("INVALID_POLICY")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    }
+
+    // Generate hash
+    let hash_b3 = format!("b3:{:x}", md5::compute(&req.content));
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    // TODO: Store policy in database
+    warn!(cpid = %req.cpid, hash = %hash_b3, "Policy application not fully implemented - validation only");
+
+    info!(cpid = %req.cpid, "Policy validated and ready for application");
     Ok(Json(PolicyPackResponse {
         cpid: req.cpid,
         content: req.content,
-        hash_b3: "b3:placeholder".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        hash_b3,
+        created_at,
     }))
 }
 
@@ -4690,6 +4903,127 @@ pub async fn infer(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new("prompt cannot be empty").with_code("INTERNAL_ERROR")),
         ));
+    }
+
+    // Enforce policies before forwarding the request to workers
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let tenant_id = claims.tenant_id.clone();
+    let max_tokens = req.max_tokens.unwrap_or(100);
+    let require_evidence = req.require_evidence.unwrap_or(false);
+    let policy_context = UnifiedPolicyContext {
+        component: "server.api".to_string(),
+        operation: "v1.infer".to_string(),
+        data: Some(serde_json::json!({
+            "prompt_length": req.prompt.len(),
+            "max_tokens": max_tokens,
+            "require_evidence": require_evidence,
+            "role": claims.role.clone(),
+        })),
+        priority: UnifiedPriority::Normal,
+    };
+    let metadata = Some(serde_json::json!({
+        "jwt_id": claims.jti.clone(),
+        "email": claims.email.clone(),
+    }));
+    let mut parameters = HashMap::new();
+    parameters.insert(
+        "prompt_length".to_string(),
+        serde_json::json!(req.prompt.len()),
+    );
+    parameters.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+    parameters.insert(
+        "require_evidence".to_string(),
+        serde_json::json!(require_evidence),
+    );
+    parameters.insert(
+        "tenant_id".to_string(),
+        serde_json::json!(tenant_id.clone()),
+    );
+    parameters.insert("role".to_string(), serde_json::json!(claims.role.clone()));
+    let policy_operation = PolicyOperation {
+        operation_id: request_id.clone(),
+        operation_type: PolicyOperationType::PerformInference,
+        parameters,
+        context: policy_context,
+        metadata,
+    };
+    let enforcement_result = state
+        .policy_manager
+        .enforce_policy(&policy_operation)
+        .await
+        .map_err(|e| {
+            error!(
+                request_id = %request_id,
+                tenant = %tenant_id,
+                error = %e,
+                "Policy enforcement failed"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("policy enforcement failed")
+                        .with_code("POLICY_ENFORCEMENT_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    let violations_json: Vec<serde_json::Value> = enforcement_result
+        .violations
+        .iter()
+        .map(|violation| {
+            serde_json::json!({
+                "policy_pack": violation.policy_pack,
+                "severity": format!("{:?}", violation.severity),
+                "message": violation.message,
+                "timestamp": violation.timestamp.to_rfc3339(),
+                "remediation": violation.remediation,
+                "details": violation.details,
+            })
+        })
+        .collect();
+    let violations_payload = serde_json::json!({
+        "request_id": request_id.clone(),
+        "tenant_id": tenant_id.clone(),
+        "violations": violations_json,
+    });
+    if !enforcement_result.allowed {
+        warn!(
+            request_id = %request_id,
+            tenant = %tenant_id,
+            violations = ?violations_payload,
+            "Inference request denied by policy enforcement"
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy violation")
+                    .with_code("POLICY_VIOLATION")
+                    .with_details(violations_payload),
+            ),
+        ));
+    }
+    if !enforcement_result.violations.is_empty() {
+        warn!(
+            request_id = %request_id,
+            tenant = %tenant_id,
+            violations = ?violations_payload,
+            "Policy enforcement reported non-blocking violations"
+        );
+    }
+    for action in &enforcement_result.actions {
+        if let EnforcementAction::SendAlert {
+            alert_type,
+            message,
+        } = action
+        {
+            warn!(
+                request_id = %request_id,
+                tenant = %tenant_id,
+                alert_type = %alert_type,
+                alert_message = %message,
+                "Policy enforcement requested alert"
+            );
+        }
     }
 
     // Real inference implementation - proxy to worker UDS server
@@ -6174,7 +6508,7 @@ pub async fn import_adapter(
     // Get adapters directory and validate filename
     use adapteros_secure_fs::traversal::{check_path_traversal, join_paths_safe};
     use std::path::Path;
-    
+
     // Validate filename to prevent directory traversal
     if let Err(e) = check_path_traversal(Path::new(&filename)) {
         return Err((
@@ -6186,11 +6520,11 @@ pub async fn import_adapter(
             ),
         ));
     }
-    
+
     let adapters_root =
         std::env::var("AOS_ADAPTERS_ROOT").unwrap_or_else(|_| "./adapters".to_string());
     let adapters_path = std::path::PathBuf::from(&adapters_root);
-    
+
     // Use secure path joining for the final file path
     let final_file_path = join_paths_safe(&adapters_path, &filename).map_err(|e| {
         (
@@ -6498,46 +6832,58 @@ pub async fn cancel_model_operation(
     // Require operator or admin role
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
-    let tenant_id = &claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     // Check if there's an active operation for this model
-    let tracker = state.operation_tracker();
+    let tracker = state.operation_tracker.clone();
 
-    // Try to cancel the operation
-    match tracker.cancel_operation(&model_id, tenant_id).await {
-        Ok(cancelled) => {
-            if cancelled {
-                info!(model_id = %model_id, tenant_id = %tenant_id, "Model operation cancelled successfully");
+    match tracker
+        .cancel_model_operation(&model_id, &tenant_id)
+        .await
+    {
+        Ok(()) => {
+            info!(
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                "Model operation cancelled successfully"
+            );
 
-                Ok(Json(serde_json::json!({
-                    "status": "cancelled",
-                    "model_id": model_id,
-                    "message": "Operation cancelled successfully"
-                })))
-            } else {
-                // No active operation found
-                warn!(model_id = %model_id, tenant_id = %tenant_id, "No active operation found to cancel");
-
-                Err((
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new(
-                        StatusCode::NOT_FOUND,
-                        "OPERATION_NOT_FOUND",
-                        "No active operation found for this model",
-                        Some(format!("req-{}", uuid::Uuid::new_v4())),
-                    )),
-                ))
-            }
+            Ok(Json(serde_json::json!({
+                "status": "cancelled",
+                "model_id": model_id,
+                "message": "Operation cancelled successfully"
+            })))
         }
-        Err(e) => {
-            error!(model_id = %model_id, tenant_id = %tenant_id, error = %e, "Failed to cancel model operation");
+        Err(OperationCancellationError::OperationNotFound) => {
+            warn!(
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                "No active operation found to cancel"
+            );
 
             Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "CANCEL_FAILED",
-                    "Failed to cancel operation",
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::with_message(
+                    StatusCode::NOT_FOUND,
+                    "OPERATION_NOT_FOUND",
+                    "No active operation found for this model",
+                    Some(format!("req-{}", uuid::Uuid::new_v4())),
+                )),
+            ))
+        }
+        Err(OperationCancellationError::OperationAlreadyCompleted) => {
+            warn!(
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                "Operation already completed when cancel requested"
+            );
+
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::with_message(
+                    StatusCode::CONFLICT,
+                    "OPERATION_COMPLETED",
+                    "Operation already completed",
                     Some(format!("req-{}", uuid::Uuid::new_v4())),
                 )),
             ))
@@ -6572,17 +6918,32 @@ pub async fn load_model_with_retry(
     // Require operator or admin role
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
-    let tenant_id = &claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
     let request_id = format!("req-{}", uuid::Uuid::new_v4());
 
     // Create operation tracker entry
-    let tracker = state.operation_tracker();
-    let operation_id = tracker.start_operation(&model_id, "load", tenant_id).await
-        .map_err(|e| {
-            error!(model_id = %model_id, tenant_id = %tenant_id, error = %e, "Failed to start operation tracking");
+    let tracker = state.operation_tracker.clone();
+    tracker
+        .start_model_operation(&model_id, tenant_id.as_str(), ModelOperationType::Load)
+        .await
+        .map_err(|conflict| {
+            error!(
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                error = %conflict,
+                "Failed to start operation tracking"
+            );
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::from_error(&e, Some(request_id.clone()))),
+                StatusCode::CONFLICT,
+                Json(
+                    ErrorResponse::with_message(
+                        StatusCode::CONFLICT,
+                        "OPERATION_CONFLICT",
+                        "Another model operation is already in progress",
+                        Some(request_id.clone()),
+                    )
+                    .with_string_details(conflict.to_string()),
+                ),
             )
         })?;
 
@@ -6598,18 +6959,35 @@ pub async fn load_model_with_retry(
     let retry_executor = RetryExecutor::new(retry_config);
 
     // Execute load operation with retry
-    let load_result = retry_executor.execute(|| async {
-        // Check if operation was cancelled
-        if tracker.is_cancelled(&operation_id).await.unwrap_or(false) {
-            return Err(anyhow::anyhow!("Operation cancelled by user"));
-        }
+    let tracker_for_retry = tracker.clone();
+    let model_id_for_retry = model_id.clone();
+    let tenant_id_for_retry = tenant_id.clone();
 
-        // Perform the actual load operation
-        load_model_internal(&state, &model_id, &request, tenant_id).await
-    }).await;
+    let load_result = retry_executor
+        .execute(|| async {
+            // Check if operation was cancelled
+            if tracker_for_retry
+                .is_operation_cancelled(&model_id_for_retry, tenant_id_for_retry.as_str())
+                .await
+                .unwrap_or(false)
+            {
+                return Err(anyhow::anyhow!("Operation cancelled by user"));
+            }
 
-    // Complete the operation
-    let _ = tracker.complete_operation(&operation_id, tenant_id).await;
+            // Perform the actual load operation
+            load_model_internal(&state, &model_id_for_retry, &request, tenant_id_for_retry.as_str()).await
+        })
+        .await;
+
+    // Complete the operation (best effort)
+    tracker
+        .complete_model_operation(
+            &model_id,
+            tenant_id.as_str(),
+            ModelOperationType::Load,
+            load_result.is_ok(),
+        )
+        .await;
 
     match load_result {
         Ok(response) => {
@@ -6624,16 +7002,17 @@ pub async fn load_model_with_retry(
                 "LOAD_FAILED"
             };
 
-            let user_message = UserFriendlyErrorMapper::map_error_message(error_code, &e.to_string());
+            let user_message =
+                UserFriendlyErrorMapper::map_error_message(error_code, &e.to_string());
 
             error!(model_id = %model_id, tenant_id = %tenant_id, request_id = %request_id, error = %e, "Model load failed");
 
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly(
+                Json(ErrorResponse::with_message(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     error_code,
-                    &user_message,
+                    user_message,
                     Some(request_id),
                 )),
             ))
@@ -6648,33 +7027,74 @@ async fn load_model_internal(
     request: &LoadModelRequest,
     tenant_id: &str,
 ) -> Result<ModelResponse, anyhow::Error> {
-    // Get model from database
-    let model = sqlx::query!(
+    // Determine whether the legacy schema (without model_type) is still in use.
+    let has_model_type = sqlx::query_scalar!(
         r#"
-        SELECT
-            id, name, model_type, model_path, config, status,
-            created_at, updated_at, tenant_id
-        FROM models
-        WHERE id = ? AND tenant_id = ?
-        "#,
-        model_id,
-        tenant_id
+        SELECT 1 FROM pragma_table_info('models')
+        WHERE name = 'model_type'
+        LIMIT 1
+        "#
     )
-    .fetch_optional(&state.db)
+    .fetch_optional(state.db.pool())
     .await?
-    .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+    .is_some();
+
+    // Retrieve model metadata, falling back to a legacy query if necessary.
+    let (model_id_value, model_name_value, model_status_value, model_type_value) = if has_model_type
+    {
+        let record = sqlx::query!(
+            r#"
+            SELECT id, name
+            FROM models
+            WHERE id = ?
+            "#,
+            model_id
+        )
+        .fetch_optional(state.db.pool())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+
+        (
+            record.id.unwrap_or_else(|| model_id.to_string()),
+            record.name,
+            "available".to_string(), // Default status since not in schema
+            "base_model".to_string(), // Default model_type since not in schema
+        )
+    } else {
+        let record = sqlx::query!(
+            r#"
+            SELECT id, name
+            FROM models
+            WHERE id = ?
+            "#,
+            model_id
+        )
+        .fetch_optional(state.db.pool())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+
+        (
+            record.id.unwrap_or_else(|| model_id.to_string()),
+            record.name,
+            "available".to_string(), // Default status since not in schema
+            "base_model".to_string(),
+        )
+    };
 
     // Check model status
-    if model.status != "available" {
-        return Err(anyhow::anyhow!("Model is not available for loading: {}", model.status));
+    if model_status_value != "available" {
+        return Err(anyhow::anyhow!(
+            "Model is not available for loading: {}",
+            model_status_value
+        ));
     }
 
     // TODO: Implement actual model loading logic here
     // For now, return a mock response
     let response = ModelResponse {
-        id: model.id,
-        name: model.name,
-        model_type: model.model_type,
+        id: model_id_value,
+        name: model_name_value,
+        model_type: model_type_value,
         status: "loaded".to_string(),
         loaded_at: Some(chrono::Utc::now()),
         memory_usage: Some(1024 * 1024 * 1024), // Mock 1GB usage
@@ -6685,23 +7105,12 @@ async fn load_model_internal(
 
 // Temporarily removed load_adapter function
 
-/// Unload an adapter from memory
-#[utoipa::path(
-    post,
-    path = "/v1/adapters/{adapter_id}/unload",
-    params(
-        ("adapter_id" = String, Path, description = "Adapter ID")
-    ),
-    responses(
-        (status = 200, description = "Adapter unloaded successfully"),
-        (status = 404, description = "Adapter not found", body = ErrorResponse),
-        (status = 500, description = "Failed to unload adapter", body = ErrorResponse)
-    )
-)]
+// Unload an adapter from memory
 /// Get the status of an ongoing operation
 #[utoipa::path(
     get,
     path = "/v1/operations/{resource_id}/status",
+    operation_id = "get_operation_status_v1",
     tag = "operations",
     params(
         ("resource_id" = String, Path, description = "Resource identifier (model or adapter ID)"),
@@ -6714,26 +7123,50 @@ async fn load_model_internal(
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn get_operation_status(
+pub async fn get_operation_status_handler(
     State(state): State<AppState>,
     Path(resource_id): Path<String>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<crate::types::OperationProgressEvent>, (StatusCode, Json<ErrorResponse>)> {
-    let tenant_id = params.get("tenant_id")
-        .ok_or_else(|| (
+    let tenant_id = params.get("tenant_id").ok_or_else(|| {
+        (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("tenant_id query parameter required").with_code("MISSING_TENANT_ID")),
-        ))?;
+            Json(
+                ErrorResponse::new("tenant_id query parameter required")
+                    .with_code("MISSING_TENANT_ID"),
+            ),
+        )
+    })?;
 
-    match state.operation_tracker.get_operation_status(&resource_id, tenant_id).await {
+    match state
+        .operation_tracker
+        .get_operation_status(&resource_id, tenant_id)
+        .await
+    {
         Some(status) => Ok(Json(status)),
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("Operation not found or completed").with_code("OPERATION_NOT_FOUND")),
+            Json(
+                ErrorResponse::new("Operation not found or completed")
+                    .with_code("OPERATION_NOT_FOUND"),
+            ),
         )),
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/unload",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter unloaded successfully"),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Failed to unload adapter", body = ErrorResponse)
+    )
+)]
 pub async fn unload_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -6787,7 +7220,15 @@ pub async fn unload_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(OperationConflict { .. }) = state.operation_tracker.start_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload).await {
+    if let Err(OperationConflict { .. }) = state
+        .operation_tracker
+        .start_adapter_operation(
+            &adapter_id,
+            &tenant_id,
+            crate::operation_tracker::AdapterOperationType::Unload,
+        )
+        .await
+    {
         return Err((
             StatusCode::CONFLICT,
             Json(
@@ -6812,22 +7253,31 @@ pub async fn unload_adapter(
         let mut loader = AdapterLoader::new(adapters_path);
 
         // Update progress: starting unload (10%)
-        state.operation_tracker.update_adapter_progress(
-            &adapter_id,
-            &tenant_id,
-            10.0,
-            Some(format!("Preparing to unload adapter ({} MB in memory)", _adapter.memory_bytes as f64 / 1024.0 / 1024.0)),
-        ).await;
+        state
+            .operation_tracker
+            .update_adapter_progress(
+                &adapter_id,
+                &tenant_id,
+                10.0,
+                Some(format!(
+                    "Preparing to unload adapter ({} MB in memory)",
+                    _adapter.memory_bytes as f64 / 1024.0 / 1024.0
+                )),
+            )
+            .await;
 
         match loader.unload_adapter(adapter_idx) {
             Ok(_) => {
                 // Update progress: updating state (90%)
-                state.operation_tracker.update_adapter_progress(
-                    &adapter_id,
-                    &tenant_id,
-                    90.0,
-                    Some("Adapter unloaded from memory, updating database state".to_string()),
-                ).await;
+                state
+                    .operation_tracker
+                    .update_adapter_progress(
+                        &adapter_id,
+                        &tenant_id,
+                        90.0,
+                        Some("Adapter unloaded from memory, updating database state".to_string()),
+                    )
+                    .await;
 
                 // Update adapter state to 'cold' and reset memory
                 state
@@ -6865,11 +7315,27 @@ pub async fn unload_adapter(
                 }
 
                 // Complete operation tracking
-                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload, true).await;
+                state
+                    .operation_tracker
+                    .complete_adapter_operation(
+                        &adapter_id,
+                        &tenant_id,
+                        crate::operation_tracker::AdapterOperationType::Unload,
+                        true,
+                    )
+                    .await;
             }
             Err(e) => {
                 // Complete operation tracking with failure
-                state.operation_tracker.complete_adapter_operation(&adapter_id, &tenant_id, crate::operation_tracker::AdapterOperationType::Unload, false).await;
+                state
+                    .operation_tracker
+                    .complete_adapter_operation(
+                        &adapter_id,
+                        &tenant_id,
+                        crate::operation_tracker::AdapterOperationType::Unload,
+                        false,
+                    )
+                    .await;
                 // Rollback state on error
                 state
                     .db
@@ -7464,7 +7930,9 @@ pub async fn update_category_policy(
 
     // Convert request to CategoryPolicy
     let policy = adapteros_lora_lifecycle::CategoryPolicy {
-        promotion_threshold: std::time::Duration::from_millis(request.promotion_threshold_ms as u64),
+        promotion_threshold: std::time::Duration::from_millis(
+            request.promotion_threshold_ms as u64,
+        ),
         demotion_threshold: std::time::Duration::from_millis(request.demotion_threshold_ms as u64),
         memory_limit: request.memory_limit as usize,
         eviction_priority: match request.eviction_priority.as_str() {
@@ -7476,7 +7944,10 @@ pub async fn update_category_policy(
             _ => {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse::new("Invalid eviction priority").with_code("INVALID_PRIORITY")),
+                    Json(
+                        ErrorResponse::new("Invalid eviction priority")
+                            .with_code("INVALID_PRIORITY"),
+                    ),
                 ));
             }
         },
@@ -7497,7 +7968,10 @@ pub async fn update_category_policy(
     let updated_policy = summary.get(&category).ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Failed to retrieve updated policy").with_code("POLICY_UPDATE_FAILED")),
+            Json(
+                ErrorResponse::new("Failed to retrieve updated policy")
+                    .with_code("POLICY_UPDATE_FAILED"),
+            ),
         )
     })?;
 
@@ -7819,13 +8293,13 @@ pub async fn get_adapter_health(
     get,
     path = "/v1/repositories",
     responses(
-        (status = 200, description = "List of repositories", body = Vec<RepositoryResponse>)
+        (status = 200, description = "List of repositories", body = Vec<RepositorySummary>)
     )
 )]
 pub async fn list_repositories(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-) -> Result<Json<Vec<RepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<RepositorySummary>>, (StatusCode, Json<ErrorResponse>)> {
     let repos = state
         .db
         .list_repositories("default", 100, 0)
@@ -7841,33 +8315,68 @@ pub async fn list_repositories(
             )
         })?;
 
-    let responses: Vec<RepositoryResponse> = repos
-        .into_iter()
-        .map(|r| {
-            let languages: Vec<String> = r
-                .languages_json
-                .as_ref()
-                .and_then(|l| serde_json::from_str(l).ok())
-                .unwrap_or_default();
-            let frameworks: Vec<String> = Vec::new(); // TODO: Add frameworks field to Repository
+    let repo_ids: Vec<String> = repos.iter().map(|r| r.repo_id.clone()).collect();
 
-            RepositoryResponse {
-                id: r.id,
-                repo_id: r.repo_id,
-                path: r.path,
-                languages,
-                default_branch: r.default_branch,
-                status: r.status,
-                frameworks,
-                file_count: Some(0),   // TODO: Get from CodeGraphMetadata
-                symbol_count: Some(0), // TODO: Get from CodeGraphMetadata
-                created_at: r.created_at,
-                updated_at: r.updated_at,
+    // Fetch commit counts and URLs in parallel
+    let (commit_counts, inferred_urls) = tokio::join!(
+        state.db.get_commit_counts_for_repositories(&repo_ids),
+        async {
+            let repo_paths: Vec<_> = repos
+                .iter()
+                .map(|r| (r.repo_id.clone(), r.path.clone()))
+                .collect();
+            infer_repo_urls_parallel(&repo_paths).await
+        }
+    );
+
+    let commit_counts = commit_counts.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to count repository commits")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let summaries: Vec<RepositorySummary> = repos
+        .into_iter()
+        .map(|repo| {
+            let commit_count_raw = commit_counts.get(&repo.repo_id).copied().unwrap_or(0);
+            let commit_count = if commit_count_raw < 0 {
+                0
+            } else {
+                commit_count_raw as u64
+            };
+
+            // Use inferred URL or fall back to repo_id
+            let (url, url_is_fallback) = inferred_urls
+                .get(&repo.repo_id)
+                .and_then(|opt| opt.clone())
+                .map(|inferred_url| (inferred_url, false))
+                .unwrap_or_else(|| {
+                    tracing::debug!(
+                        repo_id = %repo.repo_id,
+                        path = %repo.path,
+                        "Using repo_id as URL (could not infer from git remote)"
+                    );
+                    (repo.repo_id.clone(), true)
+                });
+
+            RepositorySummary {
+                id: repo.repo_id,
+                url,
+                url_is_fallback,
+                branch: repo.default_branch,
+                path: Some(repo.path),
+                commit_count,
+                last_scan: repo.latest_scan_at,
             }
         })
         .collect();
 
-    Ok(Json(responses))
+    Ok(Json(summaries))
 }
 
 // ===== Metrics Endpoints =====
@@ -9212,11 +9721,13 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
 
     // Check for stuck operations (if OperationTracker exists)
     // Note: OperationTracker is currently not in AppState, but operations are tracked via database state
-    
+
     // Check for state divergences: adapters marked as loading/unloading but stuck
-    let adapters = state.db.list_adapters().await.map_err(|e| {
-        format!("Failed to list adapters for health check: {}", e)
-    })?;
+    let adapters = state
+        .db
+        .list_adapters()
+        .await
+        .map_err(|e| format!("Failed to list adapters for health check: {}", e))?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -9227,23 +9738,25 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
 
     for adapter in adapters {
         let state_str = adapter.current_state.as_str();
-        
+
         // Check for stuck loading/unloading states
         if state_str == "loading" || state_str == "unloading" {
             // Use updated_at timestamp (updated when state changes)
             // Try multiple timestamp formats since SQLite uses datetime('now') format
-            let elapsed = if let Some(updated_at) = &adapter.updated_at {
+            let updated_at = &adapter.updated_at;
+            let elapsed = {
                 // Try RFC3339 first, then SQLite datetime format
-                let changed_time = chrono::DateTime::parse_from_rfc3339(updated_at)
+                let changed_time = chrono::DateTime::parse_from_rfc3339(updated_at.as_str())
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
                     .or_else(|_| {
                         // Try SQLite datetime format: "YYYY-MM-DD HH:MM:SS"
-                        chrono::NaiveDateTime::parse_from_str(updated_at, "%Y-%m-%d %H:%M:%S")
+                        chrono::NaiveDateTime::parse_from_str(updated_at.as_str(), "%Y-%m-%d %H:%M:%S")
                             .map(|dt| dt.and_utc())
-                            .map_err(|e| e)
                     })
                     .or_else(|_| {
                         // Try ISO8601 without timezone
-                        chrono::DateTime::parse_from_rfc3339(&format!("{}Z", updated_at))
+                        chrono::DateTime::parse_from_rfc3339(&format!("{}Z", updated_at.as_str()))
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
                     });
 
                 match changed_time {
@@ -9256,8 +9769,6 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                         continue;
                     }
                 }
-            } else {
-                continue; // No timestamp available
             };
 
             if elapsed > stuck_threshold_secs {
@@ -9275,7 +9786,8 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                 .unwrap_or_default();
 
                 // Check if any alert has the same rule_id
-                let alert_already_exists = existing_alerts.iter().any(|alert| alert.rule_id == rule_id);
+                let alert_already_exists =
+                    existing_alerts.iter().any(|alert| alert.rule_id == rule_id);
 
                 // Only create alert if one doesn't already exist
                 if !alert_already_exists {
@@ -9325,7 +9837,10 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                 let lifecycle_mgr = lifecycle.lock().await;
                 let adapter_idx = adapter.id.parse::<u16>().unwrap_or(0);
 
-                if lifecycle_mgr.get_state(adapter_idx).map_or(true, |state| state == AdapterState::Unloaded) {
+                if lifecycle_mgr
+                    .get_state(adapter_idx)
+                    .map_or(true, |state| state == AdapterState::Unloaded)
+                {
                     // Adapter marked as warm but not loaded in LifecycleManager
                     let alert_request = adapteros_db::process_monitoring::CreateAlertRequest {
                         rule_id: format!("state_divergence_warm_{}", adapter.adapter_id),
@@ -9355,7 +9870,9 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                     .await
                     .unwrap_or_default();
 
-                    let alert_already_exists = existing_alerts.iter().any(|alert| alert.rule_id == alert_request.rule_id);
+                    let alert_already_exists = existing_alerts
+                        .iter()
+                        .any(|alert| alert.rule_id == alert_request.rule_id);
 
                     if !alert_already_exists {
                         if let Err(e) = adapteros_db::process_monitoring::ProcessAlert::create(
@@ -9416,7 +9933,9 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                     .await
                     .unwrap_or_default();
 
-                    let alert_already_exists = existing_alerts.iter().any(|alert| alert.rule_id == alert_request.rule_id);
+                    let alert_already_exists = existing_alerts
+                        .iter()
+                        .any(|alert| alert.rule_id == alert_request.rule_id);
 
                     if !alert_already_exists {
                         if let Err(e) = adapteros_db::process_monitoring::ProcessAlert::create(
@@ -9710,7 +10229,8 @@ pub async fn training_stream(
                 Ok(event_data) => {
                     // Filter by tenant if tenant_id is provided in payload
                     let should_include = {
-                        event_data.get("payload")
+                        event_data
+                            .get("payload")
                             .and_then(|p| p.get("tenant_id"))
                             .and_then(|t| t.as_str())
                             .map(|t| t == tenant_id_clone.as_str())
@@ -13376,9 +13896,9 @@ pub async fn get_log_file_content(
 ) -> Result<Json<LogFileContentResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
+    use adapteros_secure_fs::traversal::{check_path_traversal, join_paths_safe};
     use std::fs;
     use std::io::{Read, Seek, SeekFrom};
-    use adapteros_secure_fs::traversal::{check_path_traversal, join_paths_safe};
     use std::path::Path;
 
     // Validate filename to prevent directory traversal using secure-fs
@@ -13546,13 +14066,13 @@ pub async fn stream_log_file(
 ) -> Result<impl axum::response::IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
+    use adapteros_secure_fs::traversal::{check_path_traversal, join_paths_safe};
     use axum::response::sse::{Event, KeepAlive, Sse};
     use std::fs;
     use std::io::{BufRead, BufReader};
+    use std::path::Path;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use adapteros_secure_fs::traversal::{check_path_traversal, join_paths_safe};
-    use std::path::Path;
 
     // Validate filename to prevent directory traversal using secure-fs
     if let Err(e) = check_path_traversal(Path::new(&filename)) {

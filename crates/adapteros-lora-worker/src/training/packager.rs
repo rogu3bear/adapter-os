@@ -53,7 +53,14 @@ impl AdapterPackager {
         config: &TrainingConfig,
         base_model: &str,
     ) -> Result<PackagedAdapter> {
-        self.package_with_metadata(adapter_id, weights, config, base_model, std::collections::HashMap::new()).await
+        self.package_with_metadata(
+            adapter_id,
+            weights,
+            config,
+            base_model,
+            std::collections::HashMap::new(),
+        )
+        .await
     }
 
     /// Package adapter with weights, manifest, and metadata

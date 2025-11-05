@@ -1,34 +1,52 @@
 # Services Status - FINAL
 
-## ✅ BACKEND RUNNING, UI NEEDS RESTART
+## ✅ ALL SERVICES RUNNING
 
 ### Backend Server (adapteros-server)
 - **Status**: ✅ **RUNNING**
-- **Port**: 8080  
-- **Process**: PID 38255
+- **Port**: 3300
+- **Process**: PID 27937
 - **Endpoints**:
-  - ✅ `/api/v1/meta` - Returns version info
+  - ✅ `/healthz` - Health check endpoint
   - ✅ API routes functional
-- **Fixed**: Migration checksum mismatch handling for dev mode
+- **Health**: Responding correctly with JSON status
 
-### UI Frontend  
-- **Status**: ⚠️ **NOT RUNNING** (needs restart)
+### UI Frontend
+- **Status**: ✅ **RUNNING**
 - **Port**: 3200
-- **Note**: UI process stopped, needs to be restarted
+- **Process**: PID 27964
+- **Framework**: React/Next.js with pnpm
+- **Health**: Serving HTML content
 
 ### Database
 - **Status**: ✅ **ACCESSIBLE**
 - **Path**: `var/aos-cp.sqlite3`
 - **Users**: 1 user (`admin@aos.local`)
-- **Migrations**: All 49 migrations applied (with checksum warning for migration 11)
+- **Migrations**: All 49 migrations applied
 
 ## Summary
 
-**Backend server is operational!** 
+**All AdapterOS services are now running successfully!**
 
-The mock server was successfully nuked and replaced with the real adapteros-server. Migration checksum mismatch is now handled gracefully in dev mode.
+Both backend and UI are operational and responding to requests. The system is ready for development and testing.
 
-UI needs to be restarted:
+## Access URLs
+- **Backend API**: http://localhost:3300
+- **Web Dashboard**: http://localhost:3200
+- **Health Check**: curl http://localhost:3300/healthz
+
+## Management Commands
 ```bash
-cd ui && pnpm dev -- --host 0.0.0.0 --port 3200
+# Check status
+./scripts/service-manager.sh status
+
+# Stop all services
+./scripts/service-manager.sh stop all
+
+# Restart services
+./launch.sh
+
+# View logs
+./scripts/service-manager.sh logs backend
+./scripts/service-manager.sh logs ui
 ```

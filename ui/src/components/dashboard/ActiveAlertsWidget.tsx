@@ -8,7 +8,7 @@ import { useTenant } from '@/layout/LayoutProvider';
 import { usePolling } from '@/hooks/usePolling';
 import { useRelativeTime } from '@/hooks/useTimestamp';
 import apiClient from '@/api/client';
-import type { Alert as ApiAlert } from '@/api/types';
+import type { Alert as ApiAlert, AdapterOSStatus } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 
 interface Alert {
@@ -56,6 +56,17 @@ export function ActiveAlertsWidget() {
   const navigate = useNavigate();
   const { selectedTenant } = useTenant();
 
+  // Fetch service status for service failure alerts
+  const { data: status } = usePolling<AdapterOSStatus>(
+    () => apiClient.getStatus(),
+    'fast',
+    {
+      operationName: 'ActiveAlertsWidget.getStatus',
+      showLoadingIndicator: false,
+      enabled: !!selectedTenant,
+    }
+  );
+
   // Fetch alerts from API with polling
   const {
     data: apiAlerts,
@@ -88,14 +99,34 @@ export function ActiveAlertsWidget() {
     }
   );
 
+  // Generate alerts from service failures
+  const serviceAlerts: Alert[] = React.useMemo(() => {
+    if (!status?.services) return [];
+
+    return status.services
+      .filter(s => s.state === 'failed')
+      .map(service => ({
+        id: `service-${service.id}`,
+        severity: 'critical' as const,
+        title: `Service Failed: ${service.name}`,
+        created_at: new Date().toISOString(),
+        acknowledged: false,
+      }));
+  }, [status]);
+
   // Map API alerts to widget format
   // Since we fetch status: 'active', all returned alerts are unacknowledged
-  const alerts: Alert[] = React.useMemo(() => {
+  const apiAlertsMapped: Alert[] = React.useMemo(() => {
     if (!apiAlerts || apiAlerts.length === 0) {
       return [];
     }
     return apiAlerts.map(mapApiAlertToWidgetAlert);
   }, [apiAlerts]);
+
+  // Merge API alerts and service alerts
+  const alerts: Alert[] = React.useMemo(() => {
+    return [...apiAlertsMapped, ...serviceAlerts];
+  }, [apiAlertsMapped, serviceAlerts]);
 
   // All alerts from API are active (unacknowledged) since we filter by status: 'active'
   const activeAlerts = alerts;

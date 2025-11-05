@@ -97,7 +97,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       setStatusMessage(null);
       setErrorRecovery(null);
     } catch (err) {
-      // Replace: console.error('Failed to fetch tenants:', err);
       logger.error('Failed to fetch tenants', {
         component: 'Tenants',
         operation: 'fetchTenants',
@@ -129,7 +128,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         setPolicies(policiesData);
         setAdapters(adaptersData);
       } catch (err) {
-        // Replace: console.error('Failed to fetch policies/adapters:', err);
         logger.error('Failed to fetch policies/adapters', {
           component: 'Tenants',
           operation: 'fetchPoliciesAdapters',
@@ -441,14 +439,15 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         URL.revokeObjectURL(url);
       } else {
         // CSV export
-        const headers = ['id', 'name', 'description', 'status', 'data_classification', 'itar_compliant', 'users', 'adapters', 'policies', 'last_activity', 'created_at'];
+        const headers: (keyof types.Tenant)[] = ['id', 'name', 'description', 'status', 'data_classification', 'itar_compliant', 'users', 'adapters', 'policies', 'last_activity', 'created_at'];
         const csvRows = tenantsToExport.map(t => 
           headers.map(header => {
-            const value = (t as any)[header] || '';
-            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-              return `"${value.replace(/"/g, '""')}"`;
+            const value = t[header] ?? '';
+            const stringValue = String(value);
+            if (stringValue.includes(',') || stringValue.includes('"')) {
+              return `"${stringValue.replace(/"/g, '""')}"`;
             }
-            return value;
+            return stringValue;
           }).join(',')
         );
         const csv = [headers.join(','), ...csvRows].join('\n');

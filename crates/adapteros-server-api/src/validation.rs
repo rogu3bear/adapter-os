@@ -349,8 +349,7 @@ pub fn validate_model_id(model_id: &str) -> ValidationResult<()> {
                 ErrorResponse::new("Invalid model ID format")
                     .with_code("BAD_REQUEST")
                     .with_string_details(
-                        "Model ID cannot contain path traversal characters (/, \\, ..)"
-                            .to_string(),
+                        "Model ID cannot contain path traversal characters (/, \\, ..)".to_string(),
                     ),
             ),
         ));

@@ -394,20 +394,93 @@ fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::NamedTempFile;
+    use serde_json::json;
+
+    fn create_dummy_tensor_data(len: usize) -> Vec<f32> {
+        (0..len).map(|i| i as f32).collect()
+    }
+
+    fn create_test_adapter_file() -> NamedTempFile {
+        let temp_file = NamedTempFile::new().unwrap();
+        let path = temp_file.path();
+
+        // 1. Create dummy tensors
+        let lora_a_pos_data = create_dummy_tensor_data(16);
+        let lora_b_pos_data = create_dummy_tensor_data(16);
+        let lora_a_neg_data = create_dummy_tensor_data(16);
+        let lora_b_neg_data = create_dummy_tensor_data(16);
+
+        // This is tricky because MmapTensor wants a pointer, but we need to own the data for serialization.
+        // We'll create owned data and then construct MmapTensors pointing to it.
+        // This is safe within this single-threaded test function scope.
+        let positive_group = WeightGroup {
+            lora_a: MmapTensor { data: lora_a_pos_data.as_ptr(), shape: vec![4, 4], len: 16 },
+            lora_b: MmapTensor { data: lora_b_pos_data.as_ptr(), shape: vec![4, 4], len: 16 },
+        };
+        let negative_group = WeightGroup {
+            lora_a: MmapTensor { data: lora_a_neg_data.as_ptr(), shape: vec![4, 4], len: 16 },
+            lora_b: MmapTensor { data: lora_b_neg_data.as_ptr(), shape: vec![4, 4], len: 16 },
+        };
+
+        let weights = WeightGroups {
+            positive: positive_group,
+            negative: negative_group,
+            combined: None,
+        };
+
+        // 2. Create dummy metadata
+        let metadata = Metadata {
+            manifest: json!({"author": "test"}),
+            training_config: json!({"epochs": 1}),
+            lineage: json!({"parent": "none"}),
+        };
+
+        // 3. Create the AOS2 file
+        create_aos2(&weights, &metadata, path).unwrap();
+
+        temp_file
+    }
 
     #[test]
     fn test_zero_copy_loading() {
-        // Create test adapter
-        // Load with mmap
-        // Verify weights are accessible without decompression
-        // Verify direct GPU transfer works
+        let temp_file = create_test_adapter_file();
+        let adapter = AosAdapter::load(temp_file.path()).unwrap();
+
+        // Verify weights are accessible
+        let weights = adapter.weights().unwrap();
+        assert_eq!(weights.positive.lora_a.as_slice().len(), 16);
+        assert_eq!(weights.positive.lora_a.as_slice()[15], 15.0);
+        assert_eq!(weights.negative.lora_b.as_slice().len(), 16);
+        assert_eq!(weights.negative.lora_b.as_slice()[15], 15.0);
+        assert!(weights.combined.is_none());
+
+        // Verify direct GPU transfer works (mocked)
+        let mut gpu_buffer = vec![0.0f32; 16];
+        unsafe {
+            weights.positive.lora_a.copy_to_gpu(gpu_buffer.as_mut_ptr());
+        }
+        assert_eq!(gpu_buffer[15], 15.0);
     }
 
     #[test]
     fn test_lazy_metadata() {
-        // Load adapter
-        // Access weights (should be fast)
+        let temp_file = create_test_adapter_file();
+        let adapter = AosAdapter::load(temp_file.path()).unwrap();
+
+        // Metadata should not be loaded yet
+        assert!(adapter.metadata.get().is_none());
+
         // Access metadata (should load on demand)
+        let metadata = adapter.metadata().unwrap();
+        assert_eq!(metadata.manifest["author"], "test");
+        assert_eq!(metadata.training_config["epochs"], 1);
+
         // Verify metadata caching
+        assert!(adapter.metadata.get().is_some());
+        
+        // Access again, should be from cache
+        let metadata2 = adapter.metadata().unwrap();
+        assert_eq!(metadata2.manifest["author"], "test");
     }
 }

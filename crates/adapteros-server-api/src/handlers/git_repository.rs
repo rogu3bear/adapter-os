@@ -3,8 +3,8 @@
 //! Implements git repository registration, analysis, and training pipeline integration.
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
-use crate::handlers::{require_any_role, AppState, ErrorResponse};
 use crate::auth::Claims;
+use crate::handlers::{require_any_role, AppState, ErrorResponse};
 use crate::types::ScanStatusResponse;
 use adapteros_api_types::repositories::RegisterRepositoryRequest;
 use adapteros_api_types::training::TrainingConfigRequest;
@@ -130,9 +130,32 @@ pub async fn register_git_repository(
     // Policy: Evidence requirements for registration
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
+    let repo_path = request.path.clone().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Repository path is required")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "Provide a local repository path or configure remote cloning",
+                    ),
+            ),
+        )
+    })?;
+
+    let branch = request
+        .default_branch
+        .clone()
+        .unwrap_or_else(|| request.branch.clone());
+
+    let repo_identifier = request
+        .repo_id
+        .clone()
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
+
     info!(
         "Registering git repository: {} at path: {}",
-        request.repo_id, request.path
+        repo_identifier, repo_path
     );
 
     // Evidence: docs/code-intelligence/code-policies.md:82-84
@@ -167,7 +190,7 @@ pub async fn register_git_repository(
 
     // Validate repository path
     let path_validator = PathValidator::new(&path_policy);
-    if let Err(e) = path_validator.validate_repo_path(&request.path, &claims.tenant_id) {
+    if let Err(e) = path_validator.validate_repo_path(&repo_path, &claims.tenant_id) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -179,13 +202,13 @@ pub async fn register_git_repository(
     }
 
     // Check if path exists
-    if !std::path::Path::new(&request.path).exists() {
+    if !std::path::Path::new(&repo_path).exists() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
                 ErrorResponse::new("repository path does not exist")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("Path: {}", request.path)),
+                    .with_string_details(format!("Path: {}", repo_path)),
             ),
         ));
     }
@@ -206,20 +229,19 @@ pub async fn register_git_repository(
     })?;
 
     // Perform repository analysis using GitSubsystem
-    let analysis =
-        analyze_repository_with_subsystem(git_subsystem, &request.path, &request.repo_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Repository analysis failed: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Repository analysis failed")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+    let analysis = analyze_repository_with_subsystem(git_subsystem, &repo_path, &repo_identifier)
+        .await
+        .map_err(|e| {
+            tracing::error!("Repository analysis failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Repository analysis failed")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Evidence: crates/adapteros-policy/src/packs/evidence.rs:126-172
     // Policy: Evidence Ruleset #4 - Mandatory open-book grounding
@@ -253,7 +275,6 @@ pub async fn register_git_repository(
     }
 
     // Store repository in database
-    let repo_id = Uuid::now_v7().to_string();
     let analysis_json = serde_json::to_string(&analysis).map_err(|e| {
         tracing::error!("Failed to serialize analysis: {}", e);
         (
@@ -266,13 +287,15 @@ pub async fn register_git_repository(
         )
     })?;
 
+    let internal_id = Uuid::now_v7().to_string();
+
     state
         .db
         .create_git_repository(
-            &repo_id,
-            &request.repo_id,
-            &request.path,
-            &request.default_branch,
+            &internal_id,
+            &repo_identifier,
+            &repo_path,
+            &branch,
             &analysis_json,
             &claims.sub,
         )
@@ -292,20 +315,21 @@ pub async fn register_git_repository(
     // Log repository registration event
     tracing::info!(
         "Repository registered: {} by user: {} with {} evidence spans, {} languages, {} frameworks",
-        request.repo_id,
+        repo_identifier,
         claims.sub,
         analysis.evidence_spans.len(),
         analysis.languages.len(),
         analysis.frameworks.len()
     );
 
-    info!("Successfully registered repository: {}", request.repo_id);
+    info!("Successfully registered repository: {}", repo_identifier);
 
+    let evidence_count = analysis.evidence_spans.len();
     Ok(Json(RegisterRepositoryResponse {
-        repo_id: request.repo_id,
+        repo_id: repo_identifier,
         status: "registered".to_string(),
-        analysis: analysis.clone(),
-        evidence_count: analysis.evidence_spans.len(),
+        analysis,
+        evidence_count,
     }))
 }
 
@@ -860,7 +884,11 @@ pub async fn trigger_repository_scan(
         .get_git_repository(&repo_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error checking repository {}: {}", repo_id_clone, e);
+            tracing::error!(
+                "Database error checking repository {}: {}",
+                repo_id_clone,
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
@@ -926,9 +954,10 @@ pub async fn get_repository_status(
         })?;
 
     let status = ScanStatusResponse {
+        repo_id: repo.repo_id,
         status: repo.status,
-        commits_processed: 0, // TODO: Implement actual commit counting
-        last_commit: Some("HEAD".to_string()), // TODO: Get actual last commit
+        progress: None,
+        message: None,
     };
 
     Ok(Json(status))
@@ -960,7 +989,11 @@ pub async fn unregister_repository(
         .get_git_repository(&repo_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error checking repository {}: {}", repo_id_clone, e);
+            tracing::error!(
+                "Database error checking repository {}: {}",
+                repo_id_clone,
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),

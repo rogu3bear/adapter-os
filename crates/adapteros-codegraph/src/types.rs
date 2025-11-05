@@ -197,7 +197,6 @@ impl TypeAnnotation {
     pub fn primary_type(&self) -> Option<&String> {
         self.declared_type.as_ref().or(self.inferred_type.as_ref())
     }
-
 }
 
 impl Default for TypeAnnotation {
@@ -292,7 +291,6 @@ impl Span {
             byte_length,
         }
     }
-
 }
 
 impl fmt::Display for Span {

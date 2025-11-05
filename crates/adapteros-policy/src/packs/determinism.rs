@@ -65,8 +65,7 @@ pub struct EpsilonBounds {
 }
 
 /// Toolchain version requirements
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolchainRequirements {
     /// Required Rust version
     pub rust_version: String,

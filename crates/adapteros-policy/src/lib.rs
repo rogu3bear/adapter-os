@@ -7,8 +7,10 @@ pub mod registry;
 pub mod unified_enforcement;
 pub mod validation;
 
+use crate::unified_enforcement as unified;
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
+use tracing::warn;
 
 pub mod abstention;
 pub mod access_control;
@@ -81,10 +83,23 @@ pub struct PolicyEngine {
 
 impl PolicyEngine {
     /// Create a new policy engine from manifest
+    ///
+    /// Configures the policy pack manager with settings from the manifest policies,
+    /// ensuring manifest configuration is properly applied to all policy packs.
     pub fn new(policies: Policies) -> Self {
+        let mut pack_manager = PolicyPackManager::new();
+
+        // Configure packs from manifest policies
+        if let Err(e) = pack_manager.configure_from_manifest(&policies) {
+            warn!(
+                error = %e,
+                "Failed to configure some policy packs from manifest, using defaults"
+            );
+        }
+
         Self {
             policies,
-            pack_manager: PolicyPackManager::new(),
+            pack_manager,
         }
     }
 
@@ -268,7 +283,10 @@ impl PolicyEngine {
                 _ => crate::packs::determinism::RngSeedingMethod::HkdfSeeded,
             },
             min_router_entropy: 0.1, // Default minimum entropy threshold
-            retrieval_tie_break: self.policies.determinism.retrieval_tie_break
+            retrieval_tie_break: self
+                .policies
+                .determinism
+                .retrieval_tie_break
                 .iter()
                 .map(|s| match s.as_str() {
                     "score_desc" => crate::packs::determinism::TieBreakRule::ScoreDesc,
@@ -289,7 +307,6 @@ impl PolicyEngine {
         policy.validate_backend_attestation(report)
     }
 
-
     /// Get memory policy
     pub fn memory_policy(&self) -> &MemoryPolicy {
         &self.policies.memory
@@ -298,5 +315,37 @@ impl PolicyEngine {
     /// Get performance policy
     pub fn performance_policy(&self) -> &PerformancePolicy {
         &self.policies.performance
+    }
+}
+
+#[allow(async_fn_in_trait)]
+impl unified::PolicyEnforcer for PolicyEngine {
+    async fn validate_request(
+        &self,
+        request: &unified::PolicyRequest,
+    ) -> Result<unified::PolicyValidationResult> {
+        unified::PolicyEnforcer::validate_request(&self.pack_manager, request).await
+    }
+
+    async fn is_operation_allowed(&self, operation: &unified::Operation) -> Result<bool> {
+        unified::PolicyEnforcer::is_operation_allowed(&self.pack_manager, operation).await
+    }
+
+    async fn get_violations(
+        &self,
+        operation: &unified::Operation,
+    ) -> Result<Vec<unified::PolicyViolation>> {
+        unified::PolicyEnforcer::get_violations(&self.pack_manager, operation).await
+    }
+
+    async fn enforce_policy(
+        &self,
+        operation: &unified::Operation,
+    ) -> Result<unified::PolicyEnforcementResult> {
+        unified::PolicyEnforcer::enforce_policy(&self.pack_manager, operation).await
+    }
+
+    async fn get_compliance_report(&self) -> Result<unified::PolicyComplianceReport> {
+        unified::PolicyEnforcer::get_compliance_report(&self.pack_manager).await
     }
 }

@@ -1,0 +1,3 @@
+[main]
+db_type = "Sqlite"
+path = "../registry.db"

@@ -7,7 +7,7 @@
 
 use crate::anomaly::{AnomalyConfig, AnomalyDetector};
 use crate::monitoring_types::*;
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use adapteros_manifest::Policies;
 use adapteros_policy::PolicyEngine;
@@ -1265,42 +1265,50 @@ impl AlertEvaluator {
 
     /// Get active adapters for a tenant
     async fn get_active_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterInfo>> {
-        // Note: This would require the adapters table to exist with the correct schema
-        // For now, return empty vector as placeholder
-        // let rows = sqlx::query!(
-        //     "SELECT id, category, last_accessed FROM adapters WHERE tenant_id = ? AND status = 'active'",
-        //     tenant_id
-        // )
-        // .fetch_all(self.db.pool())
-        // .await
-        // .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get adapters: {}", e)))?;
-        //
-        // let adapters = rows
-        //     .into_iter()
-        //     .map(|row| AdapterInfo {
-        //         id: row.id.unwrap_or_else(|| "unknown".to_string()),
-        //         category: row.category.unwrap_or_else(|| "unknown".to_string()).parse().unwrap_or(AdapterCategory::Code),
-        //         last_accessed: row.last_accessed.unwrap_or_else(|| chrono::Utc::now()),
-        //     })
-        //     .collect();
-        //
-        // Ok(adapters)
+        // Get all active adapters from the database
+        // Note: Current schema doesn't have tenant_id in adapters table
+        // TODO: Add tenant filtering once schema supports it
+        let adapters = self.db.list_adapters_by_state("active")
+            .await
+            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get active adapters: {}", e)))?;
 
-        Ok(Vec::new())
+        // Convert to AdapterInfo format
+        let adapter_infos: Vec<AdapterInfo> = adapters
+            .into_iter()
+            .map(|adapter| {
+                // Parse category
+                let category = match adapter.category.as_str() {
+                    "code" => AdapterCategory::Code,
+                    "framework" => AdapterCategory::Framework,
+                    "codebase" => AdapterCategory::Codebase,
+                    "ephemeral" => AdapterCategory::Ephemeral,
+                    _ => AdapterCategory::Code, // Default fallback
+                };
+
+                // Parse last_activated timestamp
+                let last_accessed = adapter.last_activated
+                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|| chrono::Utc::now());
+
+                AdapterInfo {
+                    id: adapter.adapter_id,
+                    category,
+                    last_accessed,
+                }
+            })
+            .collect();
+
+        info!(tenant_id = %tenant_id, count = adapter_infos.len(), "Retrieved active adapters for tenant");
+        Ok(adapter_infos)
     }
 
     /// Evict an adapter
     async fn evict_adapter(&self, adapter_id: &str, tenant_id: &str) -> Result<()> {
-        // Note: This would require the adapters table to exist with the correct schema
-        // For now, just log the eviction attempt
-        // sqlx::query!(
-        //     "UPDATE adapters SET status = 'evicted', evicted_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?",
-        //     adapter_id,
-        //     tenant_id
-        // )
-        // .execute(self.db.pool())
-        // .await
-        // .map_err(|e| adapteros_core::AosError::Database(format!("Failed to evict adapter: {}", e)))?;
+        // Update adapter state to evicted
+        self.db.update_adapter_state(adapter_id, "evicted", "Memory pressure eviction")
+            .await
+            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to evict adapter: {}", e)))?;
 
         // Log eviction to telemetry
         if let Err(e) = self.telemetry_writer.log(
@@ -1360,9 +1368,57 @@ impl AlertEvaluator {
         let end_time = chrono::Utc::now();
         let start_time = end_time - chrono::Duration::minutes(10); // 10-minute window
 
-        // Query security events from telemetry (this would be implemented in telemetry system)
-        // For now, return empty vector as placeholder
-        Ok(Vec::new())
+        // Query security events from telemetry database
+        let telemetry_records = self.db.get_telemetry_by_event_type("security", 100)
+            .await
+            .map_err(|e| {
+                tracing::error!(tenant_id = %tenant_id, error = %e, "Failed to query security events from telemetry");
+                AosError::Database(format!("Failed to query security events: {}", e))
+            })?;
+
+        let mut security_events = Vec::new();
+
+        for record in telemetry_records {
+            // Filter by tenant and time window
+            if record.tenant_id != tenant_id {
+                continue;
+            }
+
+            // Parse timestamp and check if it's within the window
+            if let Ok(record_time) = chrono::DateTime::parse_from_rfc3339(&record.timestamp) {
+                let record_time_utc = record_time.with_timezone(&chrono::Utc);
+                if record_time_utc < start_time || record_time_utc > end_time {
+                    continue;
+                }
+            } else {
+                // Skip records with invalid timestamps
+                continue;
+            }
+
+            // Parse the event data from JSON
+            match serde_json::from_str::<SecurityEvent>(&record.event_data) {
+                Ok(security_event) => {
+                    security_events.push(security_event);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        tenant_id = %tenant_id,
+                        event_id = %record.id,
+                        error = %e,
+                        "Failed to parse security event data"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            tenant_id = %tenant_id,
+            event_count = security_events.len(),
+            time_window_minutes = 10,
+            "Retrieved security events from telemetry"
+        );
+
+        Ok(security_events)
     }
 
     /// Check if a security event represents a policy violation
@@ -1504,9 +1560,96 @@ impl AlertEvaluator {
 
     /// Validate control matrix mapping
     async fn validate_control_matrix(&self, tenant_id: &str) -> Result<bool> {
-        // Check if control matrix cross-links resolve to existing evidence
-        // This would query the compliance database for control matrix entries
-        // For now, return true as placeholder
+        // Check if control matrix cross-links resolve to existing evidence (Compliance Ruleset #16)
+        if let Some(ref policy_engine) = self.policy_engine {
+            // Get compliance policy configuration
+            if let Some(compliance_config) = policy_engine.pack_manager().get_config(&adapteros_policy::PolicyPackId::Compliance) {
+                // Extract compliance-specific configuration
+                let compliance_data = &compliance_config.config;
+                if let Some(compliance_obj) = compliance_data.get("compliance") {
+                    // Parse control matrix configuration
+                    if let Some(control_matrix) = compliance_obj.get("control_matrix") {
+                        if let Some(controls_array) = control_matrix.as_array() {
+                            let mut all_valid = true;
+
+                            for control in controls_array {
+                                if let Some(control_obj) = control.as_object() {
+                                    // Validate required evidence fields
+                                    let evidence_file = control_obj.get("evidence_file");
+                                    let evidence_hash = control_obj.get("evidence_hash");
+                                    let verification_status = control_obj.get("verification_status");
+
+                                    // Check evidence file exists
+                                    if let Some(evidence_path) = evidence_file.and_then(|v| v.as_str()) {
+                                        if !std::path::Path::new(evidence_path).exists() {
+                                            tracing::warn!(
+                                                tenant_id = %tenant_id,
+                                                control_id = ?control_obj.get("control_id"),
+                                                evidence_path = %evidence_path,
+                                                "Control matrix evidence file does not exist"
+                                            );
+                                            all_valid = false;
+                                        }
+                                    } else {
+                                        tracing::warn!(
+                                            tenant_id = %tenant_id,
+                                            control_id = ?control_obj.get("control_id"),
+                                            "Control matrix entry missing evidence_file"
+                                        );
+                                        all_valid = false;
+                                    }
+
+                                    // Check evidence hash is present
+                                    if evidence_hash.and_then(|v| v.as_str()).is_none() {
+                                        tracing::warn!(
+                                            tenant_id = %tenant_id,
+                                            control_id = ?control_obj.get("control_id"),
+                                            "Control matrix entry missing evidence_hash"
+                                        );
+                                        all_valid = false;
+                                    }
+
+                                    // Check verification status
+                                    if let Some(status) = verification_status.and_then(|v| v.as_str()) {
+                                        if status == "failed" || status == "expired" {
+                                            tracing::warn!(
+                                                tenant_id = %tenant_id,
+                                                control_id = ?control_obj.get("control_id"),
+                                                verification_status = %status,
+                                                "Control matrix entry has invalid verification status"
+                                            );
+                                            all_valid = false;
+                                        }
+                                    } else {
+                                        tracing::warn!(
+                                            tenant_id = %tenant_id,
+                                            control_id = ?control_obj.get("control_id"),
+                                            "Control matrix entry missing verification_status"
+                                        );
+                                        all_valid = false;
+                                    }
+                                }
+                            }
+
+                            tracing::info!(
+                                tenant_id = %tenant_id,
+                                controls_validated = controls_array.len(),
+                                all_valid = all_valid,
+                                "Completed control matrix validation"
+                            );
+
+                            return Ok(all_valid);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no policy engine or compliance config available, assume valid for backward compatibility
+        tracing::debug!(
+            tenant_id = %tenant_id,
+            "No policy engine or compliance configuration available, assuming control matrix valid"
+        );
         Ok(true)
     }
 
@@ -1675,47 +1818,83 @@ impl AlertEvaluator {
         &self,
         tenant_id: &str,
     ) -> Result<PatchValidationMetrics> {
-        // Note: This would require the patch_validations table to exist
-        // For now, return default metrics as placeholder
-        // let end_time = chrono::Utc::now();
-        // let start_time = end_time - chrono::Duration::hours(1); // 1-hour window
-        //
-        // // Query patch validation metrics from database
-        // let rows = sqlx::query!(
-        //     "SELECT status, validation_time_ms FROM patch_validations WHERE tenant_id = ? AND created_at > ?",
-        //     tenant_id,
-        //     start_time
-        // )
-        // .fetch_all(self.db.pool())
-        // .await
-        // .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get patch validation metrics: {}", e)))?;
-        //
-        // let total_validations = rows.len();
-        // let successful_validations = rows.iter().filter(|row| row.status == Some("success".to_string())).count();
-        // let success_rate = if total_validations > 0 {
-        //     successful_validations as f64 / total_validations as f64
-        // } else {
-        //     1.0
-        // };
-        //
-        // let avg_validation_time = if total_validations > 0 {
-        //     rows.iter()
-        //         .filter_map(|row| row.validation_time_ms)
-        //         .sum::<f64>() / total_validations as f64
-        // } else {
-        //     0.0
-        // };
-        //
-        // Ok(PatchValidationMetrics {
-        //     success_rate,
-        //     avg_validation_time_ms: avg_validation_time,
-        //     total_validations,
-        // })
+        let end_time = chrono::Utc::now();
+        let start_time = end_time - chrono::Duration::hours(1); // 1-hour window
+
+        // Query patch proposals from database as proxy for validation metrics
+        // TODO: Add tenant filtering when patch_proposals table includes tenant_id
+        let patch_proposals = self.db.list_patch_proposals(None)
+            .await
+            .map_err(|e| {
+                tracing::error!(tenant_id = %tenant_id, error = %e, "Failed to query patch proposals for validation metrics");
+                AosError::Database(format!("Failed to query patch proposals: {}", e))
+            })?;
+
+        // Filter by time window (created_at within last hour)
+        let recent_proposals: Vec<_> = patch_proposals.into_iter()
+            .filter(|proposal| {
+                // Parse created_at timestamp and check if it's within the window
+                if let Ok(proposal_time) = chrono::DateTime::parse_from_rfc3339(&proposal.created_at) {
+                    let proposal_time_utc = proposal_time.with_timezone(&chrono::Utc);
+                    proposal_time_utc >= start_time && proposal_time_utc <= end_time
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        let total_validations = recent_proposals.len();
+
+        // Count successful validations based on status
+        let successful_validations = recent_proposals.iter()
+            .filter(|proposal| {
+                // Consider "completed" or "applied" as successful validations
+                proposal.status == "completed" || proposal.status == "applied"
+            })
+            .count();
+
+        // Calculate success rate
+        let success_rate = if total_validations > 0 {
+            successful_validations as f64 / total_validations as f64
+        } else {
+            1.0 // Default to 100% success if no validations
+        };
+
+        // Parse validation results to extract timing information
+        let mut total_validation_time = 0.0;
+        let mut timed_validations = 0;
+
+        for proposal in &recent_proposals {
+            // Try to parse validation_result_json for timing data
+            if let Ok(validation_result) = serde_json::from_str::<serde_json::Value>(&proposal.validation_result_json) {
+                if let Some(validation_time) = validation_result.get("validation_time_ms")
+                    .and_then(|v| v.as_f64()) {
+                    total_validation_time += validation_time;
+                    timed_validations += 1;
+                }
+            }
+        }
+
+        let avg_validation_time_ms = if timed_validations > 0 {
+            total_validation_time / timed_validations as f64
+        } else {
+            0.0 // Default to 0 if no timing data available
+        };
+
+        tracing::info!(
+            tenant_id = %tenant_id,
+            total_validations = total_validations,
+            successful_validations = successful_validations,
+            success_rate = success_rate,
+            avg_validation_time_ms = avg_validation_time_ms,
+            time_window_hours = 1,
+            "Calculated patch validation metrics from database"
+        );
 
         Ok(PatchValidationMetrics {
-            success_rate: 1.0,
-            avg_validation_time_ms: 0.0,
-            total_validations: 0,
+            success_rate,
+            avg_validation_time_ms,
+            total_validations,
         })
     }
 

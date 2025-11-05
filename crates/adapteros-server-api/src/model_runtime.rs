@@ -13,9 +13,9 @@ use adapteros_lora_mlx_ffi::MLXFFIModel;
 #[cfg(feature = "mlx-ffi-backend")]
 use lru::LruCache;
 #[cfg(feature = "mlx-ffi-backend")]
-use tracing::info;
-#[cfg(feature = "mlx-ffi-backend")]
 use tokio::task::AbortHandle;
+#[cfg(feature = "mlx-ffi-backend")]
+use tracing::info;
 
 use adapteros_secure_fs::traversal::normalize_path;
 
@@ -90,10 +90,10 @@ impl ModelRuntime {
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
             max_model_size_bytes: 10 * 1024 * 1024 * 1024, // Default 10GB
-            max_config_size_bytes: 1024 * 1024, // Default 1MB
-            max_tokenizer_size_bytes: 10 * 1024 * 1024, // Default 10MB
-            max_loaded_models: 5, // Default: 5 models globally
-            max_tenant_models: 2, // Default: 2 models per tenant
+            max_config_size_bytes: 1024 * 1024,            // Default 1MB
+            max_tokenizer_size_bytes: 10 * 1024 * 1024,    // Default 10MB
+            max_loaded_models: 5,                          // Default: 5 models globally
+            max_tenant_models: 2,                          // Default: 2 models per tenant
             per_tenant_limits: HashMap::new(),
         }
     }
@@ -138,7 +138,10 @@ impl ModelRuntime {
         self.max_cached_models = max_cached;
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.model_cache.resize(std::num::NonZeroUsize::new(max_cached).unwrap_or(std::num::NonZeroUsize::new(1).unwrap()));
+            self.model_cache.resize(
+                std::num::NonZeroUsize::new(max_cached)
+                    .unwrap_or(std::num::NonZeroUsize::new(1).unwrap()),
+            );
         }
     }
 
@@ -156,8 +159,11 @@ impl ModelRuntime {
             "lfu" => {
                 // Evict least frequently used entries when over capacity
                 while self.model_cache.len() > self.max_cached_models {
-                    if let Some((key, _)) = self.model_cache.iter()
-                        .min_by_key(|(_, entry)| entry.access_count) {
+                    if let Some((key, _)) = self
+                        .model_cache
+                        .iter()
+                        .min_by_key(|(_, entry)| entry.access_count)
+                    {
                         let key_to_remove = key.clone();
                         self.model_cache.pop(&key_to_remove);
                         evicted += 1;
@@ -169,7 +175,9 @@ impl ModelRuntime {
                 // Evict entries older than 1 hour (TTL policy)
                 let ttl_duration = Duration::from_secs(3600); // 1 hour
                 let now = Instant::now();
-                let keys_to_remove: Vec<_> = self.model_cache.iter()
+                let keys_to_remove: Vec<_> = self
+                    .model_cache
+                    .iter()
                     .filter(|(_, entry)| now.duration_since(entry.created_at) > ttl_duration)
                     .map(|(key, _)| key.clone())
                     .collect();
@@ -204,10 +212,18 @@ impl ModelRuntime {
         stats.insert("cache_size".to_string(), self.model_cache.len() as u64);
         stats.insert("max_cache_size".to_string(), self.max_cached_models as u64);
 
-        let total_accesses: u64 = self.model_cache.iter().map(|(_, entry)| entry.access_count).sum();
+        let total_accesses: u64 = self
+            .model_cache
+            .iter()
+            .map(|(_, entry)| entry.access_count)
+            .sum();
         stats.insert("total_accesses".to_string(), total_accesses);
 
-        let total_size_bytes: u64 = self.model_cache.iter().map(|(_, entry)| entry.size_bytes).sum();
+        let total_size_bytes: u64 = self
+            .model_cache
+            .iter()
+            .map(|(_, entry)| entry.size_bytes)
+            .sum();
         stats.insert("total_cached_size_bytes".to_string(), total_size_bytes);
 
         stats
@@ -257,7 +273,10 @@ impl ModelRuntime {
 
                 result
             } else {
-                Err(format!("Model {} for tenant {} not found in cache", model_id, tenant_id))
+                Err(format!(
+                    "Model {} for tenant {} not found in cache",
+                    model_id, tenant_id
+                ))
             }
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
@@ -273,7 +292,8 @@ impl ModelRuntime {
 
     /// Add or update a per-tenant file size limit
     pub fn set_tenant_limit(&mut self, tenant_id: &str, max_bytes: u64) {
-        self.per_tenant_limits.insert(tenant_id.to_string(), max_bytes);
+        self.per_tenant_limits
+            .insert(tenant_id.to_string(), max_bytes);
     }
 
     /// Set maximum config.json file size in bytes
@@ -308,9 +328,7 @@ impl ModelRuntime {
     pub fn check_tenant_load_limit(&self, _tenant_id: &str) -> Result<(), String> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let tenant_models = self.models.keys()
-                .filter(|(t, _)| t == _tenant_id)
-                .count();
+            let tenant_models = self.models.keys().filter(|(t, _)| t == _tenant_id).count();
             if tenant_models >= self.max_tenant_models {
                 return Err(format!(
                     "Tenant model limit exceeded for '{}': {} models loaded, maximum is {}",
@@ -324,7 +342,6 @@ impl ModelRuntime {
         }
         Ok(())
     }
-
 
     /// Load a model synchronously (non-async version for use with Mutex guard)
     ///
@@ -343,9 +360,7 @@ impl ModelRuntime {
             #[cfg(feature = "mlx-ffi-backend")]
             {
                 // Get file size for cache entry
-                let size_bytes = std::fs::metadata(model_path)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                let size_bytes = std::fs::metadata(model_path).map(|m| m.len()).unwrap_or(0);
 
                 let cache_entry = ModelCacheEntry {
                     model_path: model_path.to_string(),
@@ -529,29 +544,37 @@ impl ModelRuntime {
 
         // Check directory readability
         if std::fs::metadata(&canonical_path).is_err() {
-            return Err(format!(
-                "Model directory is not readable: {}",
-                model_path
-            ));
+            return Err(format!("Model directory is not readable: {}", model_path));
         }
 
         let path = canonical_path;
 
         // Validate config.json
         let config_path = path.join("config.json");
-        Self::validate_required_file(&config_path, "config.json", model_path, Some(self.max_config_size_bytes))?;
+        Self::validate_required_file(
+            &config_path,
+            "config.json",
+            model_path,
+            Some(self.max_config_size_bytes),
+        )?;
 
         // Validate tokenizer.json
         let tokenizer_path = path.join("tokenizer.json");
-        Self::validate_required_file(&tokenizer_path, "tokenizer.json", model_path, Some(self.max_tokenizer_size_bytes))?;
+        Self::validate_required_file(
+            &tokenizer_path,
+            "tokenizer.json",
+            model_path,
+            Some(self.max_tokenizer_size_bytes),
+        )?;
 
         // Validate weights file (check for either weights.safetensors or model.safetensors)
         let weights_path = path.join("weights.safetensors");
         let model_safetensors_path = path.join("model.safetensors");
-        
+
         let weights_file_exists = weights_path.exists() && weights_path.is_file();
-        let model_safetensors_exists = model_safetensors_path.exists() && model_safetensors_path.is_file();
-        
+        let model_safetensors_exists =
+            model_safetensors_path.exists() && model_safetensors_path.is_file();
+
         if !weights_file_exists && !model_safetensors_exists {
             return Err(format!(
                 "Required weights file not found in model directory: {}. Expected either 'weights.safetensors' or 'model.safetensors'",
@@ -561,16 +584,31 @@ impl ModelRuntime {
 
         // Validate the weights file that exists
         if weights_file_exists {
-            Self::validate_required_file(&weights_path, "weights.safetensors", model_path, Some(self.max_model_size_bytes))?;
+            Self::validate_required_file(
+                &weights_path,
+                "weights.safetensors",
+                model_path,
+                Some(self.max_model_size_bytes),
+            )?;
         } else {
-            Self::validate_required_file(&model_safetensors_path, "model.safetensors", model_path, Some(self.max_model_size_bytes))?;
+            Self::validate_required_file(
+                &model_safetensors_path,
+                "model.safetensors",
+                model_path,
+                Some(self.max_model_size_bytes),
+            )?;
         }
 
         Ok(())
     }
 
     /// Validate that a required file exists, is readable, non-empty, and within size limits
-    fn validate_required_file(file_path: &Path, file_name: &str, model_path: &str, max_size_bytes: Option<u64>) -> Result<(), String> {
+    fn validate_required_file(
+        file_path: &Path,
+        file_name: &str,
+        model_path: &str,
+        max_size_bytes: Option<u64>,
+    ) -> Result<(), String> {
         // Check existence
         if !file_path.exists() {
             return Err(format!(
@@ -671,7 +709,7 @@ impl ModelRuntime {
         #[cfg(feature = "mlx-ffi-backend")]
         {
             let key = (tenant_id.to_string(), model_id.to_string());
-            
+
             // Spawn blocking task for unload (typically fast, but wrapped for consistency)
             let handle = tokio::spawn(async move {
                 // Unload is just removing from HashMap, so it's synchronous
@@ -690,9 +728,9 @@ impl ModelRuntime {
 
             // Apply timeout (unload should be fast, but timeout for safety)
             let result = tokio::time::timeout(timeout, handle).await;
-            
+
             self.active_operations.remove(&key);
-            
+
             match result {
                 Ok(Ok(Ok(()))) => {
                     // Unload is just removing from HashMap
@@ -783,7 +821,10 @@ impl ModelRuntime {
     pub fn get_all_loaded_models(&self) -> Vec<(String, String)> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.models.keys().map(|(t, m)| (t.clone(), m.clone())).collect()
+            self.models
+                .keys()
+                .map(|(t, m)| (t.clone(), m.clone()))
+                .collect()
         }
 
         #[cfg(not(feature = "mlx-ffi-backend"))]

@@ -260,7 +260,14 @@ impl TrainingService {
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "payload": payload,
         });
-        let _ = self.event_tx.send(event);
+        if let Err(e) = self.event_tx.send(event) {
+            tracing::warn!(
+                job_id = %job_id,
+                event_type = %event_type,
+                error = %e,
+                "Failed to emit training event"
+            );
+        }
     }
 
     /// Get log file path for a job
@@ -272,9 +279,23 @@ impl TrainingService {
     fn append_log(&self, job_id: &str, message: &str) -> Result<()> {
         // Ensure log directory exists
         if let Some(parent) = self.log_dir.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to ensure parent log directory {} for job {}: {}",
+                    parent.display(),
+                    job_id,
+                    e
+                ))
+            })?;
         }
-        std::fs::create_dir_all(&self.log_dir)?;
+        std::fs::create_dir_all(&self.log_dir).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to ensure log directory {} for job {}: {}",
+                self.log_dir.display(),
+                job_id,
+                e
+            ))
+        })?;
 
         let log_path = self.log_file_path(job_id);
         let timestamp = chrono::Utc::now().to_rfc3339();
@@ -285,23 +306,52 @@ impl TrainingService {
             .create(true)
             .append(true)
             .open(&log_path)
-            .map_err(|e| AosError::Io(format!("Failed to open log file {}: {}", log_path.display(), e)))?;
-        
-        file.write_all(log_line.as_bytes())
-            .map_err(|e| AosError::Io(format!("Failed to write to log file {}: {}", log_path.display(), e)))?;
-        file.flush()
-            .map_err(|e| AosError::Io(format!("Failed to flush log file {}: {}", log_path.display(), e)))?;
+            .map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to open log file for job {} ({}): {}",
+                    job_id,
+                    log_path.display(),
+                    e
+                ))
+            })?;
+
+        file.write_all(log_line.as_bytes()).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to write to log file for job {} ({}): {}",
+                job_id,
+                log_path.display(),
+                e
+            ))
+        })?;
+        file.flush().map_err(|e| {
+            AosError::Io(format!(
+                "Failed to flush log file for job {} ({}): {}",
+                job_id,
+                log_path.display(),
+                e
+            ))
+        })?;
 
         Ok(())
     }
 
     /// Convert TrainingJobRecord to TrainingJob
     fn record_to_job(record: TrainingJobRecord) -> Result<TrainingJob> {
-        let config: TrainingConfig = serde_json::from_str(&record.training_config_json)
-            .map_err(|e| AosError::Internal(format!("Failed to parse config: {}", e)))?;
-        
-        let progress: TrainingProgress = serde_json::from_str(&record.progress_json)
-            .map_err(|e| AosError::Internal(format!("Failed to parse progress: {}", e)))?;
+        let config: TrainingConfig =
+            serde_json::from_str(&record.training_config_json).map_err(|e| {
+                AosError::Internal(format!(
+                    "Failed to parse training config for job {}: {}",
+                    record.id, e
+                ))
+            })?;
+
+        let progress: TrainingProgress =
+            serde_json::from_str(&record.progress_json).map_err(|e| {
+                AosError::Internal(format!(
+                    "Failed to parse training progress for job {}: {}",
+                    record.id, e
+                ))
+            })?;
 
         let status = match record.status.as_str() {
             "pending" => TrainingJobStatus::Pending,
@@ -313,7 +363,8 @@ impl TrainingService {
             _ => TrainingJobStatus::Pending,
         };
 
-        let metadata: Option<HashMap<String, serde_json::Value>> = record.metadata_json
+        let metadata: Option<HashMap<String, serde_json::Value>> = record
+            .metadata_json
             .as_ref()
             .and_then(|m| serde_json::from_str(m).ok());
 
@@ -329,20 +380,25 @@ impl TrainingService {
             current_loss: progress.current_loss,
             learning_rate: progress.learning_rate,
             tokens_per_second: progress.tokens_per_second,
-            created_at: record.created_at.unwrap_or_else(|| record.started_at.clone()),
+            created_at: record
+                .created_at
+                .unwrap_or_else(|| record.started_at.clone()),
             started_at: Some(record.started_at),
             completed_at: record.completed_at,
             error_message: progress.error_message,
             config,
-            artifact_path: metadata.as_ref()
+            artifact_path: metadata
+                .as_ref()
                 .and_then(|m| m.get("artifact_path"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            adapter_id: metadata.as_ref()
+            adapter_id: metadata
+                .as_ref()
                 .and_then(|m| m.get("adapter_id"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            weights_hash_b3: metadata.as_ref()
+            weights_hash_b3: metadata
+                .as_ref()
                 .and_then(|m| m.get("weights_hash_b3"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
@@ -351,9 +407,13 @@ impl TrainingService {
 
     /// Convert TrainingJob to database operations
     fn job_to_db_data(job: &TrainingJob) -> Result<(String, String, Option<String>)> {
-        let config_json = serde_json::to_string(&job.config)
-            .map_err(|e| AosError::Internal(format!("Failed to serialize config: {}", e)))?;
-        
+        let config_json = serde_json::to_string(&job.config).map_err(|e| {
+            AosError::Internal(format!(
+                "Failed to serialize training config for job {}: {}",
+                job.id, e
+            ))
+        })?;
+
         let progress = TrainingProgress {
             progress_pct: job.progress_pct,
             current_epoch: job.current_epoch,
@@ -363,16 +423,24 @@ impl TrainingService {
             tokens_per_second: job.tokens_per_second,
             error_message: job.error_message.clone(),
         };
-        let progress_json = serde_json::to_string(&progress)
-            .map_err(|e| AosError::Internal(format!("Failed to serialize progress: {}", e)))?;
+        let progress_json = serde_json::to_string(&progress).map_err(|e| {
+            AosError::Internal(format!(
+                "Failed to serialize training progress for job {}: {}",
+                job.id, e
+            ))
+        })?;
 
         let metadata = json!({
             "artifact_path": job.artifact_path,
             "adapter_id": job.adapter_id,
             "weights_hash_b3": job.weights_hash_b3,
         });
-        let metadata_json = serde_json::to_string(&metadata)
-            .map_err(|e| AosError::Internal(format!("Failed to serialize metadata: {}", e)))?;
+        let metadata_json = serde_json::to_string(&metadata).map_err(|e| {
+            AosError::Internal(format!(
+                "Failed to serialize training metadata for job {}: {}",
+                job.id, e
+            ))
+        })?;
 
         Ok((config_json, progress_json, Some(metadata_json)))
     }
@@ -549,7 +617,7 @@ impl TrainingService {
             let (config_json, _progress_json, metadata_json) = Self::job_to_db_data(&job)?;
             let repo_id = params.repo_id.as_deref().unwrap_or("default-repo");
             let created_by = params.tenant_id.as_deref().unwrap_or("system");
-            
+
             db.create_training_job_with_metadata(
                 repo_id,
                 &config_json,
@@ -610,24 +678,41 @@ impl TrainingService {
         });
 
         tracing::info!("Training job created: {}", job_id);
-        
+
         // Log job creation
-        let _ = self.append_log(&job_id, &format!("Training job {} created", job_id));
-        let _ = self.append_log(&job_id, &format!("Adapter name: {}", job.adapter_name));
-        if let Some(ref template_id) = job.template_id {
-            let _ = self.append_log(&job_id, &format!("Template: {}", template_id));
+        if let Err(e) = self.append_log(&job_id, &format!("Training job {} created", job_id)) {
+            tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
         }
-        let _ = self.append_log(&job_id, &format!("Config: rank={}, epochs={}, lr={}", 
-            job.config.rank, job.config.epochs, job.config.learning_rate));
+        if let Err(e) = self.append_log(&job_id, &format!("Adapter name: {}", job.adapter_name)) {
+            tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+        }
+        if let Some(ref template_id) = job.template_id {
+            if let Err(e) = self.append_log(&job_id, &format!("Template: {}", template_id)) {
+                tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+            }
+        }
+        if let Err(e) = self.append_log(
+            &job_id,
+            &format!(
+                "Config: rank={}, epochs={}, lr={}",
+                job.config.rank, job.config.epochs, job.config.learning_rate
+            ),
+        ) {
+            tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+        }
 
         // Emit event
-        self.emit_event("job_started", &job_id, json!({
-            "adapter_name": job.adapter_name,
-            "template_id": job.template_id,
-            "repo_id": job.repo_id,
-            "status": "pending",
-            "config": job.config,
-        }));
+        self.emit_event(
+            "job_started",
+            &job_id,
+            json!({
+                "adapter_name": job.adapter_name,
+                "template_id": job.template_id,
+                "repo_id": job.repo_id,
+                "status": "pending",
+                "config": job.config,
+            }),
+        );
 
         Ok(job)
     }
@@ -648,24 +733,29 @@ impl TrainingService {
             ) {
                 job.status = TrainingJobStatus::Cancelled;
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-                
+
                 // Update database
                 if let Some(ref db) = self.db {
                     db.update_training_status(job_id, "cancelled").await?;
                 }
-                
+
                 // Emit event
-                self.emit_event("job_cancelled", job_id, json!({
-                    "status": "cancelled",
-                }));
-                
+                self.emit_event(
+                    "job_cancelled",
+                    job_id,
+                    json!({
+                        "status": "cancelled",
+                    }),
+                );
+
                 info!("Training job cancelled: {}", job_id);
                 Ok(())
             } else {
-                Err(
-                    AosError::Internal(format!("Cannot cancel job in state: {:?}", job.status))
-                        .into(),
-                )
+                Err(AosError::Internal(format!(
+                    "Cannot cancel job {} in state: {:?}",
+                    job_id, job.status
+                ))
+                .into())
             }
         } else {
             Err(AosError::Internal(format!("Training job not found: {}", job_id)).into())
@@ -685,7 +775,11 @@ impl TrainingService {
                 TrainingJobStatus::Completed
                 | TrainingJobStatus::Failed
                 | TrainingJobStatus::Cancelled => {
-                    return Err(AosError::Internal("Cannot pause terminal job".to_string()).into())
+                    return Err(AosError::Internal(format!(
+                        "Cannot pause terminal job {} in state: {:?}",
+                        job_id, job.status
+                    ))
+                    .into())
                 }
                 TrainingJobStatus::Paused => {
                     // Idempotent
@@ -698,9 +792,13 @@ impl TrainingService {
                         db.update_training_status(job_id, "paused").await?;
                     }
                     // Emit event
-                    self.emit_event("job_paused", job_id, json!({
-                        "status": "paused",
-                    }));
+                    self.emit_event(
+                        "job_paused",
+                        job_id,
+                        json!({
+                            "status": "paused",
+                        }),
+                    );
                 }
             }
         }
@@ -734,7 +832,11 @@ impl TrainingService {
                 TrainingJobStatus::Completed
                 | TrainingJobStatus::Failed
                 | TrainingJobStatus::Cancelled => {
-                    return Err(AosError::Internal("Cannot resume terminal job".to_string()).into())
+                    return Err(AosError::Internal(format!(
+                        "Cannot resume terminal job {} in state: {:?}",
+                        job_id, job.status
+                    ))
+                    .into())
                 }
                 TrainingJobStatus::Running | TrainingJobStatus::Pending => {
                     // Idempotent
@@ -748,9 +850,13 @@ impl TrainingService {
                         db.update_training_status(job_id, "running").await?;
                     }
                     // Emit event
-                    self.emit_event("job_resumed", job_id, json!({
-                        "status": "running",
-                    }));
+                    self.emit_event(
+                        "job_resumed",
+                        job_id,
+                        json!({
+                            "status": "running",
+                        }),
+                    );
                 }
             }
         }
@@ -805,13 +911,17 @@ impl TrainingService {
             }
 
             // Emit progress event
-            self.emit_event("progress_updated", job_id, json!({
-                "epoch": job.current_epoch,
-                "total_epochs": job.total_epochs,
-                "loss": job.current_loss,
-                "progress_pct": job.progress_pct,
-                "tokens_per_second": job.tokens_per_second,
-            }));
+            self.emit_event(
+                "progress_updated",
+                job_id,
+                json!({
+                    "epoch": job.current_epoch,
+                    "total_epochs": job.total_epochs,
+                    "loss": job.current_loss,
+                    "progress_pct": job.progress_pct,
+                    "tokens_per_second": job.tokens_per_second,
+                }),
+            );
 
             Ok(())
         } else {
@@ -826,7 +936,7 @@ impl TrainingService {
             job.status = TrainingJobStatus::Completed;
             job.progress_pct = 100.0;
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-            
+
             // Update database
             if let Some(ref db) = self.db {
                 let progress = TrainingProgress {
@@ -840,25 +950,32 @@ impl TrainingService {
                 };
                 db.update_training_progress(job_id, &progress).await?;
                 db.update_training_status(job_id, "completed").await?;
-                
+
                 // Update metadata if artifacts exist
-                if job.artifact_path.is_some() || job.adapter_id.is_some() || job.weights_hash_b3.is_some() {
+                if job.artifact_path.is_some()
+                    || job.adapter_id.is_some()
+                    || job.weights_hash_b3.is_some()
+                {
                     let (_, _, metadata_json) = Self::job_to_db_data(job)?;
                     if let Some(metadata) = metadata_json {
                         db.update_training_job_metadata(job_id, &metadata).await?;
                     }
                 }
             }
-            
+
             // Emit completion event
-            self.emit_event("job_completed", job_id, json!({
-                "status": "completed",
-                "final_loss": job.current_loss,
-                "artifact_path": job.artifact_path,
-                "adapter_id": job.adapter_id,
-                "weights_hash_b3": job.weights_hash_b3,
-            }));
-            
+            self.emit_event(
+                "job_completed",
+                job_id,
+                json!({
+                    "status": "completed",
+                    "final_loss": job.current_loss,
+                    "artifact_path": job.artifact_path,
+                    "adapter_id": job.adapter_id,
+                    "weights_hash_b3": job.weights_hash_b3,
+                }),
+            );
+
             tracing::info!("Training job completed: {}", job_id);
             Ok(())
         } else {
@@ -873,7 +990,7 @@ impl TrainingService {
             job.status = TrainingJobStatus::Failed;
             job.error_message = Some(error.clone());
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-            
+
             // Update database
             if let Some(ref db) = self.db {
                 let progress = TrainingProgress {
@@ -888,13 +1005,17 @@ impl TrainingService {
                 db.update_training_progress(job_id, &progress).await?;
                 db.update_training_status(job_id, "failed").await?;
             }
-            
+
             // Emit failure event
-            self.emit_event("job_failed", job_id, json!({
-                "status": "failed",
-                "error": error,
-            }));
-            
+            self.emit_event(
+                "job_failed",
+                job_id,
+                json!({
+                    "status": "failed",
+                    "error": error,
+                }),
+            );
+
             error!("Training job failed: {}", job_id);
             Ok(())
         } else {
@@ -908,22 +1029,24 @@ impl TrainingService {
         let _ = self.get_job(job_id).await?;
 
         let log_path = self.log_file_path(job_id);
-        
+
         if !log_path.exists() {
             // Return empty logs if file doesn't exist yet
             return Ok(vec![]);
         }
 
         // Read log file
-        let content = tokio::fs::read_to_string(&log_path)
-            .await
-            .map_err(|e| AosError::Io(format!("Failed to read log file {}: {}", log_path.display(), e)))?;
+        let content = tokio::fs::read_to_string(&log_path).await.map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read log file for job {} ({}): {}",
+                job_id,
+                log_path.display(),
+                e
+            ))
+        })?;
 
         // Split into lines and return
-        let lines: Vec<String> = content
-            .lines()
-            .map(|s| s.to_string())
-            .collect();
+        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
 
         Ok(lines)
     }
@@ -951,9 +1074,10 @@ impl TrainingService {
                 // Filter jobs that actually have artifacts in metadata
                 if let Some(ref metadata_json) = record.metadata_json {
                     if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_json) {
-                        if metadata.get("artifact_path").is_some() 
-                            || metadata.get("adapter_id").is_some() 
-                            || metadata.get("weights_hash_b3").is_some() {
+                        if metadata.get("artifact_path").is_some()
+                            || metadata.get("adapter_id").is_some()
+                            || metadata.get("weights_hash_b3").is_some()
+                        {
                             match Self::record_to_job(record) {
                                 Ok(job) => jobs.push(job),
                                 Err(e) => {
@@ -968,8 +1092,13 @@ impl TrainingService {
         } else {
             // Fallback to cache
             let cache = self.jobs_cache.read().await;
-            Ok(cache.values()
-                .filter(|job| job.artifact_path.is_some() || job.adapter_id.is_some() || job.weights_hash_b3.is_some())
+            Ok(cache
+                .values()
+                .filter(|job| {
+                    job.artifact_path.is_some()
+                        || job.adapter_id.is_some()
+                        || job.weights_hash_b3.is_some()
+                })
                 .cloned()
                 .collect())
         }
@@ -987,17 +1116,24 @@ impl TrainingService {
             for record in old_jobs {
                 if let Some(ref metadata_json) = record.metadata_json {
                     if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_json) {
-                        if let Some(artifact_path) = metadata.get("artifact_path")
-                            .and_then(|v| v.as_str())
+                        if let Some(artifact_path) =
+                            metadata.get("artifact_path").and_then(|v| v.as_str())
                         {
                             let path = std::path::PathBuf::from(artifact_path);
                             if path.exists() {
                                 // Remove artifact directory
                                 if let Err(e) = std::fs::remove_dir_all(&path) {
-                                    tracing::warn!("Failed to remove artifact directory {}: {}", path.display(), e);
+                                    tracing::warn!(
+                                        "Failed to remove artifact directory {}: {}",
+                                        path.display(),
+                                        e
+                                    );
                                 } else {
                                     cleaned_count += 1;
-                                    tracing::info!("Cleaned up artifact directory: {}", path.display());
+                                    tracing::info!(
+                                        "Cleaned up artifact directory: {}",
+                                        path.display()
+                                    );
                                 }
                             }
                         }
@@ -1055,11 +1191,17 @@ impl TrainingService {
         let mut cleaned_count = 0;
 
         // Read log directory
-        let entries = std::fs::read_dir(&self.log_dir)
-            .map_err(|e| AosError::Io(format!("Failed to read log directory {}: {}", self.log_dir.display(), e)))?;
+        let entries = std::fs::read_dir(&self.log_dir).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read log directory {}: {}",
+                self.log_dir.display(),
+                e
+            ))
+        })?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| AosError::Io(format!("Failed to read log directory entry: {}", e)))?;
+            let entry = entry
+                .map_err(|e| AosError::Io(format!("Failed to read log directory entry: {}", e)))?;
             let path = entry.path();
 
             // Only process .log files
@@ -1071,7 +1213,11 @@ impl TrainingService {
                         if modified_time < cutoff_time {
                             // Remove old log file
                             if let Err(e) = std::fs::remove_file(&path) {
-                                tracing::warn!("Failed to remove old log file {}: {}", path.display(), e);
+                                tracing::warn!(
+                                    "Failed to remove old log file {}: {}",
+                                    path.display(),
+                                    e
+                                );
                             } else {
                                 cleaned_count += 1;
                                 tracing::debug!("Cleaned up old log file: {}", path.display());
@@ -1113,12 +1259,12 @@ impl TrainingService {
                             "Job stuck in running state for more than {} hours (started: {})",
                             max_age_hours, record.started_at
                         );
-                        
+
                         tracing::warn!("Reconciling stuck job {}: {}", record.id, error_msg);
-                        
+
                         // Update database
                         db.update_training_status(&record.id, "failed").await?;
-                        
+
                         // Update cache if present
                         {
                             let mut cache = self.jobs_cache.write().await;
@@ -1128,14 +1274,18 @@ impl TrainingService {
                                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                             }
                         }
-                        
+
                         // Emit event
-                        self.emit_event("job_failed", &record.id, json!({
-                            "status": "failed",
-                            "reason": "stuck_job_reconciliation",
-                            "error_message": error_msg,
-                        }));
-                        
+                        self.emit_event(
+                            "job_failed",
+                            &record.id,
+                            json!({
+                                "status": "failed",
+                                "reason": "stuck_job_reconciliation",
+                                "error_message": error_msg,
+                            }),
+                        );
+
                         reconciled += 1;
                     }
                 }
@@ -1155,7 +1305,8 @@ impl TrainingService {
             for (_job_id, job) in cache.iter() {
                 if matches!(job.status, TrainingJobStatus::Running) {
                     if let Some(ref started_at_str) = job.started_at {
-                        if let Ok(started_at) = chrono::DateTime::parse_from_rfc3339(started_at_str) {
+                        if let Ok(started_at) = chrono::DateTime::parse_from_rfc3339(started_at_str)
+                        {
                             let started_at_utc = started_at.with_timezone(&chrono::Utc);
                             if started_at_utc < cutoff_time {
                                 reconciled += 1;
@@ -1197,18 +1348,50 @@ async fn run_training_job(
     let append_log = |message: &str| -> Result<()> {
         let log_path = log_dir.join(format!("{}.log", job_id));
         if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent).map_err(|e| {
+                anyhow!(
+                    "Failed to ensure training log directory {} for job {}: {}",
+                    parent.display(),
+                    job_id,
+                    e
+                )
+            })?;
         }
+
         let timestamp = chrono::Utc::now().to_rfc3339();
         let log_line = format!("[{}] {}\n", timestamp, message);
-        if let Ok(mut file) = std::fs::OpenOptions::new()
+
+        let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
-        {
-            let _ = file.write_all(log_line.as_bytes());
-            let _ = file.flush();
-        }
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to open training log file for job {} ({}): {}",
+                    job_id,
+                    log_path.display(),
+                    e
+                )
+            })?;
+
+        file.write_all(log_line.as_bytes()).map_err(|e| {
+            anyhow!(
+                "Failed to write training log entry for job {} to {}: {}",
+                job_id,
+                log_path.display(),
+                e
+            )
+        })?;
+
+        file.flush().map_err(|e| {
+            anyhow!(
+                "Failed to flush training log entry for job {} to {}: {}",
+                job_id,
+                log_path.display(),
+                e
+            )
+        })?;
+
         Ok(())
     };
 
@@ -1220,10 +1403,17 @@ async fn run_training_job(
             job.started_at = Some(chrono::Utc::now().to_rfc3339());
         }
     }
-    
-    let _ = append_log("Training job started");
-    let _ = append_log(&format!("Loading dataset from: {:?}", dataset_path.as_ref().or(directory_path.as_ref())));
-    
+
+    if let Err(e) = append_log("Training job started") {
+        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+    }
+    if let Err(e) = append_log(&format!(
+        "Loading dataset from: {:?}",
+        dataset_path.as_ref().or(directory_path.as_ref())
+    )) {
+        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+    }
+
     // Update database
     if let Some(ref db) = db_ref {
         db.update_training_status(&job_id, "running").await?;
@@ -1239,9 +1429,17 @@ async fn run_training_job(
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
         weight_group_config: Default::default(),
     };
-    
-    let _ = append_log(&format!("Training config: rank={}, alpha={}, epochs={}, batch_size={}, lr={}", 
-        worker_cfg.rank, worker_cfg.alpha, worker_cfg.epochs, worker_cfg.batch_size, worker_cfg.learning_rate));
+
+    if let Err(e) = append_log(&format!(
+        "Training config: rank={}, alpha={}, epochs={}, batch_size={}, lr={}",
+        worker_cfg.rank,
+        worker_cfg.alpha,
+        worker_cfg.epochs,
+        worker_cfg.batch_size,
+        worker_cfg.learning_rate
+    )) {
+        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+    }
 
     // Load dataset if provided, else build from directory, else use a small synthetic batch
     let examples: Vec<WorkerTrainingExample> = if let Some(path) = dataset_path {
@@ -1334,7 +1532,16 @@ async fn run_training_job(
                         );
                         // Mark job failed before returning error
                         let error_msg = e.to_string();
-                        let _ = append_log(&format!("ERROR: Directory dataset build failed: {}", error_msg));
+                        if let Err(e) = append_log(&format!(
+                            "ERROR: Directory dataset build failed: {}",
+                            error_msg
+                        )) {
+                            tracing::warn!(
+                                job_id = %job_id,
+                                error = %e,
+                                "Failed to append training log entry"
+                            );
+                        }
                         {
                             let mut cache = jobs_cache_ref.write().await;
                             if let Some(job) = cache.get_mut(&job_id) {
@@ -1354,8 +1561,23 @@ async fn run_training_job(
                                 tokens_per_second: 0.0,
                                 error_message: Some(error_msg.clone()),
                             };
-                            let _ = db.update_training_progress(&job_id, &progress).await;
-                            let _ = db.update_training_status(&job_id, "failed").await;
+                            if let Err(db_err) =
+                                db.update_training_progress(&job_id, &progress).await
+                            {
+                                tracing::error!(
+                                    job_id = %job_id,
+                                    error = %db_err,
+                                    "Failed to persist training progress after dataset build failure"
+                                );
+                            }
+                            if let Err(db_err) = db.update_training_status(&job_id, "failed").await
+                            {
+                                tracing::error!(
+                                    job_id = %job_id,
+                                    error = %db_err,
+                                    "Failed to mark training job failed after dataset build failure"
+                                );
+                            }
                         }
                         // Propagate error to fail the task
                         return Err(e.into());
@@ -1380,20 +1602,25 @@ async fn run_training_job(
         ]
     };
 
-    let _ = append_log(&format!("Loaded {} training examples", examples.len()));
+    if let Err(e) = append_log(&format!("Loaded {} training examples", examples.len())) {
+        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+    }
     let mut trainer = WorkerTrainer::new(worker_cfg)?;
-    let _ = append_log("Initialized trainer");
+    if let Err(e) = append_log("Initialized trainer") {
+        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+    }
 
     // Respect pause/cancel before starting
     let control = {
         let controls = controls_ref.read().await;
-        controls
-            .get(&job_id)
-            .cloned()
-            .ok_or_else(|| AosError::Internal("Job control not found".to_string()))?
+        controls.get(&job_id).cloned().ok_or_else(|| {
+            AosError::Internal(format!("Job control not found for job {}", job_id))
+        })?
     };
     if control.cancelled.load(Ordering::SeqCst) {
-        let _ = append_log("Training job cancelled before start");
+        if let Err(e) = append_log("Training job cancelled before start") {
+            tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+        }
         let mut cache = jobs_cache_ref.write().await;
         if let Some(job) = cache.get_mut(&job_id) {
             job.status = TrainingJobStatus::Cancelled;
@@ -1401,12 +1628,20 @@ async fn run_training_job(
         }
         // Update database
         if let Some(ref db) = db_ref {
-            let _ = db.update_training_status(&job_id, "cancelled").await;
+            if let Err(db_err) = db.update_training_status(&job_id, "cancelled").await {
+                tracing::error!(
+                    job_id = %job_id,
+                    error = %db_err,
+                    "Failed to mark training job cancelled"
+                );
+            }
         }
         return Ok(());
     }
-    
-    let _ = append_log("Starting training loop");
+
+    if let Err(e) = append_log("Starting training loop") {
+        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+    }
 
     // Run with per-epoch callback to update progress
     let job_id_clone = job_id.clone();
@@ -1420,22 +1655,54 @@ async fn run_training_job(
             // Log epoch start
             let log_path = log_dir_clone.join(format!("{}.log", job_id_clone));
             if let Some(parent) = log_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    tracing::warn!(
+                        job_id = %job_id_clone,
+                        dir = %parent.display(),
+                        error = %e,
+                        "Failed to ensure training log directory"
+                    );
+                }
             }
             let timestamp = chrono::Utc::now().to_rfc3339();
-            let log_line = format!("[{}] Epoch {}/{} completed, loss: {:.6}\n", 
-                timestamp, epoch, orchestrator_cfg.epochs, loss);
-            if let Ok(mut file) = std::fs::OpenOptions::new()
+            let log_line = format!(
+                "[{}] Epoch {}/{} completed, loss: {:.6}\n",
+                timestamp, epoch, orchestrator_cfg.epochs, loss
+            );
+            match std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&log_path)
             {
-                let _ = file.write_all(log_line.as_bytes());
-                let _ = file.flush();
+                Ok(mut file) => {
+                    if let Err(e) = file.write_all(log_line.as_bytes()) {
+                        tracing::warn!(
+                            job_id = %job_id_clone,
+                            path = %log_path.display(),
+                            error = %e,
+                            "Failed to write training log entry"
+                        );
+                    } else if let Err(e) = file.flush() {
+                        tracing::warn!(
+                            job_id = %job_id_clone,
+                            path = %log_path.display(),
+                            error = %e,
+                            "Failed to flush training log entry"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        job_id = %job_id_clone,
+                        path = %log_path.display(),
+                        error = %e,
+                        "Failed to open training log file"
+                    );
+                }
             }
-            
+
             // Emit epoch completed event (via cache update - we'll handle this in update_progress)
-            
+
             // If paused, busy-wait with small sleep until resumed or cancelled
             while control.paused.load(Ordering::SeqCst) {
                 if control.cancelled.load(Ordering::SeqCst) {
@@ -1452,7 +1719,19 @@ async fn run_training_job(
                         }
                     }
                 });
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                let sleep_duration = std::time::Duration::from_millis(50);
+                match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => {
+                        tokio::task::block_in_place(move || {
+                            handle.block_on(async {
+                                tokio::time::sleep(sleep_duration).await;
+                            });
+                        });
+                    }
+                    Err(_) => {
+                        std::thread::sleep(sleep_duration);
+                    }
+                }
             }
             let cache_ref = jobs_cache_ref_clone.clone();
             let db_ref_inner = db_ref_clone.clone();
@@ -1469,7 +1748,7 @@ async fn run_training_job(
                     if job.status == TrainingJobStatus::Paused {
                         job.status = TrainingJobStatus::Running;
                     }
-                    
+
                     // Update database
                     if let Some(ref db) = db_ref_inner {
                         let progress = TrainingProgress {
@@ -1481,7 +1760,15 @@ async fn run_training_job(
                             tokens_per_second: job.tokens_per_second,
                             error_message: job.error_message.clone(),
                         };
-                        let _ = db.update_training_progress(&job_id_inner, &progress).await;
+                        if let Err(db_err) =
+                            db.update_training_progress(&job_id_inner, &progress).await
+                        {
+                            tracing::error!(
+                                job_id = %job_id_inner,
+                                error = %db_err,
+                                "Failed to persist training progress update"
+                            );
+                        }
                     }
                 }
             });
@@ -1490,7 +1777,12 @@ async fn run_training_job(
 
     match result {
         Ok(training_result) => {
-            let _ = append_log(&format!("Training completed successfully. Final loss: {:.6}", training_result.final_loss));
+            if let Err(e) = append_log(&format!(
+                "Training completed successfully. Final loss: {:.6}",
+                training_result.final_loss
+            )) {
+                tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+            }
             let mut cache = jobs_cache_ref.write().await;
             if let Some(job) = cache.get_mut(&job_id) {
                 job.status = TrainingJobStatus::Completed;
@@ -1498,7 +1790,13 @@ async fn run_training_job(
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
 
                 if package {
-                    let _ = append_log("Starting adapter packaging");
+                    if let Err(e) = append_log("Starting adapter packaging") {
+                        tracing::warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to append training log entry"
+                        );
+                    }
                     // Quantize and package into adapters_root
                     let chosen_root = adapters_root.unwrap_or_else(|| {
                         std::env::var("AOS_ADAPTERS_ROOT")
@@ -1510,13 +1808,24 @@ async fn run_training_job(
                     let aid_for_pack = adapter_id.clone();
                     let root_for_pack = chosen_root.clone();
 
-                    let _ = append_log(&format!("Packaging adapter: {} to {}", adapter_id, chosen_root));
+                    if let Err(e) = append_log(&format!(
+                        "Packaging adapter: {} to {}",
+                        adapter_id, chosen_root
+                    )) {
+                        tracing::warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to append training log entry"
+                        );
+                    }
 
                     // Quantize weights
                     let quantized = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(
                         &training_result.weights,
                     );
-                    let _ = append_log("Weights quantized to Q15");
+                    if let Err(e) = append_log("Weights quantized to Q15") {
+                        tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+                    }
 
                     // Package synchronously in this async task (no nested runtime spawn)
                     let packager = adapteros_lora_worker::training::packager::AdapterPackager::new(
@@ -1544,17 +1853,32 @@ async fn run_training_job(
                             job.artifact_path = Some(format!("{}/{}", root_for_pack, adapter_id));
                             job.adapter_id = Some(adapter_id.clone());
                             job.weights_hash_b3 = Some(packaged.hash_b3.clone());
-                            let _ = append_log(&format!("Adapter packaged successfully: {} (hash: {})", adapter_id, packaged.hash_b3));
+                            if let Err(e) = append_log(&format!(
+                                "Adapter packaged successfully: {} (hash: {})",
+                                adapter_id, packaged.hash_b3
+                            )) {
+                                tracing::warn!(
+                                    job_id = %job_id,
+                                    error = %e,
+                                    "Failed to append training log entry"
+                                );
+                            }
                         }
                         Err(e) => {
                             let error_msg = format!("Packaging failed: {}", e);
-                            let _ = append_log(&format!("ERROR: {}", error_msg));
+                            if let Err(e) = append_log(&format!("ERROR: {}", error_msg)) {
+                                tracing::warn!(
+                                    job_id = %job_id,
+                                    error = %e,
+                                    "Failed to append training log entry"
+                                );
+                            }
                             tracing::error!("Packaging failed: {}", e);
                         }
                     }
                 }
             }
-            
+
             // Update database with completion
             {
                 let cache = jobs_cache_ref.read().await;
@@ -1569,37 +1893,65 @@ async fn run_training_job(
                             tokens_per_second: job.tokens_per_second,
                             error_message: job.error_message.clone(),
                         };
-                        let _ = db.update_training_progress(&job_id, &progress).await;
-                        let _ = db.update_training_status(&job_id, "completed").await;
-                        
+                        if let Err(db_err) = db.update_training_progress(&job_id, &progress).await {
+                            tracing::error!(
+                                job_id = %job_id,
+                                error = %db_err,
+                                "Failed to persist training progress on completion"
+                            );
+                        }
+                        if let Err(db_err) = db.update_training_status(&job_id, "completed").await {
+                            tracing::error!(
+                                job_id = %job_id,
+                                error = %db_err,
+                                "Failed to mark training job completed"
+                            );
+                        }
+
                         // Update metadata if artifacts exist
-                        if job.artifact_path.is_some() || job.adapter_id.is_some() || job.weights_hash_b3.is_some() {
+                        if job.artifact_path.is_some()
+                            || job.adapter_id.is_some()
+                            || job.weights_hash_b3.is_some()
+                        {
                             let metadata = json!({
                                 "artifact_path": job.artifact_path,
                                 "adapter_id": job.adapter_id,
                                 "weights_hash_b3": job.weights_hash_b3,
                             });
                             if let Ok(metadata_json) = serde_json::to_string(&metadata) {
-                                let _ = db.update_training_job_metadata(&job_id, &metadata_json).await;
+                                if let Err(db_err) = db
+                                    .update_training_job_metadata(&job_id, &metadata_json)
+                                    .await
+                                {
+                                    tracing::error!(
+                                        job_id = %job_id,
+                                        error = %db_err,
+                                        "Failed to update training job metadata after packaging"
+                                    );
+                                }
                             }
                         }
                     }
                 }
             }
-            
-            let _ = append_log("Training job completed successfully");
+
+            if let Err(e) = append_log("Training job completed successfully") {
+                tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+            }
             Ok(())
         }
         Err(e) => {
             let error_msg = e.to_string();
-            let _ = append_log(&format!("ERROR: Training failed: {}", error_msg));
+            if let Err(e) = append_log(&format!("ERROR: Training failed: {}", error_msg)) {
+                tracing::warn!(job_id = %job_id, error = %e, "Failed to append training log entry");
+            }
             let mut cache = jobs_cache_ref.write().await;
             if let Some(job) = cache.get_mut(&job_id) {
                 job.status = TrainingJobStatus::Failed;
                 job.error_message = Some(error_msg.clone());
                 job.completed_at = Some(chrono::Utc::now().to_rfc3339());
             }
-            
+
             // Update database with failure
             if let Some(ref db) = db_ref {
                 let progress = TrainingProgress {
@@ -1611,10 +1963,22 @@ async fn run_training_job(
                     tokens_per_second: 0.0,
                     error_message: Some(error_msg.clone()),
                 };
-                let _ = db.update_training_progress(&job_id, &progress).await;
-                let _ = db.update_training_status(&job_id, "failed").await;
+                if let Err(db_err) = db.update_training_progress(&job_id, &progress).await {
+                    tracing::error!(
+                        job_id = %job_id,
+                        error = %db_err,
+                        "Failed to persist training progress after job failure"
+                    );
+                }
+                if let Err(db_err) = db.update_training_status(&job_id, "failed").await {
+                    tracing::error!(
+                        job_id = %job_id,
+                        error = %db_err,
+                        "Failed to mark training job failed"
+                    );
+                }
             }
-            
+
             Err(e.into())
         }
     }

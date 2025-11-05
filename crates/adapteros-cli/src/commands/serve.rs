@@ -105,7 +105,10 @@ pub async fn run(
                     if let Some(mlx_config) = &config.mlx {
                         if mlx_config.enabled {
                             // Check for early feature validation
-                            #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
+                            #[cfg(not(any(
+                                feature = "mlx-ffi-backend",
+                                feature = "experimental-backends"
+                            )))]
                             {
                                 output.warning("MLX backend is enabled in config but --features mlx-ffi-backend not enabled");
                                 output.warning("MLX backend will fail at runtime. Rebuild with: cargo build --features mlx-ffi-backend");
@@ -120,7 +123,10 @@ pub async fn run(
                     }
                 }
                 Err(e) => {
-                    output.warning(format!("Could not load configuration from {}: {}", config_path, e));
+                    output.warning(format!(
+                        "Could not load configuration from {}: {}",
+                        config_path, e
+                    ));
                     output.warning("MLX configuration will be unavailable");
                     None
                 }
@@ -273,14 +279,20 @@ pub async fn run(
     let model_path = if matches!(backend, BackendType::Mlx) {
         // For MLX backend: env var > config > manifest-based
         if let Ok(env_path) = std::env::var("AOS_MLX_FFI_MODEL") {
-            output.verbose(format!("Using MLX model path from AOS_MLX_FFI_MODEL: {}", env_path));
+            output.verbose(format!(
+                "Using MLX model path from AOS_MLX_FFI_MODEL: {}",
+                env_path
+            ));
             env_path
         } else if let Some(config_path) = mlx_model_path {
             output.verbose(format!("Using MLX model path from config: {}", config_path));
             config_path
         } else {
             let default_path = format!("./models/{}", manifest.base.model_id);
-            output.verbose(format!("Using default MLX model path from manifest: {}", default_path));
+            output.verbose(format!(
+                "Using default MLX model path from manifest: {}",
+                default_path
+            ));
             default_path
         }
     } else {
@@ -441,9 +453,14 @@ pub async fn run(
             // Validate that we have a model path for MLX
             if !std::path::Path::new(&model_path).exists() {
                 output.error(format!("MLX model directory not found: {}", model_path));
-                output.info("Set AOS_MLX_FFI_MODEL environment variable or configure in configs/cp.toml");
+                output.info(
+                    "Set AOS_MLX_FFI_MODEL environment variable or configure in configs/cp.toml",
+                );
                 output.info("Or ensure the model directory exists at the expected path");
-                return Err(anyhow::anyhow!("MLX model directory not found: {}", model_path));
+                return Err(anyhow::anyhow!(
+                    "MLX model directory not found: {}",
+                    model_path
+                ));
             }
 
             #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]

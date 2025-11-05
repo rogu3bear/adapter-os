@@ -1502,13 +1502,12 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Response:
 # [
 #   {
-#     "id": "repo_abc123",
-#     "name": "my-project",
+#     "id": "github-com-user-my-project-a1b2c3d4e5f6",
 #     "url": "https://github.com/user/my-project",
 #     "branch": "main",
-#     "last_scanned": "2025-11-03T10:00:00Z",
-#     "file_count": 1250,
-#     "status": "active"
+#     "path": "/var/bundles/repos/tenant-1/github-com-user-my-project-a1b2c3d4e5f6",
+#     "commit_count": 128,
+#     "last_scan": "2025-11-03T10:00:00Z"
 #   }
 # ]
 ```

@@ -18,13 +18,23 @@ class StatusViewModel: ObservableObject {
     @Published var tooltip: String = "AdapterOS OFFLINE"
     @Published var lastError: StatusReadError?
     @Published var lastUpdate: Date?
-    
+    @Published var appStatus: AppStatusViewState?
+    @Published var tenants: [TenantViewState] = []
+    @Published var activeOperations: [ActiveOperationViewState] = []
+    @Published var trustState: TrustStateViewState = .pending
+    @Published var accessibilityPreferences = AccessibilityPreferences()
+    @Published var commandToast: CommandToast?
+
+    // MARK: - Request Tracking
+    @Published private(set) var totalRequests: Int = 0
+
     // MARK: - Private State
 
     private let statusPath = "/var/run/adapteros_status.json"
     private let reader = StatusReader() // Will check local var/ first, then /var/run
     private let metricsCollector = SystemMetricsCollector()
     private let serviceClient = ServicePanelClient()
+    private let notificationManager = NotificationManager.shared
     private var pollTimerCancellable: AnyCancellable?
     private var metricsTimerCancellable: AnyCancellable?
     private var vnodeSource: DispatchSourceFileSystemObject?
@@ -35,6 +45,16 @@ class StatusViewModel: ObservableObject {
     private var watcherFailureCount: Int = 0
     private let maxWatcherFailures = 3
     private var lastWatcherRetryTime: Date?
+    private var isSettingUpWatcher = false
+    private var previousServiceStates: [String: String] = [:] // serviceId -> state
+    private var previousServiceHealth: [String: String] = [:] // serviceId -> health_status
+    private var _recentStatusSnapshots: [StatusSnapshot] = []
+    private let maxStatusHistory = 3
+
+    // Public accessor for recent status snapshots
+    var recentStatusSnapshots: [StatusSnapshot] {
+        _recentStatusSnapshots
+    }
     
     /// Find the first existing status file path
     private func findStatusFile() -> String? {
@@ -110,11 +130,17 @@ class StatusViewModel: ObservableObject {
         case .success(let (newStatus, hash, _)):
             lastError = nil
             isOffline = false
-            if lastHash != hash {
+            let hasNewContent = lastHash != hash || status == nil
+            if hasNewContent {
                 lastHash = hash
                 status = newStatus
-                lastUpdate = Date()
+                // Record status change for history
+                addStatusSnapshot(newStatus)
             }
+            lastUpdate = Date()
+            appStatus = AppStatusViewState(status: newStatus, metrics: metrics, lastUpdated: lastUpdate)
+            updateTrustState(with: newStatus)
+            checkServiceNotifications(for: newStatus)
             transientErrorSuppressed = false
         case .failure(let error):
             // Suppress transient errors for one cycle
@@ -122,12 +148,61 @@ class StatusViewModel: ObservableObject {
                 lastError = error
                 isOffline = true
                 status = nil
+                appStatus = nil
+                trustState = .pending
             } else {
                 transientErrorSuppressed = true
             }
         }
     }
-    
+
+    private func checkServiceNotifications(for newStatus: AdapterOSStatus) {
+        guard let services = newStatus.services else { return }
+
+        for service in services {
+            let previousState = previousServiceStates[service.id]
+
+            // Check for failures
+            if service.state == "failed" && previousState != "failed" {
+                notificationManager.notifyCriticalFailure(service)
+            }
+            // Check for recoveries
+            else if service.state == "running" && previousState == "failed" {
+                notificationManager.notifyRecovery(service)
+            }
+
+            // Update previous states
+            previousServiceStates[service.id] = service.state
+            previousServiceHealth[service.id] = service.health_status
+        }
+    }
+
+    /// Get health trend for a specific service
+    func getServiceHealthTrend(for serviceId: String) -> ServiceHealthTrend? {
+        guard let currentHealth = status?.services?.first(where: { $0.id == serviceId })?.health_status,
+              let previousHealth = previousServiceHealth[serviceId],
+              currentHealth != previousHealth else {
+            return nil
+        }
+
+        return ServiceHealthTrend(
+            serviceId: serviceId,
+            previousHealth: previousHealth,
+            currentHealth: currentHealth,
+            changeTime: lastUpdate ?? Date()
+        )
+    }
+
+    private func addStatusSnapshot(_ status: AdapterOSStatus) {
+        let snapshot = StatusSnapshot(status: status, timestamp: Date())
+        _recentStatusSnapshots.insert(snapshot, at: 0)
+
+        // Keep only the most recent snapshots
+        if _recentStatusSnapshots.count > maxStatusHistory {
+            _recentStatusSnapshots.removeLast()
+        }
+    }
+
     // MARK: - Icon & Tooltip Logic
     
     private func updateIconAndTooltip() {
@@ -137,9 +212,11 @@ class StatusViewModel: ObservableObject {
             return
         }
 
-        // Determine icon based on state
+        // Determine icon based on state, prioritizing service failures
         if let metrics = metrics, metrics.cpuUsage > 80 {
             iconName = "flame.fill"
+        } else if status.hasServiceFailures {
+            iconName = "bolt.trianglebadge.exclamationmark"
         } else if status.status == "error" {
             iconName = "bolt.slash.circle.fill"
         } else if status.status == "degraded" {
@@ -148,15 +225,27 @@ class StatusViewModel: ObservableObject {
             iconName = "bolt.circle.fill"
         }
 
-        // Build tooltip (CPU/mem only)
+        // Build tooltip
+        var tooltipComponents: [String] = []
+        tooltipComponents.append("AdapterOS \(status.status.uppercased())")
+
+        // Add service failure information
+        if !status.failedServices.isEmpty {
+            let failedServices = status.failedServices
+            let failureText = failedServices.count == 1
+                ? "1 service failed"
+                : "\(failedServices.count) services failed"
+            tooltipComponents.append(failureText)
+        }
+
+        // Add CPU/memory info
         if let metrics = metrics {
-            let statusText = status.status.uppercased()
             let cpu = String(format: "%.0f%%", metrics.cpuUsage)
             let mem = String(format: "%.0fGB", metrics.memoryUsedGB)
-            tooltip = "AdapterOS \(statusText) · \(cpu) CPU · \(mem) RAM"
-        } else {
-            tooltip = "AdapterOS \(status.status.uppercased())"
+            tooltipComponents.append("\(cpu) CPU · \(mem) RAM")
         }
+
+        tooltip = tooltipComponents.joined(separator: " · ")
     }
     
     // MARK: - Actions
@@ -184,24 +273,161 @@ class StatusViewModel: ObservableObject {
             return
         }
 
+        let operationId = UUID().uuidString
+        let operation = ActiveOperationViewState(
+            id: operationId,
+            title: "Unloading base model",
+            detail: status.base_model_name,
+            startedAt: Date(),
+            progress: nil,
+            supportsCancellation: false,
+            cancelAction: nil,
+            testID: "operation-unload-model"
+        )
+        activeOperations.append(operation)
+
         do {
+            incrementRequestCount()
             _ = try await serviceClient.unloadModel(modelId)
             Logger.shared.info("Model unloaded successfully", context: ["model_id": modelId])
 
             // Refresh status to show unloaded state
             await refresh()
+            commandToast = CommandToast(message: "Model unloaded", kind: .success)
         } catch {
             Logger.shared.error("Failed to unload model", error: error, context: ["model_id": modelId])
             lastError = StatusReadError.readError("Failed to unload model: \(error.localizedDescription)")
+            commandToast = CommandToast(message: "Failed to unload model", kind: .error)
         }
+
+        activeOperations.removeAll { $0.id == operationId }
     }
 
     func quit() {
         NSApplication.shared.terminate(nil)
     }
 
+    // MARK: - Request Tracking
+
+    func incrementRequestCount() {
+        totalRequests += 1
+    }
+
+    // MARK: - Debug Test Injections
+
+    func loadSampleOKStatus() async {
+        // Create a sample status manually since no static samples exist
+        let sampleStatus = AdapterOSStatus(
+            schema_version: "1.0",
+            status: "ok",
+            uptime_secs: 3600,
+            adapters_loaded: 3,
+            deterministic: true,
+            kernel_hash: "abcdef123456",
+            telemetry_mode: "full",
+            worker_count: 4,
+            base_model_loaded: true,
+            base_model_id: "llama-2-7b",
+            base_model_name: "Llama-2-7B",
+            base_model_status: "loaded",
+            base_model_memory_mb: 14336,
+            services: [
+                ServiceStatus(
+                    id: "api-server",
+                    name: "API Server",
+                    state: "running",
+                    pid: 12345,
+                    port: 8080,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                ),
+                ServiceStatus(
+                    id: "worker-pool",
+                    name: "Worker Pool",
+                    state: "running",
+                    pid: nil,
+                    port: nil,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                )
+            ]
+        )
+        status = sampleStatus
+        lastError = nil
+        isOffline = false
+        lastUpdate = Date()
+        appStatus = AppStatusViewState(status: sampleStatus, metrics: metrics, lastUpdated: lastUpdate)
+        addStatusSnapshot(sampleStatus)
+        commandToast = CommandToast(message: "Loaded sample OK status", kind: .info)
+    }
+
+    func loadSampleDegradedStatus() async {
+        // Create a sample degraded status
+        let sampleStatus = AdapterOSStatus(
+            schema_version: "1.0",
+            status: "degraded",
+            uptime_secs: 1800,
+            adapters_loaded: 2,
+            deterministic: true,
+            kernel_hash: "def456789012",
+            telemetry_mode: "minimal",
+            worker_count: 3,
+            base_model_loaded: true,
+            base_model_id: "llama-2-7b",
+            base_model_name: "Llama-2-7B",
+            base_model_status: "loaded",
+            base_model_memory_mb: 14336,
+            services: [
+                ServiceStatus(
+                    id: "api-server",
+                    name: "API Server",
+                    state: "running",
+                    pid: 12345,
+                    port: 8080,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                ),
+                ServiceStatus(
+                    id: "worker-pool",
+                    name: "Worker Pool",
+                    state: "failed",
+                    pid: nil,
+                    port: nil,
+                    health_status: "unhealthy",
+                    restart_count: 2,
+                    last_error: "Connection timeout"
+                )
+            ]
+        )
+        status = sampleStatus
+        lastError = nil
+        isOffline = false
+        lastUpdate = Date()
+        appStatus = AppStatusViewState(status: sampleStatus, metrics: metrics, lastUpdated: lastUpdate)
+        addStatusSnapshot(sampleStatus)
+        commandToast = CommandToast(message: "Loaded sample degraded status", kind: .info)
+    }
+
+    func simulateMissingFile() async {
+        lastError = StatusReadError.fileMissing
+        isOffline = true
+        status = nil
+        appStatus = nil
+        trustState = .pending
+        commandToast = CommandToast(message: "Simulated missing file", kind: .error)
+    }
+
     // MARK: - VNODE watcher
     private func setupWatcher() {
+        if isSettingUpWatcher {
+            return
+        }
+        isSettingUpWatcher = true
+        defer { isSettingUpWatcher = false }
+
         // Cancel any existing watcher first
         vnodeSource?.cancel()
         vnodeSource = nil
@@ -287,10 +513,16 @@ class StatusViewModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.metrics = self.metricsCollector.collect()
+                if let status = self.status {
+                    self.appStatus = AppStatusViewState(status: status, metrics: self.metrics, lastUpdated: self.lastUpdate)
+                }
                 self.updateIconAndTooltip()
             }
         // initial sample
         metrics = metricsCollector.collect()
+        if let status = status {
+            appStatus = AppStatusViewState(status: status, metrics: metrics, lastUpdated: lastUpdate)
+        }
     }
 
     // MARK: - Sleep/Wake handling
@@ -315,4 +547,105 @@ class StatusViewModel: ObservableObject {
 
 
 
+
+// MARK: - Derived State Helpers
+
+private extension StatusViewModel {
+    func updateTrustState(with status: AdapterOSStatus) {
+        let previousTrustState = trustState
+
+        if status.deterministic {
+            trustState = .signed(
+                .init(
+                    issuer: "AdapterOS Control Plane",
+                    verifiedAt: Date()
+                )
+            )
+        } else if status.status == "error" {
+            trustState = .failed(reason: "Trust evidence invalidated")
+        } else {
+            trustState = .unsigned
+        }
+
+        // Notify about trust verification failures
+        if case .failed(let reason) = trustState,
+           previousTrustState != trustState {
+            notificationManager.notifyTrustIssue(reason)
+        }
+    }
+
+    // MARK: - Debug Methods
+
+    func injectTestStatus() {
+        // Create a test status for debugging
+        let testStatus = AdapterOSStatus(
+            schema_version: "1.0",
+            status: "ok",
+            uptime_secs: 3600, // 1 hour
+            adapters_loaded: 5,
+            deterministic: true,
+            kernel_hash: "abc123def456",
+            telemetry_mode: "enabled",
+            worker_count: 3,
+            base_model_loaded: true,
+            base_model_id: "test-model",
+            base_model_name: "Test Model",
+            base_model_status: "loaded",
+            base_model_memory_mb: 1024,
+            services: [
+                ServiceStatus(
+                    id: "web-api",
+                    name: "Web API",
+                    state: "running",
+                    pid: 1234,
+                    port: 8080,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                ),
+                ServiceStatus(
+                    id: "database",
+                    name: "Database",
+                    state: "running",
+                    pid: 5678,
+                    port: 5432,
+                    health_status: "healthy",
+                    restart_count: 1,
+                    last_error: nil
+                )
+            ]
+        )
+
+        // Inject the test status
+        let metadata = (hash: Data("test".utf8), snippet: "test status")
+        let _ = reader.injectValidStatusForTesting(testStatus, metadata: metadata)
+
+        // Refresh to pick up the injected status
+        Task { @MainActor in
+            await refresh()
+        }
+    }
+
+    func clearAllCaches() {
+        // Clear response cache
+        ResponseCache.shared.clearCache()
+
+        // Clear any other cached data
+        // Note: Status snapshots are kept for debugging
+
+        logger.info("Cleared all application caches")
+    }
+
+    func showPerformanceMetrics() {
+        let metrics = metricsCollector.collect()
+        let memoryMB = Double(metrics.memoryUsedGB)
+        let cpuPercent = metrics.cpuUsage
+
+        logger.info("Performance Metrics", context: [
+            "cpu_usage": cpuPercent,
+            "memory_used_gb": memoryMB,
+            "memory_total_gb": metrics.memoryTotalGB
+        ])
+    }
+}
 

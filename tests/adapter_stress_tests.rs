@@ -55,7 +55,7 @@ async fn test_concurrent_load_different_adapters() -> Result<()> {
     for i in 0..num_adapters {
         let adapter_id = format!("stress-adapter-{}", i);
         let adapter_file = temp_dir.join(format!("{}.safetensors", adapter_id));
-        
+
         // Create dummy adapter file
         std::fs::write(&adapter_file, vec![0u8; 1024 * 1024])?; // 1MB dummy file
 
@@ -102,9 +102,7 @@ async fn test_concurrent_load_different_adapters() -> Result<()> {
 
             // Attempt to load adapter
             let mut loader = AdapterLoader::new(temp_dir.clone());
-            let load_result = loader
-                .load_adapter_async(adapter_idx, &adapter_name)
-                .await;
+            let load_result = loader.load_adapter_async(adapter_idx, &adapter_name).await;
 
             match load_result {
                 Ok(_handle) => {
@@ -240,7 +238,11 @@ async fn test_concurrent_load_unload_same_adapter() -> Result<()> {
                     match loader.unload_adapter(0) {
                         Ok(_) => {
                             db_clone
-                                .update_adapter_state(&adapter_id_clone, "cold", "unloaded_successfully")
+                                .update_adapter_state(
+                                    &adapter_id_clone,
+                                    "cold",
+                                    "unloaded_successfully",
+                                )
                                 .await?;
                             db_clone.update_adapter_memory(&adapter_id_clone, 0).await?;
                             Ok(())
@@ -270,10 +272,13 @@ async fn test_concurrent_load_unload_same_adapter() -> Result<()> {
     let adapter = db.get_adapter(adapter_id).await?;
     assert!(adapter.is_some());
     let adapter = adapter.unwrap();
-    
+
     // Should be in a valid state
     assert!(
-        matches!(adapter.current_state.as_str(), "warm" | "cold" | "unloading"),
+        matches!(
+            adapter.current_state.as_str(),
+            "warm" | "cold" | "unloading"
+        ),
         "Adapter should be in a valid state, got: {}",
         adapter.current_state
     );
@@ -330,7 +335,8 @@ async fn test_rapid_load_unload_cycles() -> Result<()> {
                     .await?;
             }
             Err(e) => {
-                db.update_adapter_state(adapter_id, "cold", "load_failed").await?;
+                db.update_adapter_state(adapter_id, "cold", "load_failed")
+                    .await?;
                 eprintln!("Load failed in cycle {}: {}", cycle, e);
                 continue;
             }
@@ -350,7 +356,8 @@ async fn test_rapid_load_unload_cycles() -> Result<()> {
                 db.update_adapter_memory(adapter_id, 0).await?;
             }
             Err(e) => {
-                db.update_adapter_state(adapter_id, "warm", "unload_failed").await?;
+                db.update_adapter_state(adapter_id, "warm", "unload_failed")
+                    .await?;
                 eprintln!("Unload failed in cycle {}: {}", cycle, e);
             }
         }
@@ -561,4 +568,3 @@ async fn test_operation_timeout_handling() -> Result<()> {
     std::fs::remove_dir_all(&temp_dir)?;
     Ok(())
 }
-

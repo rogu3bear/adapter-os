@@ -8,7 +8,9 @@ pub use branch_manager::BranchManager;
 pub use diff_analyzer::{
     ChangedSymbol, DiffAnalysis, DiffAnalyzer, DiffSummary, SymbolChangeType, SymbolKind,
 };
-pub use subsystem::{CommitDiff, CommitInfo, GitBranchInfo, GitConfig, GitStatusResponse, GitSubsystem};
+pub use subsystem::{
+    CommitDiff, CommitInfo, GitBranchInfo, GitConfig, GitStatusResponse, GitSubsystem,
+};
 
 // NOTE: The original GitSubsystem implementation (watcher, commit daemon, branch manager)
 // has been temporarily stubbed out to resolve a feature conflict. The primary

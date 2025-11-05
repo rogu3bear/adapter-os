@@ -48,17 +48,17 @@ pub mod training;
 pub mod validator;
 pub mod weights;
 
+pub use aos2_format::{Aos2Adapter, Aos2Header};
+pub use aos2_packager::{Aos2PackageOptions, Aos2Packager};
 pub use format::{
     get_compatibility_report, verify_format_version, AdapterManifest, AdapterWeights, AosSignature,
-    CompatibilityReport, CompressionLevel, LineageInfo, Mutation, SingleFileAdapter,
-    WeightGroup, WeightGroupType, WeightMetadata, AOS_FORMAT_VERSION,
+    CompatibilityReport, CompressionLevel, LineageInfo, Mutation, SingleFileAdapter, WeightGroup,
+    WeightGroupType, WeightMetadata, AOS_FORMAT_VERSION,
 };
+pub use format_detector::{detect_format, FormatVersion};
 pub use loader::{LoadOptions, SingleFileAdapterLoader};
 pub use migration::{migrate_adapter, migrate_file, MigrationResult};
 pub use mmap_loader::{MmapAdapter, MmapAdapterLoader, WeightsKind};
-pub use aos2_format::{Aos2Adapter, Aos2Header};
-pub use aos2_packager::{Aos2PackageOptions, Aos2Packager};
-pub use format_detector::{detect_format, FormatVersion};
 pub use packager::{PackageOptions, SingleFileAdapterPackager};
 pub use training::{TrainingConfig, TrainingExample};
 pub use validator::{SingleFileAdapterValidator, ValidationResult};
