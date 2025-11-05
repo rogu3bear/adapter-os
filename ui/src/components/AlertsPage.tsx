@@ -193,6 +193,11 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   }, [effectiveTenant]);
 
   // Real-time alert streaming using EventSource
+  //
+  // Citations:
+  // - SSE pattern: [source: ui/src/hooks/useActivityFeed.ts L350-L437]
+  // - Backend endpoint: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
+  // - Event format: [source: crates/adapteros-server-api/src/types.rs L1732-1760]
   useEffect(() => {
     const base = (import.meta as any)?.env?.VITE_SSE_URL
       ? `http://${(import.meta as any).env.VITE_SSE_URL}`
