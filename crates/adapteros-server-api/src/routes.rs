@@ -348,6 +348,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/plans/:plan_id/details",
             get(handlers::get_plan_details),
         )
+        .route("/v1/plans/:plan_id", delete(handlers::delete_plan))
         .route("/v1/plans/:plan_id/rebuild", post(handlers::rebuild_plan))
         .route("/v1/plans/compare", post(handlers::compare_plans))
         .route("/v1/plans/:plan_id/pin", post(handlers::pin_plan_alias))
@@ -523,6 +524,15 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
+        )
+        // Adapter category policy routes
+        .route(
+            "/v1/adapters/category-policies",
+            get(handlers::list_category_policies),
+        )
+        .route(
+            "/v1/adapters/category-policies/:category",
+            get(handlers::get_category_policy).put(handlers::update_category_policy),
         )
         // Memory management routes
         .route("/v1/memory/usage", get(handlers::get_memory_usage))

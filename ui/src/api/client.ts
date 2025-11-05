@@ -389,6 +389,12 @@ class ApiClient {
     return response.blob();
   }
 
+  async deletePlan(planId: string): Promise<void> {
+    return this.request<void>(`/v1/plans/${planId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Control Plane
   async promote(data: types.PromotionRequest): Promise<types.PromotionRecord> {
     return this.request<types.PromotionRecord>('/v1/cp/promote', {
@@ -648,6 +654,13 @@ class ApiClient {
 
   async getCategoryPolicy(category: types.AdapterCategory): Promise<types.CategoryPolicy> {
     return this.request<types.CategoryPolicy>(`/v1/adapters/category-policies/${category}`);
+  }
+
+  async updateCategoryPolicy(category: types.AdapterCategory, policy: types.CategoryPolicy): Promise<types.CategoryPolicy> {
+    return this.request<types.CategoryPolicy>(`/v1/adapters/category-policies/${category}`, {
+      method: 'PUT',
+      body: JSON.stringify(policy),
+    });
   }
 
   // Repositories
