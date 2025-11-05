@@ -7,22 +7,28 @@
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
-use sqlx::{Row, SqlitePool};
+use sqlx::{AnyPool, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Database operations for system metrics
 pub struct SystemMetricsDb {
-    pool: SqlitePool,
+    pool: AnyPool,
 }
 
 // Migrations are available via embedded macro
-#[allow(dead_code)] // TODO: Implement database migrations in future iteration
 const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 impl SystemMetricsDb {
     /// Create a new system metrics database
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: AnyPool) -> Self {
         Self { pool }
+    }
+
+    /// Run database migrations
+    pub async fn run_migrations(&self) -> Result<()> {
+        MIGRATIONS.run(&self.pool).await
+            .map_err(|e| AosError::Database(format!("Failed to run system metrics migrations: {}", e)))?;
+        Ok(())
     }
 
     /// Store system metrics record
