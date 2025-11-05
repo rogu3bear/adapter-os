@@ -9,6 +9,11 @@
 
 use crate::alerting::AlertSeverity;
 use adapteros_core::{AosError, Result};
+use adapteros_telemetry_types::{
+    AdapterMetrics, DeterminismMetrics, DiskMetrics, LatencyMetrics, LifecycleMetrics,
+    MetricDataPoint, MetricsSnapshot, NetworkMetrics, PolicyMetrics, QueueDepthMetrics,
+    SystemMetrics, ThroughputMetrics,
+};
 use axum::{
     body::Body,
     extract::State,
@@ -17,12 +22,14 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use parking_lot::RwLock as ParkingRwLock;
 use prometheus::{
     CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry, TextEncoder,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{net::TcpListener, signal, sync::RwLock};
@@ -53,6 +60,7 @@ pub struct SystemMetricsSnapshot {
 
 // Submodule for system metrics helpers and emitters
 pub mod system;
+pub mod system_provider;
 
 /// Metrics collector with Prometheus integration and real data sources
 #[derive(Debug)]
@@ -62,6 +70,15 @@ pub struct MetricsCollector {
     inference_latency: HistogramVec,
     router_latency: HistogramVec,
     kernel_latency: HistogramVec,
+    // Lifecycle operation metrics
+    adapter_load_latency: HistogramVec,
+    adapter_unload_latency: HistogramVec,
+    load_operations_counter: CounterVec,
+    unload_operations_counter: CounterVec,
+    load_operations_total_count: AtomicU64,
+    unload_operations_total_count: AtomicU64,
+    load_operations_failed_count: AtomicU64,
+    unload_operations_failed_count: AtomicU64,
     // Queue depth metrics
     queue_depth: GaugeVec,
     adapter_queue_depth: GaugeVec,
@@ -83,91 +100,13 @@ pub struct MetricsCollector {
     active_seed_threads: Gauge,
     // Real data sources
     system_metrics_provider: Option<Box<dyn SystemMetricsProvider>>,
+    // Determinism metrics cache (updated externally to avoid circular dependency)
+    determinism_metrics: Arc<ParkingRwLock<DeterminismMetrics>>,
     // Internal state
     metrics_cache: Arc<RwLock<MetricsSnapshot>>,
 }
 
-/// Snapshot of current metrics for JSON export
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetricsSnapshot {
-    pub timestamp: u64,
-    pub latency: LatencyMetrics,
-    pub queue_depth: QueueDepthMetrics,
-    pub throughput: ThroughputMetrics,
-    pub system: SystemMetrics,
-    pub policy: PolicyMetrics,
-    pub adapters: AdapterMetrics,
-    pub disk: DiskMetrics,
-    pub network: NetworkMetrics,
-    pub determinism: DeterminismMetrics,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LatencyMetrics {
-    pub inference_p50_ms: f64,
-    pub inference_p95_ms: f64,
-    pub inference_p99_ms: f64,
-    pub router_p50_ms: f64,
-    pub router_p95_ms: f64,
-    pub router_p99_ms: f64,
-    pub kernel_p50_ms: f64,
-    pub kernel_p95_ms: f64,
-    pub kernel_p99_ms: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueDepthMetrics {
-    pub request_queue: f64,
-    pub adapter_queue: f64,
-    pub kernel_queue: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThroughputMetrics {
-    pub tokens_per_second: f64,
-    pub tokens_generated_total: u64,
-    pub sessions_per_minute: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemMetrics {
-    pub active_sessions: f64,
-    pub memory_usage_mb: f64,
-    pub cpu_usage_percent: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PolicyMetrics {
-    pub violations_total: u64,
-    pub abstain_events_total: u64,
-    pub violations_by_policy: HashMap<String, u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterMetrics {
-    pub activations_total: u64,
-    pub evictions_total: u64,
-    pub active_adapters: f64,
-    pub activations_by_adapter: HashMap<String, u64>,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct DiskMetrics {
-    pub io_utilization: f64,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct NetworkMetrics {
-    pub bandwidth_utilization: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeterminismMetrics {
-    pub seed_collision_count: u64,
-    pub seed_propagation_failure_count: u64,
-    pub active_seed_threads: usize,
-    pub thread_seed_generations: HashMap<String, u64>,
-}
+// Metric types are now imported from adapteros-telemetry-types
 
 impl MetricsCollector {
     /// Create a new metrics collector with optional system metrics integration
@@ -240,6 +179,102 @@ impl MetricsCollector {
             .map_err(|e| {
                 AosError::Telemetry(format!(
                     "Failed to register kernel latency histogram: {}",
+                    e
+                ))
+            })?;
+
+        // Lifecycle operation histograms with buckets for seconds (1ms to 5 minutes)
+        let lifecycle_buckets = vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
+            120.0, 300.0,
+        ];
+
+        let adapter_load_latency = HistogramVec::new(
+            HistogramOpts::new(
+                "adapteros_adapter_load_duration_seconds",
+                "Adapter load operation duration in seconds",
+            )
+            .buckets(lifecycle_buckets.clone()),
+            &["adapter_id", "tenant_id", "status"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter load latency histogram: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(adapter_load_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter load latency histogram: {}",
+                    e
+                ))
+            })?;
+
+        let adapter_unload_latency = HistogramVec::new(
+            HistogramOpts::new(
+                "adapteros_adapter_unload_duration_seconds",
+                "Adapter unload operation duration in seconds",
+            )
+            .buckets(lifecycle_buckets.clone()),
+            &["adapter_id", "tenant_id", "status"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter unload latency histogram: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(adapter_unload_latency.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter unload latency histogram: {}",
+                    e
+                ))
+            })?;
+
+        let load_operations_counter = CounterVec::new(
+            Opts::new(
+                "adapteros_adapter_load_operations_total",
+                "Adapter load operations by status",
+            ),
+            &["adapter_id", "tenant_id", "status"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter load operations counter: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(load_operations_counter.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter load operations counter: {}",
+                    e
+                ))
+            })?;
+
+        let unload_operations_counter = CounterVec::new(
+            Opts::new(
+                "adapteros_adapter_unload_operations_total",
+                "Adapter unload operations by status",
+            ),
+            &["adapter_id", "tenant_id", "status"],
+        )
+        .map_err(|e| {
+            AosError::Telemetry(format!(
+                "Failed to create adapter unload operations counter: {}",
+                e
+            ))
+        })?;
+        registry
+            .register(Box::new(unload_operations_counter.clone()))
+            .map_err(|e| {
+                AosError::Telemetry(format!(
+                    "Failed to register adapter unload operations counter: {}",
                     e
                 ))
             })?;
@@ -461,12 +496,26 @@ impl MetricsCollector {
             })?;
 
         let metrics_cache = Arc::new(RwLock::new(MetricsSnapshot::default()));
+        let determinism_metrics = Arc::new(ParkingRwLock::new(DeterminismMetrics {
+            seed_collision_count: 0,
+            seed_propagation_failure_count: 0,
+            active_seed_threads: 0,
+            thread_seed_generations: HashMap::new(),
+        }));
 
         Ok(Self {
             registry,
             inference_latency,
             router_latency,
             kernel_latency,
+            adapter_load_latency,
+            adapter_unload_latency,
+            load_operations_counter,
+            unload_operations_counter,
+            load_operations_total_count: AtomicU64::new(0),
+            unload_operations_total_count: AtomicU64::new(0),
+            load_operations_failed_count: AtomicU64::new(0),
+            unload_operations_failed_count: AtomicU64::new(0),
             queue_depth,
             adapter_queue_depth,
             tokens_generated_total,
@@ -481,6 +530,7 @@ impl MetricsCollector {
             seed_propagation_failures,
             active_seed_threads,
             system_metrics_provider,
+            determinism_metrics,
             metrics_cache,
         })
     }
@@ -509,6 +559,52 @@ impl MetricsCollector {
         self.kernel_latency
             .with_label_values(&[kernel_type, tenant_id])
             .observe(latency_secs);
+    }
+
+    /// Record adapter load operation latency
+    pub fn record_adapter_load_latency(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        latency_secs: f64,
+        status: &str,
+    ) {
+        self.adapter_load_latency
+            .with_label_values(&[adapter_id, tenant_id, status])
+            .observe(latency_secs);
+
+        self.load_operations_counter
+            .with_label_values(&[adapter_id, tenant_id, status])
+            .inc();
+        self.load_operations_total_count
+            .fetch_add(1, Ordering::Relaxed);
+        if !status.eq_ignore_ascii_case("success") {
+            self.load_operations_failed_count
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Record adapter unload operation latency
+    pub fn record_adapter_unload_latency(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        latency_secs: f64,
+        status: &str,
+    ) {
+        self.adapter_unload_latency
+            .with_label_values(&[adapter_id, tenant_id, status])
+            .observe(latency_secs);
+
+        self.unload_operations_counter
+            .with_label_values(&[adapter_id, tenant_id, status])
+            .inc();
+        self.unload_operations_total_count
+            .fetch_add(1, Ordering::Relaxed);
+        if !status.eq_ignore_ascii_case("success") {
+            self.unload_operations_failed_count
+                .fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Update queue depth
@@ -598,15 +694,19 @@ impl MetricsCollector {
         self.active_seed_threads.set(count);
     }
 
-    /// Update determinism metrics from external source
+    /// Update determinism metrics from external source (avoids circular dependency)
     pub fn update_determinism_metrics(&self, metrics: DeterminismMetrics) {
+        // Update cache
+        {
+            let mut cache = self.determinism_metrics.write();
+            *cache = metrics.clone();
+        }
+
         // Update Prometheus metrics
         // Note: We don't update counters here as they should be monotonically increasing
         // Counters are updated via record_seed_collision/record_seed_propagation_failure
         self.update_active_seed_threads(metrics.active_seed_threads as f64);
 
-        // Update cached snapshot - in a real implementation, this would be atomic
-        // For now, we just log that metrics were updated
         tracing::debug!(
             "Updated determinism metrics: collisions={}, propagation_failures={}, active_threads={}",
             metrics.seed_collision_count,
@@ -625,19 +725,10 @@ impl MetricsCollector {
         Ok(buffer)
     }
 
-    /// Collect determinism metrics from global counters
+    /// Collect determinism metrics from cache
     async fn collect_determinism_metrics(&self) -> DeterminismMetrics {
-        // Collect metrics from global atomic counters
-        // These are updated by the deterministic-exec crate when seed operations occur
-        // Note: In a real implementation, these would be accessible via a shared interface
-        // For now, we return placeholder values since we can't access the globals directly
-
-        DeterminismMetrics {
-            seed_collision_count: 0,           // Global counter would be accessible here
-            seed_propagation_failure_count: 0, // Global counter would be accessible here
-            active_seed_threads: 0,            // Would query the global registry
-            thread_seed_generations: std::collections::HashMap::new(),
-        }
+        let cache = self.determinism_metrics.read();
+        cache.clone()
     }
 
     /// Get current metrics snapshot for JSON export
@@ -647,18 +738,48 @@ impl MetricsCollector {
             .unwrap_or_default()
             .as_secs();
 
-        // Collect histogram percentiles (simplified implementation)
-        let inference_p50 = self.get_histogram_percentile(&self.inference_latency, 0.5);
-        let inference_p95 = self.get_histogram_percentile(&self.inference_latency, 0.95);
-        let inference_p99 = self.get_histogram_percentile(&self.inference_latency, 0.99);
+        // Collect histogram percentiles from Prometheus histograms
+        let inference_p50 =
+            self.get_histogram_percentile_by_name("adapteros_inference_latency_seconds", 0.5);
+        let inference_p95 =
+            self.get_histogram_percentile_by_name("adapteros_inference_latency_seconds", 0.95);
+        let inference_p99 =
+            self.get_histogram_percentile_by_name("adapteros_inference_latency_seconds", 0.99);
 
-        let router_p50 = self.get_histogram_percentile(&self.router_latency, 0.5);
-        let router_p95 = self.get_histogram_percentile(&self.router_latency, 0.95);
-        let router_p99 = self.get_histogram_percentile(&self.router_latency, 0.99);
+        let router_p50 =
+            self.get_histogram_percentile_by_name("adapteros_router_latency_seconds", 0.5);
+        let router_p95 =
+            self.get_histogram_percentile_by_name("adapteros_router_latency_seconds", 0.95);
+        let router_p99 =
+            self.get_histogram_percentile_by_name("adapteros_router_latency_seconds", 0.99);
 
-        let kernel_p50 = self.get_histogram_percentile(&self.kernel_latency, 0.5);
-        let kernel_p95 = self.get_histogram_percentile(&self.kernel_latency, 0.95);
-        let kernel_p99 = self.get_histogram_percentile(&self.kernel_latency, 0.99);
+        let kernel_p50 =
+            self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.5);
+        let kernel_p95 =
+            self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.95);
+        let kernel_p99 =
+            self.get_histogram_percentile_by_name("adapteros_kernel_latency_seconds", 0.99);
+
+        // Collect lifecycle operation percentiles
+        let load_p50 = self
+            .get_histogram_percentile_by_name("adapteros_adapter_load_duration_seconds", 0.5)
+            * 1000.0; // Convert to ms
+        let load_p95 = self
+            .get_histogram_percentile_by_name("adapteros_adapter_load_duration_seconds", 0.95)
+            * 1000.0;
+        let load_p99 = self
+            .get_histogram_percentile_by_name("adapteros_adapter_load_duration_seconds", 0.99)
+            * 1000.0;
+
+        let unload_p50 = self
+            .get_histogram_percentile_by_name("adapteros_adapter_unload_duration_seconds", 0.5)
+            * 1000.0;
+        let unload_p95 = self
+            .get_histogram_percentile_by_name("adapteros_adapter_unload_duration_seconds", 0.95)
+            * 1000.0;
+        let unload_p99 = self
+            .get_histogram_percentile_by_name("adapteros_adapter_unload_duration_seconds", 0.99)
+            * 1000.0;
 
         // Collect gauge values
         let request_queue = self
@@ -781,6 +902,20 @@ impl MetricsCollector {
                 active_adapters: 0.0, // Would track active adapters
                 activations_by_adapter: HashMap::new(),
             },
+            lifecycle: LifecycleMetrics {
+                load_p50_ms: load_p50,
+                load_p95_ms: load_p95,
+                load_p99_ms: load_p99,
+                unload_p50_ms: unload_p50,
+                unload_p95_ms: unload_p95,
+                unload_p99_ms: unload_p99,
+                load_operations_total: self.load_operations_total_count.load(Ordering::Relaxed),
+                unload_operations_total: self.unload_operations_total_count.load(Ordering::Relaxed),
+                load_operations_failed: self.load_operations_failed_count.load(Ordering::Relaxed),
+                unload_operations_failed: self
+                    .unload_operations_failed_count
+                    .load(Ordering::Relaxed),
+            },
             disk: disk_metrics,
             network: network_metrics,
             determinism: self.collect_determinism_metrics().await,
@@ -801,17 +936,125 @@ impl MetricsCollector {
         cache.clone()
     }
 
-    /// Helper to get histogram percentile (simplified implementation)
-    fn get_histogram_percentile(&self, _histogram: &HistogramVec, percentile: f64) -> f64 {
-        // This is a simplified implementation
-        // In production, you'd want to use proper percentile calculation
-        // For now, return a placeholder value
-        match percentile {
-            0.5 => 0.025,  // 25ms p50
-            0.95 => 0.100, // 100ms p95
-            0.99 => 0.200, // 200ms p99
-            _ => 0.050,    // 50ms default
+    /// Helper to get histogram percentile from Prometheus histogram by name
+    fn get_histogram_percentile_by_name(&self, metric_name: &str, percentile: f64) -> f64 {
+        // Gather metrics from registry to get histogram data
+        let metric_families = self.registry.gather();
+
+        // Find the matching histogram metric family by name
+        let histogram_family = metric_families
+            .iter()
+            .find(|mf| mf.get_name() == metric_name);
+
+        if let Some(family) = histogram_family {
+            // Aggregate data across all label combinations
+            // Proper aggregation: convert cumulative -> non-cumulative -> sum -> rebuild cumulative
+            let mut total_samples = 0u64;
+            let mut all_buckets_by_label: Vec<Vec<(f64, u64)>> = Vec::new(); // Per-label bucket lists: (upper_bound, cumulative_count)
+
+            // Collect all buckets from all label combinations
+            for metric in family.get_metric() {
+                if metric.has_histogram() {
+                    let hist = metric.get_histogram();
+                    total_samples += hist.get_sample_count();
+
+                    let mut buckets: Vec<(f64, u64)> = Vec::new();
+                    for bucket in hist.get_bucket() {
+                        let upper_bound = bucket.get_upper_bound();
+                        let cumulative_count = bucket.get_cumulative_count();
+                        buckets.push((upper_bound, cumulative_count));
+                    }
+                    // Sort by upper bound
+                    buckets
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    all_buckets_by_label.push(buckets);
+                }
+            }
+
+            // If we have samples, aggregate buckets properly
+            if total_samples > 0 && !all_buckets_by_label.is_empty() {
+                // Step 1: Collect all unique bucket bounds across all label combinations
+                let mut unique_bounds: Vec<f64> = Vec::new();
+                for buckets in &all_buckets_by_label {
+                    for (bound, _) in buckets {
+                        if !unique_bounds.iter().any(|&b| (b - bound).abs() < 0.0001) {
+                            unique_bounds.push(*bound);
+                        }
+                    }
+                }
+                unique_bounds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Step 2: For each unique bound, convert cumulative to non-cumulative per label, then sum
+                let mut aggregated_non_cumulative: Vec<(f64, u64)> = Vec::new();
+
+                for &bound in &unique_bounds {
+                    let mut sum_non_cum = 0u64;
+
+                    for buckets in &all_buckets_by_label {
+                        // Find the cumulative count for this bound in this label combination
+                        if let Some((_, cum_count)) =
+                            buckets.iter().find(|(b, _)| (b - bound).abs() < 0.0001)
+                        {
+                            // Convert to non-cumulative: find previous bucket count
+                            let prev_bound = buckets
+                                .iter()
+                                .filter(|(b, _)| *b < bound && (*b - bound).abs() >= 0.0001)
+                                .max_by(|a, b| {
+                                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                                });
+
+                            let prev_count = prev_bound.map(|(_, c)| *c).unwrap_or(0);
+                            let non_cum = cum_count - prev_count;
+                            sum_non_cum += non_cum;
+                        }
+                    }
+
+                    aggregated_non_cumulative.push((bound, sum_non_cum));
+                }
+
+                // Step 3: Rebuild cumulative buckets
+                let mut aggregated_buckets: Vec<(f64, u64)> = Vec::new();
+                let mut running_cumulative = 0u64;
+                for (bound, non_cum) in aggregated_non_cumulative {
+                    running_cumulative += non_cum;
+                    aggregated_buckets.push((bound, running_cumulative));
+                }
+
+                // Step 4: Calculate percentile from aggregated cumulative buckets
+                // Find the bucket that contains the percentile
+                let target_count = (total_samples as f64 * percentile).round() as u64;
+
+                // Linear interpolation between buckets for more accurate percentile
+                for i in 0..aggregated_buckets.len() {
+                    let (upper, count) = aggregated_buckets[i];
+                    if count >= target_count {
+                        if i == 0 {
+                            // First bucket: return its upper bound
+                            return upper;
+                        } else {
+                            // Interpolate between previous and current bucket
+                            let (prev_upper, prev_count) = aggregated_buckets[i - 1];
+                            let count_range = count - prev_count;
+                            if count_range > 0 {
+                                let bucket_fraction =
+                                    (target_count - prev_count) as f64 / count_range as f64;
+                                return prev_upper + (upper - prev_upper) * bucket_fraction;
+                            } else {
+                                return upper;
+                            }
+                        }
+                    }
+                }
+
+                // If target is beyond all buckets, return the largest upper bound
+                if let Some((upper, _)) = aggregated_buckets.last() {
+                    return *upper;
+                }
+            }
         }
+
+        // Fallback: if no data, return 0
+        0.0
     }
 
     /// Get registry reference for custom metrics
@@ -917,62 +1160,7 @@ pub struct Alert {
     pub message: String,
 }
 
-impl Default for MetricsSnapshot {
-    fn default() -> Self {
-        Self {
-            timestamp: 0,
-            latency: LatencyMetrics {
-                inference_p50_ms: 0.0,
-                inference_p95_ms: 0.0,
-                inference_p99_ms: 0.0,
-                router_p50_ms: 0.0,
-                router_p95_ms: 0.0,
-                router_p99_ms: 0.0,
-                kernel_p50_ms: 0.0,
-                kernel_p95_ms: 0.0,
-                kernel_p99_ms: 0.0,
-            },
-            queue_depth: QueueDepthMetrics {
-                request_queue: 0.0,
-                adapter_queue: 0.0,
-                kernel_queue: 0.0,
-            },
-            throughput: ThroughputMetrics {
-                tokens_per_second: 0.0,
-                tokens_generated_total: 0,
-                sessions_per_minute: 0.0,
-            },
-            system: SystemMetrics {
-                active_sessions: 0.0,
-                memory_usage_mb: 0.0,
-                cpu_usage_percent: 0.0,
-            },
-            policy: PolicyMetrics {
-                violations_total: 0,
-                abstain_events_total: 0,
-                violations_by_policy: HashMap::new(),
-            },
-            adapters: AdapterMetrics {
-                activations_total: 0,
-                evictions_total: 0,
-                active_adapters: 0.0,
-                activations_by_adapter: HashMap::new(),
-            },
-            disk: DiskMetrics {
-                io_utilization: 0.0,
-            },
-            network: NetworkMetrics {
-                bandwidth_utilization: 0.0,
-            },
-            determinism: DeterminismMetrics {
-                seed_collision_count: 0,
-                seed_propagation_failure_count: 0,
-                active_seed_threads: 0,
-                thread_seed_generations: HashMap::new(),
-            },
-        }
-    }
-}
+// Default impl for MetricsSnapshot is now in adapteros-telemetry-types
 
 #[derive(Clone)]
 struct MetricsServerState {
@@ -1208,12 +1396,7 @@ pub fn export_prometheus(registry: &Registry) -> Result<String> {
 
 use std::sync::RwLock as StdRwLock;
 
-/// A single data point in a time series
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetricDataPoint {
-    pub timestamp_ms: u64,
-    pub value: f64,
-}
+// MetricDataPoint is now imported from adapteros-telemetry-types
 
 /// A time series with a fixed resolution window
 #[derive(Debug, Clone)]

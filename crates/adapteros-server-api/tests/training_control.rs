@@ -167,10 +167,7 @@ async fn resume_validations_and_transitions() -> anyhow::Result<()> {
         })
         .package(false)
         .build()?;
-    let job = state
-        .training_service
-        .start_training(params)
-        .await?;
+    let job = state.training_service.start_training(params).await?;
 
     // DB state paused -> resume -> running
     insert_training_job(&state, &job.id, "paused").await?;

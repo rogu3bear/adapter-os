@@ -38,8 +38,10 @@ pub use workers::*;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
-    pub message: String,
-    pub code: Option<String>,
+    #[serde(default)]
+    pub code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 impl ErrorResponse {
@@ -47,26 +49,34 @@ impl ErrorResponse {
     pub fn new(error: impl Into<String>) -> Self {
         Self {
             error: error.into(),
-            message: String::new(),
-            code: Some("INTERNAL_ERROR".to_string()),
+            code: "INTERNAL_ERROR".to_string(),
+            details: None,
         }
     }
 
     /// Set the error code
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = Some(code.into());
+        self.code = code.into();
         self
     }
 
-    /// Set the error message/details
-    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
-        self.message = details.into();
-        self
-    }
-
-    /// Set the error message/details from serde_json::Value
+    /// Set the error details
     pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.message = details.to_string();
+        self.details = Some(details);
+        self
+    }
+
+    /// Set the error details from string
+    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
+        self.details = Some(serde_json::json!(details.into()));
+        self
+    }
+
+    /// Create an error response with user-friendly message mapping
+    /// Note: This method requires access to UserFriendlyErrorMapper from server-api crate
+    /// For unified API types, use ErrorResponse::new() and map messages at the server level
+    pub fn with_user_friendly_message(mut self, user_friendly_msg: impl Into<String>) -> Self {
+        self.error = user_friendly_msg.into();
         self
     }
 }
@@ -76,6 +86,17 @@ impl ErrorResponse {
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
+    /// Model runtime health information
+    pub models: Option<ModelRuntimeHealth>,
+}
+
+/// Model runtime health summary
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ModelRuntimeHealth {
+    pub total_models: i32,
+    pub loaded_count: i32,
+    pub healthy: bool,
+    pub inconsistencies_count: usize,
 }
 
 /// Pagination parameters

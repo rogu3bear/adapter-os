@@ -197,9 +197,16 @@ impl TypeAnnotation {
     pub fn primary_type(&self) -> Option<&String> {
         self.declared_type.as_ref().or(self.inferred_type.as_ref())
     }
+}
 
-    /// Convert to string representation
-    pub fn to_string(&self) -> String {
+impl Default for TypeAnnotation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for TypeAnnotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
 
         if let Some(ref declared) = self.declared_type {
@@ -222,13 +229,7 @@ impl TypeAnnotation {
             parts.push(format!("params: [{}]", self.parameter_types.join(", ")));
         }
 
-        parts.join("; ")
-    }
-}
-
-impl Default for TypeAnnotation {
-    fn default() -> Self {
-        Self::new()
+        write!(f, "{}", parts.join("; "))
     }
 }
 
@@ -290,10 +291,12 @@ impl Span {
             byte_length,
         }
     }
+}
 
-    /// Convert to string representation
-    pub fn to_string(&self) -> String {
-        format!(
+impl fmt::Display for Span {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{}:{}:{}:{}",
             self.start_line, self.start_column, self.end_line, self.end_column
         )

@@ -18,10 +18,13 @@ import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
 import apiClient from '@/api/client';
 import { Adapter } from '@/api/types';
+import { useProgressOperation } from '../hooks/useProgressOperation';
+import { useCancellableOperation } from '../hooks/useCancellableOperation';
 
 interface AdapterImportWizardProps {
   onComplete: (adapter: Adapter) => void;
   onCancel: () => void;
+  tenantId?: string;
 }
 
 interface WizardState {
@@ -34,7 +37,7 @@ interface WizardState {
   } | null;
 }
 
-export function AdapterImportWizard({ onComplete, onCancel }: AdapterImportWizardProps) {
+export function AdapterImportWizard({ onComplete, onCancel, tenantId }: AdapterImportWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [wizardError, setWizardError] = useState<Error | null>(null);
@@ -44,6 +47,12 @@ export function AdapterImportWizard({ onComplete, onCancel }: AdapterImportWizar
     autoLoad: true,
     filePreview: null,
   });
+
+  // Progress tracking for file upload
+  const { start: startFileUpload } = useProgressOperation();
+
+  // Cancellation support for file upload
+  const { start: startCancellableUpload, cancel: cancelUpload } = useCancellableOperation();
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -81,7 +90,7 @@ export function AdapterImportWizard({ onComplete, onCancel }: AdapterImportWizar
           >
             {state.filePreview ? (
               <div className="space-y-2">
-                <FileCheck className="h-12 w-12 text-green-500 mx-auto" />
+                <FileCheck className="h-12 w-12 text-gray-600 mx-auto" />
                 <p className="font-medium">{state.filePreview.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {(state.filePreview.size / 1024 / 1024).toFixed(2)} MB
@@ -170,11 +179,19 @@ export function AdapterImportWizard({ onComplete, onCancel }: AdapterImportWizar
     setIsLoading(true);
     setWizardError(null);
     try {
-      const adapter = await apiClient.importAdapter(state.file, state.autoLoad);
-      onComplete(adapter);
+      // Start progress tracking for file upload
+      const tempOperationId = startFileUpload('file_upload', `upload_${Date.now()}`, tenantId || 'default');
+
+      await startCancellableUpload(async (signal) => {
+        const adapter = await apiClient.importAdapter(state.file, state.autoLoad, {}, false, signal);
+        onComplete(adapter);
+      }, `file-upload-${state.file.name}`);
+
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Import failed');
-      setWizardError(error);
+      if (err) { // Only set error if not cancelled
+        const error = err instanceof Error ? err : new Error('Import failed');
+        setWizardError(error);
+      }
     } finally {
       setIsLoading(false);
     }

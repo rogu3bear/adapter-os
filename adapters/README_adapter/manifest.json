@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "rank": 8,
+  "base_model": "qwen2.5-7b",
+  "training_config": {
+    "rank": 8,
+    "alpha": 16.0,
+    "learning_rate": 0.0003,
+    "batch_size": 4,
+    "epochs": 3,
+    "hidden_dim": 768,
+    "weight_group_config": {
+      "use_separate_weights": true,
+      "combination_strategy": {
+        "weighted_difference": {
+          "positive_scale": 1.0,
+          "negative_scale": 1.0
+        }
+      }
+    }
+  },
+  "created_at": "2025-11-02T05:56:43.361178+00:00",
+  "weights_hash": "f45ac98e8422fa8387f2353279d3dcc63502daae8b5bbe6ccc3e9f7d0327c267",
+  "metadata": {}
+}

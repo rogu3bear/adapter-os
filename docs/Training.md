@@ -4,7 +4,44 @@ This guide covers local CLI training, orchestrated training via the control plan
 
 ## Dataset Schema
 
-The training pipeline expects pre-tokenized examples. Minimal JSON schema:
+The CLI training command supports two data formats: **text-based** (auto-detected) and **pre-tokenized** (backward compatible).
+
+### Text-Based Format (Recommended)
+
+The CLI automatically detects text-based JSON datasets. This format includes text strings that are tokenized automatically:
+
+```json
+{
+  "name": "my_dataset",
+  "description": "Training dataset for code tasks",
+  "version": "1.0.0",
+  "examples": [
+    {
+      "id": "example_1",
+      "input": { "Text": "Write a function to add two numbers" },
+      "target": { "Text": "def add(a, b):\n    return a + b" },
+      "weight": 1.0,
+      "metadata": { "category": "code" },
+      "tags": ["python", "function"]
+    },
+    {
+      "input": "User asks about Rust",
+      "target": "Rust is a systems programming language...",
+      "weight": 1.0
+    }
+  ]
+}
+```
+
+Input and target can be:
+- Simple strings: `"input": "text here"`
+- Text objects: `"input": { "Text": "text here" }`
+- Code blocks: `"input": { "Code": { "content": "code", "language": "rust" } }`
+- Structured JSON: `"input": { "Structured": {...} }`
+
+### Pre-Tokenized Format (Legacy)
+
+For backward compatibility, the CLI also supports pre-tokenized data:
 
 ```json
 {
@@ -16,20 +53,59 @@ The training pipeline expects pre-tokenized examples. Minimal JSON schema:
 ```
 
 Tips:
-- Ensure tokenization matches the inference tokenizer (e.g., Qwen tokenizer).
-- Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1).
+- For text-based format: ensure the tokenizer path is correct (defaults to `models/qwen2.5-7b-mlx/tokenizer.json` or use `--tokenizer`)
+- For pre-tokenized format: ensure tokenization matches the inference tokenizer (e.g., Qwen tokenizer)
+- Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1)
 
 ## CLI Training
 
-Train with optional Metal kernel init:
+### Basic Training
+
+Train with text-based data (auto-detected):
 
 ```bash
 aosctl train \
-  --data data/small.json \
+  --data data/text_dataset.json \
+  --output out/train1 \
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+  --rank 16 --epochs 1 \
+  --base-model qwen2.5-7b
+```
+
+Train with pre-tokenized data (backward compatible):
+
+```bash
+aosctl train \
+  --data data/pre_tokenized.json \
   --output out/train1 \
   --plan plan/qwen7b/PLAN_ID \
   --rank 16 --epochs 1 \
   --base-model qwen2.5-7b
+```
+
+### Train Base Adapter from Manifest
+
+Train from a dataset manifest (used for base adapters). Both CLI and xtask versions support directory and .aos output formats:
+
+```bash
+aosctl train-base-adapter \
+  --manifest training/datasets/base/code/adapteros/manifest.json \
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+  --output-dir adapters \
+  --adapter-id code_lang_v1 \
+  --rank 16 --alpha 32 --epochs 4 \
+  --output-format aos  # Creates .aos file
+```
+
+Or use the xtask command:
+
+```bash
+cargo xtask train-base-adapter \
+  --manifest training/datasets/base/code/adapteros/manifest.json \
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+  --output-dir adapters \
+  --adapter-id code_lang_v1 \
+  --output-format aos
 ```
 
 Package and register:

@@ -286,15 +286,79 @@ The system provides detailed error codes:
 
 ### Protected Endpoints (Auth Required)
 
+#### Authentication Management
 - `POST /v1/auth/logout` - User logout
 - `GET /v1/auth/me` - Get current user info
 - `POST /v1/auth/refresh` - Refresh authentication token
+- `POST /v1/auth/logout-all` - Logout from all sessions
+- `GET /v1/auth/sessions` - List active sessions
+- `DELETE /v1/auth/sessions/{session_id}` - Revoke specific session
+- `POST /v1/auth/token/rotate` - Rotate API token
+- `GET /v1/auth/token` - Get token metadata
+- `PUT /v1/auth/profile` - Update user profile
+- `GET /v1/auth/config` - Get authentication configuration
+- `PUT /v1/auth/config` - Update authentication configuration
+
+#### Resource Endpoints
 - All `/v1/adapters/*` endpoints
 - All `/v1/tenants/*` endpoints
 - All `/v1/workers/*` endpoints
 - (and more)
 
 **Citation**: `crates/adapteros-server-api/src/routes.rs` L256-697
+
+## ServicePanel Authentication Management
+
+AdapterOS includes a comprehensive authentication management interface accessible through the ServicePanel at port 3300. The "Authentication" tab provides administrators with runtime control over authentication settings and session management.
+
+### Authentication Settings
+
+**Production Mode Toggle**
+- Enables/disables strict security policies
+- Automatically disables development features when enabled
+- Requires server restart for some changes
+
+**Development Token Control**
+- Toggle development bypass authentication
+- Only available when production mode is disabled
+- Provides instant access for development workflows
+
+**JWT Configuration Display**
+- Shows current JWT signing mode (HMAC/EdDSA)
+- Displays token expiry settings
+- Requires restart for algorithm changes
+
+### Session Management
+
+**Active Sessions List**
+- Displays all current authentication sessions
+- Shows session creation time and last activity
+- Identifies current session vs other sessions
+
+**Session Actions**
+- **Rotate Token**: Generates new JWT with same claims
+- **Revoke Session**: Invalidates specific session (client-side)
+- **Logout All**: Clears all stored tokens across devices
+
+**Security Status Dashboard**
+- Visual indicators for production mode status
+- Development token availability
+- Token expiry time remaining
+
+### Configuration Management
+
+**Runtime Configuration Updates**
+- Toggle production mode (enforces security policies)
+- Enable/disable development features
+- Automatic validation prevents invalid configurations
+
+**Audit Trail**
+- All configuration changes are logged
+- Session management actions tracked
+- Security events monitored
+
+**Citation**: `ui/src/components/AuthenticationSettings.tsx` L1-456
+**Citation**: `ui/src/components/ServicePanel.tsx` L267-451
 
 ## Development Workflow
 
@@ -398,11 +462,19 @@ The system provides detailed error codes:
 
 1. **OAuth2/OIDC Support**: External identity providers
 2. **Multi-Factor Authentication**: Enhanced security
-3. **Token Revocation List**: Centralized token blacklist
-4. **Session Management**: Server-side session tracking
-5. **Role-Based Access Control**: Fine-grained permissions
-6. **API Key Management**: Long-lived service tokens
-7. **Audit Logging**: Comprehensive security event tracking
+3. **Token Revocation List**: Centralized token blacklist with database persistence
+4. **Advanced Session Management**: Cross-device session tracking with geolocation
+5. **API Key Management**: Long-lived service tokens with granular permissions
+6. **Enhanced Audit Logging**: Comprehensive security event tracking with alerting
+7. **Federated Authentication**: SAML and enterprise SSO integration
+
+## Recently Implemented Features
+
+1. **✅ Session Management**: Client-side session tracking and management UI
+2. **✅ Role-Based Access Control**: Multi-role system (Admin/Operator/Compliance/Viewer)
+3. **✅ Token Rotation**: API token rotation with new JTI generation
+4. **✅ Authentication Configuration UI**: ServicePanel authentication management interface
+5. **✅ Production Mode Gating**: Runtime security policy enforcement
 
 **Note**: These enhancements should be implemented with careful consideration of the stateless JWT design and performance implications.
 

@@ -50,6 +50,7 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
     fetchReportingData,
     'slow', // Background updates for reporting
     {
+      operationName: 'ReportingSummaryWidget.fetchReportingData',
       showLoadingIndicator: false,
       onError: (err) => {
         const error = err instanceof Error ? err : new Error('Failed to fetch reporting metrics');

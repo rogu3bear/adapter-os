@@ -98,7 +98,7 @@ See [installer/README.md](installer/README.md) for details.
 
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
 - **Rust 1.75+**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- **MLX**: `pip install mlx` (Python bindings for development)
+- **MLX** (optional): Install via Homebrew for MLX backend support: `brew install mlx`
 
 ### Build
 
@@ -107,11 +107,14 @@ See [installer/README.md](installer/README.md) for details.
 git clone https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
 
-# Build the workspace
+# Build the workspace (default: Metal backend only)
 cargo build --release
 
+# Build with MLX backend support (C++ FFI, no Python required)
+cargo build --release --features mlx-ffi-backend
+
 # Note: Metal backend is the primary production backend (default)
-# MLX backend is available for development/experimentation but currently disabled due to PyO3 linker issues
+# MLX backend is available via --features mlx-ffi-backend (uses C++ FFI, no PyO3)
 
 # Initialize the database
 ./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
@@ -119,12 +122,23 @@ cargo build --release
 ### Import a Model
 
 ```bash
-# Download Qwen 2.5 7B (or use the included model)
+# Import Qwen 2.5 7B for Metal backend (default)
 ./target/release/aosctl import-model \
   --name qwen2.5-7b \
   --weights models/qwen2.5-7b-mlx/weights.safetensors \
   --config models/qwen2.5-7b-mlx/config.json \
-  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+  --tokenizer-cfg models/qwen2.5-7b-mlx/tokenizer_config.json \
+  --license models/qwen2.5-7b-mlx/LICENSE
+
+# Import MLX model (requires --features mlx-ffi-backend)
+./target/release/aosctl import-model \
+  --name qwen2.5-7b-mlx \
+  --weights models/qwen2.5-7b-mlx/weights.safetensors \
+  --config models/qwen2.5-7b-mlx/config.json \
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+  --tokenizer-cfg models/qwen2.5-7b-mlx/tokenizer_config.json \
+  --license models/qwen2.5-7b-mlx/LICENSE
 ```
 
 ### Register LoRA Adapters
@@ -141,9 +155,13 @@ cargo build --release
 ### Start Serving
 
 ```bash
-# Build and serve a plan
+# Build and serve a plan with Metal backend (default)
 ./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
-./target/release/aosctl serve --plan <plan-id>
+./target/release/aosctl serve --plan <plan-id> --backend metal
+
+# Serve with MLX backend (requires --features mlx-ffi-backend and model path)
+export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
+./target/release/aosctl serve --plan <plan-id> --backend mlx --model-path ./models/qwen2.5-7b-mlx
 
 # Or use the integrated server
 ./target/release/adapteros-server --config configs/cp.toml
@@ -348,8 +366,23 @@ curl -X POST http://127.0.0.1:8080/api/v1/training/start \
 
 ### Dataset Schema
 
-The CLI and orchestrator expect pre-tokenized examples in a simple JSON format:
+The CLI supports two data formats:
 
+**Text-based format** (auto-detected, recommended):
+```json
+{
+  "name": "my_dataset",
+  "examples": [
+    {
+      "input": { "Text": "Write a function" },
+      "target": { "Text": "def func():\n    pass" },
+      "weight": 1.0
+    }
+  ]
+}
+```
+
+**Pre-tokenized format** (backward compatible):
 ```json
 {
   "examples": [
@@ -359,7 +392,7 @@ The CLI and orchestrator expect pre-tokenized examples in a simple JSON format:
 }
 ```
 
-Ensure your tokenization matches the tokenizer used at inference time (e.g., Qwen tokenizer). Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1) to observe loss decrease.
+The CLI automatically detects the format. For text-based data, specify `--tokenizer` (defaults to `models/qwen2.5-7b-mlx/tokenizer.json`). Ensure your tokenization matches the tokenizer used at inference time (e.g., Qwen tokenizer). Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1) to observe loss decrease.
 
 ```bash
 cargo doc --no-deps --open
@@ -480,11 +513,11 @@ AdapterOS alpha-v0.01-1 includes:
 - ✅ **Integration Tests**: E2E flows for policy, routing, determinism, memory, tenants【@tests/integration_tests.rs §new tests】
 
 ### In Progress
-- 🔄 **MLX Backend Stabilization**: Fixing PyO3 linker【@README.md §103】
+- 🔄 **MLX Backend UI Integration**: Add MLX backend selection to web dashboard
 - 🔄 **Observability**: Prometheus hooks, threat detection【@README.md §431】
 
 ### Planned for v0.02
-- 📋 **MLX Backend**: Full parity with Metal, feature flags【@crates/adapteros-base-llm/src/】
+- 📋 **MLX Backend Default Build**: Consider including MLX in default build (currently opt-in)
 - 📋 **Observability Hardening**: Alerting, advanced detection【@crates/adapteros-telemetry/src/】
 - 📋 **Deployment Guides**: Multi-node, scaling【@docs/DEPLOYMENT.md】
 
@@ -513,7 +546,13 @@ AdapterOS alpha-v0.01-1 includes:
 ### API Reference
 - **Rust API**: Run `cargo doc --open`
 - **REST API**: See [docs/control-plane.md](docs/control-plane.md)
+- **Authentication API**: See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)
 - **CLI Commands**: See [crates/adapteros-cli/docs/aosctl_manual.md](crates/adapteros-cli/docs/aosctl_manual.md)
+
+### Performance & Quality
+- **Performance Characteristics**: See [docs/AUTH_PERFORMANCE.md](docs/AUTH_PERFORMANCE.md)
+- **Benchmark Suite**: Run `cargo test --test kernel_regression`
+- **Code Quality**: 21 policy packs, comprehensive linting, security audit
 
 ---
 

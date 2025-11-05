@@ -231,6 +231,25 @@ Before deploying to production, complete:
 
 ---
 
+## Production Operations
+
+**✅ COMPLETED - Production operations fully documented**
+
+See [PRODUCTION_OPERATIONS.md](PRODUCTION_OPERATIONS.md) for complete procedures covering:
+
+- **Backup & Restore**: Automated database and model backup scripts with restore procedures
+- **Disaster Recovery**: Recovery procedures for database corruption, model directory loss, and complete system failure
+- **Capacity Planning**: Memory, CPU, storage, and network sizing guidelines with scaling formulas
+- **Monitoring & Alerting**: Key metrics, alerting rules, and maintenance procedures
+
+### Operations Checklist
+
+- [x] **Backup Procedures**: Automated daily backups with integrity verification
+- [x] **Disaster Recovery**: Tested recovery procedures for all failure scenarios
+- [x] **Capacity Planning**: Memory requirements, scaling formulas, and growth projections
+- [x] **Monitoring Setup**: Comprehensive metrics collection and alerting rules
+- [x] **Maintenance Procedures**: Routine and emergency maintenance checklists
+
 ## 📚 References
 
 - **Policy Rulesets**: See workspace rules (embedded in `.rules/`)
@@ -238,6 +257,7 @@ Before deploying to production, complete:
 - **Security**: `docs/signal-protocol-implementation.md`
 - **Metrics**: `docs/system-metrics.md`
 - **Database**: `docs/database-schema/`
+- **Operations**: `docs/PRODUCTION_OPERATIONS.md` - Complete production operations guide
 
 ---
 

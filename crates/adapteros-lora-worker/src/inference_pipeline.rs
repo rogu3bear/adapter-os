@@ -132,6 +132,8 @@ pub struct InferencePipeline {
     recent_logits: Vec<Vec<f32>>,
     /// Sliding entropy window size (default 8)
     entropy_window: usize,
+    /// Determinism policy validator
+    determinism_validator: adapteros_policy::packs::determinism::DeterminismPolicy,
 }
 
 /// Context for computing priors during routing
@@ -155,8 +157,31 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
-        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        // Create policy validator from manifest config
+        let determinism_validator = adapteros_policy::packs::determinism::DeterminismPolicy::new(
+            adapteros_policy::packs::determinism::DeterminismConfig {
+                require_metallib_embed: policy.determinism_policy().require_metallib_embed,
+                require_kernel_hash_match: policy.determinism_policy().require_kernel_hash_match,
+                rng: adapteros_policy::packs::determinism::RngSeedingMethod::HkdfSeeded,
+                retrieval_tie_break: vec![],
+                epsilon_bounds: adapteros_policy::packs::determinism::EpsilonBounds {
+                    logits_epsilon: 1e-6,
+                    embeddings_epsilon: 1e-5,
+                    attention_epsilon: 1e-6,
+                    gates_epsilon: 1e-4,
+                },
+                toolchain_requirements:
+                    adapteros_policy::packs::determinism::ToolchainRequirements {
+                        rust_version: "1.75.0".to_string(),
+                        metal_sdk_version: "3.0".to_string(),
+                        kernel_compiler_version: "1.0".to_string(),
+                        allowed_compiler_flags: vec!["-O2".to_string(), "-ffast-math".to_string()],
+                    },
+                min_router_entropy: 0.1,
+            },
+        );
+        determinism_validator.validate_backend_attestation(&report)?;
+
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -169,7 +194,10 @@ impl InferencePipeline {
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with seed
-        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        let seed = adapteros_core::derive_seed(
+            &adapteros_core::B3Hash::hash(b"default-inference-seed"),
+            "inference-pipeline",
+        );
         let generator = Generator::new(seed)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
@@ -190,6 +218,7 @@ impl InferencePipeline {
             prior_context: None,
             recent_logits: Vec::new(),
             entropy_window: 8,
+            determinism_validator,
         })
     }
 
@@ -206,8 +235,31 @@ impl InferencePipeline {
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
-        // Enforce determinism policy (stub - validate_backend_attestation not yet implemented)
-        // TODO: policy.determinism_policy().validate_backend_attestation(&report)?;
+        // Create policy validator from manifest config
+        let determinism_validator = adapteros_policy::packs::determinism::DeterminismPolicy::new(
+            adapteros_policy::packs::determinism::DeterminismConfig {
+                require_metallib_embed: policy.determinism_policy().require_metallib_embed,
+                require_kernel_hash_match: policy.determinism_policy().require_kernel_hash_match,
+                rng: adapteros_policy::packs::determinism::RngSeedingMethod::HkdfSeeded,
+                retrieval_tie_break: vec![],
+                epsilon_bounds: adapteros_policy::packs::determinism::EpsilonBounds {
+                    logits_epsilon: 1e-6,
+                    embeddings_epsilon: 1e-5,
+                    attention_epsilon: 1e-6,
+                    gates_epsilon: 1e-4,
+                },
+                toolchain_requirements:
+                    adapteros_policy::packs::determinism::ToolchainRequirements {
+                        rust_version: "1.75.0".to_string(),
+                        metal_sdk_version: "3.0".to_string(),
+                        kernel_compiler_version: "1.0".to_string(),
+                        allowed_compiler_flags: vec!["-O2".to_string(), "-ffast-math".to_string()],
+                    },
+                min_router_entropy: 0.1,
+            },
+        );
+        determinism_validator.validate_backend_attestation(&report)?;
+
         if !policy.determinism_policy().require_metallib_embed {
             tracing::warn!("Metallib embed requirement disabled in policy");
         }
@@ -220,7 +272,10 @@ impl InferencePipeline {
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with seed
-        let seed = [0u8; 32]; // TODO: Get from manifest or policy
+        let seed = adapteros_core::derive_seed(
+            &adapteros_core::B3Hash::hash(b"default-inference-seed"),
+            "inference-pipeline",
+        );
         let generator = Generator::new(seed)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
@@ -238,6 +293,7 @@ impl InferencePipeline {
             prior_context: None,
             recent_logits: Vec::new(),
             entropy_window: 8,
+            determinism_validator,
         })
     }
 
@@ -262,7 +318,7 @@ impl InferencePipeline {
     }
 
     /// Run inference on a prompt
-    pub fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
+    pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start_time = Instant::now();
 
         // Check quarantine before serving (Determinism Ruleset #2)
@@ -340,8 +396,16 @@ impl InferencePipeline {
                     }
 
                     // Lifecycle activation percentage prior
+                    // Collect all activation percentage futures first, then await them
+                    let activation_futures: Vec<_> = (0..priors.len())
+                        .map(|i| pc.lifecycle.activation_pct(i as u16))
+                        .collect();
+                    let mut activation_values = Vec::with_capacity(activation_futures.len());
+                    for fut in activation_futures {
+                        activation_values.push(fut.await);
+                    }
                     for (i, prior) in priors.iter_mut().enumerate() {
-                        let act = pc.lifecycle.activation_pct(i as u16);
+                        let act = activation_values[i];
                         *prior += act;
                     }
 
@@ -358,15 +422,16 @@ impl InferencePipeline {
                 self.router.set_k(k_now);
             }
 
-            // Route using computed features and priors
+            // Route using computed features and priors (with latency tracking)
+            let router_start = Instant::now();
             let decision = self.router.route(&features_vec, &priors);
+            let router_latency = router_start.elapsed();
 
             // 6. Check policy: entropy floor (simplified for now)
-            // TODO: Implement router entropy check in PolicyEngine
+            // Validate router entropy against policy requirements
             let entropy = self.calculate_gate_entropy(&decision.gates_q15);
-            if entropy < 0.02 {
-                warn!("Router entropy below floor: {:.4}", entropy);
-            }
+            self.determinism_validator
+                .validate_router_entropy(entropy)?;
 
             // 7. Execute kernel inference (reuse buffers)
             io_buffers.input_ids.clear();
@@ -398,6 +463,7 @@ impl InferencePipeline {
                         "cpid": request.cpid,
                         "step": step,
                         "token": next_token,
+                        "router_latency_us": router_latency.as_micros(),
                         "kernel_latency_us": kernel_latency.as_micros(),
                         "adapters": decision.indices,
                     }),
@@ -522,14 +588,14 @@ impl InferencePipeline {
     }
 
     /// Batch inference for multiple prompts
-    pub fn infer_batch(
+    pub async fn infer_batch(
         &mut self,
         requests: Vec<InferenceRequest>,
     ) -> Result<Vec<InferenceResponse>> {
         let mut responses = Vec::with_capacity(requests.len());
 
         for request in requests {
-            let response = self.infer(request)?;
+            let response = self.infer(request).await?;
             responses.push(response);
         }
 

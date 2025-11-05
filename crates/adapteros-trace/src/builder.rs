@@ -148,6 +148,12 @@ impl TraceBuffer {
         let guard = self.inner.read().expect("trace buffer poisoned");
         guard.len()
     }
+
+    /// Check if the trace buffer is empty
+    pub fn is_empty(&self) -> bool {
+        let guard = self.inner.read().expect("trace buffer poisoned");
+        guard.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]

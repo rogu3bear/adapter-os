@@ -126,6 +126,22 @@ The app reads from two sources:
 
 If the JSON file doesn't exist, the app displays "AdapterOS OFFLINE".
 
+## Recent Fixes (2025-01-15)
+
+### Bug Fixes
+- **StatusViewModel Hash Comparison**: Fixed redundant status updates, now only updates when content changes
+- **Watcher Concurrency**: Added serialization guard to prevent concurrent watcher setup
+- **StatusReader Error Context**: Enhanced error messages with detailed decode/validation context
+- **ResponseCache Statistics**: Improved accuracy by tracking actual data sizes instead of estimates
+- **ServicePanelClient Cache**: Fixed cache check logic for GET requests without body
+
+### Test Coverage
+- Added comprehensive unit tests for all components (25+ tests)
+- Added integration tests for end-to-end scenarios (9 tests)
+- Added stress tests for concurrent operations and rapid updates
+
+See [TESTING.md](TESTING.md) for testing guide and [ARCHITECTURE.md](ARCHITECTURE.md) for architecture details.
+
 ## Code Signing
 
 For distribution, sign with your Developer ID:

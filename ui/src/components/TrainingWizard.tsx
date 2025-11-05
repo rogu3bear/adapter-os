@@ -462,7 +462,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </div>
       )}
 
-      {/* TODO: File preview functionality removed due to missing fileContent/uploadedFile state */}
+      {/* File preview functionality can be added when file upload state is needed */}
 
       {state.dataSourceType === 'custom' && (
         <div className="space-y-2">

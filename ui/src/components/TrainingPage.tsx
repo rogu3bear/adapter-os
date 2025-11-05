@@ -13,16 +13,17 @@ import apiClient from '../api/client';
 import { TrainingJob } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { Link } from 'react-router-dom';
-import { Brain, Activity, Clock, CheckCircle, XCircle, AlertTriangle, Play, Pause, Square } from 'lucide-react';
+import { Brain, Activity, Clock, CheckCircle, XCircle, AlertTriangle, Play, Pause, Square, RefreshCw } from 'lucide-react';
 import { Progress } from './ui/progress';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { ConfigPageHeader } from './ui/page-headers/ConfigPageHeader';
+import { useProgressOperation } from '../hooks/useProgressOperation';
 
-export function TrainingPage() {
+export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {}) {
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
-  const { data: trainingJobs = [], isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
+  const { data, isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
     () => apiClient.listTrainingJobs(),
     'fast', // Training progress needs frequent updates
     {
@@ -33,17 +34,24 @@ export function TrainingPage() {
     }
   );
 
+  // Handle null data case from usePolling hook - use established pattern
+  const trainingJobs = data ?? [];
+
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [trainingConfig, setTrainingConfig] = useState<any>(null); // State to hold training config for wizard
   const [actionError, setActionError] = useState<Error | null>(null);
+  const [cancellingJobs, setCancellingJobs] = useState<Set<string>>(new Set()); // Track jobs being cancelled
+
+  // Progress tracking for training operations
+  const { operation: activeTrainingOperation, start: startTrainingOperation, cancel: cancelTrainingOperation } = useProgressOperation();
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'running': return <Activity className="h-4 w-4 text-blue-500 animate-pulse" />;
-      case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'failed': return <XCircle className="h-4 w-4 text-red-500" />;
-      case 'queued': return <Clock className="h-4 w-4 text-yellow-500" />;
+      case 'running': return <Activity className="h-4 w-4 text-gray-400 animate-pulse" />;
+      case 'completed': return <CheckCircle className="h-4 w-4 text-gray-600" />;
+      case 'failed': return <XCircle className="h-4 w-4 text-gray-700" />;
+      case 'queued': return <Clock className="h-4 w-4 text-gray-500" />;
       default: return <AlertTriangle className="h-4 w-4 text-gray-500" />;
     }
   };
@@ -56,13 +64,34 @@ export function TrainingPage() {
     setActionError(null);
     try {
       if (action === 'stop') {
+        // Track cancelling state
+        setCancellingJobs(prev => new Set(prev).add(jobId));
+
+        // Start progress tracking for cancellation
+        if (selectedTenant) {
+          startTrainingOperation('training', jobId, selectedTenant);
+        }
+
         await apiClient.cancelTraining(jobId);
-        // Success - could show success feedback but not critical
+
+        // Success - remove from cancelling set
+        setCancellingJobs(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(jobId);
+          return newSet;
+        });
       } else {
         // Not supported - show info, not error
         setActionError(new Error(`${action} is not supported yet`));
       }
     } catch (err) {
+      // Remove from cancelling set on error
+      setCancellingJobs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(jobId);
+        return newSet;
+      });
+
       const error = err instanceof Error ? err : new Error(`Failed to ${action} job`);
       setActionError(error);
       logger.error(`Failed to ${action} training job`, { component: 'TrainingPage', jobId, action }, error);
@@ -145,11 +174,27 @@ export function TrainingPage() {
                               </Button>
                               {jobTyped.status === 'running' && (
                                 <>
-                                  <Button size="sm" variant="outline" onClick={() => handleJobAction(jobTyped.id, 'pause')} aria-label={`Pause ${jobTyped.adapter_name}`}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleJobAction(jobTyped.id, 'pause')}
+                                    disabled={cancellingJobs.has(jobTyped.id)}
+                                    aria-label={`Pause ${jobTyped.adapter_name}`}
+                                  >
                                     <Pause className="h-4 w-4" />
                                   </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => handleJobAction(jobTyped.id, 'stop')} aria-label={`Stop ${jobTyped.adapter_name}`}>
-                                    <Square className="h-4 w-4" />
+                                  <Button
+                                    size="sm"
+                                    variant={cancellingJobs.has(jobTyped.id) ? "secondary" : "destructive"}
+                                    onClick={() => handleJobAction(jobTyped.id, 'stop')}
+                                    disabled={cancellingJobs.has(jobTyped.id)}
+                                    aria-label={`Stop ${jobTyped.adapter_name}`}
+                                  >
+                                    {cancellingJobs.has(jobTyped.id) ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Square className="h-4 w-4" />
+                                    )}
                                   </Button>
                                 </>
                               )}

@@ -1,0 +1,9 @@
+[package]
+name = "create-aos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
+adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
+tokio = { version = "1.0", features = ["full"] }

@@ -4,17 +4,17 @@
 //! and flexible input/output formats for different training scenarios.
 
 use super::dataset::TrainingExample;
-use tokenizers::Tokenizer;
 use adapteros_core::{AosError, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use std::path::Path;
+use tokenizers::Tokenizer;
+use tracing::{info, warn};
 
 /// JSON training dataset structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct JsonTrainingDataset {
     pub name: String,
     #[serde(default)]
@@ -27,33 +27,33 @@ pub struct JsonTrainingDataset {
 }
 
 /// Individual JSON training example
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct JsonTrainingExample {
     /// Example ID (optional)
     #[serde(default)]
     pub id: Option<String>,
-    
+
     /// Input data (flexible format)
     pub input: JsonInput,
-    
+
     /// Target/output data (flexible format)
     pub target: JsonTarget,
-    
+
     /// Example weight (+1.0 for positive, -1.0 for negative)
     #[serde(default = "default_example_weight")]
     pub weight: f32,
-    
+
     /// Example metadata
     #[serde(default)]
     pub metadata: Option<HashMap<String, Value>>,
-    
+
     /// Example category/tags
     #[serde(default)]
     pub tags: Vec<String>,
 }
 
 /// Flexible input format for JSON training
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum JsonInput {
     /// Simple text input
@@ -67,7 +67,7 @@ pub enum JsonInput {
 }
 
 /// Flexible target format for JSON training
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum JsonTarget {
     /// Simple text output
@@ -81,7 +81,7 @@ pub enum JsonTarget {
 }
 
 /// JSON dataset loader configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JsonLoaderConfig {
     /// Tokenizer to use for text encoding
     pub tokenizer: Option<Tokenizer>,
@@ -91,8 +91,6 @@ pub struct JsonLoaderConfig {
     pub max_target_length: usize,
     /// Whether to separate positive/negative examples
     pub separate_weights: bool,
-    /// Custom encoding function for non-text inputs
-    pub custom_encoder: Option<Box<dyn Fn(&JsonInput) -> Result<Vec<u32>> + Send + Sync>>,
 }
 
 impl Default for JsonLoaderConfig {
@@ -102,7 +100,6 @@ impl Default for JsonLoaderConfig {
             max_input_length: 2048,
             max_target_length: 512,
             separate_weights: true,
-            custom_encoder: None,
         }
     }
 }
@@ -113,86 +110,114 @@ pub fn load_json_dataset<P: AsRef<Path>>(
     config: JsonLoaderConfig,
 ) -> Result<Vec<TrainingExample>> {
     let path = path.as_ref();
-    
+
     // Read JSON file
-    let content = fs::read_to_string(path)
-        .map_err(|e| AosError::Training(format!("Failed to read JSON dataset {}: {}", path.display(), e)))?;
-    
-    let dataset: JsonTrainingDataset = serde_json::from_str(&content)
-        .map_err(|e| AosError::Training(format!("Failed to parse JSON dataset {}: {}", path.display(), e)))?;
-    
-    info!("Loading JSON dataset: {} ({} examples)", dataset.name, dataset.examples.len());
-    
+    let content = fs::read_to_string(path).map_err(|e| {
+        AosError::Training(format!(
+            "Failed to read JSON dataset {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    let dataset: JsonTrainingDataset = serde_json::from_str(&content).map_err(|e| {
+        AosError::Training(format!(
+            "Failed to parse JSON dataset {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    info!(
+        "Loading JSON dataset: {} ({} examples)",
+        dataset.name,
+        dataset.examples.len()
+    );
+
     // Convert JSON examples to training examples
     let mut training_examples = Vec::new();
     let mut positive_count = 0;
     let mut negative_count = 0;
-    
+
     for (idx, example) in dataset.examples.iter().enumerate() {
         let input_tokens = encode_input(&example.input, &config)?;
         let target_tokens = encode_target(&example.target, &config)?;
-        
+
         // Validate lengths
         if input_tokens.len() > config.max_input_length {
-            warn!("Example {} input too long: {} tokens (max: {})", idx, input_tokens.len(), config.max_input_length);
+            warn!(
+                "Example {} input too long: {} tokens (max: {})",
+                idx,
+                input_tokens.len(),
+                config.max_input_length
+            );
             continue;
         }
-        
+
         if target_tokens.len() > config.max_target_length {
-            warn!("Example {} target too long: {} tokens (max: {})", idx, target_tokens.len(), config.max_target_length);
+            warn!(
+                "Example {} target too long: {} tokens (max: {})",
+                idx,
+                target_tokens.len(),
+                config.max_target_length
+            );
             continue;
         }
-        
+
         // Build metadata
         let mut metadata = HashMap::new();
         metadata.insert("dataset_name".to_string(), dataset.name.clone());
         metadata.insert("example_index".to_string(), idx.to_string());
-        
+
         if let Some(ref id) = example.id {
             metadata.insert("example_id".to_string(), id.clone());
         }
-        
+
         if !example.tags.is_empty() {
             metadata.insert("tags".to_string(), example.tags.join(","));
         }
-        
+
         if let Some(ref example_metadata) = example.metadata {
             for (key, value) in example_metadata {
                 metadata.insert(key.clone(), flatten_json_value(value));
             }
         }
-        
+
         // Add dataset metadata
         for (key, value) in &dataset.metadata {
             metadata.insert(format!("dataset_{}", key), flatten_json_value(value));
         }
-        
+
         let training_example = TrainingExample {
             input: input_tokens,
             target: target_tokens,
             metadata,
             weight: example.weight,
         };
-        
+
         training_examples.push(training_example);
-        
+
         if example.weight > 0.0 {
             positive_count += 1;
         } else if example.weight < 0.0 {
             negative_count += 1;
         }
     }
-    
-    info!("Loaded {} examples: {} positive, {} negative", 
-          training_examples.len(), positive_count, negative_count);
-    
+
+    info!(
+        "Loaded {} examples: {} positive, {} negative",
+        training_examples.len(),
+        positive_count,
+        negative_count
+    );
+
     if training_examples.is_empty() {
         return Err(AosError::Training(format!(
             "JSON dataset {} produced zero valid examples",
             path.display()
         )));
     }
-    
+
     Ok(training_examples)
 }
 
@@ -201,7 +226,10 @@ fn encode_input(input: &JsonInput, config: &JsonLoaderConfig) -> Result<Vec<u32>
     match input {
         JsonInput::Text(text) => {
             if let Some(ref tokenizer) = config.tokenizer {
-                tokenizer.encode(text)
+                let encoding = tokenizer
+                    .encode(text.as_str(), false)
+                    .map_err(|e| AosError::Training(format!("Encoding failed: {}", e)))?;
+                Ok(encoding.get_ids().to_vec())
             } else {
                 // Fallback to character-level encoding
                 Ok(text.chars().map(|c| c as u32).collect())
@@ -209,8 +237,9 @@ fn encode_input(input: &JsonInput, config: &JsonLoaderConfig) -> Result<Vec<u32>
         }
         JsonInput::Structured(value) => {
             // Convert structured data to text representation
-            let text = serde_json::to_string(value)
-                .map_err(|e| AosError::Training(format!("Failed to serialize structured input: {}", e)))?;
+            let text = serde_json::to_string(value).map_err(|e| {
+                AosError::Training(format!("Failed to serialize structured input: {}", e))
+            })?;
             encode_input(&JsonInput::Text(text), config)
         }
         JsonInput::Code { content, language } => {
@@ -220,8 +249,9 @@ fn encode_input(input: &JsonInput, config: &JsonLoaderConfig) -> Result<Vec<u32>
         }
         JsonInput::Multimodal { text, data } => {
             // Combine text and structured data
-            let data_text = serde_json::to_string(data)
-                .map_err(|e| AosError::Training(format!("Failed to serialize multimodal data: {}", e)))?;
+            let data_text = serde_json::to_string(data).map_err(|e| {
+                AosError::Training(format!("Failed to serialize multimodal data: {}", e))
+            })?;
             let combined = format!("{}\n\nData: {}", text, data_text);
             encode_input(&JsonInput::Text(combined), config)
         }
@@ -233,7 +263,10 @@ fn encode_target(target: &JsonTarget, config: &JsonLoaderConfig) -> Result<Vec<u
     match target {
         JsonTarget::Text(text) => {
             if let Some(ref tokenizer) = config.tokenizer {
-                tokenizer.encode(text)
+                let encoding = tokenizer
+                    .encode(text.as_str(), false)
+                    .map_err(|e| AosError::Training(format!("Encoding failed: {}", e)))?;
+                Ok(encoding.get_ids().to_vec())
             } else {
                 // Fallback to character-level encoding
                 Ok(text.chars().map(|c| c as u32).collect())
@@ -241,8 +274,9 @@ fn encode_target(target: &JsonTarget, config: &JsonLoaderConfig) -> Result<Vec<u
         }
         JsonTarget::Structured(value) => {
             // Convert structured data to text representation
-            let text = serde_json::to_string(value)
-                .map_err(|e| AosError::Training(format!("Failed to serialize structured target: {}", e)))?;
+            let text = serde_json::to_string(value).map_err(|e| {
+                AosError::Training(format!("Failed to serialize structured target: {}", e))
+            })?;
             encode_target(&JsonTarget::Text(text), config)
         }
         JsonTarget::Code { content, language } => {
@@ -268,13 +302,12 @@ fn flatten_json_value(value: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.clone(),
-        Value::Array(arr) => {
-            arr.iter()
-                .map(flatten_json_value)
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join(",")
-        }
+        Value::Array(arr) => arr
+            .iter()
+            .map(flatten_json_value)
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(","),
         Value::Object(obj) => {
             let mut parts = Vec::new();
             for (k, v) in obj {
@@ -306,23 +339,6 @@ pub fn load_json_dataset_with_tokenizer<P: AsRef<Path>>(
     load_json_dataset(path, config)
 }
 
-/// Load JSON dataset with custom encoder
-pub fn load_json_dataset_with_encoder<P, F>(
-    path: P,
-    encoder: F,
-) -> Result<Vec<TrainingExample>>
-where
-    P: AsRef<Path>,
-    F: Fn(&JsonInput) -> Result<Vec<u32>> + Send + Sync + 'static,
-{
-    let config = JsonLoaderConfig {
-        custom_encoder: Some(Box::new(encoder)),
-        ..Default::default()
-    };
-    
-    load_json_dataset(path, config)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,7 +350,7 @@ mod tests {
     fn test_load_json_dataset() {
         let tmp = tempdir().expect("tempdir");
         let json_path = tmp.path().join("dataset.json");
-        
+
         // Write test JSON dataset
         let dataset = JsonTrainingDataset {
             name: "test_dataset".to_string(),
@@ -346,9 +362,10 @@ mod tests {
                     input: JsonInput::Text("Say hello".to_string()),
                     target: JsonTarget::Text("Hello!".to_string()),
                     weight: 1.0,
-                    metadata: Some(HashMap::from([
-                        ("source".to_string(), Value::String("test".to_string())),
-                    ])),
+                    metadata: Some(HashMap::from([(
+                        "source".to_string(),
+                        Value::String("test".to_string()),
+                    )])),
                     tags: vec!["greeting".to_string()],
                 },
                 JsonTrainingExample {
@@ -360,26 +377,33 @@ mod tests {
                     tags: vec!["refusal".to_string()],
                 },
             ],
-            metadata: HashMap::from([
-                ("author".to_string(), Value::String("test_author".to_string())),
-            ]),
+            metadata: HashMap::from([(
+                "author".to_string(),
+                Value::String("test_author".to_string()),
+            )]),
         };
-        
+
         let mut file = File::create(&json_path).unwrap();
         writeln!(file, "{}", serde_json::to_string_pretty(&dataset).unwrap()).unwrap();
-        
+
         // Load dataset
         let config = JsonLoaderConfig::default();
         let examples = load_json_dataset(&json_path, config).unwrap();
-        
+
         assert_eq!(examples.len(), 2);
         assert_eq!(examples[0].weight, 1.0);
         assert_eq!(examples[1].weight, -1.0);
-        
+
         // Check metadata
-        assert_eq!(examples[0].metadata.get("dataset_name").unwrap(), "test_dataset");
+        assert_eq!(
+            examples[0].metadata.get("dataset_name").unwrap(),
+            "test_dataset"
+        );
         assert_eq!(examples[0].metadata.get("example_id").unwrap(), "pos1");
         assert_eq!(examples[0].metadata.get("tags").unwrap(), "greeting");
-        assert_eq!(examples[0].metadata.get("dataset_author").unwrap(), "test_author");
+        assert_eq!(
+            examples[0].metadata.get("dataset_author").unwrap(),
+            "test_author"
+        );
     }
 }

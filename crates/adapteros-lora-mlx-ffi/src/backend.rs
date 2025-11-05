@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// MLX FFI backend for inference
 pub struct MLXFFIBackend {
     /// Base model
-    model: Arc<MLXFFIModel>,
+    pub model: Arc<MLXFFIModel>,
     /// Loaded LoRA adapters by ID
     adapters: Arc<RwLock<HashMap<u16, Arc<LoRAAdapter>>>>,
     /// Device name

@@ -46,10 +46,16 @@ pub use events::{
 };
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
-pub use metrics::{
-    AdapterMetrics, LatencyMetrics, MetricDataPoint, MetricTimeSeries, MetricsCollector,
-    MetricsRegistry, MetricsServer, MetricsSnapshot, PolicyMetrics, QueueDepthMetrics,
+// TelemetrySystemMetricsProvider is now implemented in binaries/servers to avoid circular dependencies
+// Re-export metric types from types crate for backward compatibility
+pub use adapteros_telemetry_types::{
+    AdapterMetrics, DeterminismMetrics, DiskMetrics, LatencyMetrics, LifecycleMetrics,
+    MetricDataPoint, MetricsSnapshot, NetworkMetrics, PolicyMetrics, QueueDepthMetrics,
     SystemMetrics, ThroughputMetrics,
+};
+// Re-export metrics collector and registry (implementation, not types)
+pub use metrics::{
+    MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer,
 };
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
@@ -321,7 +327,7 @@ impl TelemetryWriter {
     /// Log determinism metrics snapshot
     pub fn log_determinism_metrics(
         &self,
-        metrics: &crate::metrics::DeterminismMetrics,
+        metrics: &adapteros_telemetry_types::DeterminismMetrics,
     ) -> Result<()> {
         let event = TelemetryEventBuilder::new(
             EventType::Custom("determinism.metrics".to_string()),

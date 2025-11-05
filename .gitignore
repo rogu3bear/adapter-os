@@ -41,6 +41,9 @@ target/verify/
 # Database (contains sensitive data)
 /var/
 *.db
+*.db-shm
+*.db-wal
+*.pid
 *.sqlite
 *.sqlite3
 
@@ -189,3 +192,21 @@ Desktop.ini
 .directory
 .Trash-*
 .nfs*
+adapters/*.safetensors
+trained_adapter*/
+adapters/demo_adapter*/**
+*.patch
+server.pid
+aos
+aos-launch
+LAUNCH_*.md
+MODEL_VALIDATION_*.md
+QA_*.md
+*_STATUS.md
+SERVICES_*.md
+aos2_implementation.rs
+aos_format_design.md
+training_data.json
+Cargo.toml.aos
+create_aos.rs
+launch.sh

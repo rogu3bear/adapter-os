@@ -549,7 +549,7 @@ impl SecurityVerifier {
             score -= (100.0 - compliance.score) * 0.3;
         }
 
-        score.max(0.0).min(100.0)
+        score.clamp(0.0, 100.0)
     }
 
     /// Generate security recommendations

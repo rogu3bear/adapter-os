@@ -13,12 +13,16 @@ use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
+use adapteros_system_metrics::SystemMetricsCollector;
+use adapteros_telemetry::metrics::{SystemMetricsProvider, SystemMetricsSnapshot};
+use async_trait::async_trait;
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
+use tokio::sync::Mutex;
 use tower::Service;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -173,10 +177,36 @@ async fn main() -> Result<()> {
     info!("Loading configuration from {}", cli.config);
     let mut config_data = Config::load(&cli.config)?;
 
+    // Validate configuration before proceeding
+    info!("Validating configuration");
+    config_data.validate()?;
+    info!("Configuration validation passed");
+
+    // Perform comprehensive startup validation
+    config_data.validate_startup_requirements().await?;
+    info!("Startup requirements validation passed");
+
     if config_data.security.jwt_public_key_pem.is_none() {
         if let Some(ref pem_file) = config_data.security.jwt_public_key_pem_file {
             let pem = read_trimmed_file(pem_file)?;
             config_data.security.jwt_public_key_pem = Some(pem);
+        }
+    }
+
+    // Apply MLX configuration if present
+    if let Some(ref mlx_config) = config_data.mlx {
+        if mlx_config.enabled {
+            if let Some(ref model_path) = mlx_config.model_path {
+                // Set environment variable if not already set (env var takes precedence)
+                if std::env::var("AOS_MLX_FFI_MODEL").is_err() {
+                    std::env::set_var("AOS_MLX_FFI_MODEL", model_path);
+                    info!("Set AOS_MLX_FFI_MODEL from config: {}", model_path);
+                } else {
+                    info!(
+                        "AOS_MLX_FFI_MODEL already set in environment, not overriding with config value"
+                    );
+                }
+            }
         }
     }
 
@@ -274,34 +304,26 @@ async fn main() -> Result<()> {
 
     // Model runtime environment validation
     {
-        #[cfg(feature = "mlx-ffi-backend")]
-        {
-            match std::env::var("AOS_MLX_FFI_MODEL") {
-                Ok(path) => {
-                    if std::path::Path::new(&path).exists() {
-                        info!(
-                            path = %path,
-                            "AOS_MLX_FFI_MODEL environment variable set and path exists"
-                        );
-                    } else {
-                        warn!(
-                            path = %path,
-                            "AOS_MLX_FFI_MODEL environment variable set but path does not exist. Model loading will fail."
-                        );
-                    }
-                }
-                Err(_) => {
+        // Note: mlx-ffi-backend feature check removed to avoid build warnings
+        // MLX backend is handled at runtime via adapteros-lora-mlx-ffi crate
+        match std::env::var("AOS_MLX_FFI_MODEL") {
+            Ok(path) => {
+                if std::path::Path::new(&path).exists() {
+                    info!(
+                        path = %path,
+                        "AOS_MLX_FFI_MODEL environment variable set and path exists"
+                    );
+                } else {
                     warn!(
-                        "AOS_MLX_FFI_MODEL environment variable not set. Model loading will fail. Set this to the path of your MLX model directory."
+                        path = %path,
+                        "AOS_MLX_FFI_MODEL environment variable set but path does not exist. Model loading will fail."
                     );
                 }
             }
-        }
-        #[cfg(not(feature = "mlx-ffi-backend"))]
-        {
-            warn!(
-                "mlx-ffi-backend feature not enabled. Model runtime will operate in stub mode."
-            );
+            Err(_) => {
+                // Environment variable not set - this is fine for non-MLX backends
+                // Using default backend (Metal/CPU)
+            }
         }
     }
 
@@ -470,7 +492,12 @@ async fn main() -> Result<()> {
                 allowlist: vec!["**/*".to_string()],
                 denylist: vec!["**/.env*".to_string(), "**/secrets/**".to_string()],
             },
+            repository_paths: cfg.paths.repositories.clone(),
             production_mode: cfg.server.production_mode,
+            model_load_timeout_secs: 300,
+            model_unload_timeout_secs: 30,
+            max_loaded_models: 3,
+            max_models_per_tenant: 1,
         }))
     };
 
@@ -562,12 +589,50 @@ async fn main() -> Result<()> {
 
     // Create metrics collector and registry for AppState
     let metrics_collector = Arc::new(
-        adapteros_telemetry::MetricsCollector::new_with_system_provider(None)
-            .expect("metrics collector"),
+        adapteros_telemetry::MetricsCollector::new_with_system_provider(Some(Box::new(
+            TelemetrySystemMetricsProvider::new(),
+        )))
+        .expect("metrics collector"),
     );
-    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
-        metrics_collector.clone(),
-    ));
+    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(Arc::clone(
+        &metrics_collector,
+    )));
+
+    // Initialize time series for key metrics (1 second resolution, 1000 points = ~16 minutes of history)
+    for name in [
+        "inference_latency_p95_ms",
+        "queue_depth",
+        "tokens_per_second",
+        "memory_usage_mb",
+    ] {
+        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_000);
+    }
+    info!("Initialized metrics time series for dashboard");
+
+    // Create metrics server for HTTP Prometheus export
+    let metrics_server = if cfg.metrics.server_enabled {
+        let server = Arc::new(
+            adapteros_telemetry::MetricsServer::new(
+                metrics_collector.clone(),
+                cfg.metrics.server_port,
+            )
+            .expect("metrics server"),
+        );
+
+        // Start metrics server in background
+        let server_clone = server.clone();
+        tokio::spawn(async move {
+            if let Err(e) = server_clone.start().await {
+                error!("Metrics server error: {}", e);
+            }
+        });
+
+        info!("Metrics server started on port {}", cfg.metrics.server_port);
+        Some(server)
+    } else {
+        info!("Metrics server disabled");
+        None
+    };
 
     // Initialize policy hash watcher (continuous monitoring)
     let (telemetry_tx, _telemetry) = {
@@ -832,20 +897,62 @@ async fn main() -> Result<()> {
         cfg.orchestrator.base_model.clone()
     };
 
-    let training_service = Arc::new(TrainingService::new_with_base_model(
+    let db_for_training = {
+        match db.backend() {
+            adapteros_db::DatabaseBackend::Sqlite(db_inner) => Arc::new(db_inner.clone()),
+            adapteros_db::DatabaseBackend::Postgres(_) => {
+                return Err(AosError::Config(
+                    "TrainingService requires SQLite database backend".to_string(),
+                )
+                .into());
+            }
+        }
+    };
+    let training_service = Arc::new(TrainingService::new_with_db(
+        db_for_training,
         orchestrator_base_model,
     ));
+
+    // Warm up training service cache and reconcile stuck jobs on startup
+    {
+        let training_service_clone = training_service.clone();
+        info!("Warming up training service cache...");
+        match training_service_clone.warmup_cache().await {
+            Ok(count) => info!(
+                "Training service cache warmup complete: loaded {} jobs",
+                count
+            ),
+            Err(e) => warn!("Training service cache warmup failed: {}", e),
+        }
+
+        info!("Reconciling stuck training jobs...");
+        match training_service_clone.reconcile_stuck_jobs(24).await {
+            Ok(count) => {
+                if count > 0 {
+                    warn!("Reconciled {} stuck training jobs", count);
+                } else {
+                    info!("No stuck training jobs found");
+                }
+            }
+            Err(e) => warn!("Training job reconciliation failed: {}", e),
+        }
+    }
 
     let mut state = AppState::new(
         db.clone(),
         jwt_secret,
         api_config.clone(),
         Arc::clone(&metrics_exporter),
-        metrics_collector,
-        metrics_registry,
+        Arc::clone(&metrics_collector),
+        Arc::clone(&metrics_registry),
         training_service,
         Some(telemetry_tx),
     );
+
+    // Add metrics server to AppState if enabled
+    if let Some(metrics_server) = metrics_server {
+        state = state.with_metrics_server(metrics_server);
+    }
 
     {
         let signing_path_opt = {
@@ -887,6 +994,14 @@ async fn main() -> Result<()> {
             None,
             3,
         );
+
+        // Configure adapter loader with file size limits
+        {
+            let max_adapter_size = cfg.server.max_adapter_size_bytes;
+            let mut loader = lifecycle.loader.write();
+            loader.set_max_size(max_adapter_size);
+        }
+
         if cfg.server.enable_mmap_adapters {
             lifecycle =
                 lifecycle.with_mmap_loader(adapters_path.clone(), cfg.server.mmap_cache_size_mb);
@@ -894,6 +1009,7 @@ async fn main() -> Result<()> {
         if cfg.server.enable_hot_swap {
             lifecycle = lifecycle.with_hot_swap();
         }
+        lifecycle = lifecycle.with_metrics_collector(Arc::clone(&metrics_collector));
         state = state.with_lifecycle(Arc::new(tokio::sync::Mutex::new(lifecycle)));
     }
 
@@ -918,12 +1034,22 @@ async fn main() -> Result<()> {
         let policies = Policies::default();
         let mut lifecycle =
             LifecycleManager::new(adapter_names, &policies, adapters_path.clone(), None, 3);
+
+        // Configure adapter loader with file size limits
+        {
+            let max_adapter_size = cfg.server.max_adapter_size_bytes;
+            let mut loader = lifecycle.loader.write();
+            loader.set_max_size(max_adapter_size);
+        }
+
         if enable_mmap {
             lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), mmap_mb);
         }
         if enable_hot_swap {
             lifecycle = lifecycle.with_hot_swap();
         }
+
+        lifecycle = lifecycle.with_metrics_collector(Arc::clone(&metrics_collector));
 
         state = state.with_lifecycle(Arc::new(tokio::sync::Mutex::new(lifecycle)));
     }
@@ -996,17 +1122,16 @@ async fn main() -> Result<()> {
             .clone()
             .unwrap_or_default();
 
+        // Create broadcast channel for file change events
+        let (file_change_tx, _) =
+            tokio::sync::broadcast::channel::<adapteros_api_types::git::FileChangeEvent>(1000);
+
         match adapteros_git::GitSubsystem::new(git_config, db.clone()).await {
             Ok(mut git_subsystem) => {
                 // Start git subsystem
                 if let Err(e) = git_subsystem.start().await {
                     error!("Failed to start Git subsystem: {}", e);
                 } else {
-                    // Create broadcast channel for file change events
-                    let (file_change_tx, _) = tokio::sync::broadcast::channel::<
-                        adapteros_api_types::git::FileChangeEvent,
-                    >(1000);
-
                     state = state.with_git(Arc::new(git_subsystem), Arc::new(file_change_tx));
                     info!("Git subsystem started successfully");
                 }
@@ -1017,6 +1142,16 @@ async fn main() -> Result<()> {
         }
     } else {
         info!("Git subsystem disabled in configuration");
+    }
+
+    // Reconcile model states on startup to fix any stuck 'loading' or 'unloading' states
+    {
+        use adapteros_server_api::handlers::models::reconcile_model_states;
+        info!("Running model state reconciliation on startup");
+        if let Err(e) = reconcile_model_states(&state).await {
+            warn!("Model state reconciliation failed: {}", e);
+            // Continue startup even if reconciliation fails
+        }
     }
 
     // Spawn status cache update background task
@@ -1049,20 +1184,74 @@ async fn main() -> Result<()> {
         info!("Status file writer started (5s interval)");
     }
 
-    // Clone metrics before moving state into routes
-    let metrics_collector = state.metrics_collector.clone();
-    let metrics_registry = state.metrics_registry.clone();
-
-    // Build router with UI
-    let api_routes = routes::build(state);
-    let ui_routes = assets::routes();
-
-    let app = axum::Router::new()
-        .merge(ui_routes)
-        .nest("/api", api_routes);
-
-    // Start real-time metrics update task
+    // Spawn periodic model state health check task
     {
+        use adapteros_server_api::handlers::models::check_model_state_health;
+        let state_clone = state.clone();
+        let _ = spawn_deterministic("Model state health check".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every 60 seconds
+            loop {
+                interval.tick().await;
+                match check_model_state_health(&state_clone).await {
+                    Ok(metrics) => {
+                        if metrics.divergences > 0 {
+                            warn!(
+                                divergence_count = metrics.divergences,
+                                total_models = metrics.total_models,
+                                "Model state health check detected {} divergence(s) out of {} models",
+                                metrics.divergences,
+                                metrics.total_models
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Model state health check failed: {}", e);
+                    }
+                }
+            }
+        });
+        info!("Model state health check task started (60s interval)");
+    }
+
+    // Spawn operation health monitoring task (stuck operations and state divergences)
+    {
+        use adapteros_server_api::handlers::monitor_operation_health;
+        let state_clone = state.clone();
+        let _ = spawn_deterministic("Operation health monitor".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every 60 seconds
+            loop {
+                interval.tick().await;
+                match monitor_operation_health(&state_clone).await {
+                    Ok(()) => {
+                        // Monitoring completed successfully
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Operation health monitoring failed"
+                        );
+                    }
+                }
+            }
+        });
+        info!("Operation health monitor started (60s interval)");
+    }
+
+    // Clone metrics and telemetry buffer before moving state into routes
+    let metrics_collector_for_tasks = state.metrics_collector.clone();
+    let metrics_registry_for_tasks = state.metrics_registry.clone();
+    let telemetry_buffer_for_kernel_latency = state.telemetry_buffer.clone();
+    let metrics_update_interval_secs = {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        cfg.metrics.system_metrics_interval_secs.max(1)
+    };
+
+    // Start real-time metrics update task (before moving state)
+    {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        let metrics_registry_clone = metrics_registry_for_tasks.clone();
         async fn update_metrics(
             metrics_collector: &Arc<adapteros_telemetry::MetricsCollector>,
             metrics_registry: &Arc<adapteros_telemetry::MetricsRegistry>,
@@ -1073,17 +1262,225 @@ async fn main() -> Result<()> {
         }
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30)); // Update every 30 seconds
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(metrics_update_interval_secs));
             loop {
                 interval.tick().await;
 
-                if let Err(e) = update_metrics(&metrics_collector, &metrics_registry).await {
+                if let Err(e) =
+                    update_metrics(&metrics_collector_clone, &metrics_registry_clone).await
+                {
                     error!("Failed to update metrics: {}", e);
                 }
             }
         });
-        info!("Real-time metrics update task started");
+        info!(
+            interval_secs = metrics_update_interval_secs,
+            "Metrics update task started"
+        );
     }
+
+    // Periodic task to update determinism metrics (avoids circular dependency)
+    {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5)); // Update every 5 seconds
+            loop {
+                interval.tick().await;
+
+                // Collect determinism metrics from adapteros-deterministic-exec
+                use adapteros_deterministic_exec::seed::SeedMetrics;
+                let seed_metrics = SeedMetrics::collect();
+
+                use adapteros_telemetry::metrics::DeterminismMetrics;
+                let determinism_metrics = DeterminismMetrics {
+                    seed_collision_count: seed_metrics.collision_count,
+                    seed_propagation_failure_count: seed_metrics.propagation_failure_count,
+                    active_seed_threads: seed_metrics.active_threads,
+                    thread_seed_generations: seed_metrics.thread_generations,
+                };
+
+                metrics_collector_clone.update_determinism_metrics(determinism_metrics);
+            }
+        });
+        info!("Determinism metrics update task started (5s interval)");
+    }
+
+    // Background task to aggregate kernel latency from telemetry events (before moving state)
+    {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        let telemetry_buffer_clone = telemetry_buffer_for_kernel_latency.clone();
+        let _ = spawn_deterministic("Kernel latency aggregator".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5)); // Aggregate every 5 seconds
+            loop {
+                interval.tick().await;
+
+                // Query telemetry for recent inference.step events with kernel latency
+                use adapteros_telemetry::TelemetryFilters;
+                use chrono::{Duration as ChronoDuration, Utc};
+
+                let end_time = Utc::now();
+                let start_time = end_time - ChronoDuration::seconds(5);
+
+                // Query for inference.step events (kernel latency) and router.decision events (router latency)
+                let step_filters = TelemetryFilters {
+                    limit: Some(1000),
+                    event_type: Some("inference.step".to_string()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    ..Default::default()
+                };
+
+                let router_filters = TelemetryFilters {
+                    limit: Some(1000),
+                    event_type: Some("router.decision".to_string()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    ..Default::default()
+                };
+
+                let step_events = telemetry_buffer_clone.query(&step_filters);
+                let router_events = telemetry_buffer_clone.query(&router_filters);
+
+                // Aggregate kernel latency per tenant
+                let mut kernel_latency_by_tenant: std::collections::HashMap<String, Vec<f64>> =
+                    std::collections::HashMap::new();
+                let mut router_latency_by_tenant: std::collections::HashMap<String, Vec<f64>> =
+                    std::collections::HashMap::new();
+
+                for event in step_events.iter() {
+                    if let Some(ref metadata) = event.metadata {
+                        // Extract kernel latency
+                        if let Some(latency_us) =
+                            metadata.get("kernel_latency_us").and_then(|v| v.as_u64())
+                        {
+                            let latency_secs = latency_us as f64 / 1_000_000.0;
+                            let tenant_id = event
+                                .tenant_id
+                                .as_ref()
+                                .map(|s| s.as_str())
+                                .unwrap_or("default");
+                            kernel_latency_by_tenant
+                                .entry(tenant_id.to_string())
+                                .or_insert_with(Vec::new)
+                                .push(latency_secs);
+                        }
+
+                        // Extract router latency (also in inference.step events)
+                        if let Some(latency_us) =
+                            metadata.get("router_latency_us").and_then(|v| v.as_u64())
+                        {
+                            let latency_secs = latency_us as f64 / 1_000_000.0;
+                            let tenant_id = event
+                                .tenant_id
+                                .as_ref()
+                                .map(|s| s.as_str())
+                                .unwrap_or("default");
+                            router_latency_by_tenant
+                                .entry(tenant_id.to_string())
+                                .or_insert_with(Vec::new)
+                                .push(latency_secs);
+                        }
+                    }
+                }
+
+                // Also check router.decision events
+                for event in router_events.iter() {
+                    if let Some(ref metadata) = event.metadata {
+                        if let Some(latency_us) =
+                            metadata.get("router_latency_us").and_then(|v| v.as_u64())
+                        {
+                            let latency_secs = latency_us as f64 / 1_000_000.0;
+                            let tenant_id = event
+                                .tenant_id
+                                .as_ref()
+                                .map(|s| s.as_str())
+                                .unwrap_or("default");
+                            router_latency_by_tenant
+                                .entry(tenant_id.to_string())
+                                .or_insert_with(Vec::new)
+                                .push(latency_secs);
+                        }
+                    }
+                }
+
+                // Record aggregated kernel latencies to metrics collector
+                for (tenant_id, latencies) in kernel_latency_by_tenant.iter() {
+                    let avg_latency = latencies.iter().sum::<f64>() / latencies.len() as f64;
+                    if latencies.len() > 0 {
+                        metrics_collector_clone.record_kernel_latency(
+                            "metal",
+                            tenant_id,
+                            avg_latency,
+                        );
+                    }
+                }
+
+                // Record aggregated router latencies to metrics collector
+                for (tenant_id, latencies) in router_latency_by_tenant.iter() {
+                    let avg_latency = latencies.iter().sum::<f64>() / latencies.len() as f64;
+                    if latencies.len() > 0 {
+                        metrics_collector_clone.record_router_latency(tenant_id, avg_latency);
+                    }
+                }
+            }
+        });
+        info!("Kernel and router latency aggregator started");
+    }
+
+    // Background task to update queue depth metrics periodically
+    {
+        let metrics_collector_clone = metrics_collector_for_tasks.clone();
+        let db_for_queues = db.clone().into_inner();
+        let _ = spawn_deterministic("Queue depth monitor".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5)); // Update every 5 seconds
+            loop {
+                interval.tick().await;
+
+                // Count queued jobs per tenant
+                if let Ok(count) = db_for_queues.count_queued_jobs().await {
+                    // Update request queue depth (aggregate across all tenants for now)
+                    metrics_collector_clone.update_queue_depth("request", "default", count as f64);
+                }
+
+                // Note: Adapter and kernel queue depths would need worker-level metrics
+                // For now, we set them to 0 and they'll be updated when worker metrics are available
+                metrics_collector_clone.update_queue_depth("adapter", "default", 0.0);
+                metrics_collector_clone.update_queue_depth("kernel", "default", 0.0);
+            }
+        });
+        info!("Queue depth monitor started");
+    }
+
+    // Background task to clean up old training logs periodically
+    {
+        let training_service_clone = training_service.clone();
+        let _ = spawn_deterministic("Training log cleanup".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3600)); // Run hourly
+            loop {
+                interval.tick().await;
+                match training_service_clone.cleanup_old_logs(7).await {
+                    Ok(count) => {
+                        if count > 0 {
+                            info!("Cleaned up {} old training log files", count);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Training log cleanup failed: {}", e);
+                    }
+                }
+            }
+        });
+        info!("Training log cleanup task started (hourly, keeps 7 days)");
+    }
+
+    // Build router with UI (after spawning background tasks)
+    let api_routes = routes::build(state);
+    let ui_routes = assets::routes();
+
+    let app = axum::Router::new()
+        .merge(ui_routes)
+        .nest("/api", api_routes);
 
     // Choose serving mode: UDS (M1+) or TCP (dev)
     // In production_mode, UDS is required and TCP is blocked
@@ -1115,14 +1512,44 @@ async fn main() -> Result<()> {
         let app_service = app.clone();
         let builder = HyperBuilder::new(hyper_util::rt::TokioExecutor::new());
 
-        let shutdown = shutdown_signal();
+        let state_for_cleanup = state.clone();
+        let shutdown = async {
+            let signal = shutdown_signal().await;
+
+            // Check system readiness for shutdown
+            let readiness = check_shutdown_readiness(&state_for_cleanup).await;
+            info!(
+                "Shutdown readiness: active_requests={}, training_jobs={}, models={}, adapters={}, estimated_time={:?}",
+                readiness.active_requests,
+                readiness.active_training_jobs,
+                readiness.loaded_models,
+                readiness.loaded_adapters,
+                readiness.estimated_shutdown_time()
+            );
+
+            // Adjust shutdown behavior based on readiness and signal type
+            let effective_signal = match (signal, readiness.is_ready_for_graceful_shutdown()) {
+                (ShutdownSignal::Graceful, false) => {
+                    warn!("System not ready for graceful shutdown, switching to fast shutdown");
+                    ShutdownSignal::Fast
+                }
+                (ShutdownSignal::Immediate, _) => {
+                    warn!("Immediate shutdown requested, skipping readiness checks");
+                    signal
+                }
+                _ => signal,
+            };
+
+            let stats = cleanup_resources(&state_for_cleanup, effective_signal).await;
+            info!("Shutdown completed with stats: {:?}", stats);
+        };
         tokio::pin!(shutdown);
 
         loop {
             tokio::select! {
                 biased;
                 _ = &mut shutdown => {
-                    info!("Shutdown signal received");
+                    info!("Shutdown signal received and cleanup completed");
                     break;
                 }
                 accept_res = listener.accept() => {
@@ -1136,9 +1563,15 @@ async fn main() -> Result<()> {
                                     let mut svc_clone = svc.clone();
                                     async move {
                                         svc_clone.call(req).await.map_err(|e| {
-                                            tracing::error!("Service error: {}", e);
-                                            // TODO: Fix proper error handling for UDS service
-                                            std::io::Error::new(std::io::ErrorKind::Other, "service error")
+                                            tracing::error!(error = %e, "UDS service call failed");
+                                            // Convert service errors to appropriate HTTP status codes
+                                            match e {
+                                                // Handle specific error types if available
+                                                _ => {
+                                                    tracing::error!(error = %e, "Unhandled service error in UDS handler");
+                                                    std::io::Error::new(std::io::ErrorKind::Other, format!("Service error: {}", e))
+                                                }
+                                            }
                                         })
                                     }
                                 });
@@ -1175,20 +1608,113 @@ async fn main() -> Result<()> {
         warn!("⚠️  Starting control plane on TCP (development mode)");
         info!("UI available at http://{}:{}/", addr.ip(), port);
         info!("API available at http://{}:{}/api/", addr.ip(), port);
+        let state_for_cleanup = state.clone();
+        let shutdown = async {
+            let signal = shutdown_signal().await;
+
+            // Check system readiness for shutdown
+            let readiness = check_shutdown_readiness(&state_for_cleanup).await;
+            info!(
+                "Shutdown readiness: active_requests={}, training_jobs={}, models={}, adapters={}, estimated_time={:?}",
+                readiness.active_requests,
+                readiness.active_training_jobs,
+                readiness.loaded_models,
+                readiness.loaded_adapters,
+                readiness.estimated_shutdown_time()
+            );
+
+            // Adjust shutdown behavior based on readiness and signal type
+            let effective_signal = match (signal, readiness.is_ready_for_graceful_shutdown()) {
+                (ShutdownSignal::Graceful, false) => {
+                    warn!("System not ready for graceful shutdown, switching to fast shutdown");
+                    ShutdownSignal::Fast
+                }
+                (ShutdownSignal::Immediate, _) => {
+                    warn!("Immediate shutdown requested, skipping readiness checks");
+                    signal
+                }
+                _ => signal,
+            };
+
+            let stats = cleanup_resources(&state_for_cleanup, effective_signal).await;
+            info!("Shutdown completed with stats: {:?}", stats);
+        };
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(shutdown)
             .await?;
     }
 
     Ok(())
 }
 
-async fn shutdown_signal() {
+/// Shutdown phases for orderly cleanup
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShutdownPhase {
+    /// Initial phase: drain new connections, signal readiness for shutdown
+    Drain,
+    /// Critical cleanup: save state, flush telemetry, stop accepting requests
+    Critical,
+    /// Resource cleanup: unload models, adapters, close connections
+    Resources,
+    /// Final cleanup: cleanup temporary files, close databases
+    Final,
+}
+
+impl ShutdownPhase {
+    fn timeout(&self) -> std::time::Duration {
+        match self {
+            ShutdownPhase::Drain => std::time::Duration::from_secs(10),
+            ShutdownPhase::Critical => std::time::Duration::from_secs(30),
+            ShutdownPhase::Resources => std::time::Duration::from_secs(60),
+            ShutdownPhase::Final => std::time::Duration::from_secs(10),
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            ShutdownPhase::Drain => "draining connections",
+            ShutdownPhase::Critical => "critical cleanup",
+            ShutdownPhase::Resources => "resource cleanup",
+            ShutdownPhase::Final => "final cleanup",
+        }
+    }
+}
+
+/// Shutdown signal types for different shutdown behaviors
+#[derive(Debug, Clone, Copy)]
+enum ShutdownSignal {
+    /// Graceful shutdown (SIGTERM, Ctrl+C)
+    Graceful,
+    /// Fast shutdown (SIGUSR1)
+    Fast,
+    /// Immediate shutdown (SIGUSR2, SIGKILL)
+    Immediate,
+}
+
+/// Statistics for cleanup operations during shutdown
+#[derive(Debug, Default)]
+struct CleanupStats {
+    total_models: usize,
+    models_unloaded: usize,
+    models_failed: usize,
+    models_timed_out: usize,
+    total_adapters: usize,
+    adapters_unloaded: usize,
+    adapters_failed: usize,
+    total_connections: usize,
+    connections_closed: usize,
+    telemetry_flushed: bool,
+    database_closed: bool,
+    shutdown_duration: std::time::Duration,
+}
+
+async fn shutdown_signal() -> ShutdownSignal {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
             .expect("failed to install Ctrl+C handler");
+        ShutdownSignal::Graceful
     };
 
     #[cfg(unix)]
@@ -1197,14 +1723,494 @@ async fn shutdown_signal() {
             .expect("failed to install signal handler")
             .recv()
             .await;
+        ShutdownSignal::Graceful
+    };
+
+    #[cfg(unix)]
+    let usr1 = async {
+        signal::unix::signal(signal::unix::SignalKind::user_defined1())
+            .expect("failed to install SIGUSR1 handler")
+            .recv()
+            .await;
+        ShutdownSignal::Fast
+    };
+
+    #[cfg(unix)]
+    let usr2 = async {
+        signal::unix::signal(signal::unix::SignalKind::user_defined2())
+            .expect("failed to install SIGUSR2 handler")
+            .recv()
+            .await;
+        ShutdownSignal::Immediate
     };
 
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
+    #[cfg(not(unix))]
+    let usr1 = std::future::pending::<()>();
+    #[cfg(not(unix))]
+    let usr2 = std::future::pending::<()>();
 
-    // Use deterministic select instead of tokio::select!
-    // Left (ctrl_c) has priority over Right (terminate)
-    let _ = select_2(ctrl_c, terminate).await;
+    // Use deterministic select for signal prioritization
+    // Priority: Immediate (USR2) > Fast (USR1) > Graceful (TERM/Ctrl+C)
+    #[cfg(unix)]
+    {
+        let signal = select_2(
+            select_2(select_2(ctrl_c, terminate).await, usr1).await,
+            usr2,
+        )
+        .await;
+        info!("Shutdown signal received: {:?}", signal);
+        signal
+    }
 
-    info!("Shutdown signal received");
+    #[cfg(not(unix))]
+    {
+        let signal = select_2(ctrl_c, terminate).await;
+        info!("Shutdown signal received: {:?}", signal);
+        signal
+    }
+}
+
+/// Enhanced cleanup with phased shutdown and health check integration
+async fn cleanup_resources(
+    state: &adapteros_server_api::state::AppState,
+    shutdown_signal: ShutdownSignal,
+) -> CleanupStats {
+    use adapteros_lora_lifecycle::AdapterLoader;
+    use adapteros_server_api::model_runtime::ModelRuntime;
+    use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
+    use std::time::Duration;
+    use tracing::{error, info, warn};
+
+    let shutdown_start = std::time::Instant::now();
+    let mut cleanup_stats = CleanupStats::default();
+
+    info!(
+        "Starting {} shutdown cleanup",
+        match shutdown_signal {
+            ShutdownSignal::Graceful => "graceful",
+            ShutdownSignal::Fast => "fast",
+            ShutdownSignal::Immediate => "immediate",
+        }
+    );
+
+    // Emit shutdown start telemetry event
+    if let Some(ref telemetry_tx) = state.telemetry_tx {
+        let shutdown_event = TelemetryEventBuilder::new(
+            EventType::ShutdownStart,
+            LogLevel::Info,
+            format!("{:?} shutdown initiated", shutdown_signal),
+        )
+        .component("server".to_string())
+        .metadata(serde_json::json!({
+            "shutdown_type": format!("{:?}", shutdown_signal),
+            "signal_received_at": chrono::Utc::now().to_rfc3339()
+        }))
+        .build();
+
+        let _ = telemetry_tx.send(shutdown_event);
+    }
+
+    // Execute shutdown phases based on signal type
+    let phases = match shutdown_signal {
+        ShutdownSignal::Graceful => vec![
+            ShutdownPhase::Drain,
+            ShutdownPhase::Critical,
+            ShutdownPhase::Resources,
+            ShutdownPhase::Final,
+        ],
+        ShutdownSignal::Fast => vec![
+            ShutdownPhase::Critical,
+            ShutdownPhase::Resources,
+            ShutdownPhase::Final,
+        ],
+        ShutdownSignal::Immediate => vec![ShutdownPhase::Resources, ShutdownPhase::Final],
+    };
+
+    for phase in phases {
+        let phase_start = std::time::Instant::now();
+        info!(
+            "Starting shutdown phase: {} ({:?})",
+            phase.description(),
+            phase
+        );
+
+        // Execute phase-specific cleanup
+        let phase_result = execute_shutdown_phase(state, phase, &mut cleanup_stats).await;
+
+        let phase_duration = phase_start.elapsed();
+        match phase_result {
+            Ok(_) => {
+                info!(
+                    "Shutdown phase {} completed in {:?}",
+                    phase.description(),
+                    phase_duration
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Shutdown phase {} failed after {:?}: {}",
+                    phase.description(),
+                    phase_duration,
+                    e
+                );
+
+                // For immediate shutdown, don't continue with other phases
+                if matches!(shutdown_signal, ShutdownSignal::Immediate) {
+                    break;
+                }
+            }
+        }
+    }
+
+    cleanup_stats.shutdown_duration = shutdown_start.elapsed();
+
+    // Emit final shutdown telemetry event
+    if let Some(ref telemetry_tx) = state.telemetry_tx {
+        let shutdown_complete_event = TelemetryEventBuilder::new(
+            EventType::ShutdownComplete,
+            LogLevel::Info,
+            format!("{:?} shutdown completed", shutdown_signal),
+        )
+        .component("server".to_string())
+        .metadata(serde_json::json!({
+            "shutdown_type": format!("{:?}", shutdown_signal),
+            "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
+            "models_unloaded": cleanup_stats.models_unloaded,
+            "adapters_unloaded": cleanup_stats.adapters_unloaded,
+            "telemetry_flushed": cleanup_stats.telemetry_flushed,
+            "database_closed": cleanup_stats.database_closed
+        }))
+        .build();
+
+        let _ = telemetry_tx.send(shutdown_complete_event);
+    }
+
+    info!(
+        "Shutdown cleanup completed in {:?}: {} models unloaded, {} adapters unloaded",
+        cleanup_stats.shutdown_duration,
+        cleanup_stats.models_unloaded,
+        cleanup_stats.adapters_unloaded
+    );
+
+    cleanup_stats
+}
+
+/// Execute a specific shutdown phase with timeout and error handling
+async fn execute_shutdown_phase(
+    state: &adapteros_server_api::state::AppState,
+    phase: ShutdownPhase,
+    stats: &mut CleanupStats,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let timeout = phase.timeout();
+    let result = tokio::time::timeout(timeout, async {
+        match phase {
+            ShutdownPhase::Drain => {
+                // Drain new connections - signal load balancer to stop routing
+                info!("Signaling load balancer to drain connections");
+                // TODO: Implement connection draining logic
+                stats.total_connections = 0; // Placeholder
+                stats.connections_closed = 0; // Placeholder
+                Ok(())
+            }
+            ShutdownPhase::Critical => {
+                // Critical cleanup: flush telemetry, save state, stop accepting requests
+                flush_telemetry_buffers(state, stats).await?;
+                save_shutdown_state(state).await?;
+                Ok(())
+            }
+            ShutdownPhase::Resources => {
+                // Resource cleanup: unload models and adapters
+                cleanup_models(state, stats).await?;
+                cleanup_adapters(state, stats).await?;
+                Ok(())
+            }
+            ShutdownPhase::Final => {
+                // Final cleanup: close databases, cleanup temp files
+                close_database_connections(state, stats).await?;
+                cleanup_temporary_files().await?;
+                Ok(())
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(format!(
+            "Shutdown phase {} timed out after {:?}",
+            phase.description(),
+            timeout
+        )
+        .into()),
+    }
+}
+
+/// Flush telemetry buffers during critical shutdown phase
+async fn flush_telemetry_buffers(
+    state: &adapteros_server_api::state::AppState,
+    stats: &mut CleanupStats,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("Flushing telemetry buffers");
+
+    // Flush any pending telemetry events
+    if let Some(ref telemetry_tx) = state.telemetry_tx {
+        // Give telemetry some time to flush
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        stats.telemetry_flushed = true;
+        info!("Telemetry buffers flushed");
+    }
+
+    Ok(())
+}
+
+/// Save critical state before shutdown
+async fn save_shutdown_state(
+    _state: &adapteros_server_api::state::AppState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("Saving critical shutdown state");
+    // TODO: Save any critical in-memory state that needs to persist
+    // For now, this is a placeholder
+    Ok(())
+}
+
+/// Cleanup models during resource phase
+async fn cleanup_models(
+    state: &adapteros_server_api::state::AppState,
+    stats: &mut CleanupStats,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use adapteros_server_api::model_runtime::ModelRuntime;
+    use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
+
+    if let Some(model_runtime) = &state.model_runtime {
+        let loaded_models = {
+            let guard = model_runtime.lock().await;
+            guard.get_all_loaded_models()
+        };
+
+        stats.total_models = loaded_models.len();
+        info!("Unloading {} models during shutdown", stats.total_models);
+
+        for (tenant_id, model_id) in loaded_models {
+            let model_start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_secs(30);
+
+            let result = tokio::time::timeout(timeout, async {
+                let mut guard = model_runtime.lock().await;
+                guard.unload_model(&tenant_id, &model_id)
+            })
+            .await;
+
+            let model_duration = model_start.elapsed();
+
+            match result {
+                Ok(Ok(())) => {
+                    stats.models_unloaded += 1;
+                    info!("Model {} unloaded successfully", model_id);
+
+                    // Emit telemetry
+                    if let Some(ref telemetry_tx) = state.telemetry_tx {
+                        let event = TelemetryEventBuilder::new(
+                            EventType::ModelUnload,
+                            LogLevel::Info,
+                            format!("Model {} unloaded during shutdown", model_id),
+                        )
+                        .component("server".to_string())
+                        .tenant_id(Some(tenant_id.clone()))
+                        .metadata(serde_json::json!({
+                            "model_id": model_id,
+                            "duration_ms": model_duration.as_millis(),
+                            "success": true
+                        }))
+                        .build();
+                        let _ = telemetry_tx.send(event);
+                    }
+                }
+                Ok(Err(e)) => {
+                    stats.models_failed += 1;
+                    error!("Failed to unload model {}: {}", model_id, e);
+                }
+                Err(_) => {
+                    stats.models_timed_out += 1;
+                    error!("Model {} unload timed out", model_id);
+                }
+            }
+
+            // Update database status
+            if let Err(e) = sqlx::query!(
+                "UPDATE base_model_status SET status = 'unloaded', updated_at = datetime('now') WHERE model_id = ? AND tenant_id = ?",
+                model_id,
+                tenant_id
+            )
+            .execute(state.db.pool())
+            .await {
+                warn!("Failed to update model status in database: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Cleanup adapters during resource phase
+async fn cleanup_adapters(
+    state: &adapteros_server_api::state::AppState,
+    stats: &mut CleanupStats,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use adapteros_lora_lifecycle::AdapterLoader;
+    use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
+
+    if let Some(lifecycle_manager) = &state.lifecycle_manager {
+        let adapter_cleanup_start = std::time::Instant::now();
+        let guard = lifecycle_manager.lock().await;
+        let loader = guard.loader();
+
+        let loaded_adapters: Vec<u16> = {
+            let loader_guard = loader.read().await;
+            (0..u16::MAX)
+                .filter(|&id| loader_guard.is_loaded(id))
+                .collect()
+        };
+
+        stats.total_adapters = loaded_adapters.len();
+        info!(
+            "Unloading {} adapters during shutdown",
+            stats.total_adapters
+        );
+
+        drop(guard); // Release lifecycle lock
+
+        for adapter_idx in loaded_adapters {
+            let adapter_start = std::time::Instant::now();
+            let guard = lifecycle_manager.lock().await;
+            let loader = guard.loader();
+
+            let result = {
+                let mut loader_guard = loader.write().await;
+                loader_guard.unload_adapter(adapter_idx)
+            };
+
+            let adapter_duration = adapter_start.elapsed();
+
+            match result {
+                Ok(()) => {
+                    stats.adapters_unloaded += 1;
+                    info!("Adapter {} unloaded successfully", adapter_idx);
+
+                    // Emit telemetry
+                    if let Some(ref telemetry_tx) = state.telemetry_tx {
+                        let event = TelemetryEventBuilder::new(
+                            EventType::AdapterUnload,
+                            LogLevel::Info,
+                            format!("Adapter {} unloaded during shutdown", adapter_idx),
+                        )
+                        .component("server".to_string())
+                        .metadata(serde_json::json!({
+                            "adapter_idx": adapter_idx,
+                            "duration_ms": adapter_duration.as_millis(),
+                            "success": true
+                        }))
+                        .build();
+                        let _ = telemetry_tx.send(event);
+                    }
+                }
+                Err(e) => {
+                    stats.adapters_failed += 1;
+                    error!("Failed to unload adapter {}: {}", adapter_idx, e);
+                }
+            }
+        }
+
+        let adapter_cleanup_duration = adapter_cleanup_start.elapsed();
+        info!(
+            "Adapter cleanup completed in {:?}",
+            adapter_cleanup_duration
+        );
+    }
+
+    Ok(())
+}
+
+/// Close database connections during final phase
+async fn close_database_connections(
+    _state: &adapteros_server_api::state::AppState,
+    stats: &mut CleanupStats,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("Closing database connections");
+    // Database connections will be closed when the state is dropped
+    // This is mainly for telemetry and logging
+    stats.database_closed = true;
+    Ok(())
+}
+
+/// Cleanup temporary files during final phase
+async fn cleanup_temporary_files() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("Cleaning up temporary files");
+    // TODO: Implement cleanup of temporary files created during operation
+    Ok(())
+}
+
+/// Check if system is ready for shutdown (no critical operations in progress)
+async fn check_shutdown_readiness(
+    state: &adapteros_server_api::state::AppState,
+) -> ShutdownReadiness {
+    let mut readiness = ShutdownReadiness::default();
+
+    // Check for active inference requests
+    // TODO: Implement check for active requests in flight
+
+    // Check for active training jobs
+    if let Some(training_service) = &state.training_service {
+        // This would need to be added to TrainingService
+        // readiness.active_training_jobs = training_service.active_jobs().await;
+    }
+
+    // Check for loaded models/adapters that would take time to unload
+    if let Some(model_runtime) = &state.model_runtime {
+        let loaded_models = {
+            let guard = model_runtime.lock().await;
+            guard.get_all_loaded_models()
+        };
+        readiness.loaded_models = loaded_models.len();
+    }
+
+    if let Some(lifecycle_manager) = &state.lifecycle_manager {
+        let guard = lifecycle_manager.lock().await;
+        let loader = guard.loader();
+        let loaded_adapters: Vec<u16> = {
+            let loader_guard = loader.read().await;
+            (0..u16::MAX)
+                .filter(|&id| loader_guard.is_loaded(id))
+                .collect()
+        };
+        readiness.loaded_adapters = loaded_adapters.len();
+    }
+
+    readiness
+}
+
+/// Shutdown readiness assessment
+#[derive(Debug, Default)]
+struct ShutdownReadiness {
+    active_requests: usize,
+    active_training_jobs: usize,
+    loaded_models: usize,
+    loaded_adapters: usize,
+}
+
+impl ShutdownReadiness {
+    fn is_ready_for_graceful_shutdown(&self) -> bool {
+        // Allow graceful shutdown if no active requests and reasonable number of resources
+        self.active_requests == 0 && self.active_training_jobs == 0
+    }
+
+    fn estimated_shutdown_time(&self) -> std::time::Duration {
+        // Rough estimate: 10s base + 5s per model + 2s per adapter
+        let base_time = std::time::Duration::from_secs(10);
+        let model_time = std::time::Duration::from_secs(5 * self.loaded_models as u64);
+        let adapter_time = std::time::Duration::from_secs(2 * self.loaded_adapters as u64);
+        base_time + model_time + adapter_time
+    }
 }

@@ -3,6 +3,7 @@
 //! Uses tree-sitter to chunk code by semantic boundaries (functions, classes, modules)
 //! while including context (imports, surrounding code).
 
+#[cfg(feature = "codegraph")]
 use adapteros_codegraph::types::{Language, SymbolKind, SymbolNode};
 use adapteros_core::B3Hash;
 use anyhow::Result;

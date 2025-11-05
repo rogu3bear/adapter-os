@@ -7,7 +7,7 @@
 //! - Card layout with header, content, and actions
 //! - Badge patterns from ui/src/components/ui/badge.tsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Workspace } from '@/api/types';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
+import apiClient from '@/api/client';
 import {
   Building,
   Users,
@@ -38,6 +40,21 @@ interface WorkspaceCardProps {
 export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: WorkspaceCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [memberCount, setMemberCount] = useState<number | null>(null);
+  const [resourceCount, setResourceCount] = useState<number | null>(null);
+  const [lastActivity, setLastActivity] = useState<string | null>(null);
+  const { listWorkspaceMembers, listWorkspaceResources } = useWorkspaces({ enabled: false });
+  
+  // Cache to avoid refetching on every render
+  const cacheRef = useRef<{
+    workspaceId: string;
+    memberCount: number | null;
+    resourceCount: number | null;
+    lastActivity: string | null;
+    timestamp: number;
+  } | null>(null);
+  
+  const CACHE_TTL_MS = 30000; // 30 seconds cache
 
   const handleEdit = async (data: { name?: string; description?: string }) => {
     try {
@@ -76,6 +93,98 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
       throw err;
     }
   };
+
+  useEffect(() => {
+    // Check cache first
+    const now = Date.now();
+    if (
+      cacheRef.current &&
+      cacheRef.current.workspaceId === workspace.id &&
+      (now - cacheRef.current.timestamp) < CACHE_TTL_MS
+    ) {
+      setMemberCount(cacheRef.current.memberCount);
+      setResourceCount(cacheRef.current.resourceCount);
+      setLastActivity(cacheRef.current.lastActivity);
+      return;
+    }
+    
+    let cancelled = false;
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    // Debounce: wait 300ms before fetching to avoid rapid refetches
+    timeoutId = setTimeout(() => {
+      const loadCounts = async () => {
+        try {
+          const [members, resources, activityEvents] = await Promise.all([
+            listWorkspaceMembers(workspace.id).catch(() => []),
+            listWorkspaceResources(workspace.id).catch(() => []),
+            apiClient.listActivityEvents({ workspace_id: workspace.id, limit: 1 }).catch(() => []),
+          ]);
+          
+          if (cancelled) return;
+          
+          const memberCountValue = members.length;
+          const resourceCountValue = resources.length;
+          
+          // Get last activity from most recent activity event, member addition, or resource share
+          const memberDates = members.map(m => new Date(m.added_at).getTime());
+          const resourceDates = resources.map(r => new Date(r.shared_at).getTime());
+          const activityDates = activityEvents.map(e => new Date(e.created_at).getTime());
+          const allDates = [...memberDates, ...resourceDates, ...activityDates];
+          
+          let lastActivityValue: string | null = null;
+          if (allDates.length > 0) {
+            const latestDate = new Date(Math.max(...allDates));
+            const diffMs = now - latestDate.getTime();
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+            
+            if (diffMins < 1) {
+              lastActivityValue = 'Just now';
+            } else if (diffMins < 60) {
+              lastActivityValue = `${diffMins}m ago`;
+            } else if (diffHours < 24) {
+              lastActivityValue = `${diffHours}h ago`;
+            } else if (diffDays < 7) {
+              lastActivityValue = `${diffDays}d ago`;
+            } else {
+              lastActivityValue = latestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+          }
+          
+          // Update cache
+          cacheRef.current = {
+            workspaceId: workspace.id,
+            memberCount: memberCountValue,
+            resourceCount: resourceCountValue,
+            lastActivity: lastActivityValue,
+            timestamp: now,
+          };
+          
+          if (!cancelled) {
+            setMemberCount(memberCountValue);
+            setResourceCount(resourceCountValue);
+            setLastActivity(lastActivityValue);
+          }
+        } catch (err) {
+          if (cancelled) return;
+          logger.error('Failed to load workspace counts', {
+            component: 'WorkspaceCard',
+            operation: 'loadCounts',
+            workspaceId: workspace.id,
+          }, err instanceof Error ? err : new Error(String(err)));
+        }
+      };
+      
+      loadCounts();
+    }, 300);
+    
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [workspace.id, listWorkspaceMembers, listWorkspaceResources]);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -133,11 +242,11 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <Users className="h-4 w-4" />
-                  <span>0 members</span> {/* TODO: Add member count */}
+                  <span>{memberCount !== null ? `${memberCount} ${memberCount === 1 ? 'member' : 'members'}` : '...'}</span>
                 </div>
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <FolderOpen className="h-4 w-4" />
-                  <span>0 resources</span> {/* TODO: Add resource count */}
+                  <span>{resourceCount !== null ? `${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}` : '...'}</span>
                 </div>
               </div>
             </div>
@@ -145,7 +254,7 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
             {/* Activity */}
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <MessageSquare className="h-3 w-3" />
-              <span>Last active: Never</span> {/* TODO: Add last activity */}
+              <span>Last active: {lastActivity || 'Never'}</span>
             </div>
 
             {/* Created date */}

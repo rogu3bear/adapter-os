@@ -39,7 +39,7 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-cdp = { path = "../adapteros-cdp" }
-# adapteros-codegraph = { path = "../adapteros-codegraph" }  # Temporarily disabled due to SQLite conflict
+adapteros-codegraph = { path = "../adapteros-codegraph" }
 argon2 = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 clap = { workspace = true }
@@ -74,10 +74,13 @@ safetensors = { workspace = true }
 bytemuck = { workspace = true }
 rand = { workspace = true }
 half = "2.0"
+tokenizers = { workspace = true }
 
 [features]
 experimental-backends = []
+mlx-ffi-backend = []
 build-aosctl = []
 rag-pgvector = ["adapteros-lora-rag/rag-pgvector"]
 with-server = ["dep:adapteros-server"]
 extended-tests = []
+serve-with-config = ["with-server"]

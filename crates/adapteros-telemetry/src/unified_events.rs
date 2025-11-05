@@ -176,6 +176,16 @@ pub enum EventType {
     SecurityViolation,
     SecurityCheck,
     SecurityAlert,
+    PathTraversalBlocked,
+    FileSizeLimitExceeded,
+    JsonValidationFailed,
+
+    // Shutdown/Cleanup events
+    ShutdownStart,
+    ShutdownCleanup,
+    ShutdownComplete,
+    ModelUnload,
+    AdapterUnload,
 
     // Performance events
     PerformanceMetric,
@@ -237,6 +247,14 @@ impl EventType {
             EventType::SecurityViolation => "security.violation",
             EventType::SecurityCheck => "security.check",
             EventType::SecurityAlert => "security.alert",
+            EventType::PathTraversalBlocked => "security.path_traversal_blocked",
+            EventType::FileSizeLimitExceeded => "security.file_size_limit_exceeded",
+            EventType::JsonValidationFailed => "security.json_validation_failed",
+            EventType::ShutdownStart => "shutdown.start",
+            EventType::ShutdownCleanup => "shutdown.cleanup",
+            EventType::ShutdownComplete => "shutdown.complete",
+            EventType::ModelUnload => "shutdown.model_unload",
+            EventType::AdapterUnload => "shutdown.adapter_unload",
             EventType::PerformanceMetric => "performance.metric",
             EventType::PerformanceAlert => "performance.alert",
             EventType::PerformanceDegradation => "performance.degradation",

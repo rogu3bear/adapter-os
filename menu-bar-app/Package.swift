@@ -18,7 +18,10 @@ let package = Package(
         .executableTarget(
             name: "AdapterOSMenu",
             dependencies: [],
-            path: "Sources/AdapterOSMenu"
+            path: "Sources/AdapterOSMenu",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "AdapterOSMenuTests",

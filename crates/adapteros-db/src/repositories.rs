@@ -1,6 +1,8 @@
 use crate::Db;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use sqlx::{QueryBuilder, Sqlite};
+use std::collections::HashMap;
 // UUID generation simplified - using timestamp-based IDs
 fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -505,6 +507,38 @@ impl Db {
         Ok(repos)
     }
 
+    /// Count commits for a set of repositories
+    pub async fn get_commit_counts_for_repositories(
+        &self,
+        repo_ids: &[String],
+    ) -> Result<HashMap<String, i64>> {
+        if repo_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            "SELECT repo_id, COUNT(*) as commit_count FROM commits WHERE repo_id IN (",
+        );
+
+        {
+            let mut separated = builder.separated(", ");
+            for repo_id in repo_ids {
+                separated.push_bind(repo_id);
+            }
+        }
+
+        builder.push(") GROUP BY repo_id");
+
+        let rows: Vec<(String, i64)> = builder.build_query_as().fetch_all(&self.pool).await?;
+
+        let mut counts = HashMap::with_capacity(rows.len());
+        for (repo_id, count) in rows {
+            counts.insert(repo_id, count);
+        }
+
+        Ok(counts)
+    }
+
     /// Count repositories for a tenant
     pub async fn count_repositories(&self, tenant_id: &str) -> Result<i64> {
         let count: i64 =
@@ -758,5 +792,40 @@ impl Db {
         .await?;
 
         Ok(jobs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_get_commit_counts_for_repositories() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let db_path = temp_dir.path().join("repo_counts.db");
+        let db = Db::connect(db_path.to_str().unwrap()).await?;
+        sqlx::query("CREATE TABLE commits (repo_id TEXT NOT NULL);")
+            .execute(db.pool())
+            .await?;
+
+        let repo_id = "test/repo".to_string();
+
+        let counts = db
+            .get_commit_counts_for_repositories(&[repo_id.clone()])
+            .await?;
+        assert_eq!(counts.get(&repo_id).copied().unwrap_or(0), 0);
+
+        sqlx::query("INSERT INTO commits (repo_id) VALUES (?);")
+            .bind(&repo_id)
+            .execute(db.pool())
+            .await?;
+
+        let counts = db
+            .get_commit_counts_for_repositories(&[repo_id.clone()])
+            .await?;
+        assert_eq!(counts.get(&repo_id).copied().unwrap_or(0), 1);
+
+        Ok(())
     }
 }

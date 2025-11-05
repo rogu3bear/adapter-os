@@ -143,7 +143,7 @@ function RootLayoutContent() {
               <Lock className="h-5 w-5 text-primary" />
               <h1 className="font-medium">AdapterOS Control Plane</h1>
             </div>
-            <div className="text-xs rounded px-2 py-0.5 border text-green-700 bg-green-50">Zero Egress Mode</div>
+            <div className="text-xs rounded px-2 py-0.5 border border-gray-300 text-gray-700 bg-gray-50">Zero Egress Mode</div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="md:hidden" onClick={toggleSidebar} aria-label="Open menu">

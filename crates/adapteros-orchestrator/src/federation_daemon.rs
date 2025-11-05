@@ -190,20 +190,18 @@ impl FederationDaemon {
     /// Get all unique host IDs from federation signatures
     async fn get_all_host_ids(&self) -> Result<Vec<String>> {
         use adapteros_db::DatabaseBackend;
-        
+
         let rows = match self.db.backend() {
-            DatabaseBackend::Sqlite(db) => {
-                sqlx::query_scalar::<_, String>(
-                    r#"
+            DatabaseBackend::Sqlite(db) => sqlx::query_scalar::<_, String>(
+                r#"
                     SELECT DISTINCT host_id
                     FROM federation_bundle_signatures
                     ORDER BY host_id ASC
                     "#,
-                )
-                .fetch_all(db.pool())
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to fetch host IDs: {}", e)))?
-            }
+            )
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to fetch host IDs: {}", e)))?,
             DatabaseBackend::Postgres(_) => {
                 return Err(AosError::Database(
                     "Federation daemon requires SQLite backend. PostgreSQL support not yet implemented.".to_string()
@@ -261,7 +259,7 @@ impl FederationDaemon {
     /// Trigger policy quarantine
     async fn trigger_policy_quarantine(&self, reason: &str) -> Result<()> {
         use adapteros_db::DatabaseBackend;
-        
+
         match self.db.backend() {
             DatabaseBackend::Sqlite(db) => {
                 sqlx::query(
@@ -273,7 +271,9 @@ impl FederationDaemon {
                 .bind(reason)
                 .execute(db.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to insert quarantine record: {}", e))
+                })?;
             }
             DatabaseBackend::Postgres(_) => {
                 return Err(AosError::Database(

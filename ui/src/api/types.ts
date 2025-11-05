@@ -70,6 +70,20 @@ export interface TokenMetadata {
   last_used_at?: string;
 }
 
+export interface AuthConfigResponse {
+  production_mode: boolean;
+  dev_token_enabled: boolean;
+  jwt_mode: string;
+  token_expiry_hours: number;
+}
+
+export interface UpdateAuthConfigRequest {
+  production_mode?: boolean;
+  dev_token_enabled?: boolean;
+  jwt_mode?: string;
+  token_expiry_hours?: number;
+}
+
 export interface UpdateProfileRequest {
   display_name?: string;
   avatar_url?: string;
@@ -568,7 +582,9 @@ export interface AdapterEvictionEvent {
 export interface Repository {
   id: string;
   url: string;
+  url_is_fallback?: boolean;
   branch: string;
+  path?: string;
   last_scan?: string;
   commit_count: number;
 }
@@ -2135,6 +2151,18 @@ export interface ActivityEvent {
   created_at: string;
 }
 
+export interface RecentActivityEvent {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  level: string;
+  message: string;
+  component?: string;
+  tenant_id?: string;
+  user_id?: string;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface CreateActivityEventRequest {
   workspace_id?: string;
   event_type: string;
@@ -2201,4 +2229,33 @@ export interface PolicyViolationRecord {
   released: boolean;
   cpid: string | null;
   metadata: string | null;
+}
+
+// Service status types - matches crates/adapteros-server/src/status_writer.rs L19-71
+export interface ServiceStatus {
+  id: string;
+  name: string;
+  state: 'stopped' | 'starting' | 'running' | 'stopping' | 'failed' | 'restarting';
+  pid?: number;
+  port?: number;
+  health_status: 'unknown' | 'healthy' | 'unhealthy' | 'checking';
+  restart_count: number;
+  last_error?: string;
+}
+
+export interface AdapterOSStatus {
+  schema_version?: string;
+  status: 'ok' | 'degraded' | 'error';
+  uptime_secs: number;
+  adapters_loaded: number;
+  deterministic: boolean;
+  kernel_hash: string;
+  telemetry_mode: string;
+  worker_count: number;
+  base_model_loaded?: boolean;
+  base_model_id?: string;
+  base_model_name?: string;
+  base_model_status?: string;
+  base_model_memory_mb?: number;
+  services?: ServiceStatus[];
 }

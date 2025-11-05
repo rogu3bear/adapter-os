@@ -26,6 +26,7 @@ import { AdapterImportWizard } from './AdapterImportWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
 import { useViewTransition } from '../hooks/useViewTransition';
 import { useUndoRedoContext } from '../contexts/UndoRedoContext';
+import { useProgressOperation } from '../hooks/useProgressOperation';
 import { 
   Plus, 
   Code, 
@@ -196,6 +197,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [upsertActivate, setUpsertActivate] = useState(true);
   const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
   const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
+
+  // Progress tracking for long operations
+  const { operation: activeProgressOperation, start: startProgressOperation, cancel: cancelProgressOperation } = useProgressOperation();
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
   const [selectedAdapterForHealth, setSelectedAdapterForHealth] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
@@ -441,7 +445,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     try {
       const adapter = adapters.find(a => a.adapter_id === adapterId);
       const previousState = adapter?.current_state;
-      
+
+      // Start progress tracking
+      const operationId = startProgressOperation('adapter_load', adapterId, selectedTenant);
+
       showStatus('Loading adapter...', 'info');
       await apiClient.loadAdapter(adapterId);
       
@@ -979,10 +986,33 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         // CSV export
         if (manifests.length === 0) return;
         
-        const headers = ['adapter_id', 'name', 'hash_b3', 'rank', 'tier', 'framework', 'category', 'scope', 'created_at', 'updated_at'];
-        const csvRows = manifests.map(m => 
+        const headers = [
+          // Primary identifiers
+          'adapter_id', 'name',
+
+          // Content classification
+          'category', 'scope', 'intent', 'languages',
+
+          // Technical details
+          'framework', 'framework_id', 'framework_version', 'blake3_hash',
+
+          // Quality metrics
+          'tier', 'rank',
+
+          // Provenance tracking
+          'repository_id', 'commit_sha',
+
+          // Metadata
+          'created_at', 'updated_at'
+        ];
+        const csvRows = manifests.map(m =>
           headers.map(header => {
-            const value = (m as any)[header] || '';
+            // Map user-friendly header names to API field names
+            const fieldName = header === 'languages' ? 'languages_json' :
+                             header === 'blake3_hash' ? 'hash_b3' :
+                             header === 'repository_id' ? 'repo_id' :
+                             header;
+            const value = (m as any)[fieldName] || '';
             if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
               return `"${value.replace(/"/g, '""')}"`;
             }
@@ -1161,10 +1191,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const getStateIcon = (state: string) => {
     switch (state) {
       case 'unloaded': return <Square className="h-4 w-4 text-gray-500" />;
-      case 'cold': return <Snowflake className="h-4 w-4 text-blue-500" />;
-      case 'warm': return <Thermometer className="h-4 w-4 text-orange-500" />;
-      case 'hot': return <Flame className="h-4 w-4 text-red-500" />;
-      case 'resident': return <Anchor className="h-4 w-4 text-purple-500" />;
+      case 'cold': return <Snowflake className="h-4 w-4 text-gray-400" />;
+      case 'warm': return <Thermometer className="h-4 w-4 text-gray-500" />;
+      case 'hot': return <Flame className="h-4 w-4 text-gray-600" />;
+      case 'resident': return <Anchor className="h-4 w-4 text-gray-600" />;
       default: return <Activity className="h-4 w-4 text-gray-500" />;
     }
   };
@@ -1172,10 +1202,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const getStateBadge = (state: string) => {
     const variants = {
       unloaded: 'bg-gray-100 text-gray-800',
-      cold: 'bg-blue-100 text-blue-800',
-      warm: 'bg-orange-100 text-orange-800',
-      hot: 'bg-red-100 text-red-800',
-      resident: 'bg-purple-100 text-purple-800'
+      cold: 'bg-gray-100 text-gray-600',
+      warm: 'bg-gray-100 text-gray-700',
+      hot: 'bg-gray-200 text-gray-800',
+      resident: 'bg-gray-200 text-gray-800'
     };
     return variants[state as keyof typeof variants] || 'bg-gray-100 text-gray-800';
   };
@@ -1222,26 +1252,26 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         <Alert
           className={
             statusMessage.variant === 'success'
-              ? 'border-green-200 bg-green-50'
+              ? 'border-gray-300 bg-gray-50'
               : statusMessage.variant === 'warning'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-blue-200 bg-blue-50'
+                ? 'border-gray-300 bg-gray-50'
+                : 'border-gray-300 bg-gray-50'
           }
         >
           {statusMessage.variant === 'success' ? (
-            <CheckCircle className="w-4 h-4 text-green-600" />
+            <CheckCircle className="w-4 h-4 text-gray-600" />
           ) : statusMessage.variant === 'warning' ? (
-            <AlertCircle className="w-4 h-4 text-amber-600" />
+            <AlertCircle className="w-4 h-4 text-gray-500" />
           ) : (
-            <AlertCircle className="w-4 h-4 text-blue-600" />
+            <AlertCircle className="w-4 h-4 text-gray-400" />
           )}
           <AlertDescription
             className={
               statusMessage.variant === 'success'
-                ? 'text-green-700'
+                ? 'text-gray-700'
                 : statusMessage.variant === 'warning'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
+                  ? 'text-gray-600'
+                  : 'text-gray-600'
             }
           >
             {statusMessage.message}
@@ -1432,7 +1462,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                                     {adapterTyped.current_state}
                                   </div>
                                   {adapterTyped.pinned && (
-                                    <Pin className="h-4 w-4 text-purple-500" />
+                                    <Pin className="h-4 w-4 text-gray-600" />
                                   )}
                                 </div>
                               </TableCell>
@@ -1500,7 +1530,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                                       Download Manifest
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => setDeleteConfirmId(adapterTyped.adapter_id)}>
-                                      <Trash2 className="mr-2 h-4 w-4 text-red-600" />
+                                      <Trash2 className="mr-2 h-4 w-4 text-gray-700" />
                                       Delete
                                     </DropdownMenuItem>
                               </DropdownMenuContent>

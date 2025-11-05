@@ -649,6 +649,7 @@ impl AdapterOSClient for UdsClient {
             Ok(HealthResponse {
                 status: "uds".to_string(),
                 version: "unavailable".to_string(),
+                models: None, // UDS client doesn't check model health
             })
         }
     }
@@ -674,6 +675,111 @@ impl AdapterOSClient for UdsClient {
                 "UDS client does not implement user information"
             ))
         }
+    }
+
+    // Extended Auth Methods
+    fn refresh_token(
+        &self,
+        _token: &str,
+    ) -> impl std::future::Future<Output = Result<String>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement token refresh"
+            ))
+        }
+    }
+
+    fn list_sessions(
+        &self,
+        _token: &str,
+    ) -> impl std::future::Future<Output = Result<Vec<adapteros_api_types::auth::SessionInfo>>> + Send
+    {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement session listing"
+            ))
+        }
+    }
+
+    fn revoke_session(
+        &self,
+        _token: &str,
+        _session_id: &str,
+    ) -> impl std::future::Future<Output = Result<String>> + Send {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement session revocation"
+            ))
+        }
+    }
+
+    fn logout_all(&self, _token: &str) -> impl std::future::Future<Output = Result<String>> + Send {
+        async { Err(anyhow::anyhow!("UDS client does not implement logout all")) }
+    }
+
+    fn rotate_token(
+        &self,
+        _token: &str,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::RotateTokenResponse>> + Send
+    {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement token rotation"
+            ))
+        }
+    }
+
+    fn get_token_metadata(
+        &self,
+        _token: &str,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::TokenMetadata>> + Send
+    {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement token metadata"
+            ))
+        }
+    }
+
+    fn update_profile(
+        &self,
+        _token: &str,
+        _req: adapteros_api_types::auth::UpdateProfileRequest,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::ProfileResponse>> + Send
+    {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement profile updates"
+            ))
+        }
+    }
+
+    fn get_auth_config(
+        &self,
+        _token: &str,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send
+    {
+        async { Err(anyhow::anyhow!("UDS client does not implement auth config")) }
+    }
+
+    fn update_auth_config(
+        &self,
+        _token: &str,
+        _req: adapteros_api_types::auth::UpdateAuthConfigRequest,
+    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send
+    {
+        async {
+            Err(anyhow::anyhow!(
+                "UDS client does not implement auth config updates"
+            ))
+        }
+    }
+
+    fn get_user_info(
+        &self,
+        _token: &str,
+    ) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send {
+        async { Err(anyhow::anyhow!("UDS client does not implement user info")) }
     }
 
     // Tenants

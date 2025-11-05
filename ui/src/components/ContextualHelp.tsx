@@ -23,7 +23,7 @@ interface PageGuidance {
 
 const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
   '/dashboard': {
-    Admin: {
+    admin: {
       title: 'System Dashboard',
       tips: [
         'Monitor overall system health and resource utilization',
@@ -35,7 +35,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Alerts', route: '/metrics', description: 'View active alerts' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'ML Pipeline Overview',
       tips: [
         'Monitor training jobs and adapter deployments',
@@ -47,7 +47,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Adapters', route: '/adapters', description: 'View deployed adapters' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'System Health Dashboard',
       tips: [
         'Monitor resource utilization across nodes',
@@ -59,7 +59,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Deep system insights' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Overview',
       tips: [
         'Monitor policy compliance status',
@@ -71,7 +71,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Access audit trails' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Audit Dashboard',
       tips: [
         'Review system activity overview',
@@ -83,7 +83,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Policies', route: '/policies', description: 'Policy configurations' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'System Overview',
       tips: [
         'View system status and health metrics',
@@ -97,7 +97,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/adapters': {
-    Admin: {
+    admin: {
       title: 'Adapter Management',
       tips: [
         'Manage adapters across all tenants',
@@ -109,7 +109,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Adapter Management',
       tips: [
         'Deploy trained adapters to production',
@@ -122,7 +122,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Inference', route: '/inference', description: 'Test adapter performance' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Adapter Operations',
       tips: [
         'Monitor adapter resource consumption',
@@ -134,7 +134,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Deep diagnostics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Adapter Compliance',
       tips: [
         'Review adapter deployment compliance',
@@ -146,7 +146,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Adapter audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Adapter Audit',
       tips: [
         'Review adapter deployment history',
@@ -157,7 +157,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Adapter Status',
       tips: [
         'View adapter deployment status',
@@ -170,7 +170,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/tenants': {
-    Admin: {
+    admin: {
       title: 'Tenant Management',
       tips: [
         'Create and manage tenant workspaces',
@@ -182,8 +182,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Admin', route: '/admin', description: 'Admin settings' }
       ]
     },
-    Operator: { title: '', tips: [], relatedPages: [] },
-    SRE: {
+    operator: { title: '', tips: [], relatedPages: [] },
+    sre: {
       title: 'Tenant Infrastructure',
       tips: [
         'Monitor tenant resource allocation',
@@ -194,7 +194,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Resource metrics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Tenant Compliance',
       tips: [
         'Review tenant data classification',
@@ -206,7 +206,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Tenant audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Tenant Audit',
       tips: [
         'Review tenant configuration history',
@@ -217,10 +217,10 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: { title: '', tips: [], relatedPages: [] }
+    viewer: { title: '', tips: [], relatedPages: [] }
   },
   '/policies': {
-    Admin: {
+    admin: {
       title: 'Policy Management',
       tips: [
         'Review all 20 policy packs regularly',
@@ -232,7 +232,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit Trails', route: '/audit', description: 'Review policy changes' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Review',
       tips: [
         'Verify all 20 policy packs are compliant',
@@ -244,7 +244,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Export compliance data' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Policy Audit',
       tips: [
         'Verify policy signatures and authenticity',
@@ -255,7 +255,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit Trails', route: '/audit', description: 'Full audit history' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Policy Overview',
       tips: [
         'View active policies affecting your operations',
@@ -266,7 +266,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Policy enforcement logs' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Policy Operations',
       tips: [
         'Monitor policy enforcement impact on performance',
@@ -278,7 +278,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Policy events' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Policy Information',
       tips: [
         'View policy configurations and status',
@@ -289,7 +289,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/metrics': {
-    Admin: {
+    admin: {
       title: 'System Metrics',
       tips: [
         'Monitor system-wide performance metrics',
@@ -301,7 +301,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'Overview' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Performance Metrics',
       tips: [
         'Monitor adapter performance metrics',
@@ -313,7 +313,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Inference', route: '/inference', description: 'Test performance' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'System Monitoring',
       tips: [
         'Monitor resource utilization across nodes',
@@ -325,7 +325,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Routing', route: '/routing', description: 'Routing performance' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Metrics',
       tips: [
         'Monitor policy compliance metrics',
@@ -337,7 +337,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit trails' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Audit Metrics',
       tips: [
         'Review system activity metrics',
@@ -348,7 +348,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Detailed audit logs' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'System Metrics',
       tips: [
         'View system performance overview',
@@ -359,7 +359,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/telemetry': {
-    Admin: {
+    admin: {
       title: 'Telemetry Management',
       tips: [
         'Monitor system-wide telemetry bundles',
@@ -371,7 +371,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'System metrics' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Telemetry Monitoring',
       tips: [
         'Review adapter telemetry events',
@@ -383,7 +383,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Training', route: '/training', description: 'Training telemetry' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'System Telemetry',
       tips: [
         'Monitor infrastructure telemetry',
@@ -395,7 +395,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance metrics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Telemetry',
       tips: [
         'Export telemetry bundles for audit',
@@ -407,7 +407,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Telemetry Audit',
       tips: [
         'Review telemetry bundle integrity',
@@ -418,7 +418,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit trails' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Telemetry Overview',
       tips: [
         'View telemetry event summaries',
@@ -429,7 +429,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/observability': {
-    Admin: {
+    admin: {
       title: 'System Observability',
       tips: [
         'Access deep system diagnostics and logs',
@@ -441,7 +441,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Telemetry bundles' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Pipeline Observability',
       tips: [
         'Trace adapter execution flows',
@@ -453,7 +453,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Inference', route: '/inference', description: 'Inference traces' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Deep System Diagnostics',
       tips: [
         'Access detailed system logs and traces',
@@ -465,8 +465,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Routing', route: '/routing', description: 'Routing diagnostics' }
       ]
     },
-    Compliance: { title: '', tips: [], relatedPages: [] },
-    Auditor: {
+    compliance: { title: '', tips: [], relatedPages: [] },
+    auditor: {
       title: 'Observability Audit',
       tips: [
         'Review system observability logs',
@@ -477,10 +477,10 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit trails' }
       ]
     },
-    Viewer: { title: '', tips: [], relatedPages: [] }
+    viewer: { title: '', tips: [], relatedPages: [] }
   },
   '/inference': {
-    Admin: {
+    admin: {
       title: 'Inference Testing',
       tips: [
         'Test adapters across all tenants',
@@ -492,7 +492,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance metrics' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Inference Playground',
       tips: [
         'Test adapter performance in real-time',
@@ -504,7 +504,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Testing', route: '/testing', description: 'Formal testing' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Inference Monitoring',
       tips: [
         'Monitor inference performance and latency',
@@ -516,7 +516,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Routing', route: '/routing', description: 'Routing performance' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Inference Compliance',
       tips: [
         'Verify inference policy compliance',
@@ -528,7 +528,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Inference audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Inference Audit',
       tips: [
         'Review inference request history',
@@ -539,7 +539,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Inference Testing',
       tips: [
         'Try the inference playground',
@@ -552,7 +552,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/audit': {
-    Admin: {
+    admin: {
       title: 'Audit Trails',
       tips: [
         'Review all system audit events',
@@ -564,7 +564,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Telemetry audit' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Operation Audit',
       tips: [
         'Review adapter operation audit logs',
@@ -576,7 +576,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Training', route: '/training', description: 'Training logs' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'System Audit',
       tips: [
         'Review infrastructure audit logs',
@@ -588,7 +588,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance logs' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Audit',
       tips: [
         'Review compliance audit trails',
@@ -600,7 +600,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Export telemetry' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Comprehensive Audit',
       tips: [
         'Access complete audit trail history',
@@ -612,7 +612,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Reports', route: '/reports', description: 'Audit reports' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Audit Overview',
       tips: [
         'View audit event summaries',
@@ -623,7 +623,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/base-models': {
-    Admin: {
+    admin: {
       title: 'Base Model Management',
       tips: [
         'Manage base model configurations',
@@ -635,7 +635,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Base Models',
       tips: [
         'View available base models for training',
@@ -647,7 +647,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Adapters', route: '/adapters', description: 'Adapter models' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Model Infrastructure',
       tips: [
         'Monitor base model resource usage',
@@ -658,9 +658,9 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance metrics' }
       ]
     },
-    Compliance: { title: '', tips: [], relatedPages: [] },
-    Auditor: { title: '', tips: [], relatedPages: [] },
-    Viewer: {
+    compliance: { title: '', tips: [], relatedPages: [] },
+    auditor: { title: '', tips: [], relatedPages: [] },
+    viewer: {
       title: 'Base Models',
       tips: [
         'View available base models',
@@ -671,7 +671,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/workflow': {
-    Admin: {
+    admin: {
       title: 'Getting Started',
       tips: [
         'Complete the workflow wizard to understand system setup',
@@ -683,7 +683,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Admin', route: '/admin', description: 'Admin settings' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'ML Operations Workflow',
       tips: [
         'Follow the ML pipeline workflow guide',
@@ -695,7 +695,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'Overview' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Site Reliability Workflow',
       tips: [
         'Complete the SRE workflow to understand monitoring',
@@ -707,7 +707,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Deep insights' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Workflow',
       tips: [
         'Complete the compliance officer workflow',
@@ -719,7 +719,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit setup' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Audit Workflow',
       tips: [
         'Complete the auditor workflow',
@@ -731,7 +731,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Policies', route: '/policies', description: 'Policy review' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Getting Started',
       tips: [
         'Complete the viewer workflow guide',
@@ -744,7 +744,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/training': {
-    Operator: {
+    operator: {
       title: 'Training Adapters',
       tips: [
         'Start with a template to get going quickly',
@@ -757,7 +757,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Deploy & Manage', route: '/adapters', description: 'Deploy after validation' }
       ]
     },
-    Admin: {
+    admin: {
       title: 'Training Management',
       tips: [
         'Review training resource allocation',
@@ -769,7 +769,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Training Operations',
       tips: [
         'Monitor training job resource consumption',
@@ -781,7 +781,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Training diagnostics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Training Compliance',
       tips: [
         'Verify training data compliance',
@@ -793,7 +793,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Training audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Training Audit',
       tips: [
         'Review training job audit logs',
@@ -804,7 +804,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Training Overview',
       tips: [
         'View training job status',
@@ -815,7 +815,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/testing': {
-    Operator: {
+    operator: {
       title: 'Testing & Validation',
       tips: [
         'Run golden baseline comparisons before promoting',
@@ -828,7 +828,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Promote', route: '/promotion', description: 'Promote after passing tests' }
       ]
     },
-    Admin: {
+    admin: {
       title: 'Testing Management',
       tips: [
         'Review testing resource allocation',
@@ -840,7 +840,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Golden Runs', route: '/golden', description: 'Baseline comparisons' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Testing Operations',
       tips: [
         'Monitor test execution performance',
@@ -852,7 +852,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Test diagnostics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Testing Compliance',
       tips: [
         'Verify test data compliance',
@@ -864,7 +864,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Testing audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Testing Audit',
       tips: [
         'Review test execution audit logs',
@@ -875,7 +875,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Testing Overview',
       tips: [
         'View test execution status',
@@ -886,7 +886,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/golden': {
-    Operator: {
+    operator: {
       title: 'Golden Baseline Comparisons',
       tips: [
         'Compare adapter outputs against golden baselines',
@@ -899,7 +899,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Promotion', route: '/promotion', description: 'Promote after validation' }
       ]
     },
-    Admin: {
+    admin: {
       title: 'Baseline Management',
       tips: [
         'Manage golden baseline versions',
@@ -911,7 +911,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Comparison metrics' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Baseline Operations',
       tips: [
         'Monitor baseline comparison performance',
@@ -922,8 +922,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance metrics' }
       ]
     },
-    Compliance: { title: '', tips: [], relatedPages: [] },
-    Auditor: {
+    compliance: { title: '', tips: [], relatedPages: [] },
+    auditor: {
       title: 'Baseline Audit',
       tips: [
         'Review baseline change history',
@@ -934,7 +934,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Golden Baselines',
       tips: [
         'View golden baseline status',
@@ -945,7 +945,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/promotion': {
-    Operator: {
+    operator: {
       title: 'Adapter Promotion',
       tips: [
         'Promote tested adapters through quality gates',
@@ -958,7 +958,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Adapters', route: '/adapters', description: 'Manage promoted adapters' }
       ]
     },
-    Admin: {
+    admin: {
       title: 'Promotion Management',
       tips: [
         'Configure promotion quality gates',
@@ -970,7 +970,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Promotion metrics' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Promotion Operations',
       tips: [
         'Monitor promotion execution performance',
@@ -982,7 +982,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Promotion diagnostics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Promotion Compliance',
       tips: [
         'Verify promotion policy compliance',
@@ -994,7 +994,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Promotion audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Promotion Audit',
       tips: [
         'Review promotion audit logs',
@@ -1005,7 +1005,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Promotion Overview',
       tips: [
         'View promotion status',
@@ -1016,7 +1016,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/routing': {
-    Admin: {
+    admin: {
       title: 'Routing Management',
       tips: [
         'Monitor routing performance across all adapters',
@@ -1028,7 +1028,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Routing metrics' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Routing Inspector',
       tips: [
         'Inspect routing decisions for your adapters',
@@ -1040,7 +1040,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Inference', route: '/inference', description: 'Test routing' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Routing Diagnostics',
       tips: [
         'Monitor routing performance and latency',
@@ -1053,8 +1053,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Routing diagnostics' }
       ]
     },
-    Compliance: { title: '', tips: [], relatedPages: [] },
-    Auditor: {
+    compliance: { title: '', tips: [], relatedPages: [] },
+    auditor: {
       title: 'Routing Audit',
       tips: [
         'Review routing decision audit logs',
@@ -1065,7 +1065,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Routing Overview',
       tips: [
         'View routing performance',
@@ -1076,7 +1076,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/replay': {
-    Admin: {
+    admin: {
       title: 'Deterministic Replay',
       tips: [
         'Replay system events for debugging',
@@ -1088,7 +1088,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Event history' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Event Replay',
       tips: [
         'Replay adapter execution events',
@@ -1100,7 +1100,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Inference', route: '/inference', description: 'Test replay' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'System Replay',
       tips: [
         'Replay system events for diagnostics',
@@ -1112,7 +1112,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance analysis' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Replay Compliance',
       tips: [
         'Review replay audit logs',
@@ -1123,7 +1123,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Replay audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Replay Audit',
       tips: [
         'Review replay execution audit logs',
@@ -1134,10 +1134,10 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: { title: '', tips: [], relatedPages: [] }
+    viewer: { title: '', tips: [], relatedPages: [] }
   },
   '/admin': {
-    Admin: {
+    admin: {
       title: 'System Administration',
       tips: [
         'Configure system-wide settings',
@@ -1151,8 +1151,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Tenants', route: '/tenants', description: 'Tenant management' }
       ]
     },
-    Operator: { title: '', tips: [], relatedPages: [] },
-    SRE: {
+    operator: { title: '', tips: [], relatedPages: [] },
+    sre: {
       title: 'Infrastructure Administration',
       tips: [
         'Manage infrastructure nodes',
@@ -1164,12 +1164,12 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'System diagnostics' }
       ]
     },
-    Compliance: { title: '', tips: [], relatedPages: [] },
-    Auditor: { title: '', tips: [], relatedPages: [] },
-    Viewer: { title: '', tips: [], relatedPages: [] }
+    compliance: { title: '', tips: [], relatedPages: [] },
+    auditor: { title: '', tips: [], relatedPages: [] },
+    viewer: { title: '', tips: [], relatedPages: [] }
   },
   '/reports': {
-    Admin: {
+    admin: {
       title: 'System Reports',
       tips: [
         'Generate comprehensive system reports',
@@ -1182,7 +1182,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Detailed metrics' }
       ]
     },
-    Operator: {
+    operator: {
       title: 'Operational Reports',
       tips: [
         'Generate adapter performance reports',
@@ -1194,7 +1194,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Training', route: '/training', description: 'Training data' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Infrastructure Reports',
       tips: [
         'Generate system performance reports',
@@ -1206,7 +1206,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'System data' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Compliance Reports',
       tips: [
         'Generate compliance reports',
@@ -1218,7 +1218,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit data' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Audit Reports',
       tips: [
         'Generate comprehensive audit reports',
@@ -1229,7 +1229,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Audit trails' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Report Overview',
       tips: [
         'View available reports',
@@ -1240,7 +1240,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/trainer': {
-    Operator: {
+    operator: {
       title: 'Single-File Trainer',
       tips: [
         'Use the single-file trainer for quick adapter training',
@@ -1253,7 +1253,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Adapters', route: '/adapters', description: 'Manage trained adapters' }
       ]
     },
-    Admin: {
+    admin: {
       title: 'Training Management',
       tips: [
         'Monitor single-file training jobs',
@@ -1265,7 +1265,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Resource metrics' }
       ]
     },
-    SRE: {
+    sre: {
       title: 'Training Operations',
       tips: [
         'Monitor training job performance',
@@ -1277,7 +1277,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Observability', route: '/observability', description: 'Training diagnostics' }
       ]
     },
-    Compliance: {
+    compliance: {
       title: 'Training Compliance',
       tips: [
         'Verify training data compliance',
@@ -1289,7 +1289,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Training audit logs' }
       ]
     },
-    Auditor: {
+    auditor: {
       title: 'Training Audit',
       tips: [
         'Review training job audit logs',
@@ -1300,7 +1300,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/audit', description: 'Full audit trail' }
       ]
     },
-    Viewer: {
+    viewer: {
       title: 'Training Overview',
       tips: [
         'View training job status',

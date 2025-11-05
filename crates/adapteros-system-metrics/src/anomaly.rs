@@ -613,9 +613,7 @@ impl AnomalyDetector {
 
         let tenants = rows
             .into_iter()
-            .map(|row| TenantInfo {
-                id: row.get("id"),
-            })
+            .map(|row| TenantInfo { id: row.get("id") })
             .collect();
 
         Ok(tenants)
@@ -623,13 +621,13 @@ impl AnomalyDetector {
 
     /// Get active workers for a tenant
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query(
-            "SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'"
-        )
-        .bind(tenant_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get workers: {}", e)))?;
+        let rows = sqlx::query("SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'")
+            .bind(tenant_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to get workers: {}", e))
+            })?;
 
         let workers = rows
             .into_iter()

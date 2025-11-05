@@ -85,7 +85,7 @@ export function AdapterStatusWidget() {
           </div>
           <div className="flex items-center gap-1">
             <span className="text-lg font-semibold">{(avgActivationRate * 100).toFixed(1)}%</span>
-            <TrendingUp className="h-4 w-4 text-green-600" />
+            <TrendingUp className="h-4 w-4 text-gray-600" />
           </div>
         </div>
       </CardContent>

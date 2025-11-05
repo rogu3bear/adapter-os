@@ -4,7 +4,6 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{PgPool, SqlitePool};
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
 use std::str::FromStr;
 
 // PostgreSQL backend for production
@@ -32,6 +31,7 @@ pub mod key_metadata;
 pub mod manifests;
 pub mod messages;
 pub mod migration_verify;
+pub mod model_operations;
 pub mod models;
 pub mod nodes;
 pub mod notifications;
@@ -107,20 +107,12 @@ impl Db {
 
     /// Run database migrations (SQLite)
     pub async fn migrate(&self) -> Result<()> {
-        let migrations_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+        // Use embedded migrations from the crate's migrations directory
+        const MIGRATIONS: Migrator = sqlx::migrate!("./migrations");
 
-        let migrator = Migrator::new(migrations_dir.as_path())
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load migrations from {}",
-                    migrations_dir.display()
-                )
-            })?;
+        tracing::info!("Running database migrations with embedded migrations");
 
-        tracing::info!(path = %migrations_dir.display(), "Running database migrations");
-
-        match migrator.run(&self.pool).await {
+        match MIGRATIONS.run(&self.pool).await {
             Ok(_) => {
                 tracing::info!("Database migrations applied successfully");
             }
@@ -130,7 +122,9 @@ impl Db {
                 let err_str = format!("{:?}", e);
                 if err_str.contains("VersionMismatch") || err_str.contains("checksum") {
                     tracing::warn!("Migration checksum mismatch detected (dev mode): {}", e);
-                    tracing::warn!("Continuing despite checksum mismatch - this is acceptable in development");
+                    tracing::warn!(
+                        "Continuing despite checksum mismatch - this is acceptable in development"
+                    );
                     tracing::info!("Database migrations check completed (with warnings)");
                 } else {
                     tracing::error!("Migration error details: {:?}", e);
@@ -179,10 +173,10 @@ impl Db {
             .to_string();
 
         let users = vec![
-            ("admin@aos.local", "Admin", "Admin", &password_hash),
-            ("operator@aos.local", "Operator", "Operator", &password_hash),
-            ("sre@aos.local", "SRE", "SRE", &password_hash),
-            ("viewer@aos.local", "Viewer", "Viewer", &password_hash),
+            ("admin@aos.local", "Admin", "admin", &password_hash),
+            ("operator@aos.local", "Operator", "operator", &password_hash),
+            ("sre@aos.local", "SRE", "sre", &password_hash),
+            ("viewer@aos.local", "Viewer", "viewer", &password_hash),
         ];
 
         for (email, display_name, role, pwd_hash) in users {
@@ -342,7 +336,7 @@ impl Database {
     pub async fn connect_env() -> Result<Self> {
         let database_url =
             std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
-        
+
         if database_url.starts_with("postgresql://") || database_url.starts_with("postgres://") {
             tracing::info!("Using PostgreSQL backend");
             Ok(Self(DatabaseBackend::Postgres(
@@ -390,7 +384,9 @@ impl Database {
     pub async fn seed_dev_data(&self) -> Result<()> {
         match &self.0 {
             DatabaseBackend::Sqlite(db) => db.seed_dev_data().await,
-            DatabaseBackend::Postgres(db) => db.seed_dev_data().await.map_err(|e| anyhow::Error::from(e)),
+            DatabaseBackend::Postgres(db) => {
+                db.seed_dev_data().await.map_err(|e| anyhow::Error::from(e))
+            }
         }
     }
 
@@ -403,16 +399,14 @@ impl Database {
         signer_pubkey: Option<&str>,
     ) -> Result<()> {
         match &self.0 {
-            DatabaseBackend::Sqlite(db) => {
-                db.insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to insert policy hash: {}", e))
-            }
-            DatabaseBackend::Postgres(db) => {
-                db.insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
-                    .await
-                    .map_err(|e| anyhow::Error::from(e))
-            }
+            DatabaseBackend::Sqlite(db) => db
+                .insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to insert policy hash: {}", e)),
+            DatabaseBackend::Postgres(db) => db
+                .insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
+                .await
+                .map_err(|e| anyhow::Error::from(e)),
         }
     }
 
@@ -423,32 +417,31 @@ impl Database {
         cpid: Option<&str>,
     ) -> Result<Option<policy_hash::PolicyHashRecord>> {
         match &self.0 {
-            DatabaseBackend::Sqlite(db) => {
-                db.get_policy_hash(policy_pack_id, cpid)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to get policy hash: {}", e))
-            }
-            DatabaseBackend::Postgres(db) => {
-                db.get_policy_hash(policy_pack_id, cpid)
-                    .await
-                    .map_err(|e| anyhow::Error::from(e))
-            }
+            DatabaseBackend::Sqlite(db) => db
+                .get_policy_hash(policy_pack_id, cpid)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to get policy hash: {}", e)),
+            DatabaseBackend::Postgres(db) => db
+                .get_policy_hash(policy_pack_id, cpid)
+                .await
+                .map_err(|e| anyhow::Error::from(e)),
         }
     }
 
     /// List policy hashes (delegates to backend)
-    pub async fn list_policy_hashes(&self, cpid: Option<&str>) -> Result<Vec<policy_hash::PolicyHashRecord>> {
+    pub async fn list_policy_hashes(
+        &self,
+        cpid: Option<&str>,
+    ) -> Result<Vec<policy_hash::PolicyHashRecord>> {
         match &self.0 {
-            DatabaseBackend::Sqlite(db) => {
-                db.list_policy_hashes(cpid)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to list policy hashes: {}", e))
-            }
-            DatabaseBackend::Postgres(db) => {
-                db.list_policy_hashes(cpid)
-                    .await
-                    .map_err(|e| anyhow::Error::from(e))
-            }
+            DatabaseBackend::Sqlite(db) => db
+                .list_policy_hashes(cpid)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to list policy hashes: {}", e)),
+            DatabaseBackend::Postgres(db) => db
+                .list_policy_hashes(cpid)
+                .await
+                .map_err(|e| anyhow::Error::from(e)),
         }
     }
 }

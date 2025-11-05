@@ -14,6 +14,44 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 
+/// Derive a deterministic global seed from the crate's manifest information
+fn derive_global_seed_from_manifest() -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+
+    // Collect deterministic manifest information
+    let manifest_data = format!(
+        "adapteros-secd:{}:{}:{}",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_AUTHORS")
+    );
+
+    // Also include target architecture and OS for platform-specific determinism
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH")
+        .unwrap_or_else(|_| "unknown".to_string());
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS")
+        .unwrap_or_else(|_| "unknown".to_string());
+    let platform_data = format!("{}:{}", target_arch, target_os);
+
+    // Combine manifest and platform data
+    let combined_data = format!("{}|{}", manifest_data, platform_data);
+
+    // Hash to produce deterministic 32-byte seed
+    let hash = Sha256::digest(combined_data.as_bytes());
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&hash[..32]);
+
+    tracing::info!(
+        manifest_version = env!("CARGO_PKG_VERSION"),
+        platform = %platform_data,
+        target_arch = %target_arch,
+        target_os = %target_os,
+        "Derived deterministic global seed from manifest"
+    );
+
+    seed
+}
+
 #[derive(Parser, Debug)]
 #[clap(name = "aos-secd", about = "AdapterOS Secure Enclave Daemon")]
 struct Args {
@@ -54,8 +92,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
-    // Initialize deterministic executor
-    let global_seed = [42u8; 32]; // TODO: derive from manifest
+    // Initialize deterministic executor with seed derived from manifest
+    let global_seed = derive_global_seed_from_manifest();
     let config = ExecutorConfig {
         global_seed,
         enable_event_logging: true,

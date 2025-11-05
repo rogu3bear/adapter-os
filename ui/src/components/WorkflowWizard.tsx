@@ -38,7 +38,7 @@ interface RoleWorkflow {
 }
 
 const workflowsByRole: Record<UserRole, RoleWorkflow> = {
-  Admin: {
+  admin: {
     title: 'System Administrator Workflow',
     description: 'Set up and configure the AdapterOS system',
     icon: Shield,
@@ -73,7 +73,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
       }
     ]
   },
-  Operator: {
+  operator: {
     title: 'ML Operations Workflow',
     description: 'Train, test, and deploy ML adapters',
     icon: Zap,
@@ -115,7 +115,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
       }
     ]
   },
-  SRE: {
+  sre: {
     title: 'Site Reliability Workflow',
     description: 'Monitor system health and respond to incidents',
     icon: Activity,
@@ -150,7 +150,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
       }
     ]
   },
-  Compliance: {
+  compliance: {
     title: 'Compliance Officer Workflow',
     description: 'Review policies, audit trails, and compliance status',
     icon: Shield,
@@ -185,7 +185,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
       }
     ]
   },
-  Auditor: {
+  auditor: {
     title: 'Auditor Workflow',
     description: 'Audit system activity and verify compliance',
     icon: FileText,
@@ -220,7 +220,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
       }
     ]
   },
-  Viewer: {
+  viewer: {
     title: 'Viewer Workflow',
     description: 'Monitor system status and view reports',
     icon: Activity,

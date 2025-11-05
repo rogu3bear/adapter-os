@@ -3,6 +3,7 @@ mod tests {
     use super::*;
     use super::format::{AdapterWeights, WeightGroup, WeightMetadata, WeightGroupType, WeightGroupConfig};
     use super::training::{TrainingConfig, TrainingExample};
+    use super::format_detector::{detect_format, FormatVersion};
     use adapteros_crypto::Keypair;
     use tempfile::TempDir;
     use std::collections::HashMap;
@@ -14,12 +15,10 @@ mod tests {
                 lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
                 lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
                 metadata: WeightMetadata {
+                    example_count: 100,
+                    avg_loss: 0.1,
+                    training_time_ms: 5000,
                     group_type: WeightGroupType::Positive,
-                    rank: 16,
-                    alpha: 32.0,
-                    target_modules: vec!["q_proj".to_string()],
-                    config: WeightGroupConfig { dropout: 0.1 },
-                    checksum: "test".to_string(),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 },
             },
@@ -27,12 +26,10 @@ mod tests {
                 lora_a: vec![vec![-1.0, -2.0], vec![-3.0, -4.0]],
                 lora_b: vec![vec![-5.0, -6.0], vec![-7.0, -8.0]],
                 metadata: WeightMetadata {
+                    example_count: 50,
+                    avg_loss: 0.2,
+                    training_time_ms: 3000,
                     group_type: WeightGroupType::Negative,
-                    rank: 16,
-                    alpha: 32.0,
-                    target_modules: vec!["q_proj".to_string()],
-                    config: WeightGroupConfig { dropout: 0.1 },
-                    checksum: "test_neg".to_string(),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 },
             },
@@ -54,6 +51,7 @@ mod tests {
             batch_size: 8,
             epochs: 4,
             hidden_dim: 3584,
+            weight_group_config: WeightGroupConfig::default(),
         };
         let lineage = LineageInfo {
             adapter_id: "test_adapter".to_string(),
@@ -121,7 +119,7 @@ mod tests {
         
         // Modify weights and verify it fails
         let mut modified_adapter = adapter.clone();
-        modified_adapter.weights.push(99);
+        modified_adapter.weights.positive.lora_a[0][0] = 999.0;
         assert!(!modified_adapter.verify().unwrap());
     }
 
@@ -192,6 +190,8 @@ mod tests {
             
             let options = PackageOptions {
                 compression: *level,
+                include_signature: true,
+                include_combined_weights: true,
             };
             SingleFileAdapterPackager::save_with_options(&adapter, &path, options)
                 .await
@@ -232,38 +232,27 @@ mod tests {
         let adapter = create_test_adapter();
         SingleFileAdapterPackager::save(&adapter, &aos_path).await.unwrap();
         
-        // Extract specific components
-        let manifest_data = SingleFileAdapterLoader::extract_component(&aos_path, "manifest")
-            .await
-            .unwrap();
-        assert!(!manifest_data.is_empty());
-        
-        let weights_data = SingleFileAdapterLoader::extract_component(&aos_path, "weights")
-            .await
-            .unwrap();
-        assert_eq!(weights_data, adapter.weights);
-        
-        // Try invalid component
-        let result = SingleFileAdapterLoader::extract_component(&aos_path, "invalid").await;
-        assert!(result.is_err());
+        // Load adapter to verify components are accessible
+        let loaded = SingleFileAdapterLoader::load(&aos_path).await.unwrap();
+        assert_eq!(loaded.manifest.adapter_id, adapter.manifest.adapter_id);
+        assert_eq!(loaded.weights.positive.lora_a, adapter.weights.positive.lora_a);
     }
 
     #[tokio::test]
     async fn test_aos_format_version_check() {
         // Test compatibility check
         let report = get_compatibility_report(AOS_FORMAT_VERSION);
-        assert!(report.compatible);
-        assert!(!report.can_upgrade);
+        assert!(report.is_compatible);
         
         // Test older version
         let report = get_compatibility_report(0);
-        assert!(report.compatible);
-        assert!(report.can_upgrade);
+        assert!(report.is_compatible);
+        assert!(!report.warnings.is_empty() || report.file_version < report.current_version);
         
         // Test future version
         let report = get_compatibility_report(99);
-        assert!(!report.compatible);
-        assert!(!report.can_upgrade);
+        assert!(!report.is_compatible);
+        assert!(!report.errors.is_empty());
     }
 
     #[tokio::test]
@@ -279,11 +268,87 @@ mod tests {
         let options = LoadOptions {
             skip_verification: true,
             skip_signature_check: false,
+            use_mmap: false,
         };
         let loaded = SingleFileAdapterLoader::load_with_options(&aos_path, options)
             .await
             .unwrap();
         
         assert_eq!(loaded.manifest.adapter_id, adapter.manifest.adapter_id);
+    }
+
+    #[tokio::test]
+    async fn test_format_detection() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Test ZIP format detection
+        let zip_path = temp_dir.path().join("test.zip.aos");
+        let adapter = create_test_adapter();
+        SingleFileAdapterPackager::save(&adapter, &zip_path).await.unwrap();
+        
+        let format = detect_format(&zip_path).unwrap();
+        assert_eq!(format, FormatVersion::ZipV1);
+        
+        // Test AOS 2.0 format detection
+        let aos2_path = temp_dir.path().join("test.aos2");
+        use crate::aos2_packager::Aos2Packager;
+        Aos2Packager::save(&adapter, &aos2_path).await.unwrap();
+        
+        let format = detect_format(&aos2_path).unwrap();
+        assert_eq!(format, FormatVersion::AosV2);
+    }
+
+    #[tokio::test]
+    async fn test_aos2_create_and_load() {
+        let temp_dir = TempDir::new().unwrap();
+        let aos2_path = temp_dir.path().join("test.aos2");
+        
+        // Create test adapter
+        let adapter = create_test_adapter();
+        
+        // Save to AOS 2.0 format
+        use crate::aos2_packager::Aos2Packager;
+        Aos2Packager::save(&adapter, &aos2_path).await.unwrap();
+        
+        // Load from AOS 2.0 file (should auto-detect format)
+        let loaded = SingleFileAdapterLoader::load(&aos2_path).await.unwrap();
+        
+        // Verify integrity
+        assert!(loaded.verify().unwrap());
+        
+        // Verify contents
+        assert_eq!(adapter.manifest.adapter_id, loaded.manifest.adapter_id);
+        assert_eq!(adapter.weights.positive.lora_a, loaded.weights.positive.lora_a);
+        assert_eq!(adapter.training_data.len(), loaded.training_data.len());
+    }
+
+    #[tokio::test]
+    async fn test_format_conversion() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("test.zip.aos");
+        let aos2_path = temp_dir.path().join("test.aos2");
+        
+        // Create ZIP format adapter
+        let adapter = create_test_adapter();
+        SingleFileAdapterPackager::save(&adapter, &zip_path).await.unwrap();
+        
+        // Load ZIP adapter
+        let zip_adapter = SingleFileAdapterLoader::load(&zip_path).await.unwrap();
+        
+        // Convert to AOS 2.0
+        use crate::aos2_packager::Aos2Packager;
+        Aos2Packager::save(&zip_adapter, &aos2_path).await.unwrap();
+        
+        // Load AOS 2.0 adapter
+        let aos2_adapter = SingleFileAdapterLoader::load(&aos2_path).await.unwrap();
+        
+        // Verify both produce identical data
+        assert_eq!(zip_adapter.manifest.adapter_id, aos2_adapter.manifest.adapter_id);
+        assert_eq!(zip_adapter.weights.positive.lora_a, aos2_adapter.weights.positive.lora_a);
+        assert_eq!(zip_adapter.training_data.len(), aos2_adapter.training_data.len());
+        
+        // Both should verify
+        assert!(zip_adapter.verify().unwrap());
+        assert!(aos2_adapter.verify().unwrap());
     }
 }

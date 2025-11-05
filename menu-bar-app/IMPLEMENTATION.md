@@ -530,6 +530,57 @@ var/adapteros_status.json           (fallback location)
 - [x] Shows OFFLINE when daemon stops
 - [x] "View Logs" opens Console.app
 
+## Bug Fixes (2025-01-15)
+
+### 1. StatusViewModel Hash Comparison Logic
+**Issue**: Status was always updated regardless of hash change, defeating de-jittering purpose.
+
+**Fix**: Only update status when hash changes or status is nil. This prevents unnecessary UI updates for identical content.
+
+**Location**: `StatusViewModel.readStatusAndUpdate()`
+
+### 2. Concurrent Watcher Setup Protection
+**Issue**: `setupWatcher()` could be called concurrently from multiple sources (polling, sleep/wake, recreateWatcherAfterDelay) without ensuring single execution.
+
+**Fix**: Added `isSettingUpWatcher` flag with defer to ensure serialization.
+
+**Location**: `StatusViewModel.setupWatcher()`
+
+### 3. StatusReader Error Context Loss
+**Issue**: Decode errors lost original error context - only returned generic `decodeFailed`.
+
+**Fix**: Enhanced `StatusReadError.decodeFailed` to include error message string. Preserved and logged original decode error details.
+
+**Location**: `StatusReader.readInternal()`
+
+### 4. ResponseCache Statistics Accuracy
+**Issue**: Statistics used estimated size (count * 1024) rather than actual data sizes.
+
+**Fix**: Track actual data sizes by maintaining `totalSizeBytes` and updating on add/remove/evict operations.
+
+**Location**: `ResponseCache.store()`, `ResponseCache.remove()`, `ResponseCache.cache(_:willEvictObject:)`
+
+### 5. ServicePanelClient Cache Check Logic
+**Issue**: Cache check required body encoding even for GET requests without body.
+
+**Fix**: Handle nil body case properly - encode body once and reuse for both cache check and cache store.
+
+**Location**: `ServicePanelClient.performRequest()`
+
+## Test Coverage
+
+### Unit Tests Added
+- **StatusReader**: 10 tests covering concurrent reads, caching, timeouts, error handling
+- **StatusViewModel**: 7 tests covering watcher setup, error suppression, lifecycle
+- **ResponseCache**: 5 tests covering entry tracking, eviction, statistics
+- **ServicePanelClient**: 3 additional tests covering concurrency, circuit breaker, caching
+
+### Integration Tests Added
+- **End-to-End Scenarios**: 6 tests covering full lifecycle, error recovery, rapid updates
+- **Stress Tests**: 3 tests covering concurrent operations, long-running scenarios
+
+See [TESTING.md](TESTING.md) for complete test documentation.
+
 ## Security Review
 
 ### Threat Model Analysis

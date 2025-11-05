@@ -115,23 +115,25 @@ Visual guide to navigating all AdapterOS documentation.
 
 **You are**: Need to deploy, monitor, and maintain AdapterOS
 
-**Start**: [Control Plane](control-plane.md)
+**Start**: [Operational Runbooks](OPERATIONAL_RUNBOOKS.md)
 
 **Path**:
 ```
-1. Control Plane API
+1. Operational Runbooks (System startup, maintenance, backup)
    ↓
-2. Monitoring Flow Workflow
+2. Troubleshooting Guide (Issue diagnosis and resolution)
    ↓
-3. Promotion Pipeline
+3. Control Plane API (Management operations)
    ↓
-4. Incident Response
+4. Monitoring Flow Workflow (System metrics)
    ↓
-5. Performance Dashboard
+5. Incident Response (Problem resolution)
+   ↓
+6. Performance Dashboard (Optimization)
 ```
 
-**Time**: 2-3 hours  
-**Goal**: Operational readiness
+**Time**: 3-4 hours  
+**Goal**: Operational readiness and issue resolution
 
 ---
 
@@ -184,7 +186,10 @@ Visual guide to navigating all AdapterOS documentation.
 | Document | Audience | Content |
 |----------|----------|---------|
 | **[Control Plane](control-plane.md)** | Operators, Developers | API docs, operations |
-| **[API Spec](api.md)** | Developers | OpenAPI specification |
+| **[API Spec](api.md)** | Developers | OpenAPI specification with comprehensive examples |
+| **[Operational Runbooks](OPERATIONAL_RUNBOOKS.md)** | Operators, SREs | Step-by-step operational procedures |
+| **[Troubleshooting Guide](TROUBLESHOOTING.md)** | Operators, SREs | Common issues and solutions |
+| **[Documentation Maintenance](DOCUMENTATION_MAINTENANCE.md)** | Contributors | Processes to keep docs synchronized |
 | **[Swagger UI](http://localhost:8080/swagger-ui)** | Developers | Interactive API |
 
 ### Database
@@ -280,12 +285,15 @@ Visual guide to navigating all AdapterOS documentation.
 |----------|----------|
 | "How does it work?" | [Getting Started](GETTING_STARTED_WITH_DIAGRAMS.md) |
 | "How do I install it?" | [Quick Start](QUICKSTART.md) |
+| "How do I operate it?" | [Operational Runbooks](OPERATIONAL_RUNBOOKS.md) |
+| "Something is broken, help!" | [Troubleshooting Guide](TROUBLESHOOTING.md) |
 | "How does inference work?" | [Precision Diagrams §2](architecture/precision-diagrams.md#2-inference-pipeline-flow) |
 | "How are adapters selected?" | [Precision Diagrams §3](architecture/precision-diagrams.md#3-router-scoring--selection) |
 | "How is memory managed?" | [Precision Diagrams §5](architecture/precision-diagrams.md#5-memory-management-system) |
 | "What's the database schema?" | [Schema Diagram](database-schema/schema-diagram.md) |
 | "How do promotions work?" | [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md) |
-| "What API endpoints exist?" | [Control Plane](control-plane.md) or [Swagger](http://localhost:8080/swagger-ui) |
+| "What API endpoints exist?" | [API Spec with Examples](api.md) or [Swagger](http://localhost:8080/swagger-ui) |
+| "How do I integrate the API?" | [API Examples](api.md#api-examples) (Python, JS, Go clients) |
 | "How do I contribute?" | [CONTRIBUTING.md](../CONTRIBUTING.md) + [CLAUDE.md](../CLAUDE.md) |
 
 ### By Component
@@ -375,26 +383,29 @@ Total: 4 hours
 
 ```
 1. Quick Start (10 min)
-2. Control Plane (1 hour)
-3. Promotion Pipeline (30 min)
-4. Monitoring Flow (30 min)
-5. Incident Response (30 min)
-6. Practice deployment (2 hours)
+2. Operational Runbooks (1 hour)
+3. Troubleshooting Guide (45 min)
+4. Control Plane (45 min)
+5. Promotion Pipeline (30 min)
+6. Monitoring Flow (30 min)
+7. Incident Response (30 min)
+8. Practice deployment (2 hours)
 
-Total: 5 hours
+Total: 6 hours
 ```
 
 ---
 
 ## 📊 Documentation Statistics
 
-**Total Files**: 50+ documentation files  
-**Total Diagrams**: 26 (18 code-verified)  
-**Total Workflows**: 9 animated sequences  
-**Code References**: 50+ file paths with line numbers  
-**API Endpoints**: 60+ documented  
-**Database Tables**: 30+ documented  
-**Coverage**: 100% of system components  
+**Total Files**: 54+ documentation files
+**Total Diagrams**: 26 (18 code-verified)
+**Total Workflows**: 9 animated sequences
+**Code References**: 50+ file paths with line numbers
+**API Endpoints**: 60+ documented with comprehensive examples
+**Database Tables**: 30+ documented
+**Coverage**: 100% of system components
+**Operational Docs**: Complete runbooks, troubleshooting, and maintenance guides  
 
 ---
 
@@ -411,6 +422,9 @@ Total: 5 hours
 
 - 🔍 **[Diagram Reference](DIAGRAM_REFERENCE.md)** - Quick lookup
 - 📖 **[Architecture Index](ARCHITECTURE_INDEX.md)** - Complete index
+- 🛠️ **[Operational Runbooks](OPERATIONAL_RUNBOOKS.md)** - System operations
+- 🔧 **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Issue resolution
+- 📚 **[Documentation Maintenance](DOCUMENTATION_MAINTENANCE.md)** - Keep docs synced
 - 🗄️ **[Database Schema](database-schema/schema-diagram.md)** - Data model
 - 🔄 **[Workflows](database-schema/workflows/)** - Operations
 
@@ -473,7 +487,7 @@ Happy learning! 🚀
 
 ---
 
-**Last Updated**: 2025-01-14  
-**Version**: 2.0  
+**Last Updated**: 2025-01-15
+**Version**: 2.2
 **Maintained By**: AdapterOS Documentation Team
 

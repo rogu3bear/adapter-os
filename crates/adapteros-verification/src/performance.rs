@@ -541,7 +541,7 @@ impl PerformanceVerifier {
             }
         }
 
-        score.max(0.0).min(100.0)
+        score.clamp(0.0, 100.0)
     }
 
     /// Generate performance recommendations

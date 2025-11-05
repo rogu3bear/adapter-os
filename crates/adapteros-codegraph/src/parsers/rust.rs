@@ -18,7 +18,7 @@ fn language_from_ptr(ptr: *const c_void) -> TSLanguage {
 
 fn rust_language() -> TSLanguage {
     let lang = tree_sitter_rust::language();
-    let raw = unsafe { mem::transmute::<_, *const c_void>(lang) };
+    let raw = unsafe { mem::transmute::<tree_sitter::Language, *const c_void>(lang) };
     language_from_ptr(raw)
 }
 
@@ -58,12 +58,12 @@ impl RustParser {
         let rust_lang = rust_language();
 
         parser
-            .set_language(rust_lang)
+            .set_language(&rust_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Rust language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (function_item
                 name: (identifier) @name
@@ -76,7 +76,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let struct_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (struct_item
                 name: (type_identifier) @name
@@ -87,7 +87,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create struct query: {}", e)))?;
 
         let trait_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (trait_item
                 name: (type_identifier) @name
@@ -98,7 +98,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create trait query: {}", e)))?;
 
         let impl_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (impl_item
                 trait: (type_identifier)? @trait_name
@@ -109,7 +109,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create impl query: {}", e)))?;
 
         let enum_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (enum_item
                 name: (type_identifier) @name
@@ -120,7 +120,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create enum query: {}", e)))?;
 
         let const_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (const_item
                 name: (identifier) @name
@@ -132,7 +132,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create const query: {}", e)))?;
 
         let static_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (static_item
                 name: (identifier) @name
@@ -144,7 +144,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create static query: {}", e)))?;
 
         let type_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (type_item
                 name: (type_identifier) @name
@@ -156,7 +156,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create type query: {}", e)))?;
 
         let macro_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (macro_definition
                 name: (identifier) @name
@@ -167,7 +167,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create macro query: {}", e)))?;
 
         let module_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (mod_item
                 name: (identifier) @name

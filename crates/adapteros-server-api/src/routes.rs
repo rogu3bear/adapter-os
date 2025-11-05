@@ -1,6 +1,8 @@
 use crate::handlers;
 use crate::handlers::domain_adapters;
-use crate::middleware::{auth_middleware, dual_auth_middleware};
+use crate::middleware::{
+    auth_middleware, dual_auth_middleware, metrics_auth_middleware, user_friendly_error_middleware,
+};
 use crate::rate_limit::per_tenant_rate_limit_middleware;
 use crate::state::AppState;
 use axum::extract::{Path, State};
@@ -20,7 +22,17 @@ use utoipa_swagger_ui::SwaggerUi;
     paths(
         handlers::health,
         handlers::ready,
+        handlers::get_status,
         handlers::auth_login,
+        handlers::auth_refresh,
+        handlers::auth_list_sessions,
+        handlers::auth_revoke_session,
+        handlers::auth_logout_all,
+        handlers::auth_rotate_token,
+        handlers::auth_token_metadata,
+        handlers::auth_update_profile,
+        handlers::auth_get_config,
+        handlers::auth_update_config,
         handlers::propose_patch,
         handlers::infer,
         handlers::batch::batch_infer,
@@ -28,7 +40,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_adapter,
         handlers::register_adapter,
         handlers::delete_adapter,
-        handlers::load_adapter,
+        // handlers::load_adapter,  // Temporarily removed
         handlers::unload_adapter,
         // handlers::hot_swap_adapter,  // Temporarily removed from OpenAPI - route still registered below
         handlers::get_adapter_activations,
@@ -44,10 +56,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::debug_routing,
         handlers::get_routing_history,
         handlers::routing_decisions,
-        handlers::get_prompt_orchestration_config,
-        handlers::update_prompt_orchestration_config,
-        handlers::analyze_prompt,
-        handlers::get_prompt_orchestration_metrics,
+        handlers::get_operation_status_handler,
         // Contacts and Streams handlers - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         handlers::list_contacts,
         handlers::create_contact,
@@ -70,6 +79,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::list_training_templates,
         handlers::get_training_template,
         handlers::get_activity_events,
+        handlers::telemetry::get_recent_activity,
+        handlers::telemetry::recent_activity_stream,
+        handlers::delete_plan,
         // Log file handlers
         handlers::list_log_files,
         handlers::get_log_file_content,
@@ -253,9 +265,13 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/auth/dev-bypass", post(handlers::auth_dev_bypass))
         .route("/v1/meta", get(handlers::meta));
 
-    // Metrics endpoint (custom auth, not JWT)
+    // Metrics endpoint (bearer token auth)
     let metrics_route = Router::new()
         .route("/metrics", get(handlers::metrics_handler))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            metrics_auth_middleware,
+        ))
         .with_state(state.clone());
 
     // OpenAI-compatible endpoints (dual auth: API key or JWT)
@@ -294,6 +310,21 @@ pub fn build(state: AppState) -> Router {
         .with_state(state.clone())
         .route("/v1/auth/logout", post(handlers::auth_logout))
         .route("/v1/auth/me", get(handlers::auth_me))
+        .route("/v1/auth/refresh", post(handlers::auth_refresh))
+        .route("/v1/auth/logout-all", post(handlers::auth_logout_all))
+        .route("/v1/auth/sessions", get(handlers::auth_list_sessions))
+        .route(
+            "/v1/auth/sessions/:session_id",
+            delete(handlers::auth_revoke_session),
+        )
+        .route("/v1/auth/token/rotate", post(handlers::auth_rotate_token))
+        .route("/v1/auth/token", get(handlers::auth_token_metadata))
+        .route("/v1/auth/profile", put(handlers::auth_update_profile))
+        .route(
+            "/v1/auth/config",
+            get(handlers::auth_get_config).put(handlers::auth_update_config),
+        )
+        .route("/v1/status", get(handlers::get_status))
         .route(
             "/v1/models/status/all",
             get(handlers::get_all_models_status),
@@ -347,6 +378,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/models/import", post(handlers::import_model))
         .route("/v1/models/status", get(handlers::get_base_model_status))
         .route("/v1/plans", get(handlers::list_plans))
+        .route("/v1/plans/:plan_id", delete(handlers::delete_plan))
         .route("/v1/plans/build", post(handlers::build_plan))
         .route(
             "/v1/plans/:plan_id/details",
@@ -489,10 +521,11 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id",
             axum::routing::delete(handlers::delete_adapter),
         )
-        .route(
-            "/v1/adapters/:adapter_id/load",
-            post(handlers::load_adapter),
-        )
+        // Temporarily removed load_adapter route
+        // .route(
+        //     "/v1/adapters/:adapter_id/load",
+        //     post(handlers::load_adapter),
+        // )
         .route(
             "/v1/adapters/:adapter_id/unload",
             post(handlers::unload_adapter),
@@ -520,14 +553,6 @@ pub fn build(state: AppState) -> Router {
             put(handlers::update_adapter_policy),
         )
         .route(
-            "/v1/adapters/category-policies",
-            get(handlers::get_category_policies),
-        )
-        .route(
-            "/v1/adapters/category-policies/:category",
-            get(handlers::get_category_policy),
-        )
-        .route(
             "/v1/adapters/:adapter_id/manifest",
             get(handlers::download_adapter_manifest),
         )
@@ -549,12 +574,21 @@ pub fn build(state: AppState) -> Router {
         // Base model management routes - Citation: IMPLEMENTATION_PLAN.md Phase 1
         .route(
             "/v1/models/:model_id/load",
-            post(handlers::models::load_model),
+            post(handlers::load_model_with_retry),
         )
         .route(
             "/v1/models/:model_id/unload",
             post(handlers::models::unload_model),
         )
+        .route(
+            "/v1/models/:model_id/cancel",
+            post(handlers::models::cancel_model_operation),
+        )
+        // Temporarily disabled due to compilation issue
+        // .route(
+        //     "/v1/models/health",
+        //     get(handlers::models::model_runtime_health),
+        // )
         .route(
             "/v1/models/:model_id/status",
             get(handlers::models::get_model_status),
@@ -746,6 +780,26 @@ pub fn build(state: AppState) -> Router {
         // Code intelligence routes (compiled only with "cdp" feature)
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
+        .route(
+            "/v1/repositories/register",
+            post(handlers::git_repository::register_git_repository),
+        )
+        .route(
+            "/v1/repositories/:repo_id/scan",
+            post(handlers::git_repository::trigger_repository_scan),
+        )
+        .route(
+            "/v1/repositories/:repo_id/status",
+            get(handlers::git_repository::get_repository_status),
+        )
+        .route(
+            "/v1/repositories/:repo_id/analysis",
+            get(handlers::git_repository::get_repository_analysis),
+        )
+        .route(
+            "/v1/repositories/:repo_id",
+            delete(handlers::git_repository::unregister_repository),
+        )
         // Metrics routes
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
@@ -782,11 +836,6 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/routing/debug", post(handlers::debug_routing))
         .route("/v1/routing/history", get(handlers::get_routing_history))
         .route("/v1/routing/decisions", get(handlers::routing_decisions))
-        // Prompt orchestration routes
-        .route("/v1/prompt-orchestration/config", get(handlers::get_prompt_orchestration_config))
-        .route("/v1/prompt-orchestration/config", put(handlers::update_prompt_orchestration_config))
-        .route("/v1/prompt-orchestration/analyze", post(handlers::analyze_prompt))
-        .route("/v1/prompt-orchestration/metrics", get(handlers::get_prompt_orchestration_metrics))
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
@@ -867,7 +916,23 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
+        .route(
+            "/v1/stream/operations/progress",
+            get(handlers::operation_progress_stream),
+        )
+        .route(
+            "/v1/operations/:resource_id/status",
+            get(handlers::get_operation_status_handler),
+        )
         .route("/v1/telemetry/events", get(handlers::get_activity_events))
+        .route(
+            "/v1/telemetry/events/recent",
+            get(handlers::telemetry::get_recent_activity),
+        )
+        .route(
+            "/v1/telemetry/events/recent/stream",
+            get(handlers::telemetry::recent_activity_stream),
+        )
         .route("/v1/telemetry/logs", post(handlers::submit_client_logs))
         .route("/v1/audits/export", get(handlers::export_audit_logs))
         // Log file endpoints
@@ -908,6 +973,12 @@ pub fn build(state: AppState) -> Router {
     // Configure CORS for development
     let cors = CorsLayer::permissive(); // Allow all origins in dev mode
 
+    // Apply auth middleware to protected routes
+    let protected_routes = protected_routes.layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth_middleware,
+    ));
+
     // Combine routes
     Router::new()
         .merge(public_routes)
@@ -917,5 +988,6 @@ pub fn build(state: AppState) -> Router {
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(user_friendly_error_middleware))
         .with_state(state)
 }

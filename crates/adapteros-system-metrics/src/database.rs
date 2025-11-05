@@ -45,7 +45,7 @@ impl SystemMetricsDb {
                 network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
                 uptime_seconds, process_count, load_1min, load_5min, load_15min
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(metrics.timestamp)
         .bind(metrics.cpu_usage)
@@ -93,7 +93,7 @@ impl SystemMetricsDb {
             WHERE timestamp >= ?
             ORDER BY timestamp DESC
             LIMIT ?
-            "#
+            "#,
         )
         .bind(start_time)
         .bind(limit_i64)
@@ -103,6 +103,7 @@ impl SystemMetricsDb {
 
         let mut records = Vec::new();
         for row in rows {
+            // Fields not in schema default to 0 (schema only has basic fields currently)
             records.push(SystemMetricsRecord {
                 id: row.get("id"),
                 timestamp: row.get("timestamp"),
@@ -144,7 +145,7 @@ impl SystemMetricsDb {
             INSERT INTO system_health_checks (
                 timestamp, status, check_name, check_status, message, value, threshold
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(timestamp)
         .bind("healthy") // Overall status would be calculated
@@ -178,7 +179,7 @@ impl SystemMetricsDb {
             INSERT INTO threshold_violations (
                 timestamp, metric_name, current_value, threshold_value, severity
             ) VALUES (?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(timestamp)
         .bind(metric_name)
@@ -200,7 +201,7 @@ impl SystemMetricsDb {
             FROM threshold_violations
             WHERE resolved_at IS NULL
             ORDER BY timestamp DESC
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -216,7 +217,9 @@ impl SystemMetricsDb {
                 threshold_value: row.get("threshold_value"),
                 severity: row.get("severity"),
                 resolved_at: None,
-                created_at: row.get::<Option<i64>, _>("created_at").unwrap_or(row.get("timestamp")),
+                created_at: row
+                    .get::<Option<i64>, _>("created_at")
+                    .unwrap_or(row.get("timestamp")),
             });
         }
 
@@ -230,14 +233,12 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        sqlx::query(
-            "UPDATE threshold_violations SET resolved_at = ? WHERE id = ?"
-        )
-        .bind(timestamp)
-        .bind(violation_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
+        sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
+            .bind(timestamp)
+            .bind(violation_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
 
         Ok(())
     }
@@ -256,7 +257,7 @@ impl SystemMetricsDb {
                    total_network_tx, sample_count
             FROM metrics_aggregations
             WHERE window_start = ? AND window_end = ? AND window_type = ?
-            "#
+            "#,
         )
         .bind(window_start)
         .bind(window_end)
@@ -305,7 +306,7 @@ impl SystemMetricsDb {
                 avg_memory_usage, max_memory_usage, total_disk_read, total_disk_write,
                 total_network_rx, total_network_tx, sample_count
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(window_start)
         .bind(window_end)
@@ -328,13 +329,12 @@ impl SystemMetricsDb {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
-        let row = sqlx::query(
-            "SELECT config_value FROM system_metrics_config WHERE config_key = ?"
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
+        let row =
+            sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
 
         Ok(row.map(|r| r.get("config_value")))
     }
@@ -350,7 +350,7 @@ impl SystemMetricsDb {
             r#"
             INSERT OR REPLACE INTO system_metrics_config (config_key, config_value, updated_at)
             VALUES (?, ?, ?)
-            "#
+            "#,
         )
         .bind(key)
         .bind(value)
@@ -370,13 +370,11 @@ impl SystemMetricsDb {
             .as_secs() as i64
             - (retention_days as i64 * 24 * 3600);
 
-        let result = sqlx::query(
-            "DELETE FROM system_metrics WHERE timestamp < ?"
-        )
-        .bind(cutoff_time)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
+        let result = sqlx::query("DELETE FROM system_metrics WHERE timestamp < ?")
+            .bind(cutoff_time)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
 
         Ok(result.rows_affected())
     }
