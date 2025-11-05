@@ -58,6 +58,10 @@ pub struct TrainingJobRecord {
     pub started_at: String,
     pub completed_at: Option<String>,
     pub created_by: String,
+    pub adapter_name: Option<String>,
+    pub template_id: Option<String>,
+    pub created_at: Option<String>,
+    pub metadata_json: Option<String>,
 }
 
 /// Training progress data
@@ -189,6 +193,29 @@ impl Db {
         training_config_json: &str,
         created_by: &str,
     ) -> Result<String> {
+        self.create_training_job_with_metadata(
+            repo_id,
+            training_config_json,
+            created_by,
+            None, // adapter_name
+            None, // template_id
+            None, // metadata_json
+        )
+        .await
+    }
+
+    /// Create a new training job with extended metadata
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql
+    pub async fn create_training_job_with_metadata(
+        &self,
+        repo_id: &str,
+        training_config_json: &str,
+        created_by: &str,
+        adapter_name: Option<&str>,
+        template_id: Option<&str>,
+        metadata_json: Option<&str>,
+    ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         let progress = TrainingProgress {
             progress_pct: 0.0,
@@ -200,11 +227,13 @@ impl Db {
             error_message: None,
         };
         let progress_json = serde_json::to_string(&progress)?;
+        let created_at = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
             "INSERT INTO repository_training_jobs 
-             (id, repo_id, training_config_json, status, progress_json, created_by) 
-             VALUES (?, ?, ?, ?, ?, ?)",
+             (id, repo_id, training_config_json, status, progress_json, created_by, 
+              adapter_name, template_id, created_at, metadata_json) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(repo_id)
@@ -212,6 +241,10 @@ impl Db {
         .bind("pending")
         .bind(&progress_json)
         .bind(created_by)
+        .bind(adapter_name)
+        .bind(template_id)
+        .bind(&created_at)
+        .bind(metadata_json)
         .execute(self.pool())
         .await?;
 
@@ -225,7 +258,8 @@ impl Db {
     pub async fn get_training_job(&self, job_id: &str) -> Result<Option<TrainingJobRecord>> {
         let job = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by 
+                    started_at, completed_at, created_by, adapter_name, template_id, 
+                    created_at, metadata_json
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -291,10 +325,11 @@ impl Db {
     pub async fn list_training_jobs(&self, repo_id: &str) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by 
+                    started_at, completed_at, created_by, adapter_name, template_id, 
+                    created_at, metadata_json
              FROM repository_training_jobs 
              WHERE repo_id = ? 
-             ORDER BY started_at DESC",
+             ORDER BY COALESCE(created_at, started_at) DESC",
         )
         .bind(repo_id)
         .fetch_all(self.pool())
@@ -313,12 +348,93 @@ impl Db {
     ) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by 
+                    started_at, completed_at, created_by, adapter_name, template_id, 
+                    created_at, metadata_json
              FROM repository_training_jobs 
              WHERE status = ? 
-             ORDER BY started_at DESC",
+             ORDER BY COALESCE(created_at, started_at) DESC",
         )
         .bind(status)
+        .fetch_all(self.pool())
+        .await?;
+
+        Ok(jobs)
+    }
+
+    /// List all training jobs (for TrainingService integration)
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql
+    pub async fn list_all_training_jobs(&self) -> Result<Vec<TrainingJobRecord>> {
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, training_config_json, status, progress_json, 
+                    started_at, completed_at, created_by, adapter_name, template_id, 
+                    created_at, metadata_json
+             FROM repository_training_jobs 
+             ORDER BY COALESCE(created_at, started_at) DESC",
+        )
+        .fetch_all(self.pool())
+        .await?;
+
+        Ok(jobs)
+    }
+
+    /// Update training job metadata (for artifact tracking)
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql
+    pub async fn update_training_job_metadata(
+        &self,
+        job_id: &str,
+        metadata_json: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE repository_training_jobs 
+             SET metadata_json = ? 
+             WHERE id = ?",
+        )
+        .bind(metadata_json)
+        .bind(job_id)
+        .execute(self.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// List training jobs with artifacts (completed jobs with artifact_path)
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql
+    pub async fn list_training_jobs_with_artifacts(&self) -> Result<Vec<TrainingJobRecord>> {
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, training_config_json, status, progress_json, 
+                    started_at, completed_at, created_by, adapter_name, template_id, 
+                    created_at, metadata_json
+             FROM repository_training_jobs 
+             WHERE status = 'completed' AND metadata_json IS NOT NULL
+             ORDER BY COALESCE(completed_at, created_at) DESC",
+        )
+        .fetch_all(self.pool())
+        .await?;
+
+        Ok(jobs)
+    }
+
+    /// Get training jobs older than specified days (for cleanup)
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql
+    pub async fn get_old_training_jobs(&self, days: i64) -> Result<Vec<TrainingJobRecord>> {
+        let cutoff_date = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::days(days))
+            .unwrap_or_else(|| chrono::Utc::now())
+            .to_rfc3339();
+
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, training_config_json, status, progress_json, 
+                    started_at, completed_at, created_by, adapter_name, template_id, 
+                    created_at, metadata_json
+             FROM repository_training_jobs 
+             WHERE COALESCE(completed_at, created_at) < ?
+             ORDER BY COALESCE(completed_at, created_at) ASC",
+        )
+        .bind(&cutoff_date)
         .fetch_all(self.pool())
         .await?;
 

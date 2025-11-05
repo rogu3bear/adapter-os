@@ -3,7 +3,10 @@
 //! Implements git repository registration, analysis, and training pipeline integration.
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
-use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
+use crate::auth::Claims;
+use crate::handlers::{require_any_role, AppState, ErrorResponse};
+use crate::types::ScanStatusResponse;
+use adapteros_api_types::repositories::RegisterRepositoryRequest;
 use adapteros_api_types::training::TrainingConfigRequest;
 use adapteros_core::error::AosError;
 use adapteros_db::users::Role;
@@ -22,15 +25,6 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use glob;
-
-/// Git repository registration request
-#[derive(Debug, Deserialize)]
-pub struct RegisterRepositoryRequest {
-    pub repo_id: String,
-    pub path: String,
-    pub branch: Option<String>,
-    pub description: Option<String>,
-}
 
 /// Git repository registration response
 #[derive(Debug, Serialize)]
@@ -136,42 +130,67 @@ pub async fn register_git_repository(
     // Policy: Evidence requirements for registration
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
+    let repo_path = request.path.clone().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Repository path is required")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "Provide a local repository path or configure remote cloning",
+                    ),
+            ),
+        )
+    })?;
+
+    let branch = request
+        .default_branch
+        .clone()
+        .unwrap_or_else(|| request.branch.clone());
+
+    let repo_identifier = request
+        .repo_id
+        .clone()
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
+
     info!(
         "Registering git repository: {} at path: {}",
-        request.repo_id, request.path
+        repo_identifier, repo_path
     );
 
     // Evidence: docs/code-intelligence/code-policies.md:82-84
     // Policy: Path validation and security checks
-    let config = state.config.read().map_err(|e| {
-        tracing::error!("Failed to read config: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Configuration access failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("Failed to read path policy configuration"),
-            ),
-        )
-    })?;
-    let path_policy = PathPolicy::from_config(&config.path_policy).map_err(|e| {
-        tracing::error!("Invalid path policy configuration: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Invalid path policy configuration")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(format!(
-                        "Failed to create path validation patterns: {}",
-                        e
-                    )),
-            ),
-        )
-    })?;
+    let path_policy = {
+        let config = state.config.read().map_err(|e| {
+            tracing::error!("Failed to read config: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Configuration access failed")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details("Failed to read path policy configuration"),
+                ),
+            )
+        })?;
+        PathPolicy::from_config(&config.path_policy).map_err(|e| {
+            tracing::error!("Invalid path policy configuration: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Invalid path policy configuration")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(format!(
+                            "Failed to create path validation patterns: {}",
+                            e
+                        )),
+                ),
+            )
+        })?
+    }; // config lock is dropped here
 
     // Validate repository path
     let path_validator = PathValidator::new(&path_policy);
-    if let Err(e) = path_validator.validate_repo_path(&request.path, &claims.tenant_id) {
+    if let Err(e) = path_validator.validate_repo_path(&repo_path, &claims.tenant_id) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -183,13 +202,13 @@ pub async fn register_git_repository(
     }
 
     // Check if path exists
-    if !std::path::Path::new(&request.path).exists() {
+    if !std::path::Path::new(&repo_path).exists() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
                 ErrorResponse::new("repository path does not exist")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("Path: {}", request.path)),
+                    .with_string_details(format!("Path: {}", repo_path)),
             ),
         ));
     }
@@ -210,20 +229,19 @@ pub async fn register_git_repository(
     })?;
 
     // Perform repository analysis using GitSubsystem
-    let analysis =
-        analyze_repository_with_subsystem(git_subsystem, &request.path, &request.repo_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Repository analysis failed: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Repository analysis failed")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+    let analysis = analyze_repository_with_subsystem(git_subsystem, &repo_path, &repo_identifier)
+        .await
+        .map_err(|e| {
+            tracing::error!("Repository analysis failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Repository analysis failed")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Evidence: crates/adapteros-policy/src/packs/evidence.rs:126-172
     // Policy: Evidence Ruleset #4 - Mandatory open-book grounding
@@ -257,7 +275,6 @@ pub async fn register_git_repository(
     }
 
     // Store repository in database
-    let repo_id = Uuid::now_v7().to_string();
     let analysis_json = serde_json::to_string(&analysis).map_err(|e| {
         tracing::error!("Failed to serialize analysis: {}", e);
         (
@@ -270,13 +287,15 @@ pub async fn register_git_repository(
         )
     })?;
 
+    let internal_id = Uuid::now_v7().to_string();
+
     state
         .db
         .create_git_repository(
-            &repo_id,
-            &request.repo_id,
-            &request.path,
-            &request.branch.unwrap_or_else(|| "main".to_string()),
+            &internal_id,
+            &repo_identifier,
+            &repo_path,
+            &branch,
             &analysis_json,
             &claims.sub,
         )
@@ -296,20 +315,21 @@ pub async fn register_git_repository(
     // Log repository registration event
     tracing::info!(
         "Repository registered: {} by user: {} with {} evidence spans, {} languages, {} frameworks",
-        request.repo_id,
+        repo_identifier,
         claims.sub,
         analysis.evidence_spans.len(),
         analysis.languages.len(),
         analysis.frameworks.len()
     );
 
-    info!("Successfully registered repository: {}", request.repo_id);
+    info!("Successfully registered repository: {}", repo_identifier);
 
+    let evidence_count = analysis.evidence_spans.len();
     Ok(Json(RegisterRepositoryResponse {
-        repo_id: request.repo_id,
+        repo_id: repo_identifier,
         status: "registered".to_string(),
-        analysis: analysis.clone(),
-        evidence_count: analysis.evidence_spans.len(),
+        analysis,
+        evidence_count,
     }))
 }
 
@@ -836,6 +856,176 @@ fn extract_evidence_spans(
     }
 
     Ok(evidence_spans)
+}
+
+/// Trigger repository scan
+#[utoipa::path(
+    post,
+    path = "/v1/repositories/{repo_id}/scan",
+    params(("repo_id" = String, Path, description = "Repository ID")),
+    responses(
+        (status = 202, description = "Scan triggered successfully"),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "repositories"
+)]
+pub async fn trigger_repository_scan(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let repo_id_clone = repo_id.clone();
+    // Check if repository exists
+    let repo = state
+        .db
+        .get_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Database error checking repository {}: {}",
+                repo_id_clone,
+                e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            let repo_id_for_error = repo_id.clone();
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id_for_error),
+                ),
+            )
+        })?;
+
+    // Trigger analysis (could be background job in future)
+    // For now, just log that scan was triggered
+    info!("Repository scan triggered for: {}", repo_id);
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Get repository status
+#[utoipa::path(
+    get,
+    path = "/v1/repositories/{repo_id}/status",
+    params(("repo_id" = String, Path, description = "Repository ID")),
+    responses(
+        (status = 200, description = "Repository status", body = ScanStatusResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "repositories"
+)]
+pub async fn get_repository_status(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<ScanStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Check if repository exists
+    let repo = state
+        .db
+        .get_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error checking repository {}: {}", repo_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id),
+                ),
+            )
+        })?;
+
+    let status = ScanStatusResponse {
+        repo_id: repo.repo_id,
+        status: repo.status,
+        progress: None,
+        message: None,
+    };
+
+    Ok(Json(status))
+}
+
+/// Unregister repository
+#[utoipa::path(
+    delete,
+    path = "/v1/repositories/{repo_id}",
+    params(("repo_id" = String, Path, description = "Repository ID")),
+    responses(
+        (status = 204, description = "Repository unregistered successfully"),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "repositories"
+)]
+pub async fn unregister_repository(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let repo_id_clone = repo_id.clone();
+    // Check if repository exists
+    let _repo = state
+        .db
+        .get_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Database error checking repository {}: {}",
+                repo_id_clone,
+                e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            let repo_id_for_error = repo_id.clone();
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id_for_error),
+                ),
+            )
+        })?;
+
+    // Delete repository
+    state
+        .db
+        .delete_git_repository(&repo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete repository {}: {}", repo_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to delete repository").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+
+    info!("Repository unregistered: {}", repo_id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Path policy configuration

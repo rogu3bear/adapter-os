@@ -401,7 +401,7 @@ pub async fn register_git_repository(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<RegisterRepositoryRequest>,
-) -> Result<Json<RegisterRepositoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RepositorySummary>, (StatusCode, Json<ErrorResponse>)> {
     // Evidence: docs/code-intelligence/code-policies.md:45-78
     // Policy: Evidence requirements for registration
     require_role(&claims, &["Admin", "Operator"])?;
@@ -413,12 +413,16 @@ pub async fn register_git_repository(
     
     // Evidence: docs/llm-interface-specification.md:42-47
     // Policy: Deterministic behavior
-    let analysis = state.git_manager.analyze_repository(&request.path).await?;
-    
-    Ok(Json(RegisterRepositoryResponse {
-        repo_id: analysis.repo_id,
-        status: "registered".to_string(),
-        analysis: analysis.into(),
+    let checkout_path = resolve_checkout_path(&state, &claims.tenant_id, &request.url)?;
+    let analysis = state.git_manager.analyze_repository(&checkout_path).await?;
+
+    Ok(Json(RepositorySummary {
+        id: analysis.repo_id,
+        url: request.url.clone(),
+        branch: request.branch.clone(),
+        path: Some(checkout_path.display().to_string()),
+        commit_count: analysis.git_info.commit_count as u64,
+        last_scan: None,
     }))
 }
 ```

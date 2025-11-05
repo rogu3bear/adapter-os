@@ -1,14 +1,17 @@
 //! Telemetry types
 
-use adapteros_telemetry::metrics::{
-    DeterminismMetrics as TelemetryDeterminismMetrics, DiskMetrics as TelemetryDiskMetrics,
+use adapteros_telemetry_types::{
+    AdapterMetrics as TelemetryAdapterMetrics,
+    DeterminismMetrics as TelemetryDeterminismMetrics,
+    DiskMetrics as TelemetryDiskMetrics,
+    LatencyMetrics as TelemetryLatencyMetrics,
+    MetricDataPoint as TelemetryMetricDataPoint,
+    MetricsSnapshot as TelemetryMetricsSnapshot,
     NetworkMetrics as TelemetryNetworkMetrics,
-};
-use adapteros_telemetry::{
-    AdapterMetrics as TelemetryAdapterMetrics, LatencyMetrics as TelemetryLatencyMetrics,
-    MetricDataPoint as TelemetryMetricDataPoint, MetricsSnapshot as TelemetryMetricsSnapshot,
-    PolicyMetrics as TelemetryPolicyMetrics, QueueDepthMetrics as TelemetryQueueDepthMetrics,
-    SystemMetrics as TelemetrySystemMetrics, ThroughputMetrics as TelemetryThroughputMetrics,
+    PolicyMetrics as TelemetryPolicyMetrics,
+    QueueDepthMetrics as TelemetryQueueDepthMetrics,
+    SystemMetrics as TelemetrySystemMetrics,
+    ThroughputMetrics as TelemetryThroughputMetrics,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

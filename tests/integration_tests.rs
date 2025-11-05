@@ -63,6 +63,538 @@ async fn test_authentication_flow() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_token_refresh_flow() -> Result<()> {
+    let client = create_test_client();
+
+    // Login first
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    assert!(!login_response.token.is_empty());
+
+    // Test token refresh
+    let refresh_response = client.refresh_token(&login_response.token).await?;
+    assert!(refresh_response.contains("Token refreshed successfully"));
+
+    // Test that the old token still works (since JWT is stateless)
+    let me_response = client.get_user_info(&login_response.token).await?;
+    assert_eq!(me_response.email, "admin@example.com");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_session_management_flow() -> Result<()> {
+    let client = create_test_client();
+
+    // Login first
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    assert!(!login_response.token.is_empty());
+
+    // Test list sessions
+    let sessions = client.list_sessions(&login_response.token).await?;
+    assert!(!sessions.is_empty());
+    assert!(sessions[0].is_current);
+
+    // Test revoke session (revoke current session)
+    let revoke_response = client
+        .revoke_session(&login_response.token, &sessions[0].id)
+        .await?;
+    assert!(revoke_response.contains("Session revoked"));
+
+    // Test logout all sessions
+    let logout_all_response = client.logout_all(&login_response.token).await?;
+    assert!(logout_all_response.contains("All sessions logged out"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_token_rotation_flow() -> Result<()> {
+    let client = create_test_client();
+
+    // Login first
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    assert!(!login_response.token.is_empty());
+    let original_token = login_response.token.clone();
+
+    // Test token rotation
+    let rotation_response = client.rotate_token(&login_response.token).await?;
+    assert!(!rotation_response.token.is_empty());
+    assert!(rotation_response.created_at.contains("T"));
+    assert!(rotation_response.expires_at.is_some());
+
+    // Test that the new token works
+    let me_response = client.get_user_info(&rotation_response.token).await?;
+    assert_eq!(me_response.email, "admin@example.com");
+
+    // Test that the old token still works (in stateless JWT, rotation doesn't invalidate old tokens)
+    let me_response_old = client.get_user_info(&original_token).await?;
+    assert_eq!(me_response_old.email, "admin@example.com");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_token_metadata_flow() -> Result<()> {
+    let client = create_test_client();
+
+    // Login first
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    assert!(!login_response.token.is_empty());
+
+    // Test get token metadata
+    let metadata = client.get_token_metadata(&login_response.token).await?;
+    assert_eq!(metadata.role, "admin");
+    assert!(metadata.created_at.contains("T"));
+    assert!(metadata.expires_at.is_some());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_profile_update_flow() -> Result<()> {
+    let client = create_test_client();
+
+    // Login first
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    assert!(!login_response.token.is_empty());
+
+    // Test update profile
+    let update_request = adapteros_api_types::auth::UpdateProfileRequest {
+        display_name: Some("Test Admin".to_string()),
+    };
+
+    let profile_response = client
+        .update_profile(&login_response.token, update_request)
+        .await?;
+    assert_eq!(profile_response.email, "admin@example.com");
+    assert_eq!(
+        profile_response.display_name,
+        Some("Test Admin".to_string())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_config_management_flow() -> Result<()> {
+    let client = create_test_client();
+
+    // Login first
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    assert!(!login_response.token.is_empty());
+
+    // Test get auth config
+    let config = client.get_auth_config(&login_response.token).await?;
+    assert!(config.jwt_mode == "hmac" || config.jwt_mode == "eddsa");
+
+    // Test update auth config (if admin)
+    let update_request = adapteros_api_types::auth::UpdateAuthConfigRequest {
+        production_mode: Some(false),
+        dev_token_enabled: Some(true),
+        jwt_mode: None,
+        token_expiry_hours: Some(12),
+    };
+
+    let updated_config = client
+        .update_auth_config(&login_response.token, update_request)
+        .await?;
+    assert_eq!(updated_config.token_expiry_hours, 12);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_error_cases() -> Result<()> {
+    let client = create_test_client();
+
+    // Test invalid login credentials
+    let invalid_login_result = client
+        .login(LoginRequest {
+            email: "invalid@example.com".to_string(),
+            password: "wrong_password".to_string(),
+        })
+        .await;
+
+    assert!(invalid_login_result.is_err());
+
+    // Test accessing protected endpoint without auth
+    let unauth_result = client.list_sessions("invalid_token").await;
+    assert!(unauth_result.is_err());
+
+    // Test accessing protected endpoint with expired/invalid token
+    let expired_result = client.get_user_info("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c").await;
+    assert!(expired_result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_performance_characteristics() -> Result<()> {
+    println!("Testing auth endpoint performance characteristics...");
+
+    let client = create_test_client();
+
+    // Login to get a token
+    let login_response = client
+        .login(LoginRequest {
+            email: "admin@example.com".to_string(),
+            password: "admin_password".to_string(),
+        })
+        .await?;
+
+    let token = login_response.token.clone();
+
+    // Benchmark token refresh performance with statistical analysis
+    println!("  Benchmarking token refresh performance...");
+    let refresh_stats =
+        benchmark_endpoint(|| async { client.refresh_token(&token).await }, 25).await?;
+
+    println!("  Token refresh performance:");
+    println!("    Mean: {:.2}ms", refresh_stats.mean_ms);
+    println!("    Median: {:.2}ms", refresh_stats.median_ms);
+    println!("    P95: {:.2}ms", refresh_stats.p95_ms);
+    println!("    Min: {:.2}ms", refresh_stats.min_ms);
+    println!("    Max: {:.2}ms", refresh_stats.max_ms);
+    println!("    Iterations: {}", refresh_stats.iterations);
+
+    // Benchmark token metadata retrieval
+    println!("  Benchmarking token metadata retrieval...");
+    let metadata_stats =
+        benchmark_endpoint(|| async { client.get_token_metadata(&token).await }, 25).await?;
+
+    println!("  Token metadata performance:");
+    println!("    Mean: {:.2}ms", metadata_stats.mean_ms);
+    println!("    Median: {:.2}ms", metadata_stats.median_ms);
+    println!("    P95: {:.2}ms", metadata_stats.p95_ms);
+    println!("    Min: {:.2}ms", metadata_stats.min_ms);
+    println!("    Max: {:.2}ms", metadata_stats.max_ms);
+    println!("    Iterations: {}", metadata_stats.iterations);
+
+    // Performance assertions with statistical confidence
+    assert!(
+        refresh_stats.p95_ms < 750.0,
+        "Token refresh P95 too slow: {:.2}ms",
+        refresh_stats.p95_ms
+    );
+    assert!(
+        metadata_stats.p95_ms < 150.0,
+        "Token metadata P95 too slow: {:.2}ms",
+        metadata_stats.p95_ms
+    );
+    assert!(
+        refresh_stats.mean_ms < 500.0,
+        "Token refresh mean too slow: {:.2}ms",
+        refresh_stats.mean_ms
+    );
+    assert!(
+        metadata_stats.mean_ms < 100.0,
+        "Token metadata mean too slow: {:.2}ms",
+        metadata_stats.mean_ms
+    );
+
+    // Check for excessive variance (indicates inconsistent performance)
+    let refresh_cv = refresh_stats.std_dev_ms / refresh_stats.mean_ms;
+    let metadata_cv = metadata_stats.std_dev_ms / metadata_stats.mean_ms;
+
+    assert!(
+        refresh_cv < 0.5,
+        "Token refresh too variable (CV: {:.2})",
+        refresh_cv
+    );
+    assert!(
+        metadata_cv < 0.3,
+        "Token metadata too variable (CV: {:.2})",
+        metadata_cv
+    );
+
+    println!("✓ Auth performance characteristics within acceptable limits");
+    println!("  Performance is consistent and within thresholds");
+
+    // Load testing with concurrent clients
+    println!("\n  Running load test with concurrent clients...");
+    let load_stats = load_test_endpoint(
+        || async {
+            let client = create_test_client();
+            let login_response = client
+                .login(LoginRequest {
+                    email: "admin@example.com".to_string(),
+                    password: "admin_password".to_string(),
+                })
+                .await?;
+            client.get_user_info(&login_response.token).await
+        },
+        3,   // 3 concurrent clients
+        5,   // 5 requests per client
+        100, // 100ms delay between requests
+    )
+    .await?;
+
+    println!("  Load Test Results:");
+    println!("    Concurrent Clients: {}", load_stats.concurrent_clients);
+    println!(
+        "    Requests per Client: {}",
+        load_stats.requests_per_client
+    );
+    println!("    Total Requests: {}", load_stats.total_requests);
+    println!("    Successful: {}", load_stats.successful_requests);
+    println!("    Failed: {}", load_stats.failed_requests);
+    println!("    Throughput: {:.1} req/sec", load_stats.throughput_rps);
+    println!("    Mean Response Time: {:.2}ms", load_stats.mean_ms);
+    println!("    P95 Response Time: {:.2}ms", load_stats.p95_ms);
+    println!("    P99 Response Time: {:.2}ms", load_stats.p99_ms);
+
+    // Load test assertions
+    assert!(
+        load_stats.failed_requests == 0,
+        "Load test had {} failures",
+        load_stats.failed_requests
+    );
+    assert!(
+        load_stats.throughput_rps > 5.0,
+        "Throughput too low: {:.1} req/sec",
+        load_stats.throughput_rps
+    );
+    assert!(
+        load_stats.p95_ms < 1000.0,
+        "P95 latency too high: {:.2}ms",
+        load_stats.p95_ms
+    );
+
+    println!("✓ Load testing completed successfully");
+    Ok(())
+}
+
+/// Benchmark statistics
+#[derive(Debug)]
+struct BenchmarkStats {
+    iterations: usize,
+    mean_ms: f64,
+    median_ms: f64,
+    p95_ms: f64,
+    min_ms: f64,
+    max_ms: f64,
+    std_dev_ms: f64,
+}
+
+/// Benchmark an async endpoint with statistical analysis
+async fn benchmark_endpoint<F, Fut, T, E>(
+    endpoint_fn: F,
+    iterations: usize,
+) -> Result<BenchmarkStats>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    let mut times = Vec::with_capacity(iterations);
+
+    // Warm-up run
+    let _ = endpoint_fn().await;
+
+    // Benchmark runs
+    for _ in 0..iterations {
+        let start = std::time::Instant::now();
+        let result = endpoint_fn().await;
+        let elapsed = start.elapsed();
+
+        // Ensure the operation succeeded
+        result.expect("Endpoint call failed during benchmarking");
+
+        times.push(elapsed.as_millis() as f64);
+    }
+
+    // Calculate statistics
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let mean = times.iter().sum::<f64>() / times.len() as f64;
+    let median = if times.len() % 2 == 0 {
+        (times[times.len() / 2 - 1] + times[times.len() / 2]) / 2.0
+    } else {
+        times[times.len() / 2]
+    };
+
+    let p95_idx = ((times.len() as f64 * 0.95) as usize).min(times.len() - 1);
+    let p95 = times[p95_idx];
+
+    let min = *times.first().unwrap();
+    let max = *times.last().unwrap();
+
+    let variance = times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / times.len() as f64;
+    let std_dev = variance.sqrt();
+
+    Ok(BenchmarkStats {
+        iterations,
+        mean_ms: mean,
+        median_ms: median,
+        p95_ms: p95,
+        min_ms: min,
+        max_ms: max,
+        std_dev_ms: std_dev,
+    })
+}
+
+/// Load test multiple concurrent clients
+async fn load_test_endpoint<F, Fut, T, E>(
+    endpoint_fn_factory: impl Fn() -> F,
+    concurrent_clients: usize,
+    requests_per_client: usize,
+    client_delay_ms: u64,
+) -> Result<LoadTestStats>
+where
+    F: Fn() -> Fut + Clone + Send + Sync + 'static,
+    Fut: std::future::Future<Output = std::result::Result<T, E>> + Send,
+    T: Send + 'static,
+    E: std::fmt::Debug + Send + 'static,
+{
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tokio::time::{sleep, Duration};
+
+    let total_requests = concurrent_clients * requests_per_client;
+    let all_times = Arc::new(Mutex::new(Vec::with_capacity(total_requests)));
+    let error_count = Arc::new(Mutex::new(0usize));
+
+    // Spawn concurrent clients
+    let mut handles = Vec::with_capacity(concurrent_clients);
+
+    for client_id in 0..concurrent_clients {
+        let endpoint_fn = endpoint_fn_factory.clone();
+        let all_times = Arc::clone(&all_times);
+        let error_count = Arc::clone(&error_count);
+
+        let handle = tokio::spawn(async move {
+            for request_id in 0..requests_per_client {
+                let start = std::time::Instant::now();
+
+                match endpoint_fn().await {
+                    Ok(_) => {
+                        let elapsed = start.elapsed().as_millis() as f64;
+                        let mut times = all_times.lock().await;
+                        times.push(elapsed);
+                    }
+                    Err(_) => {
+                        let mut errors = error_count.lock().await;
+                        *errors += 1;
+                    }
+                }
+
+                // Add delay between requests to simulate realistic load
+                if client_delay_ms > 0 && request_id < requests_per_client - 1 {
+                    sleep(Duration::from_millis(client_delay_ms)).await;
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all clients to complete
+    for handle in handles {
+        handle.await.expect("Client task failed");
+    }
+
+    // Calculate statistics
+    let times = all_times.lock().await.clone();
+    let errors = *error_count.lock().await;
+
+    if times.is_empty() {
+        return Err(anyhow::anyhow!("No successful requests completed"));
+    }
+
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let mean = times.iter().sum::<f64>() / times.len() as f64;
+    let median = if times.len() % 2 == 0 {
+        (times[times.len() / 2 - 1] + times[times.len() / 2]) / 2.0
+    } else {
+        times[times.len() / 2]
+    };
+
+    let p95_idx = ((times.len() as f64 * 0.95) as usize).min(times.len() - 1);
+    let p95 = times[p95_idx];
+    let p99_idx = ((times.len() as f64 * 0.99) as usize).min(times.len() - 1);
+    let p99 = times[p99_idx];
+
+    let min = *times.first().unwrap();
+    let max = *times.last().unwrap();
+
+    let variance = times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / times.len() as f64;
+    let std_dev = variance.sqrt();
+
+    let throughput = times.len() as f64 / (times.iter().sum::<f64>() / 1000.0); // requests per second
+
+    Ok(LoadTestStats {
+        concurrent_clients,
+        requests_per_client,
+        total_requests: times.len(),
+        successful_requests: times.len(),
+        failed_requests: errors,
+        mean_ms: mean,
+        median_ms: median,
+        p95_ms: p95,
+        p99_ms: p99,
+        min_ms: min,
+        max_ms: max,
+        std_dev_ms: std_dev,
+        throughput_rps: throughput,
+    })
+}
+
+/// Load test statistics
+#[derive(Debug)]
+struct LoadTestStats {
+    concurrent_clients: usize,
+    requests_per_client: usize,
+    total_requests: usize,
+    successful_requests: usize,
+    failed_requests: usize,
+    mean_ms: f64,
+    median_ms: f64,
+    p95_ms: f64,
+    p99_ms: f64,
+    min_ms: f64,
+    max_ms: f64,
+    std_dev_ms: f64,
+    throughput_rps: f64,
+}
+
+#[tokio::test]
 async fn test_repository_registration_workflow() -> Result<()> {
     let (client, _token) =
         create_authenticated_client("admin@example.com", "admin_password").await?;

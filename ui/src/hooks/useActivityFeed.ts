@@ -6,12 +6,12 @@
 //! # Citations
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
-//! - Dashboard.tsx L220: "TODO: Replace with real-time activity feed from /v1/telemetry/events or audit log"
+//! - Dashboard.tsx L220: Uses real-time activity feed from /v1/telemetry/events/recent
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { logger } from '../utils/logger';
-import apiClient from '../api/client';
-import { useActivityEvents } from './useActivityEvents';
+import { logger } from '@/utils/logger';
+import apiClient from '@/api/client';
+import type { RecentActivityEvent } from '@/api/types';
 
 export interface ActivityEvent {
   id: string;
@@ -131,6 +131,41 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     }
   }, []);
 
+  const mapRecentEvent = useCallback((event: RecentActivityEvent): ActivityEvent => {
+    let workspaceId: string | undefined;
+    let normalizedMetadata: Record<string, string | number | boolean> | undefined;
+
+    if (event.metadata && typeof event.metadata === 'object' && !Array.isArray(event.metadata)) {
+      const metadataRecord = event.metadata as Record<string, unknown>;
+      const filtered: Record<string, string | number | boolean> = {};
+      for (const [key, value] of Object.entries(metadataRecord)) {
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        normalizedMetadata = filtered;
+      }
+      const candidateWorkspace = metadataRecord.workspace_id;
+      if (typeof candidateWorkspace === 'string') {
+        workspaceId = candidateWorkspace;
+      }
+    }
+
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      type: mapEventType(event.event_type),
+      severity: mapSeverity(event.level),
+      message: event.message,
+      component: event.component,
+      tenantId: event.tenant_id,
+      userId: event.user_id,
+      workspaceId,
+      metadata: normalizedMetadata,
+    };
+  }, [mapEventType, mapSeverity]);
+
   const fetchEvents = useCallback(async () => {
     if (!enabledRef.current || !isMountedRef.current) return;
 
@@ -138,108 +173,19 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     setError(null);
 
     try {
-      // Fetch both telemetry events and activity events in parallel
-      const [telemetryEvents, activityEventsResponse] = await Promise.all([
-        // Fetch telemetry events from the audit log
-        apiClient.getTelemetryEvents({
-          limit: Math.floor(maxEventsRef.current / 2), // Split limit between sources
-          tenantId: tenantIdRef.current,
-          userId: userIdRef.current,
-          startTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Last 24 hours
-        }),
-        // Fetch activity events (collaboration events)
-        apiClient.listActivityEvents({
-          workspace_id: workspaceIdRef.current,
-          user_id: userIdRef.current,
-          tenant_id: tenantIdRef.current,
-          limit: Math.floor(maxEventsRef.current / 2), // Split limit between sources
-        }),
-      ]);
-
-      if (!isMountedRef.current) return;
-
-      // Transform telemetry events to activity events
-      const telemetryActivityEvents: ActivityEvent[] = telemetryEvents.map(event => ({
-        id: event.id,
-        timestamp: event.timestamp,
-        type: mapEventType(event.event_type),
-        severity: mapSeverity(event.level),
-        message: event.message,
-        component: event.component,
-        tenantId: event.tenant_id,
-        userId: event.user_id,
-        metadata: event.metadata,
-      }));
-
-      // Transform activity events to unified format, adding collaboration event types
-      const activityEvents: ActivityEvent[] = activityEventsResponse.map(event => {
-        let eventType: ActivityEvent['type'] = 'telemetry'; // default
-
-        switch (event.event_type) {
-          case 'resource_created':
-          case 'resource_updated':
-          case 'resource_deleted':
-            eventType = 'adapter'; // Map to adapter operations
-            break;
-          case 'user_joined':
-          case 'user_left':
-            eventType = 'recovery'; // Map to user management
-            break;
-          case 'message_sent':
-          case 'message_edited':
-            eventType = 'telemetry'; // Keep as telemetry for now
-            break;
-          case 'comment_added':
-            eventType = 'build'; // Map to collaboration
-            break;
-          case 'resource_shared':
-            eventType = 'adapter'; // Map to resource operations
-            break;
-          case 'policy_violation':
-            eventType = 'policy';
-            break;
-          case 'system_alert':
-            eventType = 'security';
-            break;
-          default:
-            eventType = 'telemetry';
-        }
-
-        return {
-          id: event.id,
-          timestamp: event.created_at,
-          type: eventType,
-          severity: 'info' as const, // Default severity for activity events
-          message: `Activity: ${event.event_type.replace('_', ' ')}`,
-          component: event.target_type || 'activity',
-          tenantId: event.tenant_id,
-          userId: event.user_id || undefined,
-          metadata: event.metadata_json ? JSON.parse(event.metadata_json) : undefined,
-        };
+      const recentEvents = await apiClient.getRecentActivityEvents({
+        limit: maxEventsRef.current,
       });
 
-      // Merge and deduplicate events
-      const allEvents = [...telemetryActivityEvents, ...activityEvents];
-      const uniqueEvents = allEvents.filter(
-        (event, index, self) => self.findIndex(e => e.id === event.id) === index
-      );
-
-      // Sort by timestamp (newest first)
-      uniqueEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-      // Limit to maxEvents
-      const limitedEvents = uniqueEvents.slice(0, maxEventsRef.current);
-
       if (!isMountedRef.current) return;
 
-      setEvents(limitedEvents);
+      const mapped = recentEvents.map(mapRecentEvent).slice(0, maxEventsRef.current);
+      setEvents(mapped);
 
       logger.info('Activity feed updated', {
         component: 'useActivityFeed',
         operation: 'fetchEvents',
-        eventCount: limitedEvents.length,
-        telemetryCount: telemetryActivityEvents.length,
-        activityCount: activityEvents.length,
+        eventCount: mapped.length,
         tenantId: tenantIdRef.current,
         userId: userIdRef.current,
         workspaceId: workspaceIdRef.current,
@@ -247,10 +193,10 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     } catch (err) {
       if (!isMountedRef.current) return;
       
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch activity events';
+      const errorMessage = err instanceof Error ? err.message : 'Recent activity unavailable';
       setError(errorMessage);
 
-      logger.error('Failed to fetch activity events', {
+      logger.error('Failed to fetch recent activity', {
         component: 'useActivityFeed',
         operation: 'fetchEvents',
         tenantId: tenantIdRef.current,
@@ -262,7 +208,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
         setLoading(false);
       }
     }
-  }, [mapEventType, mapSeverity]); // Removed other deps - use refs
+  }, [mapRecentEvent]); // Removed other deps - use refs
 
   useEffect(() => {
     if (!enabled) {
@@ -354,39 +300,51 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
         const base = (import.meta as any)?.env?.VITE_SSE_URL
           ? `http://${(import.meta as any).env.VITE_SSE_URL}`
           : ((import.meta as any)?.env?.VITE_API_URL || '/api');
-        const url = `${base}/v1/stream/telemetry`;
+        const params = new URLSearchParams();
+        params.append('limit', maxEventsRef.current.toString());
+        const url = `${base}/v1/telemetry/events/recent/stream?${params.toString()}`;
         const es = new EventSource(url);
         sseRef.current = es;
 
-        es.addEventListener('telemetry', (event) => {
+        es.addEventListener('activity', (event) => {
           if (!isMountedRef.current) return;
           
           try {
             const payload = JSON.parse((event as MessageEvent).data);
             const incoming = Array.isArray(payload) ? payload : [payload];
-            const normalized: ActivityEvent[] = incoming.map((ev: any) => ({
-              id: ev.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              timestamp: ev.timestamp ?? new Date().toISOString(),
-              type: ev.type ?? (ev.event_type ? mapEventType(ev.event_type) : 'telemetry'),
-              severity: ev.severity ?? (ev.level ? mapSeverity(ev.level) : 'info'),
-              message: ev.message ?? 'Event',
-              component: ev.component,
-              tenantId: ev.tenantId ?? ev.tenant_id,
-              userId: ev.userId ?? ev.user_id,
-              metadata: ev.metadata,
-            }));
+            const normalized: ActivityEvent[] = incoming.map((raw: any) => {
+              const recentEvent: RecentActivityEvent = {
+                id: raw.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                timestamp: raw.timestamp ?? new Date().toISOString(),
+                event_type: raw.event_type ?? raw.type ?? 'telemetry',
+                level: raw.level ?? raw.severity ?? 'info',
+                message: raw.message ?? 'Event',
+                component: raw.component,
+                tenant_id: raw.tenant_id ?? raw.tenantId,
+                user_id: raw.user_id ?? raw.userId,
+                metadata: raw.metadata ?? null,
+              };
+              return mapRecentEvent(recentEvent);
+            });
             
             if (!isMountedRef.current) return;
             
             setEvents((prev) => {
               const merged = [...normalized, ...prev];
-              merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-              return merged.slice(0, maxEventsRef.current);
+              const deduped: ActivityEvent[] = [];
+              const seen = new Set<string>();
+              for (const item of merged) {
+                if (seen.has(item.id)) continue;
+                seen.add(item.id);
+                deduped.push(item);
+              }
+              deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+              return deduped.slice(0, maxEventsRef.current);
             });
             reconnectAttempts = 0;
             clearFallback();
           } catch (err) {
-            logger.error('Failed to parse activity SSE payload', { component: 'useActivityFeed', operation: 'sse_telemetry_parse' }, err as Error);
+            logger.error('Failed to parse activity SSE payload', { component: 'useActivityFeed', operation: 'sse_activity_parse' }, err as Error);
           }
         });
 
@@ -449,7 +407,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       clearReconnectTimer();
       stopSSE();
     };
-  }, [enabled, useSSE, mapEventType, mapSeverity]); // Removed fetchEvents and other deps
+  }, [enabled, useSSE, mapRecentEvent, fetchEvents]);
 
   return {
     events,

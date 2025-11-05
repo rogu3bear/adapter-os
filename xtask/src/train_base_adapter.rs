@@ -6,7 +6,7 @@
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{
     load_examples_from_manifest, load_examples_with_encoder, AdapterPackager, DatasetManifest,
-    LoRAQuantizer, MicroLoRATrainer, TrainingConfig,
+    LoRAQuantizer, MicroLoRATrainer, TrainingConfig as LoRAWorkerTrainingConfig,
 };
 use anyhow::{bail, Context, Result};
 use clap::Parser;
@@ -15,8 +15,13 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
-use adapteros_single_file_adapter::format::{LineageInfo, TrainingExample};
-use adapteros_single_file_adapter::{SingleFileAdapter, SingleFileAdapterPackager};
+use adapteros_single_file_adapter::format::{
+    AdapterWeights, LineageInfo, WeightGroup, WeightGroupConfig, WeightGroupType, WeightMetadata,
+};
+use adapteros_single_file_adapter::{
+    SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig as SingleFileTrainingConfig,
+    TrainingExample,
+};
 
 #[derive(Debug, Parser, Clone)]
 pub struct TrainBaseAdapterArgs {
@@ -172,13 +177,14 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         max_target
     );
 
-    let config = TrainingConfig {
+    let config = LoRAWorkerTrainingConfig {
         rank: args.rank,
         alpha: args.alpha,
         learning_rate: args.learning_rate,
         batch_size: args.batch_size,
         epochs: args.epochs,
         hidden_dim: args.hidden_dim,
+        weight_group_config: WeightGroupConfig::default(),
     };
 
     let mut trainer =
@@ -261,12 +267,37 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
     );
 
     let packaged = packager
-        .package_with_metadata(&args.adapter_id, &quantized, &config, manifest_metadata)
+        .package_with_metadata(
+            &args.adapter_id,
+            &quantized,
+            &config,
+            "qwen2.5-7b",
+            manifest_metadata,
+        )
         .await
         .context("packaging adapter artifacts")?;
 
     if args.output_format == "aos" {
-        let training_data: Vec<TrainingExample> = examples.clone();
+        let training_data: Vec<TrainingExample> = examples
+            .iter()
+            .map(|ex| TrainingExample {
+                input: ex.input.clone(),
+                target: ex.target.clone(),
+                metadata: ex.metadata.clone(),
+                weight: ex.weight,
+            })
+            .collect();
+
+        let aos_config = SingleFileTrainingConfig {
+            rank: args.rank,
+            alpha: args.alpha,
+            learning_rate: args.learning_rate,
+            batch_size: args.batch_size,
+            epochs: args.epochs,
+            hidden_dim: args.hidden_dim,
+            weight_group_config: WeightGroupConfig::default(),
+        };
+
         let lineage = LineageInfo {
             adapter_id: args.adapter_id.clone(),
             version: "1.0.0".to_string(),
@@ -277,14 +308,46 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
 
-        let weights_bytes = fs::read(&packaged.weights_path)
-            .with_context(|| "reading packaged weights for .aos")?;
+        // Construct AdapterWeights from training result
+        let adapter_weights = AdapterWeights {
+            positive: WeightGroup {
+                lora_a: result.weights.lora_a.clone(),
+                lora_b: result.weights.lora_b.clone(),
+                metadata: WeightMetadata {
+                    example_count: positive_examples,
+                    avg_loss: result.final_loss,
+                    training_time_ms: result.training_time_ms,
+                    group_type: WeightGroupType::Positive,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                },
+            },
+            negative: WeightGroup {
+                lora_a: vec![],
+                lora_b: vec![],
+                metadata: WeightMetadata {
+                    example_count: negative_examples,
+                    avg_loss: 0.0,
+                    training_time_ms: 0,
+                    group_type: WeightGroupType::Negative,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                },
+            },
+            combined: None,
+        };
 
         let adapter = SingleFileAdapter::create(
             args.adapter_id.clone(),
-            weights_bytes,
-            training_data,
-            config.clone(),
+            adapter_weights,
+            training_data
+                .into_iter()
+                .map(|ex| TrainingExample {
+                    input: ex.input,
+                    target: ex.target,
+                    metadata: ex.metadata,
+                    weight: ex.weight,
+                })
+                .collect(),
+            aos_config.clone(),
             lineage,
         )
         .context("creating SingleFileAdapter")?;

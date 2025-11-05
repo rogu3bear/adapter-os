@@ -558,6 +558,13 @@ pub enum Commands {
     },
 
     // ============================================================
+    // AOS File Operations
+    // ============================================================
+    /// AOS adapter file operations (create, verify, info, convert)
+    #[command(subcommand)]
+    Aos(commands::aos::AosCmd),
+
+    // ============================================================
     // General Operations
     // ============================================================
     /// Import an artifact bundle
@@ -657,7 +664,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal, mlx, or coreml
+        /// Backend selection: metal (default), mlx (C++ FFI, requires --features mlx-ffi-backend), or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -701,7 +708,7 @@ pub enum Commands {
   # Audit with JSON output
   aosctl audit-determinism --format json
 
-  # Audit MLX backend (requires --features experimental-backends)
+  # Audit MLX backend (requires --features mlx-ffi-backend)
   aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
 "#)]
     AuditDeterminism {
@@ -1120,6 +1127,23 @@ pub enum Commands {
         args: train::TrainArgs,
     },
 
+    /// Train base adapter from manifest
+    #[command(after_help = r#"Examples:
+  # Train base adapter with default settings
+  aosctl train-base-adapter
+
+  # Train with custom manifest and tokenizer
+  aosctl train-base-adapter --manifest training/datasets/my_manifest.json \
+    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+
+  # Train and output as .aos file
+  aosctl train-base-adapter --output-format aos --adapter-id my_adapter
+"#)]
+    TrainBaseAdapter {
+        #[command(flatten)]
+        args: train_base_adapter::TrainBaseAdapterArgs,
+    },
+
     /// Alias for tenant-init (for convenience)
     #[command(hide = true)]
     Init {
@@ -1297,13 +1321,8 @@ pub async fn run() -> Result<()> {
             .await
             .unwrap_or_else(|_| "-".to_string());
 
-            // If error code exists, suggest using explain with event ID
-            if let Some(code) = error_code {
-                eprintln!(
-                    "\n✗ {} – see: aosctl explain {} (event: {})",
-                    code, code, event_id
-                );
-            }
+            // Display user-friendly error message
+            display_user_friendly_error(&e, error_code.as_deref(), &event_id);
 
             Err(e)
         }
@@ -1361,6 +1380,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
         Commands::Adapter(cmd) => {
             adapter::handle_adapter_command(cmd.clone(), output).await?;
+        }
+        Commands::Aos(cmd) => {
+            commands::aos::run(commands::aos::AosArgs { cmd: cmd.clone() }, output).await?;
         }
         Commands::Adapters(cmd) => {
             commands::adapters::run(
@@ -1488,16 +1510,19 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             );
         }
 
-        // CodeGraph & Call Graph (temporarily disabled due to mplora-codegraph dependency)
-        Commands::CallgraphExport { .. } => {
-            anyhow::bail!(
-                "CallgraphExport is temporarily disabled due to mplora-codegraph dependency"
-            );
+        // CodeGraph & Call Graph
+        Commands::CallgraphExport {
+            codegraph_db,
+            output: output_path,
+            format,
+        } => {
+            let format = format
+                .parse::<export_callgraph::ExportFormat>()
+                .map_err(|e| anyhow::anyhow!("Invalid format '{}': {}", format, e))?;
+            export_callgraph::export_callgraph(&codegraph_db, &output_path, format, output).await?;
         }
-        Commands::CodegraphStats { .. } => {
-            anyhow::bail!(
-                "CodegraphStats is temporarily disabled due to mplora-codegraph dependency"
-            );
+        Commands::CodegraphStats { codegraph_db } => {
+            codegraph_stats::run(codegraph_db.to_path_buf(), output).await?;
         }
         Commands::SecdStatus {
             pid_file,
@@ -1707,6 +1732,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             args.execute().await?;
         }
 
+        Commands::TrainBaseAdapter { args } => {
+            args.execute().await?;
+        }
+
         // Code Intelligence Commands
         Commands::CodeInit { path, tenant } => {
             commands::code::code_init(path, tenant, output).await?;
@@ -1777,12 +1806,14 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
+        Commands::TrainBaseAdapter { .. } => "train-base-adapter",
         Commands::CodeInit { .. } => "code-init",
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",
         Commands::CodeStatus { .. } => "code-status",
         Commands::VerifyAdapter { .. } => "verify-adapter",
         Commands::QuantizeQwen { .. } => "quantize-qwen",
+        Commands::Aos(_) => "aos",
         Commands::Infer { .. } => "infer",
     }
     .to_string()
@@ -1799,6 +1830,48 @@ fn extract_tenant_from_command(command: &Commands) -> Option<String> {
         | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
         Commands::Diag { tenant, .. } => tenant.clone(),
         _ => None,
+    }
+}
+
+/// Display user-friendly error message with CLI-specific formatting
+fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, event_id: &str) {
+    use crate::error_codes::find_by_code;
+
+    // First, try to get user-friendly message from error code registry
+    if let Some(code) = error_code {
+        if let Some(error_info) = find_by_code(code) {
+            eprintln!("{}", error_info);
+            return;
+        }
+    }
+
+    // Fallback: Try to extract user-friendly message from AosError if present
+    let error_msg = format!("{}", error);
+
+    // Try to map common error patterns to user-friendly messages
+    let user_friendly_msg = if error_msg.contains("Connection refused") {
+        "Database connection failed. Please check if the database is running and accessible."
+            .to_string()
+    } else if error_msg.contains("Permission denied") {
+        "Permission denied. Please check file permissions and user access rights.".to_string()
+    } else if error_msg.contains("No such file") {
+        "File not found. Please verify the file path and ensure the file exists.".to_string()
+    } else if error_msg.contains("timeout") {
+        "Operation timed out. This may be due to system load or network issues.".to_string()
+    } else if let Some(code) = error_code {
+        format!(
+            "An error occurred ({}). See: aosctl explain {} (event: {})",
+            code, code, event_id
+        )
+    } else {
+        format!("An unexpected error occurred. Event ID: {}", event_id)
+    };
+
+    eprintln!("❌ {}", user_friendly_msg);
+
+    // Show the original error in verbose mode or for debugging
+    if std::env::var("AOS_DEBUG").is_ok() || std::env::var("RUST_BACKTRACE").is_ok() {
+        eprintln!("Technical details: {}", error_msg);
     }
 }
 

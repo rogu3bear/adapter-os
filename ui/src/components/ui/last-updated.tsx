@@ -8,7 +8,7 @@ interface LastUpdatedProps {
 }
 
 export function LastUpdated({ timestamp, className = '' }: LastUpdatedProps) {
-  const relativeTime = useTimestamp(timestamp);
+  const relativeTime = useTimestamp(timestamp?.toISOString());
   
   if (!timestamp) return null;
   

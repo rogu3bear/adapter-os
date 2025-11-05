@@ -2,7 +2,7 @@
 
 This feature provides a dedicated `adapteros-aos` crate with:
 
-- Memory-mapped `.aos` loading with zero-copy weight access when weights are stored (ZIP Stored)
+- Memory-mapped `.aos` loading with zero-copy weight access (AOS 2.0 layout, or ZIP Stored fallback)
 - Atomic hot-swap to replace adapters in sub-millisecond time
 - A simple LRU cache to avoid repeated I/O
 
@@ -27,6 +27,5 @@ Response includes `swap_time_ms` and `old_adapter` ID (if any).
 
 ## Notes
 
-- Zero-copy is possible when `.aos` weights entries use ZIP Stored. For deflated entries, the loader falls back to on-demand decompression without caching the decompressed buffer.
+- Zero-copy is guaranteed for AOS 2.0 artifacts because weights live in an aligned section. For ZIP v1 files, the loader falls back to `MmapAdapterLoader` and requires weights entries to use ZIP Stored; otherwise it streams and caches on demand.
 - Hot-swap only replaces the in-memory pointer to the adapter mapping; consumers should dereference through the manager each time to benefit from atomicity.
-

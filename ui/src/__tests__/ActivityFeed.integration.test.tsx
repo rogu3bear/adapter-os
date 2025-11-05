@@ -7,10 +7,9 @@ import { ActivityFeedWidget } from '@/components/dashboard/ActivityFeedWidget';
 import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
 
-vi.mock('@/api/client', () => ({
-  __esModule: true,
-  default: {
-    getTelemetryEvents: vi.fn(),
+vi.mock('@/api/client', () => {
+  const mock = {
+    getRecentActivityEvents: vi.fn(),
     listActivityEvents: vi.fn().mockResolvedValue([]),
     subscribeToActivity: vi.fn(() => () => {}),
     getToken: vi.fn(() => null),
@@ -19,8 +18,21 @@ vi.mock('@/api/client', () => ({
     listTenants: vi.fn().mockResolvedValue([]),
     login: vi.fn(),
     logout: vi.fn(),
-  },
-}));
+  };
+  return {
+    __esModule: true,
+    default: mock,
+    apiClient: mock,
+  };
+});
+
+const apiClientMock = apiClient as any;
+const localStorageMock = {
+  getItem: vi.fn().mockReturnValue(null),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+};
 
 function renderWidget() {
   return render(
@@ -40,18 +52,47 @@ const sampleEvents = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiClient.getTelemetryEvents.mockResolvedValue([]);
-  apiClient.listActivityEvents.mockResolvedValue([]);
+  Object.defineProperty(global, 'localStorage', {
+    value: localStorageMock,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(window, 'matchMedia', {
+    value: vi.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+    configurable: true,
+  });
+  if (typeof global.EventSource === 'undefined') {
+    class EventSourceMock {
+      constructor(public url: string) {}
+      addEventListener() {}
+      close() {}
+    }
+    (global as any).EventSource = EventSourceMock;
+  }
+  apiClientMock.getRecentActivityEvents.mockResolvedValue([]);
+  apiClientMock.listActivityEvents.mockResolvedValue([]);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  localStorageMock.getItem.mockReturnValue(null);
+  localStorageMock.setItem.mockClear();
+  localStorageMock.removeItem.mockClear();
+  localStorageMock.clear.mockClear();
 });
 
 describe('ActivityFeedWidget integration', () => {
   it('renders events from API', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue(sampleEvents);
-    apiClient.listActivityEvents.mockResolvedValue(sampleEvents);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue(sampleEvents);
 
     renderWidget();
 
@@ -62,12 +103,11 @@ describe('ActivityFeedWidget integration', () => {
   });
 
   it('SSE subscription updates feed with newest events first', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue([]);
-    apiClient.listActivityEvents.mockResolvedValue([]);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue([]);
     const now = Date.now();
     const EventSourceMock = vi.fn(() => ({
       addEventListener: vi.fn((type: string, listener: any) => {
-        if (type === 'telemetry') {
+        if (type === 'activity') {
           setTimeout(() => listener({
             data: JSON.stringify({ id: 's1', timestamp: new Date(now - 100).toISOString(), event_type: 'node_recovery', level: 'info', message: 'Node recovered' }),
           }), 0);
@@ -94,8 +134,7 @@ describe('ActivityFeedWidget integration', () => {
   });
 
   it('SSE disconnect triggers polling fallback', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue([]);
-    apiClient.listActivityEvents.mockResolvedValue([]);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue([]);
     const intervalSpy = vi.spyOn(global, 'setInterval');
 
     vi.stubGlobal('EventSource', vi.fn(() => ({
@@ -115,8 +154,7 @@ describe('ActivityFeedWidget integration', () => {
   });
 
   it('SSE auth error is logged and handled', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue([]);
-    apiClient.listActivityEvents.mockResolvedValue([]);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue([]);
     const errorSpy = vi.spyOn(logger, 'error');
 
     vi.stubGlobal('EventSource', vi.fn(() => ({
@@ -138,8 +176,7 @@ describe('ActivityFeedWidget integration', () => {
   });
 
   it('filters events by type', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue(sampleEvents);
-    apiClient.listActivityEvents.mockResolvedValue(sampleEvents);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue(sampleEvents);
 
     renderWidget();
     await screen.findByText('Policy updated');
@@ -157,8 +194,7 @@ describe('ActivityFeedWidget integration', () => {
   });
 
   it('filters events by severity', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue(sampleEvents);
-    apiClient.listActivityEvents.mockResolvedValue(sampleEvents);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue(sampleEvents);
 
     renderWidget();
     await screen.findByText('Policy updated');
@@ -176,8 +212,7 @@ describe('ActivityFeedWidget integration', () => {
   });
 
   it('shows empty state', async () => {
-    apiClient.getTelemetryEvents.mockResolvedValue([]);
-    apiClient.listActivityEvents.mockResolvedValue([]);
+    apiClientMock.getRecentActivityEvents.mockResolvedValue([]);
 
     renderWidget();
 
@@ -186,8 +221,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('shows error state and logs error', async () => {
     const errorSpy = vi.spyOn(logger, 'error');
-    apiClient.getTelemetryEvents.mockRejectedValue(new Error('Network error'));
-    apiClient.listActivityEvents.mockResolvedValue([]);
+    apiClientMock.getRecentActivityEvents.mockRejectedValue(new Error('Network error'));
 
     renderWidget();
 

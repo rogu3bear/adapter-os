@@ -67,9 +67,37 @@ export function Plans({ user, selectedTenant }: PlansProps) {
           confirmText: 'Delete',
           variant: 'destructive',
         });
-        setPendingBulkAction(() => async () => {
-          // TODO: Implement deletePlan API endpoint
-          showStatus('Plan deletion not yet implemented', 'warning');
+        setPendingBulkAction(() => {
+          const performDeletion = async () => {
+            try {
+              await Promise.all(selectedItems.map((planId) => apiClient.deletePlan(planId)));
+              showStatus(
+                selectedItems.length === 1
+                  ? 'Plan deleted successfully.'
+                  : `${selectedItems.length} plans deleted successfully.`,
+                'success'
+              );
+              setErrorRecovery(null);
+              setSelectedPlans([]);
+              await fetchPlans();
+            } catch (err) {
+              const error = err instanceof Error ? err : new Error('Failed to delete plans');
+              logger.error('Failed to delete plans', {
+                component: 'Plans',
+                operation: 'deletePlans',
+                planIds: selectedItems,
+                tenantId: selectedTenant,
+              }, error);
+              showStatus('Failed to delete selected plans.', 'warning');
+              setErrorRecovery(
+                ErrorRecoveryTemplates.genericError(
+                  error,
+                  () => performDeletion()
+                )
+              );
+            }
+          };
+          return performDeletion;
         });
         setConfirmationOpen(true);
       },

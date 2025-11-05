@@ -75,7 +75,7 @@ export function ComplianceScoreWidget() {
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Policy Packs</span>
             {violations > 0 && (
-              <span className="text-red-600 font-medium">{violations} violations</span>
+              <span className="text-gray-700 font-medium">{violations} violations</span>
             )}
           </div>
           <div className="space-y-1">
@@ -83,9 +83,9 @@ export function ComplianceScoreWidget() {
               <div key={pack.name} className="flex items-center justify-between text-sm p-2 rounded hover:bg-muted">
                 <div className="flex items-center gap-2">
                   {pack.compliant ? (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <CheckCircle className="h-4 w-4 text-gray-600" />
                   ) : (
-                    <XCircle className="h-4 w-4 text-red-600" />
+                    <XCircle className="h-4 w-4 text-gray-700" />
                   )}
                   <span>{pack.name}</span>
                 </div>

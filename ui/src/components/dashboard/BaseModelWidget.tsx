@@ -11,16 +11,87 @@ import { useTenant, useAuth } from '@/layout/LayoutProvider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
 
+// Utility functions for request deduplication
+const OPERATION_STORAGE_KEY = 'adapteros_model_operations';
+const OPERATION_TIMEOUT_MS = 300000; // 5 minutes timeout for stale operations
+
+interface OngoingOperation {
+  operation: 'load' | 'unload';
+  timestamp: number;
+  tenantId: string;
+}
+
+function getOngoingOperations(): Record<string, OngoingOperation> {
+  try {
+    const stored = localStorage.getItem(OPERATION_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setOngoingOperation(modelId: string, operation: 'load' | 'unload', tenantId: string) {
+  const operations = getOngoingOperations();
+  operations[modelId] = {
+    operation,
+    timestamp: Date.now(),
+    tenantId,
+  };
+  localStorage.setItem(OPERATION_STORAGE_KEY, JSON.stringify(operations));
+}
+
+function clearOngoingOperation(modelId: string) {
+  const operations = getOngoingOperations();
+  delete operations[modelId];
+  localStorage.setItem(OPERATION_STORAGE_KEY, JSON.stringify(operations));
+}
+
+function isOperationInProgress(modelId: string, tenantId: string): OngoingOperation | null {
+  const operations = getOngoingOperations();
+  const op = operations[modelId];
+
+  if (!op) return null;
+
+  // Check if operation is for the same tenant
+  if (op.tenantId !== tenantId) return null;
+
+  // Check if operation is stale (older than timeout)
+  if (Date.now() - op.timestamp > OPERATION_TIMEOUT_MS) {
+    clearOngoingOperation(modelId);
+    return null;
+  }
+
+  return op;
+}
+
+// Cleanup stale operations on component mount
+function cleanupStaleOperations() {
+  const operations = getOngoingOperations();
+  const now = Date.now();
+  let hasChanges = false;
+
+  Object.keys(operations).forEach(modelId => {
+    if (now - operations[modelId].timestamp > OPERATION_TIMEOUT_MS) {
+      delete operations[modelId];
+      hasChanges = true;
+    }
+  });
+
+  if (hasChanges) {
+    localStorage.setItem(OPERATION_STORAGE_KEY, JSON.stringify(operations));
+  }
+}
+
 function getStatusIcon(status: ModelStatusResponse | null) {
   if (!status) return <XCircle className="h-5 w-5 text-gray-400" />;
   switch (status.status) {
     case 'loaded':
-      return <CheckCircle className="h-5 w-5 text-green-500" />;
+      return <CheckCircle className="h-5 w-5 text-gray-600" />;
     case 'loading':
     case 'unloading':
-      return <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />;
+      return <RefreshCw className="h-5 w-5 text-gray-400 animate-spin" />;
     default:
-      return <XCircle className="h-5 w-5 text-red-400" />;
+      return <XCircle className="h-5 w-5 text-gray-700" />;
   }
 }
 
@@ -34,7 +105,12 @@ export function BaseModelWidget() {
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  const isAdmin = user?.role === 'Admin';
+  const isAdmin = user?.role === 'admin';
+
+  // Cleanup stale operations on mount
+  useEffect(() => {
+    cleanupStaleOperations();
+  }, []);
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
@@ -71,7 +147,22 @@ export function BaseModelWidget() {
       showStatus('No model ID available to load.', 'warning');
       return;
     }
+
+    if (!selectedTenant) {
+      showStatus('No tenant selected.', 'warning');
+      return;
+    }
+
+    // Check for ongoing operations
+    const ongoingOp = isOperationInProgress(status.model_id, selectedTenant);
+    if (ongoingOp) {
+      showStatus(`Model is already ${ongoingOp.operation === 'load' ? 'loading' : 'unloading'} in another tab.`, 'warning');
+      return;
+    }
+
     setIsActionLoading(true);
+    setOngoingOperation(status.model_id, 'load', selectedTenant);
+
     try {
       await apiClient.loadBaseModel(status.model_id);
       fetchStatus();
@@ -86,6 +177,7 @@ export function BaseModelWidget() {
       );
     } finally {
       setIsActionLoading(false);
+      clearOngoingOperation(status.model_id);
     }
   };
 
@@ -94,7 +186,22 @@ export function BaseModelWidget() {
       showStatus('No model ID available to unload.', 'warning');
       return;
     }
+
+    if (!selectedTenant) {
+      showStatus('No tenant selected.', 'warning');
+      return;
+    }
+
+    // Check for ongoing operations
+    const ongoingOp = isOperationInProgress(status.model_id, selectedTenant);
+    if (ongoingOp) {
+      showStatus(`Model is already ${ongoingOp.operation === 'load' ? 'loading' : 'unloading'} in another tab.`, 'warning');
+      return;
+    }
+
     setIsActionLoading(true);
+    setOngoingOperation(status.model_id, 'unload', selectedTenant);
+
     try {
       await apiClient.unloadBaseModel(status.model_id);
       fetchStatus();
@@ -109,6 +216,7 @@ export function BaseModelWidget() {
       );
     } finally {
       setIsActionLoading(false);
+      clearOngoingOperation(status.model_id);
     }
   };
 

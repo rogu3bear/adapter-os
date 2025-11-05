@@ -11,7 +11,7 @@ export interface RoleGuidanceItem {
 
 export const roleGuidanceDatabase: RoleGuidanceItem[] = [
   {
-    role: 'Admin',
+    role: 'admin',
     title: 'Administrator',
     description: 'Full system access with complete control over all aspects of the AdapterOS Control Plane.',
     capabilities: [
@@ -31,7 +31,7 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
-    role: 'Operator',
+    role: 'operator',
     title: 'Operator',
     description: 'Operational control over runtime systems, adapters, and day-to-day management.',
     capabilities: [
@@ -54,7 +54,7 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
-    role: 'Compliance',
+    role: 'compliance',
     title: 'Compliance Officer',
     description: 'Oversight role focused on policy compliance, audit trails, and regulatory requirements.',
     capabilities: [
@@ -77,7 +77,7 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
-    role: 'Viewer',
+    role: 'viewer',
     title: 'Viewer',
     description: 'Read-only access for monitoring and reporting purposes.',
     capabilities: [
@@ -101,7 +101,7 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
-    role: 'SRE',
+    role: 'sre',
     title: 'Site Reliability Engineer',
     description: 'Technical role focused on system reliability, performance, and incident response.',
     capabilities: [
@@ -124,7 +124,7 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
-    role: 'Auditor',
+    role: 'auditor',
     title: 'Auditor',
     description: 'Audit-focused role for compliance verification and security review.',
     capabilities: [

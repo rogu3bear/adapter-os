@@ -9,6 +9,7 @@ use crate::{DiskMetrics, GpuMetrics, NetworkMetrics, SystemMetrics};
 use std::time::SystemTime;
 use sysinfo::System;
 
+#[derive(Debug)]
 /// System metrics collector
 pub struct SystemMetricsCollector {
     sys: System,
@@ -202,6 +203,11 @@ impl SystemMetricsCollector {
         let load = sysinfo::System::load_average();
         (load.one, load.five, load.fifteen)
     }
+
+    /// Get used memory in kibibytes
+    pub fn used_memory(&self) -> u64 {
+        self.sys.used_memory()
+    }
 }
 
 impl Default for SystemMetricsCollector {
@@ -209,6 +215,9 @@ impl Default for SystemMetricsCollector {
         Self::new()
     }
 }
+
+// TelemetrySystemMetricsProvider has been moved to adapteros-telemetry/src/metrics/system_provider.rs
+// to avoid circular dependencies. It's re-exported from adapteros-telemetry when the system-metrics feature is enabled.
 
 #[cfg(test)]
 mod tests {

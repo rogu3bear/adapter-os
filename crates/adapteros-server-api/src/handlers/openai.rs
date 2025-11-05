@@ -6,6 +6,7 @@ use adapteros_api_types::openai::{
     ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ChatUsage, ModelInfo,
     ModelsListResponse,
 };
+use adapteros_lora_router::features::CodeFeatures;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
 use uuid::Uuid;
@@ -50,6 +51,22 @@ pub async fn chat_completions(
         .collect::<Vec<_>>()
         .join("\n\n");
 
+    // Extract features from prompt for router decision
+    let code_features = CodeFeatures::from_context(&prompt);
+    let feature_vec = code_features.to_vector();
+
+    // Get router scoring for debugging/telemetry
+    let scoring_explanation = state.router.explain_score(&feature_vec);
+
+    // Log router analysis for this inference request
+    tracing::info!(
+        tenant_id = %claims.tenant_id,
+        prompt_len = prompt.len(),
+        language_score = scoring_explanation.language_score,
+        framework_score = scoring_explanation.framework_score,
+        "Router analyzed prompt for inference request"
+    );
+
     let infer_req = InferRequest {
         prompt,
         max_tokens: req.max_tokens,
@@ -83,11 +100,31 @@ pub async fn chat_completions(
     let uds_path = uds_path_buf.as_path();
     let uds_client = UdsClient::new(std::time::Duration::from_secs(30));
 
+    // Create adapter hints based on router scoring
+    let adapter_hints = if scoring_explanation.language_score > 0.1 {
+        Some(vec!["rust-code-v1".to_string()])
+    } else if scoring_explanation.framework_score > 0.1 {
+        Some(vec!["framework-specific-v1".to_string()])
+    } else {
+        Some(vec!["general-coding-v1".to_string()])
+    };
+
+    let router_features = Some(crate::types::RouterFeatureScores {
+        language_score: scoring_explanation.language_score,
+        framework_score: scoring_explanation.framework_score,
+        symbol_hits_score: scoring_explanation.symbol_hits_score,
+        path_tokens_score: scoring_explanation.path_tokens_score,
+        prompt_verb_score: scoring_explanation.prompt_verb_score,
+        total_score: scoring_explanation.total_score,
+    });
+
     let worker_request = WorkerInferRequest {
         cpid: claims.tenant_id.clone(),
         prompt: infer_req.prompt.clone(),
         max_tokens: infer_req.max_tokens.unwrap_or(100),
         require_evidence: true,
+        adapter_hints: None, // No pre-routing for OpenAI-compatible endpoint
+        router_features: None,
     };
 
     // Record inference latency
@@ -158,7 +195,7 @@ pub async fn chat_completions(
 }
 
 /// OpenAI-compatible models list endpoint
-/// 
+///
 /// Returns models from database if available, otherwise returns default hardcoded list.
 #[utoipa::path(
     get,
@@ -193,16 +230,18 @@ pub async fn list_models(
                 let model_id = row.model_id;
                 let model_name = row.model_name;
                 // Format as OpenAI-compatible model ID
-                let openai_id = format!("adapteros-{}", model_name.to_lowercase().replace(' ', "-"));
-                
-                let created_timestamp = row.loaded_at
+                let openai_id =
+                    format!("adapteros-{}", model_name.to_lowercase().replace(' ', "-"));
+
+                let created_timestamp = row
+                    .loaded_at
                     .and_then(|dt_str| {
                         chrono::DateTime::parse_from_rfc3339(&dt_str)
                             .ok()
                             .map(|dt| dt.timestamp() as u64)
                     })
                     .unwrap_or(1_704_067_200);
-                
+
                 model_list.push(ModelInfo {
                     id: openai_id,
                     object: "model".to_string(),

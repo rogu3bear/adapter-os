@@ -1,0 +1,17 @@
+{
+  "tenant_extraction": {
+    "SplitOnDash": null
+  },
+  "defaults": {
+    "alpha": 1.0,
+    "targets_json": "[\"unknown\"]",
+    "languages_json": "[\"en\"]",
+    "framework": "unknown",
+    "active": true
+  },
+  "validation": {
+    "validate_tenant_refs": true,
+    "validate_hash_formats": true,
+    "validate_acl_transforms": true
+  }
+}

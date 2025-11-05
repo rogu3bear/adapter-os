@@ -1,8 +1,8 @@
 # AdapterOS Control Plane Configuration
 
 [server]
-# Use 8080 for development (UI expects this)
-port = 8080
+# Use 3300 for panel access
+port = 3300
 bind = "127.0.0.1"
 # Adapter loading options
 enable_mmap_adapters = true
@@ -20,6 +20,10 @@ mtls_required = false
 jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
 # 32-byte hex string for deterministic executor seeding
 global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# File size limits for security (OOM prevention)
+max_config_size_bytes = 1048576      # 1MB for config.json
+max_tokenizer_size_bytes = 10485760  # 10MB for tokenizer.json
+max_model_size_bytes = 10737418240   # 10GB for model weights
 
 [paths]
 artifacts_root = "var/artifacts"
@@ -59,8 +63,8 @@ max_lock_depth = 10
 recovery_timeout_secs = 10
 
 [rate_limits]
-requests_per_minute = 100
-burst_size = 20
+requests_per_minute = 1000
+burst_size = 100
 inference_per_minute = 50
 
 [metrics]
@@ -68,6 +72,8 @@ enabled = true
 bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
 include_histogram = true
 histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+server_enabled = true
+server_port = 9090
 
 # System metrics collection (recommended: enabled for observability)
 [metrics.system]
@@ -176,3 +182,15 @@ max_age = 3600
 [rbac]
 enabled = true
 default_role = "admin"
+
+# MLX Backend Configuration
+# MLX backend uses C++ FFI (no Python required)
+# Enable with: cargo build --features mlx-ffi-backend
+[mlx]
+# Enable MLX backend support (requires --features mlx-ffi-backend)
+enabled = false
+# Default model path (can be overridden by AOS_MLX_FFI_MODEL env var)
+model_path = "./models/qwen2.5-7b-mlx"
+# Default backend selection when both Metal and MLX are available
+# Options: "metal" (default, production) or "mlx" (development/experimentation)
+default_backend = "metal"

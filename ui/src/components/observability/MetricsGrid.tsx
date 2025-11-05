@@ -45,7 +45,7 @@ export function MetricsGrid() {
 
   const { data, isLoading: loading, error } = usePolling(
     fetchMetrics,
-    'fast',
+    'normal', // Reduced from fast to reduce rate limiting
     {
       showLoadingIndicator: false,
       onError: (err) => {

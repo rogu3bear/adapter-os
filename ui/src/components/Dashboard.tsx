@@ -24,6 +24,7 @@ import { ActiveAlertsWidget } from './dashboard/ActiveAlertsWidget';
 import { MultiModelStatusWidget } from './dashboard/MultiModelStatusWidget';
 import { BaseModelWidget } from './dashboard/BaseModelWidget';
 import { ReportingSummaryWidget } from './dashboard/ReportingSummaryWidget';
+import { ServiceStatusWidget } from './dashboard/ServiceStatusWidget';
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { useNavigate } from 'react-router-dom';
 import type { UserRole, User, SystemMetrics } from '@/api/types';
@@ -61,6 +62,7 @@ function SystemHealthWidget() {
     () => apiClient.getSystemMetrics(),
     'normal',
     {
+      operationName: 'SystemHealthWidget.getSystemMetrics',
       showLoadingIndicator: false,
       onSuccess: (data) => {
         const metrics = data as MetricsSnapshotResponse;
@@ -123,14 +125,15 @@ function SystemHealthWidget() {
 
 // Role-specific dashboard configurations
 const dashboardLayouts: Record<UserRole, DashboardLayout> = {
-  Admin: {
+  admin: {
     widgets: [
-      { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 1 },
-      { id: 'system-health', component: SystemHealthWidget, priority: 2 },
-      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 },
-      { id: 'compliance-score', component: ComplianceScoreWidget, priority: 4 },
-      { id: 'reporting-summary', component: ReportingSummaryWidget, priority: 5 },
-      { id: 'base-model', component: BaseModelWidget, priority: 6 },
+      { id: 'service-status', component: ServiceStatusWidget, priority: 1 },
+      { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 2 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 3 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 4 },
+      { id: 'compliance-score', component: ComplianceScoreWidget, priority: 5 },
+      { id: 'reporting-summary', component: ReportingSummaryWidget, priority: 6 },
+      { id: 'base-model', component: BaseModelWidget, priority: 7 },
     ],
     quickActions: [
       { label: 'System Health', icon: Activity, route: '/monitoring' },
@@ -140,13 +143,14 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Reports', icon: FileText, route: '/reports' }
     ]
   },
-  Operator: {
+  operator: {
     widgets: [
-      { id: 'ml-pipeline', component: MLPipelineWidget, priority: 1 },
-      { id: 'adapter-status', component: AdapterStatusWidget, priority: 2 },
-      { id: 'next-steps', component: NextStepsWidget, priority: 3 },
-      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 4 },
-      { id: 'base-model', component: BaseModelWidget, priority: 5 },
+      { id: 'service-status', component: ServiceStatusWidget, priority: 1 },
+      { id: 'ml-pipeline', component: MLPipelineWidget, priority: 2 },
+      { id: 'adapter-status', component: AdapterStatusWidget, priority: 3 },
+      { id: 'next-steps', component: NextStepsWidget, priority: 4 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 5 },
+      { id: 'base-model', component: BaseModelWidget, priority: 6 },
     ],
     quickActions: [
       { label: 'Start Training', icon: Zap, route: '/training', variant: 'default' },
@@ -155,12 +159,13 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'View Routing', icon: TrendingUp, route: '/routing' },
     ]
   },
-  SRE: {
+  sre: {
     widgets: [
-      { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 1 },
-      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 2 },
-      { id: 'system-health', component: SystemHealthWidget, priority: 3 },
-      { id: 'adapter-status', component: AdapterStatusWidget, priority: 4 }
+      { id: 'service-status', component: ServiceStatusWidget, priority: 1 },
+      { id: 'multi-model-status', component: MultiModelStatusWidget, priority: 2 },
+      { id: 'active-alerts', component: ActiveAlertsWidget, priority: 3 },
+      { id: 'system-health', component: SystemHealthWidget, priority: 4 },
+      { id: 'adapter-status', component: AdapterStatusWidget, priority: 5 }
     ],
     quickActions: [
       { label: 'View Alerts', icon: Bell, route: '/monitoring', variant: 'default' },
@@ -169,7 +174,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Adapter Health', icon: Activity, route: '/adapters' }
     ]
   },
-  Compliance: {
+  compliance: {
     widgets: [
       { id: 'compliance-score', component: ComplianceScoreWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
@@ -183,7 +188,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Compliance Report', icon: CheckCircle, route: '/policies' }
     ]
   },
-  Auditor: {
+  auditor: {
     widgets: [
       { id: 'compliance-score', component: ComplianceScoreWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
@@ -196,7 +201,7 @@ const dashboardLayouts: Record<UserRole, DashboardLayout> = {
       { label: 'Policy Review', icon: Shield, route: '/policies' }
     ]
   },
-  Viewer: {
+  viewer: {
     widgets: [
       { id: 'reporting-summary', component: ReportingSummaryWidget, priority: 1 },
       { id: 'system-health', component: SystemHealthWidget, priority: 2 },
@@ -222,7 +227,19 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
     return null;
   }
 
-  const layout = dashboardLayouts[effectiveUser.role];
+  // Get layout for the user's role (validation happens in auth provider)
+  let layout = dashboardLayouts[effectiveUser.role];
+
+  // Safety check - this should never happen with proper role validation
+  if (!layout) {
+    logger.error('Critical: Valid user role has no dashboard layout', {
+      component: 'Dashboard',
+      userRole: effectiveUser.role,
+      availableLayouts: Object.keys(dashboardLayouts)
+    });
+    // Emergency fallback to prevent crash
+    layout = dashboardLayouts.viewer;
+  }
 
   // Global shortcuts for search/help (announced via live region)
   const announce = useAnnounce();

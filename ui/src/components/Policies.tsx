@@ -148,7 +148,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to export policy');
       setPoliciesError(error);
-      // Replace: console.error(err);
       logger.error('Failed to export policy', {
         component: 'Policies',
         operation: 'exportPolicy',

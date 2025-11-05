@@ -71,24 +71,42 @@ impl std::fmt::Debug for MmapAdapter {
 /// Memory-mapped adapter loader
 ///
 /// Loads .aos files using memory mapping for efficient zero-copy access.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MmapAdapterLoader {
     /// Whether to verify signatures during load
     verify_signatures: bool,
+    /// Maximum file size in bytes (default: 500MB)
+    max_file_size_bytes: u64,
+}
+
+impl Default for MmapAdapterLoader {
+    fn default() -> Self {
+        Self {
+            verify_signatures: true,
+            max_file_size_bytes: 500 * 1024 * 1024, // 500MB default
+        }
+    }
 }
 
 impl MmapAdapterLoader {
     /// Create a new loader with default settings
     pub fn new() -> Self {
-        Self {
-            verify_signatures: true,
-        }
+        Self::default()
     }
 
     /// Create a loader with signature verification disabled
     pub fn without_verification() -> Self {
         Self {
             verify_signatures: false,
+            max_file_size_bytes: 500 * 1024 * 1024, // 500MB default
+        }
+    }
+
+    /// Create a loader with custom maximum file size
+    pub fn with_max_file_size(max_bytes: u64) -> Self {
+        Self {
+            verify_signatures: true,
+            max_file_size_bytes: max_bytes,
         }
     }
 
@@ -108,6 +126,14 @@ impl MmapAdapterLoader {
             .map_err(|e| AosError::Io(format!("Failed to read file metadata: {}", e)))?;
 
         let size_bytes = metadata.len();
+
+        // Check file size to prevent OOM attacks
+        if size_bytes > self.max_file_size_bytes {
+            return Err(AosError::PolicyViolation(format!(
+                "Adapter file size {} bytes exceeds maximum {} bytes",
+                size_bytes, self.max_file_size_bytes
+            )));
+        }
 
         // Create memory map
         let mmap = unsafe {

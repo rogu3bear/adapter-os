@@ -23,6 +23,7 @@ adapteros-config = { path = "../adapteros-config" }
 adapteros-server-api = { path = "../adapteros-server-api", features = ["cdp", "federation"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-system-metrics = { path = "../adapteros-system-metrics" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-git = { path = "../adapteros-git" }
@@ -56,6 +57,10 @@ uuid = { version = "1.6", features = ["v7"] }
 chrono = "0.4"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 hex = "0.4"
+reqwest = { version = "0.11", features = ["json"] }
+
+[dev-dependencies]
+tempfile = "3.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

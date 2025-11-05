@@ -45,12 +45,12 @@ impl TypeScriptParser {
         let typescript_lang = tree_sitter_typescript::language_typescript();
 
         parser
-            .set_language(typescript_lang)
+            .set_language(&typescript_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set TypeScript language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (function_declaration
                 name: (identifier) @name
@@ -62,7 +62,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let arrow_function_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (arrow_function
                 parameters: (formal_parameters) @params
@@ -73,7 +73,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create arrow function query: {}", e)))?;
 
         let class_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (class_declaration
                 name: (type_identifier) @name
@@ -85,7 +85,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let interface_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (interface_declaration
                 name: (type_identifier) @name
@@ -96,7 +96,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create interface query: {}", e)))?;
 
         let type_alias_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (type_alias_declaration
                 name: (type_identifier) @name
@@ -108,7 +108,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create type alias query: {}", e)))?;
 
         let enum_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (enum_declaration
                 name: (identifier) @name
@@ -118,7 +118,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create enum query: {}", e)))?;
 
         let import_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (import_statement
                 source: (string) @source
@@ -132,7 +132,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let export_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (export_statement
                 (export_clause)? @export_clause
@@ -142,7 +142,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create export query: {}", e)))?;
 
         let variable_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (variable_declaration
                 (variable_declarator
@@ -156,7 +156,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create variable query: {}", e)))?;
 
         let method_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (class_declaration
                 name: (type_identifier) @class_name

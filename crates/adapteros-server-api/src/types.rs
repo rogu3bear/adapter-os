@@ -1,5 +1,3 @@
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -34,15 +32,9 @@ pub struct ReplayDivergence {
     pub context: String,
 }
 
-/// API error response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ErrorResponse {
-    pub error: String,
-    #[serde(default = "default_error_code")]
-    pub code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
+// Re-export the unified ErrorResponse from api-types
+pub use crate::errors::ErrorResponseExt;
+pub use adapteros_api_types::ErrorResponse;
 
 /// Single request item within a batch inference call
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -81,48 +73,18 @@ pub struct BatchInferResponse {
     pub responses: Vec<BatchInferItemResponse>,
 }
 
-fn default_error_code() -> String {
-    "INTERNAL_ERROR".to_string()
-}
-
-impl ErrorResponse {
-    pub fn new(error: impl Into<String>) -> Self {
-        Self {
-            error: error.into(),
-            code: "INTERNAL_ERROR".to_string(),
-            details: None,
-        }
-    }
-
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = code.into();
-        self
-    }
-
-    pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.details = Some(details);
-        self
-    }
-
-    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
-        self.details = Some(serde_json::Value::String(details.into()));
-        self
-    }
-}
-
-impl IntoResponse for ErrorResponse {
-    fn into_response(self) -> Response {
-        let status = match self.code.as_str() {
-            "NOT_FOUND" => StatusCode::NOT_FOUND,
-            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
-            "FORBIDDEN" => StatusCode::FORBIDDEN,
-            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
-            "CONFLICT" => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        (status, axum::Json(self)).into_response()
-    }
+/// Operation progress event for SSE streaming
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OperationProgressEvent {
+    pub operation_id: String, // Format: "{adapter_id}:{tenant_id}"
+    pub adapter_id: String,
+    pub tenant_id: String,
+    pub operation_type: String, // "load" | "unload"
+    pub progress_pct: f64,      // 0.0 to 100.0
+    pub status: String,         // "running" | "completed" | "failed"
+    pub message: Option<String>,
+    pub started_at: String, // ISO 8601 timestamp
+    pub elapsed_secs: f64,
 }
 
 // ============================================================================
@@ -258,6 +220,23 @@ pub struct ImportModelRequest {
     pub tokenizer_cfg_hash_b3: String,
     pub license_hash_b3: Option<String>,
     pub metadata_json: Option<String>,
+}
+
+/// Load model request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct LoadModelRequest {
+    // Empty for now - can be extended with loading options
+}
+
+/// Model response after loading
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelResponse {
+    pub id: String,
+    pub name: String,
+    pub model_type: String,
+    pub status: String,
+    pub loaded_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub memory_usage: Option<i64>,
 }
 
 /// Base model status response
@@ -1313,6 +1292,12 @@ pub struct PurgeBundlesResponse {
 
 // ===== Repository Types (Phase 9) =====
 
+/// Repository response used by /v1/repositories
+pub type RepositoryResponse = adapteros_api_types::repositories::RepositorySummary;
+
+/// Back-compat alias
+pub type RepositorySummary = adapteros_api_types::repositories::RepositorySummary;
+
 /// Repository report response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RepositoryReportResponse {
@@ -1978,6 +1963,17 @@ pub struct GitStatusResponse {
     pub untracked_files: Vec<String>,
 }
 
+/// Repository scan status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ScanStatusResponse {
+    pub repo_id: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 /// Log file information response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LogFileInfo {
@@ -2059,8 +2055,19 @@ pub struct EvictAdapterResponse {
     pub message: String,
 }
 
-/// Category policy response matching UI types
+/// Request to update category policy
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryPolicyRequest {
+    pub promotion_threshold_ms: u64,
+    pub demotion_threshold_ms: u64,
+    pub memory_limit: usize,
+    pub eviction_priority: String, // "never" | "low" | "normal" | "high" | "critical"
+    pub auto_promote: bool,
+    pub auto_demote: bool,
+    pub max_in_memory: Option<usize>,
+    pub routing_priority: f32,
+}
+
 pub struct CategoryPolicyResponse {
     pub promotion_threshold_ms: u64,
     pub demotion_threshold_ms: u64,
@@ -2089,4 +2096,84 @@ pub struct ModelDiagnosticsResponse {
     pub database_model_ids: Vec<String>,
     /// Summary message
     pub summary: String,
+}
+
+/// Model runtime health response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelRuntimeHealthResponse {
+    /// Aggregate health status ("healthy" | "unhealthy")
+    pub status: String,
+    /// Total number of models registered in the database
+    pub total_models: i32,
+    /// Number of models currently loaded in the runtime
+    pub loaded_count: i32,
+    /// Detected inconsistencies between database and runtime state
+    pub inconsistencies: Vec<ModelInconsistency>,
+    /// Timestamp of when the health check was performed
+    pub checked_at: String,
+}
+
+/// Inconsistency detected between database and runtime model states
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelInconsistency {
+    /// Identifier of the affected model
+    pub model_id: String,
+    /// Tenant that owns the model
+    pub tenant_id: String,
+    /// Description of the inconsistency
+    pub issue: String,
+    /// Runtime status observed ("loaded" | "not_loaded")
+    pub runtime_status: String,
+}
+
+/// Status of a managed service
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ServiceStatus {
+    /// Service identifier
+    pub id: String,
+    /// Human-readable service name
+    pub name: String,
+    /// Current state: "stopped" | "starting" | "running" | "stopping" | "failed" | "restarting"
+    pub state: String,
+    /// Process ID if running
+    pub pid: Option<u32>,
+    /// Port number if applicable
+    pub port: Option<u16>,
+    /// Health status: "unknown" | "healthy" | "unhealthy" | "checking"
+    pub health_status: String,
+    /// Number of restart attempts
+    pub restart_count: u32,
+    /// Last error message if any
+    pub last_error: Option<String>,
+}
+
+/// Status reported to menu bar app
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AdapterOSStatus {
+    /// Schema version for forward/backward compatibility
+    pub schema_version: String,
+    /// System status: "ok" | "degraded" | "error"
+    pub status: String,
+    /// Uptime in seconds since control plane started
+    pub uptime_secs: u64,
+    /// Number of adapters currently loaded
+    pub adapters_loaded: usize,
+    /// Whether deterministic mode is enabled
+    pub deterministic: bool,
+    /// Short kernel hash (first 8 chars)
+    pub kernel_hash: String,
+    /// Telemetry mode: "local" | "disabled"
+    pub telemetry_mode: String,
+    /// Number of active workers
+    pub worker_count: usize,
+    /// Whether base model is loaded
+    pub base_model_loaded: bool,
+    /// Base model identifier (optional)
+    pub base_model_id: Option<String>,
+    /// Services managed by supervisor
+    pub services: Vec<ServiceStatus>,
+    /// Whether system is in production mode
+    pub production_mode: bool,
+    /// Tenant ID for multi-tenant status
+    pub tenant_id: Option<String>,
 }

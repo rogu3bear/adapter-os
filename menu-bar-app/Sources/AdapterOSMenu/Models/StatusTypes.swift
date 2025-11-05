@@ -1,5 +1,17 @@
 import Foundation
 
+/// Status of a managed service
+struct ServiceStatus: Codable {
+    let id: String                    // Service identifier
+    let name: String                  // Human-readable service name
+    let state: String                 // "stopped" | "starting" | "running" | "stopping" | "failed" | "restarting"
+    let pid: UInt32?                  // Process ID if running
+    let port: UInt16?                 // Port number if applicable
+    let health_status: String         // "unknown" | "healthy" | "unhealthy" | "checking"
+    let restart_count: UInt32         // Number of restart attempts
+    let last_error: String?           // Last error message if any
+}
+
 /// AdapterOS status model decoded from /var/run/adapteros_status.json
 /// Unknown keys are ignored by default Decodable behavior.
 /// Optional fields allow for backward compatibility with older JSON formats.
@@ -17,6 +29,7 @@ struct AdapterOSStatus: Codable {
     let base_model_name: String?
     let base_model_status: String?
     let base_model_memory_mb: Int?
+    let services: [ServiceStatus]? // Service status information (optional for backward compatibility)
 
     /// Human-readable uptime string like "3h 12m"
     var uptimeFormatted: String {
@@ -30,6 +43,21 @@ struct AdapterOSStatus: Codable {
     /// Short kernel hash (first 8 chars) for display
     var kernelHashShort: String {
         return String(kernel_hash.prefix(8))
+    }
+
+    /// Services with failures
+    var failedServices: [ServiceStatus] {
+        return services?.filter { $0.state == "failed" } ?? []
+    }
+
+    /// Services that are not running (stopped or failed)
+    var nonRunningServices: [ServiceStatus] {
+        return services?.filter { $0.state == "stopped" || $0.state == "failed" } ?? []
+    }
+
+    /// Whether any services have failed
+    var hasServiceFailures: Bool {
+        return !failedServices.isEmpty
     }
 }
 

@@ -6,6 +6,7 @@ use crate::types::ErrorResponse;
 use axum::{http::StatusCode, Json};
 use regex::Regex;
 use std::path::Path;
+use uuid::Uuid;
 
 /// Result type for validation
 pub type ValidationResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
@@ -163,7 +164,21 @@ pub fn validate_commit_sha(sha: &str) -> ValidationResult<()> {
 }
 
 /// Validate tenant ID format
+///
+/// Ensures tenant_id is not empty and follows expected format.
+/// This is critical for tenant isolation security.
 pub fn validate_tenant_id(tenant_id: &str) -> ValidationResult<()> {
+    if tenant_id.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Tenant ID cannot be empty")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("Tenant ID is required for tenant isolation".to_string()),
+            ),
+        ));
+    }
+
     let tenant_regex = Regex::new(r"^[a-z0-9_-]+$").expect("Invalid regex");
 
     if !tenant_regex.is_match(tenant_id) {
@@ -185,7 +200,7 @@ pub fn validate_tenant_id(tenant_id: &str) -> ValidationResult<()> {
             StatusCode::BAD_REQUEST,
             Json(
                 ErrorResponse::new("Tenant ID too long")
-                    .with_code("INTERNAL_ERROR")
+                    .with_code("BAD_REQUEST")
                     .with_string_details("Maximum length is 50 characters"),
             ),
         ));
@@ -196,27 +211,18 @@ pub fn validate_tenant_id(tenant_id: &str) -> ValidationResult<()> {
 
 /// Validate file paths for security (prevent directory traversal)
 pub fn validate_file_paths(paths: &[String]) -> ValidationResult<()> {
-    for path in paths {
-        // Check for directory traversal attempts
-        if path.contains("..") {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Invalid file path")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details("Directory traversal not allowed"),
-                ),
-            ));
-        }
+    use adapteros_secure_fs::traversal::check_path_traversal;
+    use std::path::Path;
 
-        // Check for absolute paths
-        if path.starts_with('/') || path.contains(':') {
+    for path in paths {
+        // Use secure-fs validation which checks for traversal patterns
+        if let Err(e) = check_path_traversal(Path::new(path)) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(
                     ErrorResponse::new("Invalid file path")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details("Absolute paths not allowed"),
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(format!("Path validation failed: {}", e)),
                 ),
             ));
         }
@@ -227,7 +233,7 @@ pub fn validate_file_paths(paths: &[String]) -> ValidationResult<()> {
                 StatusCode::BAD_REQUEST,
                 Json(
                     ErrorResponse::new("File path too long")
-                        .with_code("INTERNAL_ERROR")
+                        .with_code("BAD_REQUEST")
                         .with_string_details("Maximum path length is 500 characters"),
                 ),
             ));
@@ -311,6 +317,55 @@ pub fn validate_adapter_id(adapter_id: &str) -> ValidationResult<()> {
                 ErrorResponse::new("Adapter ID too long")
                     .with_code("INTERNAL_ERROR")
                     .with_string_details("Maximum length is 100 characters"),
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate model ID format (UUID)
+///
+/// Model IDs are UUIDs (typically UUIDv7) stored as TEXT in the database.
+/// This validation ensures the ID is a valid UUID format to prevent
+/// path traversal and injection attacks.
+pub fn validate_model_id(model_id: &str) -> ValidationResult<()> {
+    if model_id.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Model ID cannot be empty")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("Model ID is required".to_string()),
+            ),
+        ));
+    }
+
+    // Check for path traversal attempts
+    if model_id.contains("..") || model_id.contains('/') || model_id.contains('\\') {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid model ID format")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "Model ID cannot contain path traversal characters (/, \\, ..)".to_string(),
+                    ),
+            ),
+        ));
+    }
+
+    // Validate UUID format (supports UUIDv1-v7 and standard UUID format)
+    if Uuid::parse_str(model_id).is_err() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid model ID format")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(
+                        "Model ID must be a valid UUID format (e.g., 01234567-89ab-cdef-0123-456789abcdef)"
+                            .to_string(),
+                    ),
             ),
         ));
     }

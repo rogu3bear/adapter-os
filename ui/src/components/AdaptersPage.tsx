@@ -10,7 +10,7 @@ import { Adapter } from '../api/types';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
-import { ErrorRecovery } from './ui/error-recovery';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
 import { Code, MemoryStick, Activity, Clock, Pin, ArrowUp, Trash2, MoreHorizontal } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
 import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
+import { useAdapterOperations } from '../hooks/useAdapterOperations';
 
 interface AdaptersData {
   adapters: Adapter[];
@@ -37,7 +38,7 @@ export function AdaptersPage() {
     return { adapters: adaptersData, totalMemory };
   };
 
-  const { data, isLoading: loading, error } = usePolling(
+  const { data, isLoading: loading, error, refetch } = usePolling(
     fetchAdaptersData,
     'normal',
     {
@@ -63,6 +64,31 @@ export function AdaptersPage() {
     hints
   });
   const visibleHint = getVisibleHint();
+
+  // Adapter operations using shared hook
+  const {
+    isOperationLoading,
+    operationError,
+    evictAdapter,
+    pinAdapter,
+    promoteAdapter,
+    deleteAdapter,
+  } = useAdapterOperations({
+    onDataRefresh: refetch,
+  });
+
+  // Category memory limit updates (separate from adapter operations)
+  const handleUpdateMemoryLimit = (category: string, limit: number) => {
+    toast.info(`Memory limit updates for ${category} category will be available in a future release. Current limits are managed via category policies.`, {
+      duration: 5000,
+    });
+    logger.info('Category memory limit update requested', {
+      component: 'AdaptersPage',
+      category,
+      limit,
+      note: 'Memory limits are currently managed through category policies, not direct updates'
+    });
+  };
 
   useEffect(() => {
     if (loading) {
@@ -91,30 +117,6 @@ export function AdaptersPage() {
     );
   }
 
-  const handleEvict = (adapterId: string) => {
-    // Implement evict logic
-    toast.success('Adapter evicted');
-  };
-
-  const handlePin = (adapterId: string, pinned: boolean) => {
-    // Implement pin logic
-    toast.success(pinned ? 'Adapter pinned' : 'Adapter unpinned');
-  };
-
-  const handleUpdateMemoryLimit = (category: string, limit: number) => {
-    // Implement update limit
-    toast.success('Memory limit updated');
-  };
-
-  const handlePromote = (adapterId: string) => {
-    // Implement promote logic
-    toast.success('Adapter promoted');
-  };
-
-  const handleDelete = (adapterId: string) => {
-    // Implement delete logic
-    toast.success('Adapter deleted');
-  };
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -132,6 +134,12 @@ export function AdaptersPage() {
           onDismiss={() => dismissHint(visibleHint.hint.id)}
           placement={visibleHint.hint.placement}
         />
+      )}
+
+      {operationError && (
+        <div>
+          {operationError}
+        </div>
       )}
 
       {/* Visualizations */}
@@ -153,8 +161,8 @@ export function AdaptersPage() {
         <AdapterMemoryMonitor
           adapters={adapters}
           totalMemory={totalMemory}
-          onEvictAdapter={handleEvict}
-          onPinAdapter={handlePin}
+          onEvictAdapter={evictAdapter}
+          onPinAdapter={pinAdapter}
           onUpdateMemoryLimit={handleUpdateMemoryLimit}
         />
       </div>
@@ -211,16 +219,16 @@ export function AdaptersPage() {
                           <Button variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => handlePromote(adapter.id)}>
+                          <DropdownMenuItem onClick={() => promoteAdapter(adapter.id)}>
                             <ArrowUp className="mr-2 h-4 w-4" /> Promote
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handlePin(adapter.id, !adapter.pinned)}>
+                          <DropdownMenuItem onClick={() => pinAdapter(adapter.id, !adapter.pinned)}>
                             <Pin className="mr-2 h-4 w-4" /> {adapter.pinned ? 'Unpin' : 'Pin'}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEvict(adapter.id)}>
+                          <DropdownMenuItem onClick={() => evictAdapter(adapter.id)}>
                             <Trash2 className="mr-2 h-4 w-4" /> Evict
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDelete(adapter.id)}>
+                          <DropdownMenuItem onClick={() => deleteAdapter(adapter.id)}>
                             <Trash2 className="mr-2 h-4 w-4 text-red-500" /> Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>

@@ -40,7 +40,7 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
     refetch: refreshStatus
   } = usePolling(
     fetchModelStatus,
-    'fast', // Real-time updates for model status
+    'normal', // Reduced from fast to reduce rate limiting while maintaining reasonable updates
     {
       showLoadingIndicator: true,
       onError: (err) => {

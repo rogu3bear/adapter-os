@@ -3,11 +3,11 @@
 //! Provides CLI command to export CodeGraph call graphs to DOT/Graphviz,
 //! JSON, or other formats for analysis and visualization.
 
+use crate::output::OutputWriter;
 use adapteros_codegraph::CodeGraph;
 use adapteros_core::Result;
-use std::path::Path;
-use crate::output::OutputWriter;
 use serde::Serialize;
+use std::path::Path;
 
 /// Export format options
 #[derive(Debug, Clone, PartialEq)]
@@ -48,16 +48,19 @@ pub async fn export_callgraph(
     format: ExportFormat,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(format!("Loading CodeGraph from: {}", codegraph_path.display()));
-    
+    output.info(format!(
+        "Loading CodeGraph from: {}",
+        codegraph_path.display()
+    ));
+
     // Load CodeGraph from database
     let codegraph = CodeGraph::load_from_db(codegraph_path).await?;
-    
+
     output.kv("Symbols", &codegraph.symbols.len().to_string());
     output.kv("Edges", &codegraph.call_graph.edges.len().to_string());
     output.kv("Content hash", &codegraph.content_hash.to_short_hex());
     output.blank();
-    
+
     // Export to specified format
     let content = match format {
         ExportFormat::Dot => codegraph.to_dot(),
@@ -65,11 +68,11 @@ pub async fn export_callgraph(
             .map_err(|e| adapteros_core::AosError::Serialization(e))?,
         ExportFormat::Csv => export_to_csv(&codegraph),
     };
-    
+
     // Write to output file
     std::fs::write(output_path, content)
         .map_err(|e| adapteros_core::AosError::Io(format!("Failed to write output: {}", e)))?;
-    
+
     output.success(format!("Exported to: {}", output_path.display()));
     output.kv("Format", &format!("{:?}", format));
 
@@ -82,27 +85,31 @@ pub async fn export_callgraph(
         };
         output.json(&result)?;
     }
-    
+
     Ok(())
 }
 
 /// Export call graph to CSV format
 fn export_to_csv(codegraph: &CodeGraph) -> String {
     let mut csv = String::new();
-    
+
     // CSV header
     csv.push_str("caller_id,caller_name,caller_kind,callee_id,callee_name,callee_kind,call_site,is_recursive,is_trait_call,is_generic_instantiation\n");
-    
+
     // Export edges
     for edge in &codegraph.call_graph.edges {
         let caller = codegraph.symbols.get(&edge.caller);
         let callee = codegraph.symbols.get(&edge.callee);
-        
+
         let caller_name = caller.map(|s| s.name.as_str()).unwrap_or("unknown");
-        let caller_kind = caller.map(|s| s.kind.to_string()).unwrap_or("unknown".to_string());
+        let caller_kind = caller
+            .map(|s| s.kind.to_string())
+            .unwrap_or("unknown".to_string());
         let callee_name = callee.map(|s| s.name.as_str()).unwrap_or("unknown");
-        let callee_kind = callee.map(|s| s.kind.to_string()).unwrap_or("unknown".to_string());
-        
+        let callee_kind = callee
+            .map(|s| s.kind.to_string())
+            .unwrap_or("unknown".to_string());
+
         csv.push_str(&format!(
             "{},{},{},{},{},{},{},{},{},{}\n",
             edge.caller.to_hex(),
@@ -117,7 +124,7 @@ fn export_to_csv(codegraph: &CodeGraph) -> String {
             edge.is_generic_instantiation
         ));
     }
-    
+
     csv
 }
 
@@ -140,37 +147,40 @@ pub async fn generate_stats(codegraph_path: &Path, output: &OutputWriter) -> Res
     output.section("CodeGraph Statistics");
     output.kv("Database", &codegraph_path.display().to_string());
     output.blank();
-    
+
     // Load CodeGraph
     let codegraph = CodeGraph::load_from_db(codegraph_path).await?;
-    
+
     // Get statistics
     let stats = codegraph.call_graph.statistics();
-    
+
     output.section("Call Graph Statistics");
     output.kv("Total edges", &stats.total_edges.to_string());
     output.kv("Recursive edges", &stats.recursive_edges.to_string());
     output.kv("Trait calls", &stats.trait_calls.to_string());
-    output.kv("Generic instantiations", &stats.generic_instantiations.to_string());
+    output.kv(
+        "Generic instantiations",
+        &stats.generic_instantiations.to_string(),
+    );
     output.kv("Max callers", &stats.max_callers.to_string());
     output.kv("Max callees", &stats.max_callees.to_string());
     output.kv("Unique callers", &stats.unique_callers.to_string());
     output.kv("Unique callees", &stats.unique_callees.to_string());
     output.blank();
-    
+
     output.section("Symbol Statistics");
     output.kv("Total symbols", &codegraph.symbols.len().to_string());
-    
+
     // Count by kind
     let mut kind_counts = std::collections::BTreeMap::new();
     for symbol in codegraph.symbols.values() {
         *kind_counts.entry(symbol.kind.to_string()).or_insert(0) += 1;
     }
-    
+
     for (kind, count) in kind_counts {
         output.kv(&kind, &count.to_string());
     }
-    
+
     output.blank();
     output.kv("Content Hash", &codegraph.content_hash.to_hex());
 
@@ -189,7 +199,7 @@ pub async fn generate_stats(codegraph_path: &Path, output: &OutputWriter) -> Res
         };
         output.json(&result)?;
     }
-    
+
     Ok(())
 }
 
@@ -199,10 +209,19 @@ mod tests {
 
     #[test]
     fn test_export_format_parsing() {
-        assert_eq!("dot".parse::<ExportFormat>().expect("dot should parse"), ExportFormat::Dot);
-        assert_eq!("json".parse::<ExportFormat>().expect("json should parse"), ExportFormat::Json);
-        assert_eq!("csv".parse::<ExportFormat>().expect("csv should parse"), ExportFormat::Csv);
-        
+        assert_eq!(
+            "dot".parse::<ExportFormat>().expect("dot should parse"),
+            ExportFormat::Dot
+        );
+        assert_eq!(
+            "json".parse::<ExportFormat>().expect("json should parse"),
+            ExportFormat::Json
+        );
+        assert_eq!(
+            "csv".parse::<ExportFormat>().expect("csv should parse"),
+            ExportFormat::Csv
+        );
+
         assert!("unknown".parse::<ExportFormat>().is_err());
     }
 
@@ -210,7 +229,7 @@ mod tests {
     fn test_csv_export() {
         let codegraph = CodeGraph::new();
         let csv = export_to_csv(&codegraph);
-        
+
         assert!(csv.contains("caller_id,caller_name"));
         assert!(csv.contains("callee_id,callee_name"));
     }

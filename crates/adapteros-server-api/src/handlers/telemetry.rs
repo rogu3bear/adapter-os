@@ -1,17 +1,26 @@
 //! Telemetry endpoints for offline dashboard (logs, traces, metrics)
 
+use crate::auth::Claims;
+use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::{
-    ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse, MetricsSnapshotResponse,
+    ActivityEventResponse, ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse,
+    MetricsSnapshotResponse,
 };
+use adapteros_db::{activity_events::ActivityEvent, users::Role};
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
 use adapteros_trace::{Trace, TraceSearchQuery};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::{sse::Event, sse::KeepAlive, Sse};
 use axum::{http::StatusCode, Json};
 // use prometheus; // Temporarily disabled
 use serde::Deserialize;
+use serde_json::Value;
+use std::collections::HashSet;
 use std::convert::Infallible;
+use futures_util::stream;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::Stream as TokioStream;
 use tokio_stream::StreamExt;
@@ -338,4 +347,251 @@ pub fn event_matches_filters(
     }
 
     true
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecentActivityQuery {
+    #[serde(default, rename = "event_types[]", alias = "event_types")]
+    pub event_types: Vec<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/telemetry/events/recent",
+    params(
+        ("event_types[]" = Option<Vec<String>>, Query, description = "Filter by event types"),
+        ("limit" = Option<usize>, Query, description = "Maximum number of events (default 50, max 200)"),
+    ),
+    responses(
+        (status = 200, description = "Recent activity events", body = Vec<ActivityEventResponse>)
+    ),
+    tag = "telemetry",
+    security(("bearer_token" = []))
+)]
+pub async fn get_recent_activity(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<RecentActivityQuery>,
+) -> Result<Json<Vec<ActivityEventResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let event_type_filter = if query.event_types.is_empty() {
+        None
+    } else {
+        Some(
+            query
+                .event_types
+                .iter()
+                .map(|value| value.to_ascii_lowercase())
+                .collect::<HashSet<String>>(),
+        )
+    };
+
+    let mut events = load_recent_activity_events(
+        &state,
+        &claims.tenant_id,
+        limit,
+        event_type_filter.as_ref(),
+        query.event_types.as_slice(),
+    )
+    .await?;
+
+    events.truncate(limit);
+
+    Ok(Json(events))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/telemetry/events/recent/stream",
+    params(
+        ("event_types[]" = Option<Vec<String>>, Query, description = "Filter by event types"),
+        ("limit" = Option<usize>, Query, description = "Initial backlog size (default 50, max 200)"),
+    ),
+    responses((status = 200, description = "SSE stream of recent activity events")),
+    tag = "telemetry",
+    security(("bearer_token" = []))
+)]
+pub async fn recent_activity_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<RecentActivityQuery>,
+) -> Result<
+    Sse<impl TokioStream<Item = Result<Event, Infallible>>>,
+    (StatusCode, Json<ErrorResponse>),
+> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let filter_set = if query.event_types.is_empty() {
+        None
+    } else {
+        Some(Arc::new(
+            query
+                .event_types
+                .iter()
+                .map(|value| value.to_ascii_lowercase())
+                .collect::<HashSet<String>>(),
+        ))
+    };
+
+    let backlog = load_recent_activity_events(
+        &state,
+        &claims.tenant_id,
+        limit,
+        filter_set.as_ref().map(|arc| arc.as_ref()),
+        query.event_types.as_slice(),
+    )
+    .await?;
+
+    let backlog_stream = tokio_stream::iter(backlog.into_iter().filter_map(|event| {
+        match serde_json::to_string(&event) {
+            Ok(json) => Some(Ok(Event::default().event("activity").data(json))),
+            Err(err) => {
+                warn!(error = %err, "failed to serialize activity backlog event");
+                None
+            }
+        }
+    }));
+
+    let tenant_id = Arc::new(claims.tenant_id.clone());
+    let event_type_filter = filter_set.clone();
+    // Temporarily disable realtime stream due to async filter_map complexity
+    let realtime_stream = futures_util::stream::empty();
+
+    let stream = backlog_stream.chain(realtime_stream);
+    Ok(Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(30))
+            .text("keepalive"),
+    ))
+}
+
+async fn load_recent_activity_events(
+    state: &AppState,
+    tenant_id: &str,
+    limit: usize,
+    event_type_filter: Option<&HashSet<String>>,
+    raw_event_types: &[String],
+) -> Result<Vec<ActivityEventResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let mut dedupe = HashSet::new();
+    let mut events: Vec<ActivityEventResponse> = Vec::new();
+
+    let mut telemetry_filters = TelemetryFilters::default();
+    telemetry_filters.tenant_id = Some(tenant_id.to_string());
+    if let Some(first) = raw_event_types.first() {
+        telemetry_filters.event_type = Some(first.clone());
+    }
+    telemetry_filters.limit = Some((limit * 2).clamp(1, 200));
+
+    let telemetry_events = state.telemetry_buffer.query(&telemetry_filters);
+    for event in telemetry_events {
+        if !event_type_matches(&event.event_type, event_type_filter) {
+            continue;
+        }
+        let response = convert_unified_event(&event);
+        if dedupe.insert(response.id.clone()) {
+            events.push(response);
+        }
+    }
+
+    let db_events = state
+        .db
+        .list_activity_events(
+            None,
+            None,
+            Some(tenant_id),
+            None,
+            Some((limit * 2) as i64),
+            Some(0),
+        )
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list activity events")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(err.to_string()),
+                ),
+            )
+        })?;
+
+    for event in db_events {
+        if !event_type_matches(&event.event_type, event_type_filter) {
+            continue;
+        }
+        let response = convert_activity_event(event);
+        if dedupe.insert(response.id.clone()) {
+            events.push(response);
+        }
+    }
+
+    events.sort_by(|a, b| parse_timestamp(&b.timestamp).cmp(&parse_timestamp(&a.timestamp)));
+
+    Ok(events)
+}
+
+fn event_type_matches(event_type: &str, filter: Option<&HashSet<String>>) -> bool {
+    match filter {
+        Some(allowed) => allowed.contains(&event_type.to_ascii_lowercase()),
+        None => true,
+    }
+}
+
+fn convert_unified_event(event: &UnifiedTelemetryEvent) -> ActivityEventResponse {
+    ActivityEventResponse {
+        id: event.id.clone(),
+        timestamp: event.timestamp.to_rfc3339(),
+        event_type: event.event_type.clone(),
+        level: format!("{:?}", event.level).to_ascii_lowercase(),
+        message: event.message.clone(),
+        component: event.component.clone(),
+        tenant_id: event.tenant_id.clone(),
+        user_id: event.user_id.clone(),
+        metadata: event.metadata.clone(),
+    }
+}
+
+fn convert_activity_event(event: ActivityEvent) -> ActivityEventResponse {
+    let metadata: Option<Value> = event
+        .metadata_json
+        .as_ref()
+        .and_then(|raw| serde_json::from_str(raw).ok());
+
+    let message = metadata
+        .as_ref()
+        .and_then(|value| value.get("message"))
+        .and_then(Value::as_str)
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| format!("Activity: {}", event.event_type.replace('_', " ")));
+
+    let timestamp = parse_timestamp(&event.created_at);
+
+    ActivityEventResponse {
+        id: event.id,
+        timestamp: timestamp.to_rfc3339(),
+        event_type: event.event_type,
+        level: "info".to_string(),
+        message,
+        component: event.target_type,
+        tenant_id: Some(event.tenant_id),
+        user_id: Some(event.user_id),
+        metadata,
+    }
+}
+
+fn parse_timestamp(value: &str) -> chrono::DateTime<chrono::Utc> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) {
+        return dt.with_timezone(&chrono::Utc);
+    }
+
+    if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
+        return chrono::DateTime::<chrono::Utc>::from_utc(ndt, chrono::Utc);
+    }
+
+    chrono::Utc::now()
 }

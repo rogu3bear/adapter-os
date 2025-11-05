@@ -77,21 +77,10 @@ impl PostgresDb {
     /// Applies all SQL migrations from the `migrations_postgres/` directory.
     /// Migrations are idempotent and can be run multiple times safely.
     pub async fn migrate(&self) -> Result<()> {
-        use std::path::Path;
-        let migrations_dir =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations_postgres");
+        // Use embedded migrations from the crate's migrations directory
+        const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations_postgres");
 
-        let migrator = sqlx::migrate::Migrator::new(migrations_dir.as_path())
-            .await
-            .map_err(|e| {
-                AosError::Database(format!(
-                    "Failed to load migrations from {}: {}",
-                    migrations_dir.display(),
-                    e
-                ))
-            })?;
-
-        migrator
+        MIGRATIONS
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
@@ -959,6 +948,15 @@ impl PostgresDb {
         Ok(plans)
     }
 
+    pub async fn delete_plan(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM plans WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete plan: {}", e)))?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn deactivate_all_cp_pointers(&self, tenant_id: &str) -> Result<()> {
         sqlx::query("UPDATE cp_pointers SET active = false WHERE tenant_id = $1")
             .bind(tenant_id)
@@ -1463,7 +1461,7 @@ impl PostgresDb {
             INSERT INTO process_monitoring_dashboards (
                 id, name, description, tenant_id, dashboard_config, is_shared, created_by
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&name)
@@ -1546,7 +1544,7 @@ impl PostgresDb {
                 id, name, description, tenant_id, report_type, report_config,
                 report_data, file_path, file_size_bytes, created_by
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&name)
@@ -1741,12 +1739,14 @@ impl PostgresDb {
         .map_err(|e| AosError::Database(format!("Failed to get policy hash: {}", e)))?;
 
         if let Some(row) = row {
-            let hash_hex: String = row.try_get("baseline_hash")
+            let hash_hex: String = row
+                .try_get("baseline_hash")
                 .map_err(|e| AosError::Database(format!("Failed to get hash: {}", e)))?;
             let baseline_hash = adapteros_core::B3Hash::from_hex(&hash_hex)
                 .map_err(|e| AosError::Database(format!("Invalid hash in database: {}", e)))?;
 
-            let cpid_value: String = row.try_get("cpid")
+            let cpid_value: String = row
+                .try_get("cpid")
                 .map_err(|e| AosError::Database(format!("Failed to get cpid: {}", e)))?;
             let cpid = if cpid_value == "global" {
                 None
@@ -1755,16 +1755,20 @@ impl PostgresDb {
             };
 
             Ok(Some(crate::policy_hash::PolicyHashRecord {
-                policy_pack_id: row.try_get("policy_pack_id")
-                    .map_err(|e| AosError::Database(format!("Failed to get policy_pack_id: {}", e)))?,
+                policy_pack_id: row.try_get("policy_pack_id").map_err(|e| {
+                    AosError::Database(format!("Failed to get policy_pack_id: {}", e))
+                })?,
                 baseline_hash,
                 cpid,
-                signer_pubkey: row.try_get("signer_pubkey")
-                    .map_err(|e| AosError::Database(format!("Failed to get signer_pubkey: {}", e)))?,
-                created_at: row.try_get::<i64, _>("created_at")
+                signer_pubkey: row.try_get("signer_pubkey").map_err(|e| {
+                    AosError::Database(format!("Failed to get signer_pubkey: {}", e))
+                })?,
+                created_at: row
+                    .try_get::<i64, _>("created_at")
                     .map_err(|e| AosError::Database(format!("Failed to get created_at: {}", e)))?
                     as u64,
-                updated_at: row.try_get::<i64, _>("updated_at")
+                updated_at: row
+                    .try_get::<i64, _>("updated_at")
                     .map_err(|e| AosError::Database(format!("Failed to get updated_at: {}", e)))?
                     as u64,
             }))
@@ -1806,12 +1810,14 @@ impl PostgresDb {
 
         let mut result = Vec::new();
         for row in rows {
-            let hash_hex: String = row.try_get("baseline_hash")
+            let hash_hex: String = row
+                .try_get("baseline_hash")
                 .map_err(|e| AosError::Database(format!("Failed to get hash: {}", e)))?;
             let baseline_hash = adapteros_core::B3Hash::from_hex(&hash_hex)
                 .map_err(|e| AosError::Database(format!("Invalid hash in database: {}", e)))?;
 
-            let cpid_value: String = row.try_get("cpid")
+            let cpid_value: String = row
+                .try_get("cpid")
                 .map_err(|e| AosError::Database(format!("Failed to get cpid: {}", e)))?;
             let cpid = if cpid_value == "global" {
                 None
@@ -1820,16 +1826,20 @@ impl PostgresDb {
             };
 
             result.push(crate::policy_hash::PolicyHashRecord {
-                policy_pack_id: row.try_get("policy_pack_id")
-                    .map_err(|e| AosError::Database(format!("Failed to get policy_pack_id: {}", e)))?,
+                policy_pack_id: row.try_get("policy_pack_id").map_err(|e| {
+                    AosError::Database(format!("Failed to get policy_pack_id: {}", e))
+                })?,
                 baseline_hash,
                 cpid,
-                signer_pubkey: row.try_get("signer_pubkey")
-                    .map_err(|e| AosError::Database(format!("Failed to get signer_pubkey: {}", e)))?,
-                created_at: row.try_get::<i64, _>("created_at")
+                signer_pubkey: row.try_get("signer_pubkey").map_err(|e| {
+                    AosError::Database(format!("Failed to get signer_pubkey: {}", e))
+                })?,
+                created_at: row
+                    .try_get::<i64, _>("created_at")
                     .map_err(|e| AosError::Database(format!("Failed to get created_at: {}", e)))?
                     as u64,
-                updated_at: row.try_get::<i64, _>("updated_at")
+                updated_at: row
+                    .try_get::<i64, _>("updated_at")
                     .map_err(|e| AosError::Database(format!("Failed to get updated_at: {}", e)))?
                     as u64,
             });
@@ -1860,6 +1870,7 @@ mod tests {
     }
 
     #[ignore] // Requires PostgreSQL server
+    #[allow(dead_code)]
     async fn test_postgres_migration() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await

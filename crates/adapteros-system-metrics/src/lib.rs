@@ -23,6 +23,7 @@ pub mod monitoring_types;
 pub mod notifications;
 pub mod persistence;
 pub mod policy;
+pub mod stubs;
 pub mod telemetry;
 pub mod types;
 

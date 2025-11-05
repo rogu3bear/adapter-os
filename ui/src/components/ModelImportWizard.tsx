@@ -11,10 +11,13 @@ import { Upload, FileCheck, Settings, CheckCircle, RotateCcw } from 'lucide-reac
 import apiClient from '@/api/client';
 import { ImportModelRequest } from '@/api/types';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
+import { useProgressOperation } from '../hooks/useProgressOperation';
+import { useCancellableOperation } from '../hooks/useCancellableOperation';
 
 interface ModelImportWizardProps {
   onComplete: (importId: string) => void;
   onCancel: () => void;
+  tenantId?: string;
 }
 
 interface WizardState {
@@ -27,12 +30,18 @@ interface WizardState {
   metadata: Record<string, any>;
 }
 
-export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardProps) {
+export function ModelImportWizard({ onComplete, onCancel, tenantId }: ModelImportWizardProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedState, setSavedState] = useState<WizardState | null>(null);
+
+  // Progress tracking for model import
+  const { start: startModelImport } = useProgressOperation();
+
+  // Cancellation support for model import
+  const { start: startCancellableImport, cancel: cancelImport } = useCancellableOperation();
 
   const initialState: WizardState = {
     currentStep: 0,
@@ -204,13 +213,22 @@ export function ModelImportWizard({ onComplete, onCancel }: ModelImportWizardPro
         metadata: state.metadata,
       };
 
-      const response = await apiClient.importModel(request);
-      // Success - clear persisted state
-      clearPersistedState();
-      onComplete(response.import_id);
+      // Start progress tracking and cancellable operation
+      const tempOperationId = startModelImport('model_import', `temp_${Date.now()}`, tenantId || 'default');
+
+      await startCancellableImport(async (signal) => {
+        const response = await apiClient.importModel(request, {}, false, signal);
+
+        // Success - clear persisted state
+        clearPersistedState();
+        onComplete(response.import_id);
+      }, `model-import-${state.modelName}`);
+
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Import failed');
-      setWizardError(error);
+      if (err) { // Only set error if not cancelled
+        const error = err instanceof Error ? err : new Error('Import failed');
+        setWizardError(error);
+      }
     } finally {
       setIsLoading(false);
     }
