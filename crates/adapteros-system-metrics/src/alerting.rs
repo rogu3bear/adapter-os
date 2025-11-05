@@ -27,6 +27,12 @@ pub struct AlertEvaluator {
     notification_sender: Arc<dyn NotificationSender + Send + Sync>,
     anomaly_detector: Option<AnomalyDetector>,
     policy_engine: Option<PolicyEngine>,
+    /// Optional broadcast channel for real-time alert streaming
+    ///
+    /// # Citations
+    /// - SSE stream handler: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
+    /// - Broadcast channel setup: [source: crates/adapteros-server-api/src/state.rs L473-475]
+    alert_tx: Option<tokio::sync::broadcast::Sender<crate::monitoring_types::AlertResponse>>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +90,21 @@ impl AlertEvaluator {
             notification_sender,
             anomaly_detector: None,
             policy_engine: None,
+            alert_tx: None,
         }
+    }
+
+    /// Set the alert broadcast channel for real-time streaming
+    ///
+    /// # Citations
+    /// - SSE stream handler: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
+    /// - Broadcast channel setup: [source: crates/adapteros-server-api/src/state.rs L473-475]
+    pub fn with_alert_broadcast(
+        mut self,
+        alert_tx: Option<tokio::sync::broadcast::Sender<crate::monitoring_types::AlertResponse>>,
+    ) -> Self {
+        self.alert_tx = alert_tx;
+        self
     }
 
     /// Create a new alert evaluator with anomaly detection
@@ -104,6 +124,7 @@ impl AlertEvaluator {
             notification_sender,
             anomaly_detector: Some(anomaly_detector),
             policy_engine: None,
+            alert_tx: None,
         }
     }
 
@@ -123,6 +144,7 @@ impl AlertEvaluator {
             notification_sender,
             anomaly_detector: None,
             policy_engine: Some(policy_engine),
+            alert_tx: None,
         }
     }
 
@@ -145,6 +167,7 @@ impl AlertEvaluator {
             notification_sender,
             anomaly_detector: Some(anomaly_detector),
             policy_engine: Some(policy_engine),
+            alert_tx: None,
         }
     }
 
@@ -210,7 +233,7 @@ impl AlertEvaluator {
     }
 
     /// Evaluate alerts for all tenants
-    async fn evaluate_all_tenants(&self) -> Result<()> {
+    pub async fn evaluate_all_tenants(&self) -> Result<()> {
         // Get all active tenants
         let tenants = self.get_active_tenants().await?;
 
@@ -434,6 +457,16 @@ impl AlertEvaluator {
             };
 
             let alert_id = ProcessAlert::create(self.db.pool(), alert_request.clone()).await?;
+
+            // Broadcast alert to SSE stream if channel is available
+            // Citation: [source: crates/adapteros-server-api/src/handlers.rs L4598-L4603] - Alert update broadcasting pattern
+            if let Some(alert_tx) = &self.alert_tx {
+                // Fetch the created alert to broadcast
+                if let Ok(Some(created_alert)) = ProcessAlert::get_by_id(self.db.pool(), &alert_id).await {
+                    let alert_response = created_alert.into();
+                    let _ = alert_tx.send(alert_response);
+                }
+            }
 
             // Send notification if enabled
             if self.config.enable_notifications {
@@ -2348,6 +2381,7 @@ impl Clone for AlertEvaluator {
                 .policy_engine
                 .as_ref()
                 .map(|_| PolicyEngine::new(Policies::default())),
+            alert_tx: self.alert_tx.clone(),
         }
     }
 }
