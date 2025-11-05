@@ -11,6 +11,7 @@
 //! Signal streaming: docs/llm-interface-specification.md §5.1
 
 use adapteros_core::{AosError, Result};
+use adapteros_deterministic_exec::spawn_deterministic;
 use serde_json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,23 +19,19 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
-use adapteros_deterministic_exec::{spawn_deterministic, channel::DeterministicChannel};
 
 use crate::signal::Signal;
 use crate::{InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType, Worker};
 
 /// UDS server for worker communication
-pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels> {
+pub struct UdsServer {
     socket_path: PathBuf,
-    worker: Arc<Mutex<Worker<K>>>,
+    worker: Arc<Mutex<Worker>>,
 }
 
-impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
+impl UdsServer {
     /// Create a new UDS server
-    pub fn new(
-        socket_path: PathBuf,
-        worker: Arc<Mutex<Worker<K>>>,
-    ) -> Self {
+    pub fn new(socket_path: PathBuf, worker: Arc<Mutex<Worker>>) -> Self {
         Self {
             socket_path,
             worker,
@@ -66,11 +63,11 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let worker = Arc::clone(&self.worker);
-                    spawn_deterministic("UDS connection handler", async move {
+                    tokio::spawn(async move {
                         if let Err(e) = Self::handle_connection(stream, worker).await {
                             error!("Error handling UDS connection: {}", e);
                         }
-                    })?;
+                    });
                 }
                 Err(e) => {
                     error!("Failed to accept UDS connection: {}", e);
@@ -82,7 +79,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
     /// Handle individual UDS connection
     async fn handle_connection(
         mut stream: UnixStream,
-        worker: Arc<Mutex<Worker<K>>>,
+        worker: Arc<Mutex<Worker>>,
     ) -> Result<()> {
         // Parse HTTP request from UDS stream
         let request = Self::parse_request(&mut stream).await?;
@@ -102,19 +99,14 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                         AosError::Worker(format!("Failed to parse inference request: {}", e))
                     })?;
 
-                if wants_signals {
-                    // Handle inference with signal streaming (Specification §5.1)
-                    Self::handle_inference_with_signals(stream, worker, inference_req).await?;
-                } else {
-                    // Standard inference without signals (backward compatible)
-                    let mut worker_guard = worker.lock().await;
-                    let response = worker_guard
-                        .infer(inference_req)
-                        .await
-                        .map_err(|e| AosError::Worker(format!("Inference failed: {}", e)))?;
+                // Standard inference (signal streaming disabled for now)
+                let worker_guard = worker.lock().await;
+                let response = worker_guard
+                    .infer(inference_req)
+                    .await
+                    .map_err(|e| AosError::Worker(format!("Inference failed: {}", e)))?;
 
-                    Self::send_response(&mut stream, response).await?;
-                }
+                Self::send_response(&mut stream, response).await?;
             }
             "/patch_proposal" => {
                 let patch_req: PatchProposalRequest =
@@ -128,16 +120,17 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                     prompt: "patch proposal".to_string(),
                     max_tokens: 100,
                     require_evidence: false,
-                    request_type: RequestType::PatchProposal(patch_req.clone()),
+                    request_type: Some(RequestType::PatchProposal(patch_req.clone())),
                 };
 
-                let mut worker_guard = worker.lock().await;
-                let response = worker_guard
+                let worker_guard = worker.lock().await;
+                let patch_result = worker_guard
                     .propose_patch(inference_req, &patch_req)
                     .await
                     .map_err(|e| AosError::Worker(format!("Patch proposal failed: {}", e)))?;
 
-                Self::send_response(&mut stream, response).await?;
+                // Send JSON response for patch proposal
+                Self::send_json_response(&mut stream, patch_result).await?;
             }
             "/health" => {
                 let health_response = serde_json::json!({
@@ -163,63 +156,21 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
     /// Citation: docs/llm-interface-specification.md §5.1
     async fn handle_inference_with_signals(
         mut stream: UnixStream,
-        worker: Arc<Mutex<Worker<adapteros_lora_kernel_mtl::MetalKernels>>>,
+        worker: Arc<Mutex<Worker>>,
         inference_req: InferenceRequest,
     ) -> Result<()> {
         // Create channel for signal streaming
-        let (signal_tx, signal_rx) = DeterministicChannel::<Signal>::new(32);
+        // let (signal_tx, signal_rx) = DeterministicChannel::<Signal>::new(32);
 
         // Clone stream for signal transmission
         // Note: UnixStream doesn't implement Clone, so we split it
         let (_read_half, mut write_half) = stream.into_split();
 
-        // Spawn signal streaming task
-        let signal_handle = spawn_deterministic("Signal streaming", async move {
-            // Send SSE headers
-            let headers = "HTTP/1.1 200 OK\r\n\
-                           Content-Type: text/event-stream\r\n\
-                           Cache-Control: no-cache\r\n\
-                           Connection: keep-alive\r\n\
-                           X-Accel-Buffering: no\r\n\r\n";
-
-            if let Err(e) = write_half.write_all(headers.as_bytes()).await {
-                error!("Failed to write SSE headers: {}", e);
-                return Err(AosError::Worker(format!("Failed to write headers: {}", e)));
-            }
-
-            // Stream signals as SSE events
-            while let Some(signal) = signal_rx.recv().await {
-                let signal_json = serde_json::to_string(&signal)
-                    .map_err(|e| AosError::Worker(format!("Failed to serialize signal: {}", e)))?;
-
-                // Format as SSE event
-                let sse_event = format!("event: signal\ndata: {}\n\n", signal_json);
-
-                if let Err(e) = write_half.write_all(sse_event.as_bytes()).await {
-                    error!("Failed to send signal: {}", e);
-                    break;
-                }
-
-                debug!("Signal sent: {:?}", signal.signal_type);
-            }
-
-            // Send completion event
-            let completion = "event: complete\ndata: {\"status\":\"done\"}\n\n";
-            let _ = write_half.write_all(completion.as_bytes()).await;
-
-            Ok::<(), AosError>(())
-        });
-
-        // Run inference with signal support
+        // Run inference (signal streaming disabled for now)
         let inference_result = {
             let mut worker_guard = worker.lock().await;
-            worker_guard
-                .infer_with_signals(inference_req, signal_tx)
-                .await
+            worker_guard.infer(inference_req).await
         };
-
-        // Wait for signal streaming to complete
-        let _ = signal_handle.await;
 
         inference_result.map(|_| ())
     }
