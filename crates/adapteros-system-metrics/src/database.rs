@@ -59,7 +59,7 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
 
-        Ok(result.last_insert_rowid())
+        Ok(result.last_insert_rowid() as i64)
     }
 
     /// Get system metrics history
@@ -150,7 +150,7 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store health check: {}", e)))?;
 
-        Ok(result.last_insert_rowid())
+        Ok(result.last_insert_rowid() as i64)
     }
 
     /// Store threshold violation
@@ -182,7 +182,7 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
 
-        Ok(result.last_insert_rowid())
+        Ok(result.last_insert_rowid() as i64)
     }
 
     /// Get unresolved threshold violations

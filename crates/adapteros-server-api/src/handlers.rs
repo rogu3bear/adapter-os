@@ -2279,6 +2279,98 @@ pub async fn cp_promote(
         quality_metrics,
     }))
 }
+/// Delete a plan by ID
+pub async fn delete_plan(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(plan_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    state.db.delete_plan(&plan_id).await.map_err(|e| {
+        if e.to_string().contains("not found") {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("plan not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        } else {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        }
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Build a plan from a manifest hash
+#[utoipa::path(
+    post,
+    path = "/v1/plans/build",
+    request_body = BuildPlanRequest,
+    responses(
+        (status = 200, description = "Plan build job created", body = JobResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
+pub async fn build_plan_from_manifest(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<BuildPlanRequest>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Operator])?;
+
+    let payload = serde_json::to_string(&req).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("serialization error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let job_id = state
+        .db
+        .create_job(
+            "build_plan",
+            Some(&req.tenant_id),
+            Some(&claims.sub),
+            &payload,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to create job")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(JobResponse {
+        id: job_id,
+        kind: "build_plan".to_string(),
+        status: "queued".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
 /// Spawn worker via node agent
 pub async fn worker_spawn(
     State(state): State<AppState>,
@@ -2971,7 +3063,6 @@ pub async fn rebuild_plan(
         }
     }
 }
-
 /// Compare plans
 pub async fn compare_plans(
     State(state): State<AppState>,
@@ -3542,7 +3633,7 @@ pub async fn verify_bundle_signature(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("verification task failed")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -4032,7 +4123,7 @@ pub async fn infer(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -5221,7 +5312,6 @@ pub async fn list_adapters(
 
     Ok(Json(responses))
 }
-
 /// Get adapter by ID
 #[utoipa::path(
     get,
@@ -6514,6 +6604,41 @@ pub async fn update_adapter_policy(
         }))
     }
 }
+
+// Handlers for adapter category policy management.
+pub use adapteros_lora_lifecycle::category_policies::CategoryPolicy;
+
+pub type CategoryPoliciesResponse = std::collections::HashMap<String, CategoryPolicy>;
+pub type CategoryPolicyResponse = CategoryPolicy;
+pub type UpdateCategoryPolicyResponse = CategoryPolicy;
+
+pub async fn list_category_policies(
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Result<Json<CategoryPoliciesResponse>> {
+    let lifecycle_manager = state.lifecycle_manager.lock().await;
+    let policies = lifecycle_manager.get_category_policies().get_all_policies();
+    Ok(Json(policies.clone()))
+}
+
+pub async fn get_category_policy(
+    State(state): State<Arc<AppState>>,
+    Path(category): Path<String>,
+) -> axum::response::Result<Json<CategoryPolicyResponse>> {
+    let lifecycle_manager = state.lifecycle_manager.lock().await;
+    let policy = lifecycle_manager.get_category_policies().get_policy(&category);
+    Ok(Json(policy))
+}
+
+pub async fn update_category_policy(
+    State(state): State<Arc<AppState>>,
+    Path(category): Path<String>,
+    Json(payload): Json<CategoryPolicy>,
+) -> axum::response::Result<Json<UpdateCategoryPolicyResponse>> {
+    let mut lifecycle_manager = state.lifecycle_manager.lock().await;
+    lifecycle_manager.update_category_policy(category, payload.clone());
+    Ok(Json(payload))
+}
+
 /// Evict adapter from memory
 #[utoipa::path(
     post,
@@ -7518,8 +7643,410 @@ pub async fn system_metrics_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-/// SSE stream for telemetry events
-/// Streams new telemetry bundles as they're created
+
+/// SSE stream for real-time alerts
+pub async fn alerts_stream(
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AosError> {
+    let mut rx = state.alert_tx.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(alert) => {
+                    let event = Event::default().event("alert").json_data(&alert);
+                    if let Ok(event) = event {
+                        yield Ok(event);
+                    }
+                }
+                Err(RecvError::Lagged(missed)) => {
+                    tracing::warn!("Alert stream lagged, missed {} messages", missed);
+                }
+                Err(RecvError::Closed) => {
+                    break;
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+
+/// Lists all available log files.
+#[utoipa::path(
+    get,
+    path = "/v1/logs",
+    responses(
+        (status = 200, description = "List of log files", body = Vec<LogFileResponse>)
+    )
+)]
+pub async fn list_log_files(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<Vec<LogFileResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let log_files = state
+        .db
+        .list_log_files()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list log files")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let responses: Vec<LogFileResponse> = log_files
+        .into_iter()
+        .map(|f| LogFileResponse {
+            id: f.id,
+            file_name: f.file_name,
+            file_path: f.file_path,
+            file_size: f.file_size,
+            created_at: f.created_at,
+        })
+        .collect();
+
+    Ok(Json(responses))
+}
+
+/// Downloads a log file by ID.
+#[utoipa::path(
+    get,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file content", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn download_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    let file = tokio::fs::File::open(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to open log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = axum::body::Body::from_stream(stream);
+
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            "application/octet-stream",
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", log_file.file_name),
+        ),
+    ];
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .headers(headers)
+        .body(body)
+        .unwrap())
+}
+
+/// Deletes a log file by ID.
+#[utoipa::path(
+    delete,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file deleted", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn delete_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Json<String>, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    tokio::fs::remove_file(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to delete log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    state
+        .db
+        .delete_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to delete log file from database")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json("Log file deleted".to_string()))
+}
+
+/// Lists all available log files.
+#[utoipa::path(
+    get,
+    path = "/v1/logs",
+    responses(
+        (status = 200, description = "List of log files", body = Vec<LogFileResponse>)
+    )
+)]
+pub async fn list_log_files(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<Vec<LogFileResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let log_files = state
+        .db
+        .list_log_files()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list log files")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let responses: Vec<LogFileResponse> = log_files
+        .into_iter()
+        .map(|f| LogFileResponse {
+            id: f.id,
+            file_name: f.file_name,
+            file_path: f.file_path,
+            file_size: f.file_size,
+            created_at: f.created_at,
+        })
+        .collect();
+
+    Ok(Json(responses))
+}
+
+/// Downloads a log file by ID.
+#[utoipa::path(
+    get,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file content", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn download_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    let file = tokio::fs::File::open(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to open log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = axum::body::Body::from_stream(stream);
+
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            "application/octet-stream",
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", log_file.file_name),
+        ),
+    ];
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .headers(headers)
+        .body(body)
+        .unwrap())
+}
+
+/// Deletes a log file by ID.
+#[utoipa::path(
+    delete,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file deleted", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn delete_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Json<String>, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    tokio::fs::remove_file(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to delete log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    state
+        .db
+        .delete_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to delete log file from database")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json("Log file deleted".to_string()))
+}
 pub async fn telemetry_events_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -8487,7 +9014,6 @@ fn emit_activity_event(
     state.telemetry_buffer.push(event.clone());
     let _ = state.telemetry_tx.send(event);
 }
-/// List all training jobs
 #[utoipa::path(
     get,
     path = "/v1/training/jobs",
@@ -10522,55 +11048,407 @@ pub async fn export_dashboard_data(
 /// SSE stream for alerts
 /// Pushes real-time alerts as they are created or updated
 pub async fn alerts_stream(
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AosError> {
+    let mut rx = state.alert_tx.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(alert) => {
+                    let event = Event::default().event("alert").json_data(&alert);
+                    if let Ok(event) = event {
+                        yield Ok(event);
+                    }
+                }
+                Err(RecvError::Lagged(missed)) => {
+                    tracing::warn!("Alert stream lagged, missed {} messages", missed);
+                }
+                Err(RecvError::Closed) => {
+                    break;
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+/// Lists all available log files.
+#[utoipa::path(
+    get,
+    path = "/v1/logs",
+    responses(
+        (status = 200, description = "List of log files", body = Vec<LogFileResponse>)
+    )
+)]
+pub async fn list_log_files(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
-        tokio::time::sleep(Duration::from_secs(2)).await;
+) -> Result<Json<Vec<LogFileResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let log_files = state
+        .db
+        .list_log_files()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list log files")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
-        // Fetch recent alerts
-        let filters = adapteros_system_metrics::AlertFilters {
-            tenant_id: None,
-            worker_id: None,
-            status: None,
-            severity: None,
-            start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
-            end_time: None,
-            limit: Some(50),
-        };
+    let responses: Vec<LogFileResponse> = log_files
+        .into_iter()
+        .map(|f| LogFileResponse {
+            id: f.id,
+            file_name: f.file_name,
+            file_path: f.file_path,
+            file_size: f.file_size,
+            created_at: f.created_at,
+        })
+        .collect();
 
-        let alerts =
-            match adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters).await {
-                Ok(alerts) => alerts,
-                Err(e) => {
-                    tracing::warn!("Failed to fetch alerts for SSE: {}", e);
-                    return Some((
-                        Ok(Event::default()
-                            .event("error")
-                            .data(format!("{{\"error\": \"{}\"}}", e))),
-                        state,
-                    ));
-                }
-            };
-
-        let alert_data = serde_json::json!({
-            "alerts": alerts.iter().map(|a| adapteros_system_metrics::AlertResponse::from(a.clone())).collect::<Vec<_>>(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "count": alerts.len()
-        });
-
-        Some((
-            Ok(Event::default()
-                .event("alerts")
-                .data(serde_json::to_string(&alert_data).unwrap_or_else(|_| "{}".to_string()))),
-            state,
-        ))
-    });
-
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Json(responses))
 }
-/// SSE stream for anomalies
-/// Pushes real-time anomaly detections
+
+/// Downloads a log file by ID.
+#[utoipa::path(
+    get,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file content", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn download_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    let file = tokio::fs::File::open(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to open log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = axum::body::Body::from_stream(stream);
+
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            "application/octet-stream",
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", log_file.file_name),
+        ),
+    ];
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .headers(headers)
+        .body(body)
+        .unwrap())
+}
+
+/// Deletes a log file by ID.
+#[utoipa::path(
+    delete,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file deleted", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn delete_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Json<String>, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    tokio::fs::remove_file(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to delete log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    state
+        .db
+        .delete_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to delete log file from database")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json("Log file deleted".to_string()))
+}
+
+/// Lists all available log files.
+#[utoipa::path(
+    get,
+    path = "/v1/logs",
+    responses(
+        (status = 200, description = "List of log files", body = Vec<LogFileResponse>)
+    )
+)]
+pub async fn list_log_files(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<Vec<LogFileResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let log_files = state
+        .db
+        .list_log_files()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list log files")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let responses: Vec<LogFileResponse> = log_files
+        .into_iter()
+        .map(|f| LogFileResponse {
+            id: f.id,
+            file_name: f.file_name,
+            file_path: f.file_path,
+            file_size: f.file_size,
+            created_at: f.created_at,
+        })
+        .collect();
+
+    Ok(Json(responses))
+}
+
+/// Downloads a log file by ID.
+#[utoipa::path(
+    get,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file content", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn download_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    let file = tokio::fs::File::open(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to open log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = axum::body::Body::from_stream(stream);
+
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            "application/octet-stream",
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", log_file.file_name),
+        ),
+    ];
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .headers(headers)
+        .body(body)
+        .unwrap())
+}
+
+/// Deletes a log file by ID.
+#[utoipa::path(
+    delete,
+    path = "/v1/logs/{id}",
+    params(
+        ("id" = i64, Path, description = "Log file ID")
+    ),
+    responses(
+        (status = 200, description = "Log file deleted", body = String),
+        (status = 404, description = "Log file not found", body = ErrorResponse)
+    )
+)]
+pub async fn delete_log_file(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Json<String>, (StatusCode, Json<ErrorResponse>)> {
+    let log_file = state
+        .db
+        .get_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to get log file")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("log file not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details("Log file not found"),
+                ),
+            )
+        })?;
+
+    let file_path = Path::new(&log_file.file_path);
+    tokio::fs::remove_file(file_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to delete log file")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    state
+        .db
+        .delete_log_file(id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to delete log file from database")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json("Log file deleted".to_string()))
+}
+
 pub async fn anomalies_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,

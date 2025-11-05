@@ -309,18 +309,11 @@ export function AdapterLifecycleManager({
   const handlePolicyUpdate = async (category: AdapterCategory, policy: CategoryPolicy) => {
     setIsLoading(true);
     try {
-      setPolicies(prev => ({ ...prev, [category]: policy }));
-      onPolicyUpdate(category, policy);
-      // TODO: Backend implementation required - PUT /v1/adapters/category/:category/policy
-      // This endpoint doesn't exist yet. For now, we update locally only.
-      setStatusMessage({ message: `Policy updated locally for ${category}. Backend sync pending API implementation.`, variant: 'info' });
-      logger.warn('Policy update: backend endpoint not implemented', {
-        component: 'AdapterLifecycleManager',
-        operation: 'handlePolicyUpdate',
-        category,
-        policy,
-        note: 'Local update only - PUT /v1/adapters/category/:category/policy needs implementation'
-      });
+      const updatedPolicy = await apiClient.updateCategoryPolicy(category, policy);
+      setPolicies(prev => ({ ...prev, [category]: updatedPolicy }));
+      onPolicyUpdate(category, updatedPolicy);
+      setStatusMessage({ message: `Policy for ${category} updated successfully.`, variant: 'success' });
+      setErrorRecovery(null);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update policy';
       logger.error('Failed to update policy', {

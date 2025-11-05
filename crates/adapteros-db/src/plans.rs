@@ -55,4 +55,18 @@ impl Db {
         .await?;
         Ok(plans)
     }
+
+    pub async fn delete_plan(&self, id: &str) -> Result<()> {
+        let rows_affected = sqlx::query("DELETE FROM plans WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await?
+            .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(anyhow::anyhow!("Plan with ID {} not found", id));
+        }
+
+        Ok(())
+    }
 }
