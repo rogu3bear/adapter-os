@@ -409,6 +409,77 @@ impl SignalBuilder {
     }
 }
 
+/// Worker signal types for API communication
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerSignal {
+    /// Signal type identifier
+    pub signal_type: String,
+    /// Timestamp when signal was created
+    pub timestamp: u128,
+    /// Signal payload data
+    pub payload: serde_json::Value,
+}
+
+impl WorkerSignal {
+    /// Create a new worker signal
+    pub fn new(signal_type: String, payload: serde_json::Value) -> Self {
+        Self {
+            signal_type,
+            timestamp: chrono::Utc::now().timestamp_millis() as u128,
+            payload,
+        }
+    }
+
+    /// Create an adapter loaded signal
+    pub fn adapter_loaded(adapter_id: String) -> Self {
+        Self::new(
+            "adapter_loaded".to_string(),
+            serde_json::json!({ "adapter_id": adapter_id }),
+        )
+    }
+
+    /// Create an adapter unloaded signal
+    pub fn adapter_unloaded(adapter_id: String) -> Self {
+        Self::new(
+            "adapter_unloaded".to_string(),
+            serde_json::json!({ "adapter_id": adapter_id }),
+        )
+    }
+
+    /// Create a warmup complete signal
+    pub fn warmup_complete() -> Self {
+        Self::new(
+            "warmup_complete".to_string(),
+            serde_json::json!({ "status": "complete" }),
+        )
+    }
+
+    /// Create a health status signal
+    pub fn health_status(healthy: bool, message: String) -> Self {
+        Self::new(
+            "health_status".to_string(),
+            serde_json::json!({ "healthy": healthy, "message": message }),
+        )
+    }
+
+    /// Create an inference complete signal
+    pub fn inference_complete(request_id: String) -> Self {
+        Self::new(
+            "inference_complete".to_string(),
+            serde_json::json!({ "request_id": request_id }),
+        )
+    }
+
+    /// Create an error signal
+    pub fn error(message: String) -> Self {
+        Self::new(
+            "error".to_string(),
+            serde_json::json!({ "message": message }),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -56,7 +56,7 @@ impl Default for InferencePipelineConfig {
 }
 
 /// Inference request
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InferenceRequest {
     /// Input prompt
     pub prompt: String,
@@ -66,10 +66,12 @@ pub struct InferenceRequest {
     pub cpid: String,
     /// Whether to require evidence grounding
     pub require_evidence: bool,
+    /// Request type for policy enforcement
+    pub request_type: Option<crate::RequestType>,
 }
 
 /// Inference response with trace
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InferenceResponse {
     /// Generated text
     pub text: String,
@@ -82,7 +84,7 @@ pub struct InferenceResponse {
 }
 
 /// Trace information for reproducible inference
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InferenceTrace {
     /// Control plane ID
     pub cpid: String,
@@ -97,7 +99,7 @@ pub struct InferenceTrace {
 }
 
 /// Router decision for a single generation step
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RouterDecision {
     /// Step number
     pub step: usize,
