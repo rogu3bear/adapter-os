@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 pub use adapteros_api_types::telemetry::{
     MetricDataPointResponse, MetricsSeriesResponse, MetricsSnapshotResponse,
 };
-pub use adapteros_api_types::*;
+// Note: adapteros_api_types::* is re-exported at crate level through lib.rs
 use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
 
 /// Replay verification response

@@ -406,6 +406,8 @@ pub struct AppState {
     pub telemetry_buffer: Arc<LogBuffer>,
     /// Broadcast channel for live telemetry streaming
     pub telemetry_tx: broadcast::Sender<UnifiedTelemetryEvent>,
+    /// Broadcast channel for live alert streaming
+    pub alert_tx: broadcast::Sender<crate::types::ProcessAlertResponse>,
     /// Broadcast channel for telemetry bundle updates
     pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
     /// Broadcast channel for operation progress updates
@@ -467,6 +469,10 @@ impl AppState {
         // Create broadcast channel for telemetry bundle updates
         let (bundles_tx, _bundles_rx) =
             broadcast::channel::<crate::types::TelemetryBundleResponse>(256);
+
+        // Create broadcast channel for alert streaming
+        let (alert_tx, _alert_rx) =
+            broadcast::channel::<crate::types::ProcessAlertResponse>(256);
 
         // Create broadcast channel for operation progress updates
         let (progress_tx, _progress_rx) =
@@ -543,6 +549,7 @@ impl AppState {
             training_sessions: Arc::new(AsyncRwLock::new(HashMap::new())),
             telemetry_buffer,
             telemetry_tx,
+            alert_tx,
             telemetry_bundles_tx: bundles_tx,
             operation_progress_tx: progress_tx,
             operation_tracker: Arc::new(operation_tracker),
