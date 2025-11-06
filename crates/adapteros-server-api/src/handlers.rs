@@ -335,7 +335,7 @@ fn map_alert_to_response(alert: ProcessAlert) -> ProcessAlertResponse {
     let escalation_level: i32 = alert
         .escalation_level
         .try_into()
-        .unwrap_or_else(|_| i32::MAX);
+        .unwrap_or(i32::MAX);
 
     ProcessAlertResponse {
         id: alert.id,
@@ -365,7 +365,7 @@ fn map_system_alert_to_response(alert: adapteros_system_metrics::monitoring_type
     let escalation_level: i32 = alert
         .escalation_level
         .try_into()
-        .unwrap_or_else(|_| i32::MAX);
+        .unwrap_or(i32::MAX);
 
     ProcessAlertResponse {
         id: alert.id,
@@ -582,7 +582,7 @@ async fn check_model_runtime_health_uncached(
 
     // Check for inconsistencies (simplified version)
     let mut inconsistencies_count = 0;
-    let mut runtime_model_set: std::collections::HashSet<(String, String)> =
+    let runtime_model_set: std::collections::HashSet<(String, String)> =
         runtime_models.iter().map(|k| (k.tenant_id.clone(), k.model_id.clone())).collect();
 
     // Check each DB model
@@ -864,7 +864,7 @@ pub async fn upsert_directory_adapter(
             .adapter_id(&adapter_id)
             .name(&adapter_id)
             .hash_b3(&hash_b3)
-            .rank(i32::from(analysis.symbols.len() as i32 % 17 + 16))
+            .rank((analysis.symbols.len() as i32 % 17 + 16))
             .tier(4)
             .languages_json(Some(languages_json))
             .framework(Some("directory"))
@@ -895,46 +895,43 @@ pub async fn upsert_directory_adapter(
     // Optionally activate (load) adapter now
     let mut activated = false;
     if req.activate {
-        match state.db.get_adapter(&adapter_id).await {
-            Ok(Some(a)) => {
-                let _ = state
-                    .db
-                    .update_adapter_state(&adapter_id, "loading", "directory_upsert")
-                    .await;
+        if let Ok(Some(a)) = state.db.get_adapter(&adapter_id).await {
+            let _ = state
+                .db
+                .update_adapter_state(&adapter_id, "loading", "directory_upsert")
+                .await;
 
-                if let Some(ref lifecycle) = state.lifecycle_manager {
-                    use adapteros_lora_lifecycle::AdapterLoader;
-                    use std::path::PathBuf;
-                    // Use the DB numeric id if it parses, else fall back to 0
-                    let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
-                    let adapters_path = PathBuf::from("./adapters");
-                    let mut loader = AdapterLoader::new(adapters_path);
-                    if loader
-                        .load_adapter_async(adapter_idx, &hash_hex, None)
-                        .await
-                        .is_ok()
-                    {
-                        let _ = state
-                            .db
-                            .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
-                            .await;
-                        activated = true;
-                    } else {
-                        let _ = state
-                            .db
-                            .update_adapter_state(&adapter_id, "cold", "load_failed")
-                            .await;
-                    }
-                } else {
-                    // Simulate load
+            if let Some(ref lifecycle) = state.lifecycle_manager {
+                use adapteros_lora_lifecycle::AdapterLoader;
+                use std::path::PathBuf;
+                // Use the DB numeric id if it parses, else fall back to 0
+                let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
+                let adapters_path = PathBuf::from("./adapters");
+                let mut loader = AdapterLoader::new(adapters_path);
+                if loader
+                    .load_adapter_async(adapter_idx, &hash_hex, None)
+                    .await
+                    .is_ok()
+                {
                     let _ = state
                         .db
-                        .update_adapter_state(&adapter_id, "warm", "simulated_load")
+                        .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
                         .await;
                     activated = true;
+                } else {
+                    let _ = state
+                        .db
+                        .update_adapter_state(&adapter_id, "cold", "load_failed")
+                        .await;
                 }
+            } else {
+                // Simulate load
+                let _ = state
+                    .db
+                    .update_adapter_state(&adapter_id, "warm", "simulated_load")
+                    .await;
+                activated = true;
             }
-            _ => {}
         }
     }
 
@@ -962,7 +959,7 @@ pub async fn bulk_adapter_load(
         Ok(ws) => ws,
         Err(_) => Vec::new(),
     };
-    let uds_path = if let Some(worker) = workers.get(0) {
+    let uds_path = if let Some(worker) = workers.first() {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
         std::path::PathBuf::from(format!("/var/run/aos/{}/aos.sock", tenant_id))
@@ -4540,7 +4537,7 @@ pub async fn verify_bundle_signature(
                             chrono::Utc,
                         )
                     })
-                    .unwrap_or_else(|| chrono::Utc::now())
+                    .unwrap_or_else(chrono::Utc::now)
                     .to_rfc3339()
             };
 
@@ -4854,7 +4851,7 @@ pub async fn propose_patch(
     let uds_client = UdsClient::new(std::time::Duration::from_secs(60)); // Longer timeout for patch generation
 
     // Resolve UDS path: prefer registered worker; fallback to per-tenant default
-    let uds_path_buf = if let Some(worker) = workers.get(0) {
+    let uds_path_buf = if let Some(worker) = workers.first() {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
         // Fallback: honor env override or use /var/run/aos/<tenant>/aos.sock
@@ -5138,7 +5135,7 @@ pub async fn infer(
     })?;
 
     // Resolve UDS path: prefer registered worker; otherwise fall back to per-tenant default
-    let uds_path_buf = if let Some(worker) = workers.get(0) {
+    let uds_path_buf = if let Some(worker) = workers.first() {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
         // Fallback: honor env override or use /var/run/aos/<tenant>/aos.sock
@@ -5222,7 +5219,7 @@ pub async fn infer_stream(
         Ok(ws) => ws,
         Err(_) => Vec::new(),
     };
-    let uds_path = if let Some(worker) = workers.get(0) {
+    let uds_path = if let Some(worker) = workers.first() {
         std::path::PathBuf::from(&worker.uds_path)
     } else {
         let fallback = std::env::var("AOS_WORKER_SOCKET")
@@ -7461,7 +7458,7 @@ pub async fn unload_adapter(
         .operation_tracker
         .start_adapter_operation(
             &adapter_id,
-            &tenant_id,
+            tenant_id,
             crate::operation_tracker::AdapterOperationType::Unload,
         )
         .await
@@ -7494,7 +7491,7 @@ pub async fn unload_adapter(
             .operation_tracker
             .update_adapter_progress(
                 &adapter_id,
-                &tenant_id,
+                tenant_id,
                 10.0,
                 Some(format!(
                     "Preparing to unload adapter ({} MB in memory)",
@@ -7510,7 +7507,7 @@ pub async fn unload_adapter(
                     .operation_tracker
                     .update_adapter_progress(
                         &adapter_id,
-                        &tenant_id,
+                        tenant_id,
                         90.0,
                         Some("Adapter unloaded from memory, updating database state".to_string()),
                     )
@@ -7545,7 +7542,7 @@ pub async fn unload_adapter(
                 {
                     state.metrics_collector.record_adapter_unload_latency(
                         &adapter_id,
-                        &tenant_id,
+                        tenant_id,
                         unload_duration,
                         "success",
                     );
@@ -7556,7 +7553,7 @@ pub async fn unload_adapter(
                     .operation_tracker
                     .complete_adapter_operation(
                         &adapter_id,
-                        &tenant_id,
+                        tenant_id,
                         crate::operation_tracker::AdapterOperationType::Unload,
                         true,
                     )
@@ -7568,7 +7565,7 @@ pub async fn unload_adapter(
                     .operation_tracker
                     .complete_adapter_operation(
                         &adapter_id,
-                        &tenant_id,
+                        tenant_id,
                         crate::operation_tracker::AdapterOperationType::Unload,
                         false,
                     )
@@ -7586,7 +7583,7 @@ pub async fn unload_adapter(
                 let unload_duration = unload_start.elapsed().as_secs_f64();
                 state.metrics_collector.record_adapter_unload_latency(
                     &adapter_id,
-                    &tenant_id,
+                    tenant_id,
                     unload_duration,
                     "failure",
                 );
@@ -7633,7 +7630,7 @@ pub async fn unload_adapter(
         let unload_duration = unload_start.elapsed().as_secs_f64();
         state.metrics_collector.record_adapter_unload_latency(
             &adapter_id,
-            &tenant_id,
+            tenant_id,
             unload_duration,
             "success",
         );
@@ -7970,9 +7967,7 @@ pub async fn update_adapter_policy(
                 Json(
                     ErrorResponse::new("Invalid category")
                         .with_code("INVALID_CATEGORY")
-                        .with_string_details(format!(
-                            "Category must be one of: code, framework, codebase, ephemeral"
-                        )),
+                        .with_string_details("Category must be one of: code, framework, codebase, ephemeral".to_string()),
                 ),
             ));
         }
@@ -8168,10 +8163,10 @@ pub async fn update_category_policy(
     // Convert request to CategoryPolicy
     let policy = adapteros_lora_lifecycle::CategoryPolicy {
         promotion_threshold: std::time::Duration::from_millis(
-            request.promotion_threshold_ms as u64,
+            request.promotion_threshold_ms,
         ),
-        demotion_threshold: std::time::Duration::from_millis(request.demotion_threshold_ms as u64),
-        memory_limit: request.memory_limit as usize,
+        demotion_threshold: std::time::Duration::from_millis(request.demotion_threshold_ms),
+        memory_limit: request.memory_limit,
         eviction_priority: match request.eviction_priority.as_str() {
             "never" => adapteros_lora_lifecycle::EvictionPriority::Never,
             "low" => adapteros_lora_lifecycle::EvictionPriority::Low,
@@ -8190,7 +8185,7 @@ pub async fn update_category_policy(
         },
         auto_promote: request.auto_promote,
         auto_demote: request.auto_demote,
-        max_in_memory: request.max_in_memory.map(|v| v as usize),
+        max_in_memory: request.max_in_memory.map(|v| v),
         routing_priority: request.routing_priority,
     };
 
@@ -8390,7 +8385,7 @@ pub async fn get_memory_usage(
 
     Ok(Json(crate::types::MemoryUsageResponse {
         adapters: adapter_entries,
-        total_memory_mb: total_memory_mb,
+        total_memory_mb,
         available_memory_mb,
         memory_pressure_level: pressure_level.to_string(),
     }))
@@ -8834,12 +8829,12 @@ pub async fn get_system_metrics(
                 started_sessions.difference(&completed_sessions).count() as i32
             } else {
                 // Fallback: approximate as started - completed
-                let active = if started > completed {
+                
+                if started > completed {
                     (started - completed) as i32
                 } else {
                     0
-                };
-                active
+                }
             };
 
             // Also check metrics collector for active_sessions gauge
@@ -9280,7 +9275,7 @@ pub async fn routing_decisions(
                 "general-coding-v1".to_string(),
             ],
             activations: vec![0.8, 0.6, 0.4],
-            reason: format!("Router selected top-3 adapters for prompt analysis (mock data)"),
+            reason: "Router selected top-3 adapters for prompt analysis (mock data)".to_string(),
             trace_id: format!("trace_{}", i),
         });
     }
@@ -9717,7 +9712,7 @@ pub async fn system_metrics_stream(
                 return Some((
                     Ok(Event::default()
                         .event("error")
-                        .data("{\"error\": \"serialization failed\"}".to_string())),
+                        .data("{\"error\": \"serialization failed\"}")),
                     state,
                 ));
             }
@@ -9892,7 +9887,7 @@ pub async fn adapter_state_stream(
                 return Some((
                     Ok(Event::default()
                         .event("error")
-                        .data("{\"error\": \"serialization failed\"}".to_string())),
+                        .data("{\"error\": \"serialization failed\"}")),
                     state,
                 ));
             }
@@ -10077,7 +10072,7 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                 if lifecycle_mgr
                     .get_state(adapter_idx)
                     .await
-                    .map_or(true, |state| state == AdapterState::Unloaded)
+                    .is_none_or(|state| state == AdapterState::Unloaded)
                 {
                     // Adapter marked as warm but not loaded in LifecycleManager
                     let alert_request = adapteros_db::process_monitoring::CreateAlertRequest {
@@ -10336,12 +10331,12 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
                 started_sessions.difference(&completed_sessions).count() as i32
             } else {
                 // Fallback: approximate as started - completed
-                let active = if started > completed {
+                
+                if started > completed {
                     (started - completed) as i32
                 } else {
                     0
-                };
-                active
+                }
             };
 
             // Also check metrics collector for active_sessions gauge
@@ -11656,7 +11651,7 @@ pub async fn export_audit_logs(
     require_role(&claims, Role::Compliance)?;
 
     // Default to last 30 days if no time range specified
-    let end_time = params.end_time.unwrap_or_else(|| Utc::now());
+    let end_time = params.end_time.unwrap_or_else(Utc::now);
     let start_time = params
         .start_time
         .unwrap_or_else(|| end_time - chrono::Duration::days(30));
@@ -12063,7 +12058,7 @@ pub async fn get_training_artifacts(
     let mut manifest_hash_b3 = None;
     let mut manifest_hash_matches = false;
     let mut signature_valid = false;
-    let ready_flag;
+    
 
     if let (Some(path), Some(aid)) = (job.artifact_path.clone(), job.adapter_id.clone()) {
         let dir = std::path::PathBuf::from(path.clone());
@@ -12114,7 +12109,7 @@ pub async fn get_training_artifacts(
         adapter_id = Some(aid);
     }
 
-    ready_flag = manifest_hash_matches && signature_valid;
+    let ready_flag = manifest_hash_matches && signature_valid;
     let resp = crate::types::TrainingArtifactsResponse {
         artifact_path,
         adapter_id,
@@ -12581,16 +12576,12 @@ pub async fn list_alerts(
     let filters = adapteros_system_metrics::AlertFilters {
         tenant_id: params.get("tenant_id").cloned(),
         worker_id: params.get("worker_id").cloned(),
-        status: params.get("status").and_then(|s| {
-            Some(adapteros_system_metrics::AlertStatus::from_string(
+        status: params.get("status").map(|s| adapteros_system_metrics::AlertStatus::from_string(
                 s.to_string(),
-            ))
-        }),
-        severity: params.get("severity").and_then(|s| {
-            Some(adapteros_system_metrics::AlertSeverity::from_string(
+            )),
+        severity: params.get("severity").map(|s| adapteros_system_metrics::AlertSeverity::from_string(
                 s.to_string(),
-            ))
-        }),
+            )),
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
@@ -12787,11 +12778,9 @@ pub async fn list_anomalies(
     let filters = adapteros_system_metrics::AnomalyFilters {
         tenant_id: params.get("tenant_id").cloned(),
         worker_id: params.get("worker_id").cloned(),
-        status: params.get("status").and_then(|s| {
-            Some(adapteros_system_metrics::AnomalyStatus::from_string(
+        status: params.get("status").map(|s| adapteros_system_metrics::AnomalyStatus::from_string(
                 s.to_string(),
-            ))
-        }),
+            )),
         anomaly_type: params.get("anomaly_type").cloned(),
         start_time: None,
         end_time: None,
@@ -13217,7 +13206,7 @@ pub async fn alerts_stream(
             Ok(json) => Ok(Event::default().event("alert").data(json)),
             Err(e) => {
                 tracing::warn!("Failed to serialize backlog alert: {}", e);
-                Ok(Event::default().event("error").data(format!("{{\"error\": \"serialization failed\"}}")))
+                Ok(Event::default().event("error").data("{\"error\": \"serialization failed\"}".to_string()))
             }
         }
     }));
@@ -14253,11 +14242,7 @@ pub async fn get_log_file_content(
 
     let content = if tail {
         // Read from the end of the file
-        let start_pos = if file_size > max_size as u64 {
-            file_size - max_size as u64
-        } else {
-            0
-        };
+        let start_pos = file_size.saturating_sub(max_size as u64);
 
         file.seek(SeekFrom::Start(start_pos)).map_err(|e| {
             (
@@ -14415,7 +14400,7 @@ pub async fn stream_log_file(
         let reader = BufReader::new(file);
         let mut lines = reader.lines();
 
-        while let Some(line) = lines.next() {
+        for line in lines {
             match line {
                 Ok(content) => {
                     if tx.send(Ok(Event::default().data(content))).await.is_err() {

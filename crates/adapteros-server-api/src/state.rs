@@ -73,7 +73,7 @@ fn default_max_config_size() -> u64 {
 }
 
 fn default_max_tokenizer_size() -> u64 {
-    1 * 1024 * 1024 * 1024 // 1GB
+    1024 * 1024 * 1024 // 1GB
 }
 
 fn default_max_cached_models() -> usize {
@@ -791,7 +791,7 @@ impl AppState {
 
         if router_seed != expected_router_seed {
             return Err(adapteros_core::AosError::PolicyViolation(
-                format!("Router seed inconsistency detected")
+                "Router seed inconsistency detected".to_string()
             ));
         }
 

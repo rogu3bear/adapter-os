@@ -223,19 +223,12 @@ pub struct NormalizedLogFilters {
 }
 
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct ParsedLogFilters {
     pub telemetry: TelemetryFilters,
     pub realtime: NormalizedLogFilters,
 }
 
-impl Default for ParsedLogFilters {
-    fn default() -> Self {
-        Self {
-            telemetry: TelemetryFilters::default(),
-            realtime: NormalizedLogFilters::default(),
-        }
-    }
-}
 
 pub fn normalize_log_filters(params: &LogsQueryParams) -> Result<ParsedLogFilters, ErrorResponse> {
     let mut telemetry_filters = TelemetryFilters::default();

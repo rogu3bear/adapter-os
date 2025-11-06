@@ -210,7 +210,7 @@ pub async fn import_model(
         error!("Failed to create import record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 
@@ -834,7 +834,7 @@ pub async fn get_import_status(
         error!("Failed to get import status: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 
@@ -902,7 +902,7 @@ pub async fn get_model_status(
         error!("Failed to get model status: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 
@@ -974,7 +974,7 @@ pub async fn download_model(
         error!("Failed to get model info: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 
@@ -1006,7 +1006,7 @@ pub async fn download_model(
         error!("Failed to fetch model import record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 
@@ -1412,7 +1412,7 @@ pub async fn get_model_diagnostics(
         error!("Failed to query database models: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })
     .map(|rows| {
@@ -1514,7 +1514,7 @@ pub async fn validate_model(
         error!("Failed to check model: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 
@@ -1636,7 +1636,7 @@ pub async fn get_cursor_config(
         error!("Failed to check model status: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", &e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
         )
     })?;
 

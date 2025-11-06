@@ -82,8 +82,8 @@ pub async fn git_status(
         Ok(git_status) => {
             let status = GitStatusResponse {
                 enabled: true,
-                active_sessions: git_status.active_sessions as u32,
-                repositories_tracked: git_status.repositories_tracked as u32,
+                active_sessions: git_status.active_sessions,
+                repositories_tracked: git_status.repositories_tracked,
                 last_scan: git_status.last_scan,
             };
             Ok(Json(status))

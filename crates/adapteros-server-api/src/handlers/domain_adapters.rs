@@ -686,7 +686,7 @@ pub async fn test_domain_adapter(
             req.expected_output.as_deref(),
             epsilon,
             passed,
-            iterations as u32,
+            iterations,
             execution_time_ms,
         )
         .await
@@ -710,7 +710,7 @@ pub async fn test_domain_adapter(
         expected_output: req.expected_output,
         epsilon,
         passed,
-        iterations: iterations as u32,
+        iterations: iterations,
         execution_time_ms,
         executed_at: Utc::now().to_rfc3339(),
     };

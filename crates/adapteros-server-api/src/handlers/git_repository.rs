@@ -475,7 +475,7 @@ pub async fn train_repository_adapter(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new(&format!("Failed to create training job parameters: {}", e))
+                    ErrorResponse::new(format!("Failed to create training job parameters: {}", e))
                         .with_code("INTERNAL_ERROR"),
                 ),
             )
@@ -675,12 +675,10 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>
     revwalk.push_head()?;
 
     // Limit to last 100 commits for performance
-    for oid_result in revwalk.take(100) {
-        if let Ok(oid) = oid_result {
-            if let Ok(commit) = repo.find_commit(oid) {
-                if let Some(author_name) = commit.author().name() {
-                    authors.insert(author_name.to_string());
-                }
+    for oid in revwalk.take(100).flatten() {
+        if let Ok(commit) = repo.find_commit(oid) {
+            if let Some(author_name) = commit.author().name() {
+                authors.insert(author_name.to_string());
             }
         }
     }
