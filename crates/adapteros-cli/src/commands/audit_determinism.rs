@@ -94,7 +94,7 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
                 report.floating_point_mode
             ));
 
-            if let Some(ref hash) = report.metallib_hash {
+            if let Some(hash) = report.metallib_hash {
                 output.info(&format!("Metallib Hash:      {}", hash.to_short_hex()));
             } else {
                 output.info("Metallib Hash:      N/A");

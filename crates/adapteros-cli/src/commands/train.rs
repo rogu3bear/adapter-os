@@ -9,7 +9,7 @@ use adapteros_lora_worker::training::{
 use clap::Args;
 use serde_json;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
 use tracing::{info, warn};
 
@@ -612,7 +612,7 @@ impl TrainArgs {
             let should_include = include_patterns.iter().any(|pattern| {
                 if let Some(ext) = path.extension() {
                     let ext_pattern = format!("*.{}", ext.to_string_lossy());
-                    pattern == &ext_pattern || pattern == "*"
+                    pattern == &ext_pattern || *pattern == "*"
                 } else {
                     false
                 }
@@ -691,9 +691,9 @@ impl TrainArgs {
             let input_text = format!("Document chunk: {}", chunk);
             let target_text = chunk.to_string();
 
-            let input_tokens = tokenizer.encode(&input_text, false)
+            let input_tokens = tokenizer.encode(input_text.as_str(), false)
                 .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
-            let target_tokens = tokenizer.encode(&target_text, false)
+            let target_tokens = tokenizer.encode(target_text.as_str(), false)
                 .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
 
             if input_tokens.is_empty() || target_tokens.is_empty() {
@@ -780,9 +780,9 @@ impl TrainArgs {
         let input_text = format!("Code snippet: {}", code_text);
         let target_text = code_text;
 
-        let input_tokens = tokenizer.encode(&input_text, false)
+        let input_tokens = tokenizer.encode(input_text.as_str(), false)
             .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
-        let target_tokens = tokenizer.encode(&target_text, false)
+        let target_tokens = tokenizer.encode(target_text.as_str(), false)
             .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
 
         if input_tokens.is_empty() || target_tokens.is_empty() {
@@ -820,9 +820,9 @@ impl TrainArgs {
                 let input_text = format!("JSON data: {}", json_text);
                 let target_text = json_text;
 
-                let input_tokens = tokenizer.encode(&input_text, false)
+                let input_tokens = tokenizer.encode(input_text.as_str(), false)
                     .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
-                let target_tokens = tokenizer.encode(&target_text, false)
+                let target_tokens = tokenizer.encode(target_text.as_str(), false)
                     .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
 
                 if !input_tokens.is_empty() && !target_tokens.is_empty() {

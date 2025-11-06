@@ -518,6 +518,62 @@ impl ModelRuntime {
         self.load_model(tenant_id, model_id, model_path, 8192)
     }
 
+    /// Load model with progress callbacks for real-time updates
+    ///
+    /// # Citations
+    /// - Progress tracking: [source: crates/adapteros-server-api/src/operation_tracker.rs L315-340]
+    /// - SSE broadcasting: [source: crates/adapteros-server-api/src/state.rs L437-438]
+    pub async fn load_model_async_with_progress<F>(
+        &mut self,
+        tenant_id: &str,
+        model_id: &str,
+        model_path: &str,
+        progress_callback: F,
+        timeout: Duration,
+    ) -> Result<(), String>
+    where
+        F: Fn(f64, String) + Send + Sync + 'static,
+    {
+        progress_callback(0.0, "Starting model validation".to_string());
+
+        // Validate model files (0-10% progress)
+        self.validate_model_files(model_path)?;
+        progress_callback(10.0, "Model files validated".to_string());
+
+        // Check file size limits (10-20% progress)
+        let metadata = std::fs::metadata(model_path)
+            .map_err(|e| format!("Failed to read model file metadata: {}", e))?;
+
+        if metadata.len() > self.max_model_size_bytes {
+            return Err(format!(
+                "Model file too large: {} bytes (limit: {} bytes)",
+                metadata.len(),
+                self.max_model_size_bytes
+            ));
+        }
+        progress_callback(20.0, "File size validated".to_string());
+
+        // Load model (20-90% progress)
+        // For now, simulate loading with progress updates
+        // TODO: Replace with actual MLX loading when feature is available
+        for i in 2..=9 {
+            tokio::time::sleep(Duration::from_millis(100)).await; // Simulate work
+            let progress = (i * 10) as f64;
+            progress_callback(progress, format!("Loading model components ({}%)", progress));
+        }
+
+        // Actually load the model
+        self.load_model(tenant_id, model_id, model_path, 8192)?;
+
+        progress_callback(90.0, "Model loaded, finalizing".to_string());
+
+        // Final setup (90-100%)
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        progress_callback(100.0, "Model loaded successfully".to_string());
+
+        Ok(())
+    }
+
     /// Validate that model directory exists and contains required files
     ///
     /// Checks for:

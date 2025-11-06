@@ -15,7 +15,20 @@ pub mod types;
 pub mod uds_client;
 pub mod validation;
 
-pub use adapteros_api_types::*;
+// Selective imports from adapteros_api_types to avoid conflicts with local types
+pub use adapteros_api_types::{
+    // Domain adapter types
+    CreateDomainAdapterRequest, DomainAdapterResponse, DomainAdapterExecutionResponse,
+    DomainAdapterManifestResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
+    TestDomainAdapterResponse,
+    // Metrics types
+    AdapterHealthResponse, QualityMetricsResponse, AdapterMetricsResponse,
+    // Training types (only those not defined locally)
+    StartTrainingRequest,
+};
+
+// Direct imports (not re-exported to avoid conflicts)
+use adapteros_api_types::telemetry::SystemMetricsResponse;
 pub use state::{AppState, CryptoState};
 pub use types::*;
 pub use uds_client::{UdsClient, UdsClientError};

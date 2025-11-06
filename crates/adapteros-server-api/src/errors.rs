@@ -313,6 +313,54 @@ impl RetryExecutor {
             }
         }
     }
+
+    /// Execute operation with progress callback support
+    ///
+    /// # Citations
+    /// - Progress tracking: [source: crates/adapteros-server-api/src/operation_tracker.rs L315-340]
+    /// - Retry logic: [source: crates/adapteros-server-api/src/errors.rs L277-315]
+    pub async fn execute_with_progress<F, Fut, T, P>(
+        &self,
+        mut operation: P,
+    ) -> std::result::Result<T, anyhow::Error>
+    where
+        P: FnMut(u32, u32) -> F,
+        F: Future<Output = std::result::Result<T, anyhow::Error>>,
+    {
+        let mut attempt = 0u32;
+        let mut delay = self.config.initial_delay;
+
+        loop {
+            attempt += 1;
+            match operation(attempt, self.config.max_attempts).await {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if attempt >= self.config.max_attempts {
+                        return Err(err);
+                    }
+
+                    let err_message = err.to_string();
+                    warn!(
+                        attempt,
+                        max_attempts = self.config.max_attempts,
+                        error = %err_message,
+                        "Retryable operation failed; scheduling retry"
+                    );
+
+                    let jitter_ratio = self.config.jitter_factor.clamp(0.0, 1.0);
+                    let jitter_direction = if attempt % 2 == 0 { -1.0 } else { 1.0 };
+                    let jitter_multiplier = 1.0 + (jitter_ratio * 0.5 * jitter_direction);
+                    let sleep_duration =
+                        delay.mul_f64(jitter_multiplier).min(self.config.max_delay);
+
+                    sleep(sleep_duration).await;
+
+                    let next_delay = delay.mul_f64(self.config.backoff_multiplier);
+                    delay = next_delay.min(self.config.max_delay);
+                }
+            }
+        }
+    }
 }
 
 /// Result type for validation operations

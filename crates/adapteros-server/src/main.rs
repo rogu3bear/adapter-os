@@ -16,6 +16,37 @@ use adapteros_server_api::{routes, AppState};
 use adapteros_system_metrics::SystemMetricsCollector;
 use adapteros_telemetry::metrics::{SystemMetricsProvider, SystemMetricsSnapshot};
 use async_trait::async_trait;
+
+/// System metrics provider implementation using SystemMetricsCollector
+#[derive(Debug, Default)]
+struct TelemetrySystemMetricsProvider {
+    collector: std::sync::Mutex<SystemMetricsCollector>,
+}
+
+#[async_trait]
+impl adapteros_telemetry::metrics::SystemMetricsProvider for TelemetrySystemMetricsProvider {
+    async fn collect_system_metrics(&self) -> adapteros_telemetry::metrics::SystemMetricsSnapshot {
+        let mut collector = self.collector.lock().unwrap();
+        let metrics = collector.collect_metrics();
+        adapteros_telemetry::metrics::SystemMetricsSnapshot {
+            cpu_usage_percent: (metrics.cpu_usage * 100.0) as f64,
+            memory_usage_mb: metrics.memory_usage as f64,
+            disk_io_utilization: metrics.disk_io.usage_percent as f64,
+            network_bandwidth_mbps: 0.0, // TODO: calculate from network metrics
+            gpu_utilization: metrics.gpu_metrics.utilization,
+            gpu_memory_used_mb: metrics.gpu_metrics.memory_used.map(|m| m as f64),
+            gpu_temperature: None,
+        }
+    }
+}
+
+impl TelemetrySystemMetricsProvider {
+    fn new() -> Self {
+        Self {
+            collector: std::sync::Mutex::new(SystemMetricsCollector::new()),
+        }
+    }
+}
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -481,6 +512,8 @@ async fn main() -> Result<()> {
                 telemetry_buffer_capacity: 1024,
                 telemetry_channel_capacity: 256,
                 trace_buffer_capacity: 512,
+                server_enabled: true,
+                server_port: 9090,
             },
             golden_gate,
             bundles_root: cfg.paths.bundles_root.clone(),
@@ -492,12 +525,13 @@ async fn main() -> Result<()> {
                 allowlist: vec!["**/*".to_string()],
                 denylist: vec!["**/.env*".to_string(), "**/secrets/**".to_string()],
             },
-            repository_paths: cfg.paths.repositories.clone(),
+            repository_paths: adapteros_server_api::state::RepositoryPathsConfig::default(),
             production_mode: cfg.server.production_mode,
             model_load_timeout_secs: 300,
             model_unload_timeout_secs: 30,
-            max_loaded_models: 3,
-            max_models_per_tenant: 1,
+            mlx: None,
+            operation_retry: adapteros_server_api::state::OperationRetryConfig::default(),
+            security: adapteros_server_api::state::SecurityConfig::default(),
         }))
     };
 
@@ -610,13 +644,12 @@ async fn main() -> Result<()> {
     info!("Initialized metrics time series for dashboard");
 
     // Create metrics server for HTTP Prometheus export
-    let metrics_server = if cfg.metrics.server_enabled {
+    let metrics_server = if config.read().unwrap().metrics.server_enabled {
         let server = Arc::new(
             adapteros_telemetry::MetricsServer::new(
                 metrics_collector.clone(),
-                cfg.metrics.server_port,
-            )
-            .expect("metrics server"),
+                config.read().unwrap().metrics.server_port,
+            ),
         );
 
         // Start metrics server in background
@@ -627,7 +660,7 @@ async fn main() -> Result<()> {
             }
         });
 
-        info!("Metrics server started on port {}", cfg.metrics.server_port);
+        info!("Metrics server started on port {}", config.read().unwrap().metrics.server_port);
         Some(server)
     } else {
         info!("Metrics server disabled");
@@ -995,12 +1028,15 @@ async fn main() -> Result<()> {
             3,
         );
 
-        // Configure adapter loader with file size limits
+        // TODO: Configure adapter loader with file size limits
+        // Currently disabled due to private API access
+        /*
         {
             let max_adapter_size = cfg.server.max_adapter_size_bytes;
             let mut loader = lifecycle.loader.write();
             loader.set_max_size(max_adapter_size);
         }
+        */
 
         if cfg.server.enable_mmap_adapters {
             lifecycle =
@@ -1035,12 +1071,15 @@ async fn main() -> Result<()> {
         let mut lifecycle =
             LifecycleManager::new(adapter_names, &policies, adapters_path.clone(), None, 3);
 
-        // Configure adapter loader with file size limits
+        // TODO: Configure adapter loader with file size limits
+        // Currently disabled due to private API access
+        /*
         {
             let max_adapter_size = cfg.server.max_adapter_size_bytes;
             let mut loader = lifecycle.loader.write();
             loader.set_max_size(max_adapter_size);
         }
+        */
 
         if enable_mmap {
             lifecycle = lifecycle.with_mmap_loader(adapters_path.clone(), mmap_mb);
@@ -1144,15 +1183,15 @@ async fn main() -> Result<()> {
         info!("Git subsystem disabled in configuration");
     }
 
-    // Reconcile model states on startup to fix any stuck 'loading' or 'unloading' states
-    {
-        use adapteros_server_api::handlers::models::reconcile_model_states;
-        info!("Running model state reconciliation on startup");
-        if let Err(e) = reconcile_model_states(&state).await {
-            warn!("Model state reconciliation failed: {}", e);
-            // Continue startup even if reconciliation fails
-        }
-    }
+    // TODO: Reconcile model states on startup to fix any stuck 'loading' or 'unloading' states
+    // {
+    //     use adapteros_server_api::handlers::models::reconcile_model_states;
+    //     info!("Running model state reconciliation on startup");
+    //     if let Err(e) = reconcile_model_states(&state).await {
+    //         warn!("Model state reconciliation failed: {}", e);
+    //         // Continue startup even if reconciliation fails
+    //     }
+    // }
 
     // Spawn status cache update background task
     {
@@ -1184,34 +1223,34 @@ async fn main() -> Result<()> {
         info!("Status file writer started (5s interval)");
     }
 
-    // Spawn periodic model state health check task
-    {
-        use adapteros_server_api::handlers::models::check_model_state_health;
-        let state_clone = state.clone();
-        let _ = spawn_deterministic("Model state health check".to_string(), async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every 60 seconds
-            loop {
-                interval.tick().await;
-                match check_model_state_health(&state_clone).await {
-                    Ok(metrics) => {
-                        if metrics.divergences > 0 {
-                            warn!(
-                                divergence_count = metrics.divergences,
-                                total_models = metrics.total_models,
-                                "Model state health check detected {} divergence(s) out of {} models",
-                                metrics.divergences,
-                                metrics.total_models
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Model state health check failed: {}", e);
-                    }
-                }
-            }
-        });
-        info!("Model state health check task started (60s interval)");
-    }
+    // TODO: Spawn periodic model state health check task
+    // {
+    //     use adapteros_server_api::handlers::models::check_model_state_health;
+    //     let state_clone = state.clone();
+    //     let _ = spawn_deterministic("Model state health check".to_string(), async move {
+    //         let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every 60 seconds
+    //         loop {
+    //             interval.tick().await;
+    //             match check_model_state_health(&state_clone).await {
+    //                 Ok(metrics) => {
+    //                     if metrics.divergences > 0 {
+    //                         warn!(
+    //                             divergence_count = metrics.divergences,
+    //                             total_models = metrics.total_models,
+    //                             "Model state health check detected {} divergence(s) out of {} models",
+    //                             metrics.divergences,
+    //                             metrics.total_models
+    //                         );
+    //                     }
+    //                 }
+    //                 Err(e) => {
+    //                     warn!("Model state health check failed: {}", e);
+    //                 }
+    //             }
+    //         }
+    //     });
+    //     info!("Model state health check task started (60s interval)");
+    // }
 
     // Spawn operation health monitoring task (stuck operations and state divergences)
     {
@@ -1292,7 +1331,7 @@ async fn main() -> Result<()> {
                 use adapteros_deterministic_exec::seed::SeedMetrics;
                 let seed_metrics = SeedMetrics::collect();
 
-                use adapteros_telemetry::metrics::DeterminismMetrics;
+                use adapteros_telemetry_types::metrics::DeterminismMetrics;
                 let determinism_metrics = DeterminismMetrics {
                     seed_collision_count: seed_metrics.collision_count,
                     seed_propagation_failure_count: seed_metrics.propagation_failure_count,
@@ -1755,11 +1794,26 @@ async fn shutdown_signal() -> ShutdownSignal {
     // Priority: Immediate (USR2) > Fast (USR1) > Graceful (TERM/Ctrl+C)
     #[cfg(unix)]
     {
-        let signal = select_2(
-            select_2(select_2(ctrl_c, terminate).await, usr1).await,
-            usr2,
+        use adapteros_deterministic_exec::select::{select_3, SelectResult3};
+        let signal = match select_3(
+            async {
+                usr2.await;
+                ShutdownSignal::Immediate
+            },
+            async {
+                usr1.await;
+                ShutdownSignal::Fast
+            },
+            async {
+                select_2(ctrl_c, terminate).await;
+                ShutdownSignal::Graceful
+            },
         )
-        .await;
+        .await {
+            SelectResult3::First(signal) => signal,
+            SelectResult3::Second(signal) => signal,
+            SelectResult3::Third(signal) => signal,
+        };
         info!("Shutdown signal received: {:?}", signal);
         signal
     }
@@ -1796,21 +1850,19 @@ async fn cleanup_resources(
     );
 
     // Emit shutdown start telemetry event
-    if let Some(ref telemetry_tx) = state.telemetry_tx {
-        let shutdown_event = TelemetryEventBuilder::new(
-            EventType::ShutdownStart,
-            LogLevel::Info,
-            format!("{:?} shutdown initiated", shutdown_signal),
-        )
-        .component("server".to_string())
-        .metadata(serde_json::json!({
-            "shutdown_type": format!("{:?}", shutdown_signal),
-            "signal_received_at": chrono::Utc::now().to_rfc3339()
-        }))
-        .build();
+    let shutdown_event = TelemetryEventBuilder::new(
+        EventType::ShutdownStart,
+        LogLevel::Info,
+        format!("{:?} shutdown initiated", shutdown_signal),
+    )
+    .component("server".to_string())
+    .metadata(serde_json::json!({
+        "shutdown_type": format!("{:?}", shutdown_signal),
+        "signal_received_at": chrono::Utc::now().to_rfc3339()
+    }))
+    .build();
 
-        let _ = telemetry_tx.send(shutdown_event);
-    }
+    let _ = state.telemetry_tx.send(shutdown_event);
 
     // Execute shutdown phases based on signal type
     let phases = match shutdown_signal {
@@ -1867,25 +1919,23 @@ async fn cleanup_resources(
     cleanup_stats.shutdown_duration = shutdown_start.elapsed();
 
     // Emit final shutdown telemetry event
-    if let Some(ref telemetry_tx) = state.telemetry_tx {
-        let shutdown_complete_event = TelemetryEventBuilder::new(
-            EventType::ShutdownComplete,
-            LogLevel::Info,
-            format!("{:?} shutdown completed", shutdown_signal),
-        )
-        .component("server".to_string())
-        .metadata(serde_json::json!({
-            "shutdown_type": format!("{:?}", shutdown_signal),
-            "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
-            "models_unloaded": cleanup_stats.models_unloaded,
-            "adapters_unloaded": cleanup_stats.adapters_unloaded,
+    let shutdown_complete_event = TelemetryEventBuilder::new(
+        EventType::ShutdownComplete,
+        LogLevel::Info,
+        format!("{:?} shutdown completed", shutdown_signal),
+    )
+    .component("server".to_string())
+    .metadata(serde_json::json!({
+        "shutdown_type": format!("{:?}", shutdown_signal),
+        "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
+        "models_unloaded": cleanup_stats.models_unloaded,
+        "adapters_unloaded": cleanup_stats.adapters_unloaded,
             "telemetry_flushed": cleanup_stats.telemetry_flushed,
             "database_closed": cleanup_stats.database_closed
         }))
         .build();
 
-        let _ = telemetry_tx.send(shutdown_complete_event);
-    }
+    let _ = state.telemetry_tx.send(shutdown_complete_event);
 
     info!(
         "Shutdown cleanup completed in {:?}: {} models unloaded, {} adapters unloaded",
@@ -1902,7 +1952,7 @@ async fn execute_shutdown_phase(
     state: &adapteros_server_api::state::AppState,
     phase: ShutdownPhase,
     stats: &mut CleanupStats,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let timeout = phase.timeout();
     let result = tokio::time::timeout(timeout, async {
         match phase {
@@ -1952,16 +2002,14 @@ async fn execute_shutdown_phase(
 async fn flush_telemetry_buffers(
     state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Flushing telemetry buffers");
 
     // Flush any pending telemetry events
-    if let Some(ref telemetry_tx) = state.telemetry_tx {
-        // Give telemetry some time to flush
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        stats.telemetry_flushed = true;
-        info!("Telemetry buffers flushed");
-    }
+    // Give telemetry some time to flush
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    stats.telemetry_flushed = true;
+    info!("Telemetry buffers flushed");
 
     Ok(())
 }
@@ -1969,7 +2017,7 @@ async fn flush_telemetry_buffers(
 /// Save critical state before shutdown
 async fn save_shutdown_state(
     _state: &adapteros_server_api::state::AppState,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Saving critical shutdown state");
     // TODO: Save any critical in-memory state that needs to persist
     // For now, this is a placeholder
@@ -1980,7 +2028,7 @@ async fn save_shutdown_state(
 async fn cleanup_models(
     state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use adapteros_server_api::model_runtime::ModelRuntime;
     use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
 
@@ -2011,22 +2059,20 @@ async fn cleanup_models(
                     info!("Model {} unloaded successfully", model_id);
 
                     // Emit telemetry
-                    if let Some(ref telemetry_tx) = state.telemetry_tx {
-                        let event = TelemetryEventBuilder::new(
-                            EventType::ModelUnload,
-                            LogLevel::Info,
-                            format!("Model {} unloaded during shutdown", model_id),
-                        )
-                        .component("server".to_string())
-                        .tenant_id(Some(tenant_id.clone()))
-                        .metadata(serde_json::json!({
-                            "model_id": model_id,
-                            "duration_ms": model_duration.as_millis(),
-                            "success": true
-                        }))
-                        .build();
-                        let _ = telemetry_tx.send(event);
-                    }
+                    let event = TelemetryEventBuilder::new(
+                        EventType::ModelUnload,
+                        LogLevel::Info,
+                        format!("Model {} unloaded during shutdown", model_id),
+                    )
+                    .component("server".to_string())
+                    .tenant_id(tenant_id.clone())
+                    .metadata(serde_json::json!({
+                        "model_id": model_id,
+                        "duration_ms": model_duration.as_millis(),
+                        "success": true
+                    }))
+                    .build();
+                    let _ = state.telemetry_tx.send(event);
                 }
                 Ok(Err(e)) => {
                     stats.models_failed += 1;
@@ -2058,21 +2104,20 @@ async fn cleanup_models(
 async fn cleanup_adapters(
     state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use adapteros_lora_lifecycle::AdapterLoader;
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use adapteros_lora_lifecycle::{AdapterLoader, AdapterState};
     use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
 
     if let Some(lifecycle_manager) = &state.lifecycle_manager {
         let adapter_cleanup_start = std::time::Instant::now();
         let guard = lifecycle_manager.lock().await;
-        let loader = guard.loader();
 
-        let loaded_adapters: Vec<u16> = {
-            let loader_guard = loader.read().await;
-            (0..u16::MAX)
-                .filter(|&id| loader_guard.is_loaded(id))
-                .collect()
-        };
+        let loaded_adapters: Vec<u16> = guard
+            .get_all_states()
+            .into_iter()
+            .filter(|record| !matches!(record.state, AdapterState::Unloaded))
+            .map(|record| record.adapter_idx)
+            .collect();
 
         stats.total_adapters = loaded_adapters.len();
         info!(
@@ -2084,12 +2129,10 @@ async fn cleanup_adapters(
 
         for adapter_idx in loaded_adapters {
             let adapter_start = std::time::Instant::now();
-            let guard = lifecycle_manager.lock().await;
-            let loader = guard.loader();
 
             let result = {
-                let mut loader_guard = loader.write().await;
-                loader_guard.unload_adapter(adapter_idx)
+                let guard = lifecycle_manager.lock().await;
+                guard.evict_adapter(adapter_idx).await
             };
 
             let adapter_duration = adapter_start.elapsed();
@@ -2100,21 +2143,19 @@ async fn cleanup_adapters(
                     info!("Adapter {} unloaded successfully", adapter_idx);
 
                     // Emit telemetry
-                    if let Some(ref telemetry_tx) = state.telemetry_tx {
-                        let event = TelemetryEventBuilder::new(
-                            EventType::AdapterUnload,
-                            LogLevel::Info,
-                            format!("Adapter {} unloaded during shutdown", adapter_idx),
-                        )
-                        .component("server".to_string())
-                        .metadata(serde_json::json!({
+                    let event = TelemetryEventBuilder::new(
+                        EventType::AdapterUnload,
+                        LogLevel::Info,
+                        format!("Adapter {} unloaded during shutdown", adapter_idx),
+                    )
+                    .component("server".to_string())
+                    .metadata(serde_json::json!({
                             "adapter_idx": adapter_idx,
                             "duration_ms": adapter_duration.as_millis(),
                             "success": true
                         }))
                         .build();
-                        let _ = telemetry_tx.send(event);
-                    }
+                    let _ = state.telemetry_tx.send(event);
                 }
                 Err(e) => {
                     stats.adapters_failed += 1;
@@ -2137,7 +2178,7 @@ async fn cleanup_adapters(
 async fn close_database_connections(
     _state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Closing database connections");
     // Database connections will be closed when the state is dropped
     // This is mainly for telemetry and logging
@@ -2146,7 +2187,7 @@ async fn close_database_connections(
 }
 
 /// Cleanup temporary files during final phase
-async fn cleanup_temporary_files() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn cleanup_temporary_files() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Cleaning up temporary files");
     // TODO: Implement cleanup of temporary files created during operation
     Ok(())

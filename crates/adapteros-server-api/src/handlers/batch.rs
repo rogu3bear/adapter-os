@@ -1,9 +1,10 @@
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::{
-    BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse, InferResponse,
-    InferenceTrace, WorkerInferRequest,
+    BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse, WorkerInferRequest,
 };
+use adapteros_api_types::InferenceTrace;
+use adapteros_api_types::InferResponse;
 use crate::uds_client::{UdsClient, UdsClientError};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use std::path::PathBuf;

@@ -4,6 +4,26 @@ use utoipa::ToSchema;
 // Re-export shared API types
 pub use adapteros_api_types::telemetry::{
     MetricDataPointResponse, MetricsSeriesResponse, MetricsSnapshotResponse,
+    SystemMetricsResponse, AdapterMetricsResponse,
+};
+pub use adapteros_api_types::{
+    // Training types
+    StartTrainingRequest, TrainingJobResponse, TrainingMetricsResponse, TrainingTemplateResponse,
+    TrainingConfigRequest,
+    // Tenant types
+    CreateTenantRequest, TenantResponse,
+    // Inference types
+    InferRequest, InferResponse, RouterDecision,
+    // Adapter types
+    AdapterResponse, AdapterStats, RegisterAdapterRequest, AdapterActivationResponse,
+    // Repository types
+    RegisterRepositoryRequest, TriggerScanRequest,
+    // Domain adapter types
+    CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
+    DomainAdapterResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
+    TestDomainAdapterResponse, EpsilonStatsResponse,
+    // Metrics types
+    AdapterPerformance, LoadAverageResponse, QualityMetricsResponse,
 };
 // Note: adapteros_api_types::* is re-exported at crate level through lib.rs
 use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
@@ -75,6 +95,11 @@ pub struct BatchInferResponse {
 
 /// Operation progress event for SSE streaming
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+/// Progress event for ongoing operations
+///
+/// # Citations
+/// - Usage in SSE stream: [source: crates/adapteros-server-api/src/handlers.rs L9677-L9719]
+/// - Operation tracker: [source: crates/adapteros-server-api/src/operation_tracker.rs L37-L46]
 pub struct OperationProgressEvent {
     pub operation_id: String, // Format: "{adapter_id}:{tenant_id}"
     pub adapter_id: String,
@@ -225,7 +250,8 @@ pub struct ImportModelRequest {
 /// Load model request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LoadModelRequest {
-    // Empty for now - can be extended with loading options
+    /// Optional timeout in seconds for model loading (default: 300)
+    pub timeout_secs: Option<u64>,
 }
 
 /// Model response after loading
@@ -1724,6 +1750,7 @@ pub struct ProcessHealthMetricResponse {
 
 /// Process alert
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Clone)]
 pub struct ProcessAlertResponse {
     pub id: String,
     pub rule_id: String,

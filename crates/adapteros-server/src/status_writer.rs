@@ -668,13 +668,13 @@ fn write_status_path_metadata(status_path: &str) -> Result<()> {
             }
             let _ = fs::write(&user_metadata, status_path);
         }
-        return Err(e);
+        return Err(anyhow::Error::from(e));
     }
 
     // Atomic rename
     if let Err(e) = fs::rename(metadata_temp, metadata_path) {
         let _ = fs::remove_file(metadata_temp);
-        return Err(e);
+        return Err(anyhow::Error::from(e));
     }
 
     // Set permissions to 0644
