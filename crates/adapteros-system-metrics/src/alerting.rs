@@ -1322,7 +1322,7 @@ impl AlertEvaluator {
                 let last_accessed = adapter.last_activated
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
                     .map(|dt| dt.with_timezone(&chrono::Utc))
-                    .unwrap_or_else(|| chrono::Utc::now());
+                    .unwrap_or_else(chrono::Utc::now);
 
                 AdapterInfo {
                     id: adapter.adapter_id,
