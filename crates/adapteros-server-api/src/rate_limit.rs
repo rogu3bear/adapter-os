@@ -29,6 +29,8 @@ struct TokenBucket {
     rate_per_minute: u32,
     /// Last refill timestamp (milliseconds since epoch)
     last_refill: AtomicU64,
+    /// Last access timestamp (milliseconds since epoch)
+    last_access: AtomicU64,
 }
 
 impl TokenBucket {
@@ -43,6 +45,7 @@ impl TokenBucket {
             tokens: AtomicU64::new((capacity as u64) * 1000), // Initialize at capacity
             rate_per_minute,
             last_refill: AtomicU64::new(now_ms),
+            last_access: AtomicU64::new(now_ms),
         }
     }
 
@@ -52,6 +55,9 @@ impl TokenBucket {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
+
+        // Update last access time
+        self.last_access.store(now_ms, Ordering::Release);
 
         let mut last_refill = self.last_refill.load(Ordering::Acquire);
 
@@ -106,6 +112,17 @@ impl TokenBucket {
     fn available_tokens(&self) -> u32 {
         let tokens_fixed = self.tokens.load(Ordering::Acquire);
         (tokens_fixed / 1000) as u32
+    }
+
+    /// Check if this bucket is stale (not accessed for more than the given duration)
+    fn is_stale(&self, max_age_ms: u64) -> bool {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let last_access = self.last_access.load(Ordering::Acquire);
+        now_ms.saturating_sub(last_access) > max_age_ms
     }
 }
 
@@ -176,4 +193,28 @@ pub async fn per_tenant_rate_limit_middleware(
     }
 
     Ok(next.run(req).await)
+}
+
+/// Clean up stale rate limiter buckets that haven't been accessed for more than max_age_ms
+pub async fn cleanup_stale_rate_limiters(max_age_ms: u64) {
+    static LIMITERS: tokio::sync::OnceCell<TenantRateLimiters> = tokio::sync::OnceCell::const_new();
+
+    let limiters = match LIMITERS.get() {
+        Some(l) => l,
+        None => return, // No limiters initialized yet
+    };
+
+    let mut limiters_guard = limiters.lock().await;
+    let mut to_remove = Vec::new();
+
+    for (tenant_id, bucket) in limiters_guard.iter() {
+        if bucket.is_stale(max_age_ms) {
+            to_remove.push(tenant_id.clone());
+        }
+    }
+
+    for tenant_id in to_remove {
+        limiters_guard.remove(&tenant_id);
+        tracing::debug!("Cleaned up stale rate limiter for tenant: {}", tenant_id);
+    }
 }

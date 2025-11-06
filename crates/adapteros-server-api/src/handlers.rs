@@ -11509,9 +11509,21 @@ pub async fn list_training_sessions(
     })?;
 
     let sessions = state.training_sessions.read().await;
+    let mut sessions_to_cleanup = Vec::new();
     let mut responses = Vec::with_capacity(jobs.len());
+
     for job in jobs.iter() {
         let metadata = sessions.get(&job.id);
+
+        // Check if job is in terminal state and mark session for cleanup
+        use adapteros_core::TrainingJobStatus;
+        match job.status {
+            TrainingJobStatus::Completed | TrainingJobStatus::Failed | TrainingJobStatus::Cancelled => {
+                sessions_to_cleanup.push(job.id.clone());
+            }
+            _ => {}
+        }
+
         if let Some(ref tenant_id) = tenant_filter {
             match metadata.and_then(|m| m.tenant_id.clone()) {
                 Some(ref t) if t == tenant_id => {}
@@ -11519,6 +11531,15 @@ pub async fn list_training_sessions(
             }
         }
         responses.push(training_session_response(job, metadata));
+    }
+
+    // Clean up terminal training sessions
+    if !sessions_to_cleanup.is_empty() {
+        drop(sessions); // Release read lock
+        let mut sessions_write = state.training_sessions.write().await;
+        for session_id in sessions_to_cleanup {
+            sessions_write.remove(&session_id);
+        }
     }
 
     Ok(Json(responses))

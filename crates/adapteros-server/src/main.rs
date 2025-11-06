@@ -901,6 +901,21 @@ async fn main() -> Result<()> {
         info!("Ephemeral adapter GC loop scheduled (1h interval)");
     }
 
+    // Rate limiter cleanup task - clean up stale tenant buckets every 24 hours
+    {
+        let _ = spawn_deterministic("Rate Limiter Cleanup".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(24 * 60 * 60)); // 24 hours
+            loop {
+                interval.tick().await;
+                // Clean up buckets that haven't been accessed for 7 days
+                let max_age_ms = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+                adapteros_server_api::rate_limit::cleanup_stale_rate_limiters(max_age_ms).await;
+                info!("Rate limiter cleanup completed");
+            }
+        });
+        info!("Rate limiter cleanup loop scheduled (24h interval)");
+    }
+
     // TODO: Start Federation Daemon once dependencies are fixed
     // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
     // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
