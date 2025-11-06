@@ -10,7 +10,13 @@
 //! - crates/adapteros-lora-worker/src/uds_server.rs (server counterpart)
 
 use crate::{types::*, AdapterOSClient};
-use adapteros_api_types::telemetry::TelemetryBundleResponse;
+use adapteros_api_types::{
+    telemetry::TelemetryBundleResponse,
+    AdapterResponse, BuildPlanRequest, CreateTenantRequest, HealthResponse,
+    LoginRequest, LoginResponse, NodeResponse, PlanResponse, RegisterAdapterRequest,
+    RegisterNodeRequest, SpawnWorkerRequest, StartTrainingRequest, TenantResponse,
+    UserInfoResponse, WorkerResponse
+};
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json::Value;

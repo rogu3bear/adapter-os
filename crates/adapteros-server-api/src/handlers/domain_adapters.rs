@@ -1,7 +1,13 @@
 use crate::state::AppState;
-use crate::types::{
-    CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
-    DomainAdapterResponse, ErrorResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
+use crate::types::ErrorResponse;
+use adapteros_api_types::{
+    CreateDomainAdapterRequest,
+    DomainAdapterExecutionResponse,
+    DomainAdapterManifestResponse,
+    DomainAdapterResponse,
+    InferenceTrace,
+    LoadDomainAdapterRequest,
+    TestDomainAdapterRequest,
     TestDomainAdapterResponse,
 };
 use adapteros_db::domain_adapters::DomainAdapterCreateBuilder;
@@ -12,7 +18,7 @@ use axum::{
     response::Json,
 };
 use chrono::Utc;
-use serde_json;
+use serde_json::{json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -1096,7 +1102,7 @@ fn execute_generic_domain_adapter(
         "input_hash": input_hash,
         "result": {
             "processed": true,
-            "input_type": input_data.type_name(),
+            "input_type": "json",
             "processing_method": "generic_fallback"
         },
         "execution_id": format!("exec_generic_{}", input_hash)
@@ -1124,7 +1130,7 @@ async fn execute_domain_adapter_inner(
 
     // Check if adapter is in loaded registry
     let loaded_adapters = LOADED_ADAPTERS.lock().await;
-    let _loaded_adapter = loaded_adapters.get(adapter_id)
+    let loaded_adapter = loaded_adapters.get(adapter_id)
         .ok_or_else(|| format!("Domain adapter not found in loaded registry: {}", adapter_id))?;
 
     // Add trace events

@@ -1,11 +1,12 @@
 use crate::auth::Claims;
 use crate::state::AppState;
-use crate::types::{ErrorResponse, InferRequest, WorkerInferRequest};
+use crate::types::{ErrorResponse, WorkerInferRequest};
 use crate::uds_client::UdsClient;
 use adapteros_api_types::openai::{
     ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ChatUsage, ModelInfo,
     ModelsListResponse,
 };
+use adapteros_api_types::InferRequest;
 use adapteros_lora_router::features::CodeFeatures;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;

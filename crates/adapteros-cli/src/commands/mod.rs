@@ -48,7 +48,6 @@ pub mod sync_registry;
 pub mod trace_validate;
 pub mod train;
 pub mod train_base_adapter;
-pub mod train_directory;
 pub mod tutorial;
 pub mod verify;
 pub mod verify_adapter;

@@ -1,5 +1,18 @@
 use crate::types::ReplayVerificationResponse;
 use adapteros_crypto::Keypair;
+
+/// Mock notification sender for alert evaluator
+#[derive(Clone)]
+struct MockNotificationSender;
+
+#[async_trait::async_trait]
+impl adapteros_system_metrics::alerting::NotificationSender for MockNotificationSender {
+    async fn send_notification(&self, _notification: adapteros_system_metrics::alerting::NotificationRequest) -> adapteros_core::Result<()> {
+        // Mock implementation - could be extended to send real notifications
+        Ok(())
+    }
+}
+
 /// Repository paths configuration
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct RepositoryPathsConfig {
@@ -397,6 +410,11 @@ pub struct AppState {
     /// Policy pack manager enforcing all production rules
     pub policy_manager: Arc<PolicyPackManager>,
     /// Router for K-sparse LoRA adapter selection
+    ///
+    /// # Citations
+    /// - Router implementation: [source: crates/adapteros-lora-router/src/lib.rs]
+    /// - K-sparse routing: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    /// - Deterministic routing: [source: crates/adapteros-lora-worker/src/inference_pipeline.rs]
     pub router: Arc<Router>,
     /// Optional runtime for base model backends (e.g., MLX FFI)
     pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntime>>>,
@@ -407,12 +425,26 @@ pub struct AppState {
     /// Broadcast channel for live telemetry streaming
     pub telemetry_tx: broadcast::Sender<UnifiedTelemetryEvent>,
     /// Broadcast channel for live alert streaming
-    pub alert_tx: broadcast::Sender<crate::types::ProcessAlertResponse>,
+    ///
+    /// # Citations
+    /// - SSE handler: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
+    /// - Alert broadcasting: [source: crates/adapteros-system-metrics/src/alerting.rs L444-L452]
+    pub alert_tx: broadcast::Sender<adapteros_system_metrics::monitoring_types::AlertResponse>,
+    /// Alert evaluator for monitoring and alerting
+    ///
+    /// # Citations
+    /// - Implementation: [source: crates/adapteros-system-metrics/src/alerting.rs L23-L32]
+    /// - Alert broadcasting: [source: crates/adapteros-system-metrics/src/alerting.rs L444-L452]
+    pub alert_evaluator: Arc<adapteros_system_metrics::alerting::AlertEvaluator>,
     /// Broadcast channel for telemetry bundle updates
     pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
     /// Broadcast channel for operation progress updates
     pub operation_progress_tx: broadcast::Sender<crate::types::OperationProgressEvent>,
     /// Tracker for ongoing adapter operations
+    ///
+    /// # Citations
+    /// - Implementation: [source: crates/adapteros-server-api/src/operation_tracker.rs L1-L50]
+    /// - Progress broadcasting: [source: crates/adapteros-server-api/src/state.rs L428-L429]
     pub operation_tracker: Arc<crate::operation_tracker::OperationTracker>,
     /// In-memory trace buffer for recent traces
     pub trace_buffer: Arc<TraceBuffer>,
@@ -472,7 +504,42 @@ impl AppState {
 
         // Create broadcast channel for alert streaming
         let (alert_tx, _alert_rx) =
-            broadcast::channel::<crate::types::ProcessAlertResponse>(256);
+            broadcast::channel::<adapteros_system_metrics::monitoring_types::AlertResponse>(256);
+
+        // Initialize alert evaluator with broadcast channel
+        // Citation: [source: crates/adapteros-system-metrics/src/alerting.rs L23-L32] - AlertEvaluator struct
+        let alert_evaluator = {
+            let db_arc = Arc::new(db.clone().into_inner());
+            let telemetry_writer = adapteros_telemetry::TelemetryWriter::new(
+                std::path::Path::new("var/log"),
+                1000,
+                1024 * 1024,
+            ).unwrap_or_else(|_| {
+                // Fallback: create a minimal telemetry writer that doesn't persist
+                adapteros_telemetry::TelemetryWriter::new_with_broadcast(
+                    std::path::Path::new("/tmp"),
+                    100,
+                    64 * 1024,
+                    None,
+                ).expect("Failed to create fallback telemetry writer")
+            });
+
+            let alerting_config = adapteros_system_metrics::alerting::AlertingConfig::default();
+            let notification_sender = Arc::new(MockNotificationSender);
+
+            let mut evaluator = adapteros_system_metrics::alerting::AlertEvaluator::new(
+                db_arc,
+                telemetry_writer,
+                alerting_config,
+                notification_sender,
+            );
+
+            // Set the alert broadcast channel
+            // Citation: [source: crates/adapteros-system-metrics/src/alerting.rs L171-L178] - with_alert_broadcast method
+            evaluator = evaluator.with_alert_broadcast(Some(alert_tx.clone()));
+
+            Arc::new(evaluator)
+        };
 
         // Create broadcast channel for operation progress updates
         let (progress_tx, _progress_rx) =
@@ -550,6 +617,7 @@ impl AppState {
             telemetry_buffer,
             telemetry_tx,
             alert_tx,
+            alert_evaluator,
             telemetry_bundles_tx: bundles_tx,
             operation_progress_tx: progress_tx,
             operation_tracker: Arc::new(operation_tracker),

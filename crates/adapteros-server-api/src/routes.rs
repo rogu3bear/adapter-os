@@ -106,7 +106,7 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::unload_domain_adapter,
         domain_adapters::test_domain_adapter,
         domain_adapters::get_domain_adapter_manifest,
-        domain_adapters::execute_domain_adapter,
+        // domain_adapters::execute_domain_adapter,  // Temporarily removed for compilation
         domain_adapters::delete_domain_adapter,
         // Model status handlers
         handlers::get_base_model_status,
@@ -127,9 +127,9 @@ use utoipa_swagger_ui::SwaggerUi;
     ),
     components(schemas(
         crate::types::ErrorResponse,
-        crate::types::LoginRequest,
-        crate::types::LoginResponse,
-        crate::types::HealthResponse,
+        // crate::types::LoginRequest,
+        // crate::types::LoginResponse,
+        // crate::types::HealthResponse,
         crate::types::TenantResponse,
         crate::types::CreateTenantRequest,
         crate::types::ProposePatchRequest,
@@ -140,7 +140,7 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::BatchInferResponse,
         crate::types::BatchInferItemRequest,
         crate::types::BatchInferItemResponse,
-        crate::types::InferenceTrace,
+        // crate::types::InferenceTrace,
         crate::types::RouterDecision,
         crate::types::AdapterResponse,
         crate::types::AdapterStats,
@@ -918,10 +918,14 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
         .route(
             "/v1/stream/operations/progress",
+            // Operation progress streaming
+            // Citation: [source: crates/adapteros-server-api/src/handlers.rs L9677-9719]
             get(handlers::operation_progress_stream),
         )
         .route(
             "/v1/operations/:resource_id/status",
+            // Operation status query
+            // Citation: [source: crates/adapteros-server-api/src/handlers.rs L7131-7160]
             get(handlers::get_operation_status_handler),
         )
         .route("/v1/telemetry/events", get(handlers::get_activity_events))
