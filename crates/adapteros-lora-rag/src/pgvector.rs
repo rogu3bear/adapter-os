@@ -64,6 +64,12 @@ pub struct DocumentParams {
     pub superseded_by: Option<String>,
 }
 
+impl Default for DocumentBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DocumentBuilder {
     /// Create a new document builder
     pub fn new() -> Self {

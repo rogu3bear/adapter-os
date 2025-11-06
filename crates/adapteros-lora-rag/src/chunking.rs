@@ -47,6 +47,12 @@ pub struct SymbolChunkBuilder<'a> {
     file_context: Option<&'a ChunkContext>,
 }
 
+impl<'a> Default for SymbolChunkBuilder<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> SymbolChunkBuilder<'a> {
     pub fn new() -> Self {
         Self {
