@@ -124,7 +124,7 @@ pub async fn list_activity_events(
     let user_id = params.get("user_id").map(|s| s.as_str());
     let tenant_id = params
         .get("tenant_id")
-        .or_else(|| Some(&claims.tenant_id))
+        .or(Some(&claims.tenant_id))
         .map(|s| s.as_str());
     let event_type = params
         .get("event_type")
@@ -132,11 +132,11 @@ pub async fn list_activity_events(
     let limit = params
         .get("limit")
         .and_then(|s| s.parse::<i64>().ok())
-        .or_else(|| Some(50));
+        .or(Some(50));
     let offset = params
         .get("offset")
         .and_then(|s| s.parse::<i64>().ok())
-        .or_else(|| Some(0));
+        .or(Some(0));
 
     let events = state
         .db
@@ -199,7 +199,7 @@ pub async fn list_user_workspace_activity(
     let limit = params
         .get("limit")
         .and_then(|s| s.parse::<i64>().ok())
-        .or_else(|| Some(50));
+        .or(Some(50));
 
     let events = state
         .db

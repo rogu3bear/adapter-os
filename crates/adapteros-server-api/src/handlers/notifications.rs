@@ -50,11 +50,11 @@ pub async fn list_notifications(
     let limit = params
         .get("limit")
         .and_then(|s| s.parse::<i64>().ok())
-        .or_else(|| Some(50));
+        .or(Some(50));
     let offset = params
         .get("offset")
         .and_then(|s| s.parse::<i64>().ok())
-        .or_else(|| Some(0));
+        .or(Some(0));
 
     let notifications = state
         .db

@@ -300,7 +300,7 @@ impl RetryExecutor {
                     );
 
                     let jitter_ratio = self.config.jitter_factor.clamp(0.0, 1.0);
-                    let jitter_direction = if attempt % 2 == 0 { -1.0 } else { 1.0 };
+                    let jitter_direction = if attempt.is_multiple_of(2) { -1.0 } else { 1.0 };
                     let jitter_multiplier = 1.0 + (jitter_ratio * 0.5 * jitter_direction);
                     let sleep_duration =
                         delay.mul_f64(jitter_multiplier).min(self.config.max_delay);
@@ -348,7 +348,7 @@ impl RetryExecutor {
                     );
 
                     let jitter_ratio = self.config.jitter_factor.clamp(0.0, 1.0);
-                    let jitter_direction = if attempt % 2 == 0 { -1.0 } else { 1.0 };
+                    let jitter_direction = if attempt.is_multiple_of(2) { -1.0 } else { 1.0 };
                     let jitter_multiplier = 1.0 + (jitter_ratio * 0.5 * jitter_direction);
                     let sleep_duration =
                         delay.mul_f64(jitter_multiplier).min(self.config.max_delay);
