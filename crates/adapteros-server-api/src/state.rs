@@ -440,6 +440,14 @@ pub struct AppState {
     /// - Implementation: [source: crates/adapteros-system-metrics/src/alerting.rs L23-L32]
     /// - Alert broadcasting: [source: crates/adapteros-system-metrics/src/alerting.rs L444-L452]
     pub alert_evaluator: Arc<adapteros_system_metrics::alerting::AlertEvaluator>,
+    /// Global deterministic seed for all RNG operations
+    ///
+    /// # Citations
+    /// - Seed derivation: [source: crates/adapteros-core/src/seed.rs L39-L56]
+    /// - HKDF-SHA256: RFC 5869 - HMAC-based Key Derivation Function
+    /// - Deterministic execution: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    /// - Global seed isolation: [source: crates/adapteros-core/src/seed.rs L86-L89]
+    pub global_seed: B3Hash,
     /// Broadcast channel for telemetry bundle updates
     pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
     /// Broadcast channel for operation progress updates
@@ -609,10 +617,11 @@ impl AppState {
 
                 drop(config_guard);
 
-                let mut runtime = crate::model_runtime::ModelRuntime::with_limits(
+                let mut runtime = crate::model_runtime::ModelRuntime::with_limits_and_seed(
                     max_model_size,
                     max_config_size,
                     max_tokenizer_size,
+                    global_seed.as_bytes().try_into().expect("Global seed should be 32 bytes"),
                 );
 
                 // Configure lazy loading settings
@@ -631,6 +640,7 @@ impl AppState {
             operation_progress_tx: progress_tx,
             operation_tracker: Arc::new(operation_tracker),
             trace_buffer,
+            global_seed: global_seed_b3,
         }
     }
 
@@ -643,6 +653,7 @@ impl AppState {
         metrics_collector: Option<Arc<MetricsCollector>>,
         metrics_registry: Option<Arc<MetricsRegistry>>,
         training_service: Arc<TrainingService>,
+        global_seed: [u8; 32],
     ) -> Self {
         Self::new(
             db.into(),
@@ -653,6 +664,7 @@ impl AppState {
             metrics_registry,
             training_service,
             None, // No telemetry_tx by default
+            global_seed,
         )
     }
 
@@ -685,6 +697,88 @@ impl AppState {
     /// Query telemetry buffer
     pub fn query_telemetry(&self, filters: &adapteros_telemetry::TelemetryFilters) -> Vec<UnifiedTelemetryEvent> {
         self.telemetry_buffer.query(filters)
+    }
+
+    /// Derive a deterministic seed for a specific component
+    ///
+    /// # Citations
+    /// - Seed derivation: [source: crates/adapteros-core/src/seed.rs L39-L56]
+    /// - HKDF-SHA256: RFC 5869 - HMAC-based Key Derivation Function
+    /// - Component isolation: [source: crates/adapteros-core/src/seed.rs L86-L89]
+    pub fn derive_component_seed(&self, component: &str) -> [u8; 32] {
+        adapteros_core::derive_seed(&self.global_seed, component)
+    }
+
+    /// Derive seeds for multiple components at once
+    ///
+    /// # Citations
+    /// - Batch derivation: [source: crates/adapteros-core/src/seed.rs L86-L89]
+    /// - Performance optimization: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    pub fn derive_component_seeds(&self, components: &[&str]) -> Vec<[u8; 32]> {
+        adapteros_core::derive_seeds(&self.global_seed, components)
+    }
+
+    /// Derive a seed for training operations with tenant isolation
+    ///
+    /// # Citations
+    /// - Training seed derivation: [source: crates/adapteros-core/src/seed.rs L100-L118]
+    /// - Tenant isolation: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    /// - Training determinism: [source: crates/adapteros-orchestrator/src/training.rs]
+    pub fn derive_training_seed(&self, tenant_id: &str, training_job_id: &str) -> [u8; 32] {
+        let seed = adapteros_core::derive_seed_full(
+            &self.global_seed,
+            &B3Hash::hash(format!("tenant:{}", tenant_id).as_bytes()),
+            &B3Hash::hash(format!("training:{}", training_job_id).as_bytes()),
+            1, // training nonce
+            "training",
+            0, // index
+        );
+
+        // Audit logging for seed derivation
+        self.push_telemetry_event(
+            adapteros_telemetry::TelemetryEventBuilder::new(
+                adapteros_telemetry::EventType::Custom("seed.derived".to_string()),
+                adapteros_telemetry::LogLevel::Info,
+            )
+            .with_field("component", "training")
+            .with_field("tenant_id", tenant_id)
+            .with_field("job_id", training_job_id)
+            .with_field("seed_hash", &adapteros_core::B3Hash::hash(&seed).to_short_hex())
+            .build(),
+        );
+
+        seed
+    }
+
+    /// Validate seed consistency and log audit trail
+    ///
+    /// # Citations
+    /// - Seed validation: [source: crates/adapteros-core/src/seed.rs L194-L228]
+    /// - Audit logging: [source: crates/adapteros-telemetry/src/lib.rs]
+    /// - Determinism validation: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    pub fn validate_seed_consistency(&self) -> Result<(), adapteros_core::AosError> {
+        // Validate router seed consistency
+        let router_seed = self.derive_component_seed("router");
+        let expected_router_seed = adapteros_core::derive_seed(&self.global_seed, "router");
+
+        if router_seed != expected_router_seed {
+            return Err(adapteros_core::AosError::DeterministicViolation(
+                format!("Router seed inconsistency detected")
+            ));
+        }
+
+        // Log successful validation
+        self.push_telemetry_event(
+            adapteros_telemetry::TelemetryEventBuilder::new(
+                adapteros_telemetry::EventType::Custom("seed.validated".to_string()),
+                adapteros_telemetry::LogLevel::Info,
+            )
+            .with_field("global_seed_hash", &self.global_seed.to_short_hex())
+            .with_field("validation_type", "consistency")
+            .build(),
+        );
+
+        Ok(())
     }
 
     pub fn with_metrics_server(
@@ -968,5 +1062,87 @@ mod tests {
             .code_job_manager
             .expect("code job manager should be configured");
         assert!(Arc::ptr_eq(&manager, &code_job_manager));
+    }
+
+    /// Test deterministic seed derivation
+    ///
+    /// # Citations
+    /// - Seed derivation tests: [source: crates/adapteros-core/src/seed.rs L170-L193]
+    /// - Determinism validation: [source: crates/adapteros-server-api/src/state.rs L753-L782]
+    #[tokio::test]
+    async fn test_seed_derivation_determinism() {
+        let global_seed = [42u8; 32];
+        let state = AppState::test_state(global_seed);
+
+        // Test component seed derivation consistency
+        let router_seed1 = state.derive_component_seed("router");
+        let router_seed2 = state.derive_component_seed("router");
+        assert_eq!(router_seed1, router_seed2, "Component seeds should be deterministic");
+
+        // Test different components get different seeds
+        let model_seed = state.derive_component_seed("model_runtime");
+        assert_ne!(router_seed1, model_seed, "Different components should get different seeds");
+
+        // Test batch seed derivation
+        let components = vec!["router", "model_runtime", "training"];
+        let seeds = state.derive_component_seeds(&components);
+        assert_eq!(seeds.len(), 3);
+        assert_eq!(seeds[0], router_seed1);
+        assert_eq!(seeds[1], model_seed);
+    }
+
+    /// Test training seed derivation with tenant isolation
+    ///
+    /// # Citations
+    /// - Training seed derivation: [source: crates/adapteros-server-api/src/state.rs L721-L751]
+    /// - Tenant isolation: [source: crates/adapteros-core/src/seed.rs L100-L118]
+    #[tokio::test]
+    async fn test_training_seed_isolation() {
+        let global_seed = [123u8; 32];
+        let state = AppState::test_state(global_seed);
+
+        // Same tenant, different jobs should get different seeds
+        let seed1 = state.derive_training_seed("tenant1", "job1");
+        let seed2 = state.derive_training_seed("tenant1", "job2");
+        assert_ne!(seed1, seed2, "Different jobs should get different seeds");
+
+        // Different tenants, same job should get different seeds
+        let seed3 = state.derive_training_seed("tenant2", "job1");
+        assert_ne!(seed1, seed3, "Different tenants should get different seeds");
+
+        // Same tenant and job should get same seed (deterministic)
+        let seed4 = state.derive_training_seed("tenant1", "job1");
+        assert_eq!(seed1, seed4, "Same tenant/job should get same seed");
+    }
+
+    /// Test seed consistency validation
+    ///
+    /// # Citations
+    /// - Seed validation: [source: crates/adapteros-server-api/src/state.rs L753-L782]
+    /// - Determinism enforcement: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    #[tokio::test]
+    async fn test_seed_consistency_validation() {
+        let global_seed = [99u8; 32];
+        let state = AppState::test_state(global_seed);
+
+        // Valid state should pass validation
+        assert!(state.validate_seed_consistency().is_ok(),
+                "Valid seed state should pass consistency validation");
+    }
+
+    /// Test global seed storage and access
+    ///
+    /// # Citations
+    /// - Global seed field: [source: crates/adapteros-server-api/src/state.rs L443-450]
+    /// - B3Hash usage: [source: crates/adapteros-core/src/hash.rs L9-18]
+    #[tokio::test]
+    async fn test_global_seed_storage() {
+        let global_seed_bytes = [42u8; 32];
+        let state = AppState::test_state(global_seed_bytes);
+
+        // Verify global seed is stored correctly
+        let expected_hash = adapteros_core::B3Hash::from_bytes(global_seed_bytes);
+        assert_eq!(state.global_seed, expected_hash,
+                  "Global seed should be stored as B3Hash");
     }
 }

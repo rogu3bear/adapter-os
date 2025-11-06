@@ -9,7 +9,7 @@
 //! - Policy enforcement
 //! - Telemetry and tracing
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_router::Router;

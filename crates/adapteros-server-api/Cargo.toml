@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+default = ["telemetry"]
 openapi = []
 # Enable native MLX FFI runtime wiring for models
 mlx-ffi-backend = ["adapteros-base-llm", "adapteros-lora-mlx-ffi"]

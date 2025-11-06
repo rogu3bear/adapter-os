@@ -113,8 +113,12 @@ cargo build --release
 # Build with MLX backend support (C++ FFI, no Python required)
 cargo build --release --features mlx-ffi-backend
 
+# Build with telemetry support (metrics, monitoring, observability)
+cargo build --release --features telemetry
+
 # Note: Metal backend is the primary production backend (default)
 # MLX backend is available via --features mlx-ffi-backend (uses C++ FFI, no PyO3)
+# Telemetry is optional via --features telemetry (includes metrics, monitoring, observability)
 
 # Initialize the database
 ./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000

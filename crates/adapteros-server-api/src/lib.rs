@@ -28,6 +28,7 @@ pub use adapteros_api_types::{
 };
 
 // Direct imports (not re-exported to avoid conflicts)
+#[cfg(feature = "telemetry")]
 use adapteros_api_types::telemetry::SystemMetricsResponse;
 pub use state::{AppState, CryptoState};
 pub use types::*;

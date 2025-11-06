@@ -1757,7 +1757,7 @@ pub async fn model_runtime_health(
 
     let mut inconsistencies = Vec::new();
     let runtime_model_set: std::collections::HashSet<(String, String)> =
-        runtime_models.iter().cloned().collect();
+        runtime_models.iter().map(|key| (key.tenant_id.clone(), key.model_id.clone())).collect();
 
     for db_model in &db_models {
         let tenant_id = &db_model.tenant_id;
@@ -1804,14 +1804,14 @@ pub async fn model_runtime_health(
         }
     }
 
-    for (tenant_id, model_id) in &runtime_models {
+    for model_key in &runtime_models {
         let in_db = db_models
             .iter()
-            .any(|db| &db.tenant_id == tenant_id && &db.model_id == model_id);
+            .any(|db| db.tenant_id == model_key.tenant_id && db.model_id == model_key.model_id);
         if !in_db {
             inconsistencies.push(ModelInconsistency {
-                model_id: model_id.clone(),
-                tenant_id: tenant_id.clone(),
+                model_id: model_key.model_id.clone(),
+                tenant_id: model_key.tenant_id.clone(),
                 issue: "Model loaded in runtime but not found in database".to_string(),
                 runtime_status: "loaded".to_string(),
             });
