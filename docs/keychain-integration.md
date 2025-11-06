@@ -2,22 +2,23 @@
 
 ## Overview
 
-AdapterOS provides secure cryptographic key storage across multiple platforms using native OS keychain facilities. This document describes the keychain integration, including supported backends, schema definitions, access control policies, and key lifecycle management.
+AdapterOS provides secure cryptographic key storage across multiple platforms using native OS keychain facilities with advanced features including backend health monitoring, dynamic switching, and hardware security integration. This document describes the fully rectified keychain integration, including supported backends, schema definitions, access control policies, and key lifecycle management.
 
 ## Supported Backends
 
 ### macOS (Security Framework)
 
-**Primary Backend**: macOS Security Framework via `security-framework` crate
+**Primary Backend**: macOS Security Framework via secure CLI commands
 - **Storage**: Keychain database protected by user login credentials
-- **Hardware Integration**: Secure Enclave support on Apple Silicon
-- **Fallback**: Software keychain storage
+- **Hardware Integration**: Secure Enclave support on Apple Silicon for receipt signing
+- **Security**: Command injection prevention with input validation and base64 encoding
 
 **Features**:
-- Hardware-backed keys via Secure Enclave (P-256 ECDSA)
+- Hardware-backed receipt signing via Secure Enclave (P-256 ECDSA)
 - Automatic keychain unlocking with device unlock
 - Fine-grained access control policies
 - Integration with Keychain Access UI
+- Secure CLI implementation with input sanitization
 
 ### Linux (Multiple Backends)
 
