@@ -431,10 +431,10 @@ pub fn validate_path_within_bases(
     }
 
     // Path is not within any allowed base directory
-    return Err(AosError::Security(format!(
+    Err(AosError::Security(format!(
         "Path '{}' is not within any allowed base directory",
         canonical_path.display()
-    )));
+    )))
 }
 
 /// Safe file existence check with path validation
@@ -697,10 +697,10 @@ pub fn validate_file_streaming(
         // Check for common file signatures or ensure not obviously corrupted
         let first_four = &header_buffer[0..4];
         // Allow common file signatures or reasonable data patterns
-        let is_reasonable_data = first_four.iter().any(|&b| b >= 32 && b <= 126) || // ASCII printable
+        let is_reasonable_data = first_four.iter().any(|&b| (32..=126).contains(&b)) || // ASCII printable
                                (first_four[0] == 0xFF && first_four[1] == 0xFE) || // UTF-16 BOM
                                (first_four[0] == 0xEF && first_four[1] == 0xBB && first_four[2] == 0xBF) || // UTF-8 BOM
-                               first_four == &[0x50, 0x4B, 0x03, 0x04]; // ZIP signature
+                               first_four == [0x50, 0x4B, 0x03, 0x04]; // ZIP signature
 
         if !is_reasonable_data && non_zero_bytes < bytes_read / 2 {
             return Err(AosError::Security(
