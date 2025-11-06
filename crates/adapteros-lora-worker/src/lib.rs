@@ -82,7 +82,13 @@ impl Worker {
         Ok(Self {
             manifest,
             policy_engine: PolicyEngine::new(adapteros_manifest::Policies::default()),
-            router: Router::new(vec![1.0; 10], 3, 1.0, 0.02, [42u8; 32]),
+            router: {
+                // For worker initialization, use a deterministic global seed derived from worker identity
+                // In production, this should be passed from the executor
+                let global_seed = adapteros_core::B3Hash::hash(b"adapteros-worker-global-seed");
+                let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
+                Router::new(vec![1.0; 10], 3, 1.0, 0.02, router_seed_bytes)
+            },
             rag_system: rag_system.unwrap_or(default_rag),
             telemetry_writer,
             lifecycle_manager: None,

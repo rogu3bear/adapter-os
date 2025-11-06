@@ -13,20 +13,31 @@ use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
+#[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
+#[cfg(feature = "telemetry")]
 use adapteros_telemetry::metrics::{SystemMetricsProvider, SystemMetricsSnapshot};
+#[cfg(feature = "telemetry")]
 use async_trait::async_trait;
 
+#[cfg(feature = "telemetry")]
 /// System metrics provider implementation using SystemMetricsCollector
 #[derive(Debug, Default)]
 struct TelemetrySystemMetricsProvider {
     collector: std::sync::Mutex<SystemMetricsCollector>,
 }
 
+#[cfg(feature = "telemetry")]
 #[async_trait]
 impl adapteros_telemetry::metrics::SystemMetricsProvider for TelemetrySystemMetricsProvider {
     async fn collect_system_metrics(&self) -> adapteros_telemetry::metrics::SystemMetricsSnapshot {
-        let mut collector = self.collector.lock().unwrap();
+        let mut collector = match self.collector.lock() {
+            Ok(collector) => collector,
+            Err(e) => {
+                error!("Failed to lock system metrics collector: {}. Using default metrics.", e);
+                return adapteros_telemetry::metrics::SystemMetricsSnapshot::default();
+            }
+        };
         let metrics = collector.collect_metrics();
         adapteros_telemetry::metrics::SystemMetricsSnapshot {
             cpu_usage_percent: (metrics.cpu_usage * 100.0) as f64,
@@ -40,6 +51,7 @@ impl adapteros_telemetry::metrics::SystemMetricsProvider for TelemetrySystemMetr
     }
 }
 
+#[cfg(feature = "telemetry")]
 impl TelemetrySystemMetricsProvider {
     fn new() -> Self {
         Self {
@@ -227,15 +239,28 @@ async fn main() -> Result<()> {
     // Apply MLX configuration if present
     if let Some(ref mlx_config) = config_data.mlx {
         if mlx_config.enabled {
-            if let Some(ref model_path) = mlx_config.model_path {
-                // Set environment variable if not already set (env var takes precedence)
-                if std::env::var("AOS_MLX_FFI_MODEL").is_err() {
-                    std::env::set_var("AOS_MLX_FFI_MODEL", model_path);
-                    info!("Set AOS_MLX_FFI_MODEL from config: {}", model_path);
-                } else {
-                    info!(
-                        "AOS_MLX_FFI_MODEL already set in environment, not overriding with config value"
-                    );
+            // Compile-time warning if MLX is enabled in config but feature not compiled
+            #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
+            {
+                warn!("MLX backend enabled in config but not compiled in (missing --features mlx-ffi-backend)");
+                warn!("Model loading will fail - rebuild with: cargo build --features mlx-ffi-backend");
+                return Err(AosError::Config(
+                    "MLX backend enabled in config but feature not compiled".to_string()
+                ));
+            }
+
+            #[cfg(any(feature = "mlx-ffi-backend", feature = "experimental-backends"))]
+            {
+                if let Some(ref model_path) = mlx_config.model_path {
+                    // Set environment variable if not already set (env var takes precedence)
+                    if std::env::var("AOS_MLX_FFI_MODEL").is_err() {
+                        std::env::set_var("AOS_MLX_FFI_MODEL", model_path);
+                        info!("Set AOS_MLX_FFI_MODEL from config: {}", model_path);
+                    } else {
+                        info!(
+                            "AOS_MLX_FFI_MODEL already set in environment, not overriding with config value"
+                        );
+                    }
                 }
             }
         }
@@ -466,13 +491,13 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Connect to database
+    // Connect to database with retry logic
     info!("Connecting to database (from DATABASE_URL)");
-    let db = Database::connect_env().await?;
+    let db = connect_database_with_retry().await?;
 
-    // Run migrations
+    // Run migrations with recovery
     info!("Running database migrations");
-    db.migrate().await?;
+    run_migrations_with_recovery(&db).await?;
 
     // Seed development data
     if let Err(e) = db.seed_dev_data().await {
@@ -543,7 +568,13 @@ async fn main() -> Result<()> {
         let config_path = cli.config.clone();
         let _ = spawn_deterministic("SIGHUP handler".to_string(), async move {
             use tokio::signal::unix::{signal, SignalKind};
-            let mut sig = signal(SignalKind::hangup()).expect("Failed to setup SIGHUP handler");
+            let mut sig = match signal(SignalKind::hangup()) {
+                Ok(sig) => sig,
+                Err(e) => {
+                    error!("Failed to setup SIGHUP handler: {}. Config reload disabled.", e);
+                    return; // Exit the task if signal handler can't be set up
+                }
+            };
             loop {
                 sig.recv().await;
                 info!("SIGHUP received, reloading config");
@@ -622,12 +653,21 @@ async fn main() -> Result<()> {
     }
 
     // Create metrics collector and registry for AppState
+    #[cfg(feature = "telemetry")]
     let metrics_collector = Arc::new(
         adapteros_telemetry::MetricsCollector::new_with_system_provider(Some(Box::new(
             TelemetrySystemMetricsProvider::new(),
         )))
         .expect("metrics collector"),
     );
+    #[cfg(feature = "telemetry")]
+    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(Arc::clone(
+        &metrics_collector,
+    )));
+
+    #[cfg(not(feature = "telemetry"))]
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::default());
+    #[cfg(not(feature = "telemetry"))]
     let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(Arc::clone(
         &metrics_collector,
     )));
@@ -644,11 +684,12 @@ async fn main() -> Result<()> {
     info!("Initialized metrics time series for dashboard");
 
     // Create metrics server for HTTP Prometheus export
-    let metrics_server = if config.read().unwrap().metrics.server_enabled {
+    #[cfg(feature = "telemetry")]
+    let metrics_server = if config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_enabled {
         let server = Arc::new(
             adapteros_telemetry::MetricsServer::new(
                 metrics_collector.clone(),
-                config.read().unwrap().metrics.server_port,
+                config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_port,
             ),
         );
 
@@ -660,14 +701,20 @@ async fn main() -> Result<()> {
             }
         });
 
-        info!("Metrics server started on port {}", config.read().unwrap().metrics.server_port);
+        info!("Metrics server started on port {}", config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_port);
         Some(server)
     } else {
         info!("Metrics server disabled");
         None
     };
+    #[cfg(not(feature = "telemetry"))]
+    let metrics_server = {
+        info!("Metrics server disabled (telemetry feature not enabled)");
+        None
+    };
 
     // Initialize policy hash watcher (continuous monitoring)
+    #[cfg(feature = "telemetry")]
     let (telemetry_tx, _telemetry) = {
         info!("Initializing policy hash watcher");
 
@@ -715,8 +762,19 @@ async fn main() -> Result<()> {
 
         (telemetry_tx, _telemetry)
     };
+    #[cfg(not(feature = "telemetry"))]
+    let (telemetry_tx, _telemetry) = {
+        info!("Telemetry disabled - using no-op telemetry");
+        // Create a dummy broadcast channel that will never send
+        let (telemetry_tx, _) =
+            tokio::sync::broadcast::channel::<adapteros_telemetry::UnifiedTelemetryEvent>(1);
+        // Create a no-op telemetry writer
+        let _telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new_noop());
+        (telemetry_tx, _telemetry)
+    };
 
     // Initialize UDS metrics exporter (zero-network metrics per Egress Ruleset #1)
+    #[cfg(feature = "telemetry")]
     {
         info!("Initializing UDS metrics exporter");
 
@@ -774,6 +832,10 @@ async fn main() -> Result<()> {
             "Test with: socat - UNIX-CONNECT:{}",
             exporter_socket_path.display()
         );
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        info!("UDS metrics exporter disabled (telemetry feature not enabled)");
     }
 
     // Telemetry bundle retention GC loop (runs every 6 hours)
@@ -980,6 +1042,7 @@ async fn main() -> Result<()> {
         Arc::clone(&metrics_registry),
         training_service,
         Some(telemetry_tx),
+        global_seed,
     );
 
     // Add metrics server to AppState if enabled
@@ -1748,39 +1811,178 @@ struct CleanupStats {
     shutdown_duration: std::time::Duration,
 }
 
+/// Run database migrations with recovery and detailed error messages
+async fn run_migrations_with_recovery(db: &Database) -> Result<()> {
+    match db.migrate().await {
+        Ok(()) => {
+            info!("Database migrations completed successfully");
+            Ok(())
+        }
+        Err(e) => {
+            let error_msg = format!("{}", e);
+
+            // Check for specific error types and provide recovery suggestions
+            if error_msg.contains("no such table") || error_msg.contains("syntax error") {
+                error!("Database schema appears corrupted or incompatible. Error: {}", error_msg);
+                error!("Recovery options:");
+                error!("1. Remove the database file and restart (loses all data)");
+                error!("2. Restore from a backup");
+                error!("3. Check DATABASE_URL environment variable");
+                return Err(AosError::Config(format!(
+                    "Database schema error during migration. Manual recovery required. Error: {}",
+                    error_msg
+                )));
+            } else if error_msg.contains("disk I/O error") || error_msg.contains("No space left") {
+                error!("Disk error during migration. Check available disk space. Error: {}", error_msg);
+                return Err(AosError::Config(format!(
+                    "Disk error during migration. Free up disk space and try again. Error: {}",
+                    error_msg
+                )));
+            } else if error_msg.contains("permission denied") {
+                error!("Permission denied during migration. Check database file permissions. Error: {}", error_msg);
+                return Err(AosError::Config(format!(
+                    "Permission denied during migration. Ensure write access to database directory. Error: {}",
+                    error_msg
+                )));
+            } else if error_msg.contains("locked") || error_msg.contains("busy") {
+                error!("Database locked during migration. Ensure no other processes are using the database. Error: {}", error_msg);
+                return Err(AosError::Config(format!(
+                    "Database locked during migration. Close other database connections and try again. Error: {}",
+                    error_msg
+                )));
+            } else {
+                error!("Migration failed with unexpected error: {}", error_msg);
+                error!("This may be a bug in the migration scripts or database corruption.");
+                return Err(AosError::Config(format!(
+                    "Migration failed. Error: {}",
+                    error_msg
+                )));
+            }
+        }
+    }
+}
+
+/// Connect to database with retry logic and better error messages
+async fn connect_database_with_retry() -> Result<Database> {
+    const MAX_RETRIES: u32 = 3;
+    const BASE_DELAY_MS: u64 = 1000; // 1 second
+
+    let mut last_error = None;
+
+    for attempt in 1..=MAX_RETRIES {
+        match Database::connect_env().await {
+            Ok(db) => {
+                if attempt > 1 {
+                    info!("Database connection successful after {} attempts", attempt);
+                }
+                return Ok(db);
+            }
+            Err(e) => {
+                last_error = Some(e);
+
+                // Check if this is a recoverable error
+                let error_msg = format!("{}", last_error.as_ref().unwrap());
+                let is_recoverable = error_msg.contains("connection refused")
+                    || error_msg.contains("temporarily unavailable")
+                    || error_msg.contains("locked")
+                    || error_msg.contains("busy");
+
+                if !is_recoverable || attempt == MAX_RETRIES {
+                    // Don't retry or this is the last attempt
+                    break;
+                }
+
+                let delay_ms = BASE_DELAY_MS * (2u64.pow(attempt - 1));
+                warn!(
+                    "Database connection failed (attempt {}/{}): {}. Retrying in {}ms...",
+                    attempt, MAX_RETRIES, error_msg, delay_ms
+                );
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+            }
+        }
+    }
+
+    // Provide detailed error message based on the failure
+    let error = last_error.unwrap();
+    let error_msg = format!("{}", error);
+
+    if error_msg.contains("permission denied") || error_msg.contains("access denied") {
+        Err(AosError::Config(format!(
+            "Database permission denied. Check file permissions for the database path. \
+             Ensure the process has read/write access to the database directory. Error: {}",
+            error_msg
+        )))
+    } else if error_msg.contains("disk I/O error") || error_msg.contains("No space left") {
+        Err(AosError::Config(format!(
+            "Database disk error. Check available disk space and filesystem permissions. Error: {}",
+            error_msg
+        )))
+    } else if error_msg.contains("corrupt") || error_msg.contains("malformed") {
+        Err(AosError::Config(format!(
+            "Database file appears corrupted. Consider restoring from backup or removing the file \
+             to start fresh (data will be lost). Error: {}",
+            error_msg
+        )))
+    } else {
+        Err(AosError::Config(format!(
+            "Failed to connect to database after {} attempts. Error: {}",
+            MAX_RETRIES, error_msg
+        )))
+    }
+}
+
 async fn shutdown_signal() -> ShutdownSignal {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-        ShutdownSignal::Graceful
+        match signal::ctrl_c().await {
+            Ok(()) => ShutdownSignal::Graceful,
+            Err(e) => {
+                error!("Failed to install Ctrl+C handler: {}. Server may not shut down gracefully on SIGINT.", e);
+                // Return a signal that will never resolve, effectively disabling this shutdown method
+                futures_util::future::pending::<ShutdownSignal>().await
+            }
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-        ShutdownSignal::Graceful
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+                ShutdownSignal::Graceful
+            }
+            Err(e) => {
+                error!("Failed to install SIGTERM handler: {}. Server may not shut down gracefully on SIGTERM.", e);
+                futures_util::future::pending::<ShutdownSignal>().await
+            }
+        }
     };
 
     #[cfg(unix)]
     let usr1 = async {
-        signal::unix::signal(signal::unix::SignalKind::user_defined1())
-            .expect("failed to install SIGUSR1 handler")
-            .recv()
-            .await;
-        ShutdownSignal::Fast
+        match signal::unix::signal(signal::unix::SignalKind::user_defined1()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+                ShutdownSignal::Fast
+            }
+            Err(e) => {
+                error!("Failed to install SIGUSR1 handler: {}. Fast shutdown signal disabled.", e);
+                futures_util::future::pending::<ShutdownSignal>().await
+            }
+        }
     };
 
     #[cfg(unix)]
     let usr2 = async {
-        signal::unix::signal(signal::unix::SignalKind::user_defined2())
-            .expect("failed to install SIGUSR2 handler")
-            .recv()
-            .await;
-        ShutdownSignal::Immediate
+        match signal::unix::signal(signal::unix::SignalKind::user_defined2()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+                ShutdownSignal::Immediate
+            }
+            Err(e) => {
+                error!("Failed to install SIGUSR2 handler: {}. Immediate shutdown signal disabled.", e);
+                futures_util::future::pending::<ShutdownSignal>().await
+            }
+        }
     };
 
     #[cfg(not(unix))]

@@ -1,4 +1,5 @@
 use crate::types::ReplayVerificationResponse;
+use adapteros_core::B3Hash;
 use adapteros_crypto::Keypair;
 
 /// Mock notification sender for alert evaluator
@@ -84,8 +85,11 @@ use adapteros_lora_router::Router;
 use adapteros_orchestrator::CodeJobManager;
 use adapteros_orchestrator::TrainingService;
 use adapteros_policy::PolicyPackManager;
+#[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
+#[cfg(feature = "telemetry")]
 use adapteros_telemetry::metrics::{MetricsCollector, MetricsRegistry};
+#[cfg(feature = "telemetry")]
 use adapteros_telemetry::{LogBuffer, UnifiedTelemetryEvent};
 use adapteros_trace::TraceBuffer;
 use adapteros_verify::StrictnessLevel;
@@ -460,6 +464,7 @@ impl AppState {
         metrics_registry: Arc<MetricsRegistry>,
         training_service: Arc<TrainingService>,
         telemetry_tx: Option<tokio::sync::broadcast::Sender<UnifiedTelemetryEvent>>,
+        global_seed: [u8; 32],
     ) -> Self {
         Self::new_with_system_collector(
             db,
@@ -471,6 +476,7 @@ impl AppState {
             training_service,
             None,
             telemetry_tx,
+            global_seed,
         )
     }
 
@@ -484,6 +490,7 @@ impl AppState {
         training_service: Arc<TrainingService>,
         _system_metrics_collector: Option<Arc<std::sync::Mutex<SystemMetricsCollector>>>,
         telemetry_tx: Option<tokio::sync::broadcast::Sender<UnifiedTelemetryEvent>>,
+        global_seed: [u8; 32],
     ) -> Self {
         // Bounded buffer avoids unbounded telemetry growth while keeping recent history handy.
         let telemetry_buffer_capacity = config.read().unwrap().metrics.telemetry_buffer_capacity;
@@ -495,12 +502,6 @@ impl AppState {
             let (tx, _rx) = broadcast::channel::<UnifiedTelemetryEvent>(telemetry_channel_capacity);
             tx
         });
-        let trace_buffer_capacity = config.read().unwrap().metrics.trace_buffer_capacity;
-        let trace_buffer = Arc::new(TraceBuffer::new(trace_buffer_capacity));
-
-        // Create broadcast channel for telemetry bundle updates
-        let (bundles_tx, _bundles_rx) =
-            broadcast::channel::<crate::types::TelemetryBundleResponse>(256);
 
         // Create broadcast channel for alert streaming
         let (alert_tx, _alert_rx) =
@@ -541,6 +542,13 @@ impl AppState {
             Arc::new(evaluator)
         };
 
+        let trace_buffer_capacity = config.read().unwrap().metrics.trace_buffer_capacity;
+        let trace_buffer = Arc::new(TraceBuffer::new(trace_buffer_capacity));
+
+        // Create broadcast channel for telemetry bundle updates
+        let (bundles_tx, _bundles_rx) =
+            broadcast::channel::<crate::types::TelemetryBundleResponse>(256);
+
         // Create broadcast channel for operation progress updates
         let (progress_tx, _progress_rx) =
             broadcast::channel::<crate::types::OperationProgressEvent>(256);
@@ -551,10 +559,11 @@ impl AppState {
             progress_tx.clone(),
         );
 
-        // Initialize router with default weights and deterministic seed
-        let router_seed = [42u8; 32]; // Fixed seed for deterministic routing
+        // Initialize router with default weights and deterministic seed derived from global seed
+        let global_seed_b3 = B3Hash::from_bytes(global_seed);
+        let router_seed_bytes = adapteros_core::derive_seed(&global_seed_b3, "router");
         let router_weights = vec![1.0; 10]; // Placeholder weights - should be configurable
-        let router = Arc::new(Router::new(router_weights, 3, 1.0, 0.02, router_seed));
+        let router = Arc::new(Router::new(router_weights, 3, 1.0, 0.02, router_seed_bytes));
 
         Self {
             db,
@@ -631,8 +640,8 @@ impl AppState {
         jwt_secret: Vec<u8>,
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
-        metrics_collector: Arc<MetricsCollector>,
-        metrics_registry: Arc<MetricsRegistry>,
+        metrics_collector: Option<Arc<MetricsCollector>>,
+        metrics_registry: Option<Arc<MetricsRegistry>>,
         training_service: Arc<TrainingService>,
     ) -> Self {
         Self::new(
@@ -660,6 +669,22 @@ impl AppState {
     pub fn with_crypto(mut self, crypto: CryptoState) -> Self {
         self.crypto = Arc::new(crypto);
         self
+    }
+
+    /// Send telemetry event
+    pub fn send_telemetry_event(&self, event: UnifiedTelemetryEvent) {
+        let _ = self.telemetry_tx.send(event);
+    }
+
+    /// Push event to telemetry buffer
+    pub fn push_telemetry_event(&self, event: UnifiedTelemetryEvent) {
+        self.telemetry_buffer.push(event.clone());
+        self.send_telemetry_event(event);
+    }
+
+    /// Query telemetry buffer
+    pub fn query_telemetry(&self, filters: &adapteros_telemetry::TelemetryFilters) -> Vec<UnifiedTelemetryEvent> {
+        self.telemetry_buffer.query(filters)
     }
 
     pub fn with_metrics_server(

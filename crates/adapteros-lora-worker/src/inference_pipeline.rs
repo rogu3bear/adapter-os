@@ -136,6 +136,16 @@ pub struct InferencePipeline {
     entropy_window: usize,
     /// Determinism policy validator
     determinism_validator: adapteros_policy::packs::determinism::DeterminismPolicy,
+    /// Derived seeds for deterministic operations
+    worker_seed: adapteros_core::B3Hash,
+    router_seed: adapteros_core::B3Hash,
+    inference_seed: adapteros_core::B3Hash,
+    /// Seed for any preprocessing operations that require randomness
+    /// Currently unused but available for future preprocessing steps
+    pre_inference_seed: adapteros_core::B3Hash,
+    /// Seed for any postprocessing operations that require randomness
+    /// Currently unused but available for future postprocessing steps
+    post_inference_seed: adapteros_core::B3Hash,
 }
 
 /// Context for computing priors during routing
@@ -156,6 +166,7 @@ impl InferencePipeline {
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
+        global_seed: adapteros_core::B3Hash,
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
@@ -195,12 +206,22 @@ impl InferencePipeline {
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
-        // Create deterministic generator with seed
-        let seed = adapteros_core::derive_seed(
-            &adapteros_core::B3Hash::hash(b"default-inference-seed"),
-            "inference-pipeline",
-        );
-        let generator = Generator::new(seed)
+        // Derive seeds hierarchically from global seed
+        let worker_seed_bytes = adapteros_core::derive_seed(&global_seed, "worker");
+        let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
+        let inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
+        let pre_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
+        let post_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
+
+        // Convert to B3Hash for storage
+        let worker_seed = B3Hash::from_bytes(worker_seed_bytes);
+        let router_seed = B3Hash::from_bytes(router_seed_bytes);
+        let inference_seed = B3Hash::from_bytes(inference_seed_bytes);
+        let pre_inference_seed = B3Hash::from_bytes(pre_inference_seed_bytes);
+        let post_inference_seed = B3Hash::from_bytes(post_inference_seed_bytes);
+
+        // Create deterministic generator with inference seed
+        let generator = Generator::new(inference_seed_bytes)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
             .with_top_p(config.top_p.unwrap_or(0.9));
@@ -221,6 +242,11 @@ impl InferencePipeline {
             recent_logits: Vec::new(),
             entropy_window: 8,
             determinism_validator,
+            worker_seed,
+            router_seed,
+            inference_seed,
+            pre_inference_seed,
+            post_inference_seed,
         })
     }
 
@@ -234,6 +260,7 @@ impl InferencePipeline {
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
         quarantine_manager: Arc<Mutex<QuarantineManager>>,
+        global_seed: adapteros_core::B3Hash,
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
@@ -273,12 +300,22 @@ impl InferencePipeline {
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
-        // Create deterministic generator with seed
-        let seed = adapteros_core::derive_seed(
-            &adapteros_core::B3Hash::hash(b"default-inference-seed"),
-            "inference-pipeline",
-        );
-        let generator = Generator::new(seed)
+        // Derive seeds hierarchically from global seed
+        let worker_seed_bytes = adapteros_core::derive_seed(&global_seed, "worker");
+        let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
+        let inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
+        let pre_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
+        let post_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
+
+        // Convert to B3Hash for storage
+        let worker_seed = B3Hash::from_bytes(worker_seed_bytes);
+        let router_seed = B3Hash::from_bytes(router_seed_bytes);
+        let inference_seed = B3Hash::from_bytes(inference_seed_bytes);
+        let pre_inference_seed = B3Hash::from_bytes(pre_inference_seed_bytes);
+        let post_inference_seed = B3Hash::from_bytes(post_inference_seed_bytes);
+
+        // Create deterministic generator with inference seed
+        let generator = Generator::new(inference_seed_bytes)
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
             .with_top_p(config.top_p.unwrap_or(0.9));
@@ -296,6 +333,11 @@ impl InferencePipeline {
             recent_logits: Vec::new(),
             entropy_window: 8,
             determinism_validator,
+            worker_seed,
+            router_seed,
+            inference_seed,
+            pre_inference_seed,
+            post_inference_seed,
         })
     }
 
@@ -499,7 +541,19 @@ impl InferencePipeline {
         // 13. Decode generated text
         let generated_text = self.tokenizer.decode(&generated_tokens)?;
 
-        // 14. Build trace for reproducibility
+        // 14. Validate post-inference router entropy
+        let avg_router_entropy = if router_decisions.is_empty() {
+            0.0
+        } else {
+            let total_entropy: f32 = router_decisions
+                .iter()
+                .map(|decision| self.calculate_gate_entropy(&decision.gates_q15))
+                .sum();
+            total_entropy / router_decisions.len() as f32
+        };
+        self.determinism_validator.validate_router_entropy(avg_router_entropy)?;
+
+        // 15. Build trace for reproducibility
         let trace = InferenceTrace {
             cpid: request.cpid.clone(),
             input_tokens: input_tokens.clone(),
@@ -510,7 +564,7 @@ impl InferencePipeline {
 
         let latency = start_time.elapsed();
 
-        // 15. Log final telemetry
+        // 16. Log final telemetry
         let _ = self.telemetry.log(
             "inference.complete",
             serde_json::json!({
@@ -607,6 +661,16 @@ impl InferencePipeline {
     /// Get model configuration
     pub fn config(&self) -> &InferencePipelineConfig {
         &self.config
+    }
+
+    /// Get the pre-inference seed (for future preprocessing operations)
+    pub fn pre_inference_seed(&self) -> &adapteros_core::B3Hash {
+        &self.pre_inference_seed
+    }
+
+    /// Get the post-inference seed (for future postprocessing operations)
+    pub fn post_inference_seed(&self) -> &adapteros_core::B3Hash {
+        &self.post_inference_seed
     }
 }
 
