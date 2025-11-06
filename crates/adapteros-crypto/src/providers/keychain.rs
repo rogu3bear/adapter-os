@@ -29,6 +29,7 @@ use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
 use adapteros_core::{AosError, Result};
+use base64::Engine;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::collections::HashMap;
 #[cfg(all(target_os = "linux", feature = "linux-keychain"))]
@@ -397,7 +398,7 @@ impl PasswordFallbackKeyring {
                 };
 
                 let public_key = if let Some(pk_b64) = key_obj.get("public_key_b64").and_then(|p| p.as_str()) {
-                    Some(base64::decode(pk_b64).map_err(|e| {
+                    Some(base64::engine::general_purpose::STANDARD.decode(pk_b64).map_err(|e| {
                         error!(error = %e, "Invalid base64 public key in keystore");
                         AosError::Crypto("Invalid keystore public key".to_string())
                     })?)
@@ -483,8 +484,8 @@ impl KeyringImpl for PasswordFallbackKeyring {
                 let verifying_key = signing_key.verifying_key();
 
                 // Store in keystore
-                let private_key_b64 = base64::encode(signing_key.to_bytes());
-                let public_key_b64 = base64::encode(verifying_key.to_bytes());
+                let private_key_b64 = base64::engine::general_purpose::STANDARD.encode(signing_key.to_bytes());
+                let public_key_b64 = base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes());
                 self.store_key_in_keystore(key_id, &alg, &private_key_b64, Some(&public_key_b64))?;
 
                 KeyHandle::with_public_key(
@@ -499,7 +500,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
                 rng.fill_bytes(&mut key_data);
 
                 // Store in keystore
-                let private_key_b64 = base64::encode(key_data);
+                let private_key_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
                 self.store_key_in_keystore(key_id, &alg, &private_key_b64, None)?;
 
                 KeyHandle::new(format!("{}:{}", self.service_name, key_id), alg)
@@ -515,7 +516,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
 
     async fn sign(&self, key_id: &str, msg: &[u8]) -> Result<Vec<u8>> {
         let private_key_b64 = self.load_private_key_from_keystore(key_id)?;
-        let key_bytes = base64::decode(&private_key_b64).map_err(|e| {
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
             error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
             AosError::Crypto("Invalid stored key format".to_string())
         })?;
@@ -537,7 +538,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
 
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         let private_key_b64 = self.load_private_key_from_keystore(key_id)?;
-        let key_bytes = base64::decode(&private_key_b64).map_err(|e| {
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
             error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
             AosError::Crypto("Invalid stored key format".to_string())
         })?;
@@ -579,7 +580,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
         }
 
         let private_key_b64 = self.load_private_key_from_keystore(key_id)?;
-        let key_bytes = base64::decode(&private_key_b64).map_err(|e| {
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
             error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
             AosError::Crypto("Invalid stored key format".to_string())
         })?;
@@ -624,7 +625,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
             }
         };
 
-        let key_bytes = base64::decode(&private_key_b64).map_err(|e| {
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
             error!(error = %e, "Invalid base64 in receipt signing key");
             AosError::Crypto("Invalid receipt signing key format".to_string())
         })?;
@@ -769,7 +770,7 @@ impl MacKeychain {
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<()> {
         let key_data = signing_key.to_bytes();
-        let key_data_b64 = base64::encode(key_data);
+        let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
         let account = format!("{}-ed25519", key_id);
         let label = format!("AdapterOS Ed25519 Key: {}", key_id);
@@ -829,7 +830,7 @@ impl MacKeychain {
             .trim()
             .to_string();
 
-        let key_data = base64::decode(&key_data_b64).map_err(|e| {
+        let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
             error!(error = %e, key_id = %key_id, "Invalid base64 in keychain data");
             AosError::Crypto("Invalid keychain data format".to_string())
         })?;
@@ -851,7 +852,7 @@ impl MacKeychain {
 
     /// Store symmetric key in macOS Keychain using native APIs
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
-        let key_data_b64 = base64::encode(key_data);
+        let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
         let account = format!("{}-symmetric", key_id);
         let label = format!("AdapterOS Symmetric Key: {}", key_id);
@@ -911,7 +912,7 @@ impl MacKeychain {
             .trim()
             .to_string();
 
-        let key_data = base64::decode(&key_data_b64).map_err(|e| {
+        let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
             error!(error = %e, key_id = %key_id, "Invalid base64 in symmetric keychain data");
             AosError::Crypto("Invalid symmetric keychain data format".to_string())
         })?;
@@ -977,7 +978,7 @@ impl MacKeychain {
         }
 
         // Use base64 encoding to safely pass binary data via stdin
-        let password_b64 = base64::encode(password_data);
+        let password_b64 = base64::engine::general_purpose::STANDARD.encode(password_data);
 
         // Use secure CLI approach with proper input validation and error handling
         let result = Command::new("security")
@@ -1433,7 +1434,7 @@ impl LinuxKeyring {
             use secret_service::EncryptionType;
 
             let key_data = signing_key.to_bytes();
-            let key_data_b64 = base64::encode(key_data);
+            let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
             let ss = SecretService::connect(EncryptionType::Dh).map_err(|e| {
                 error!(error = %e, key_id = %key_id, "Failed to connect to secret service");
@@ -1591,7 +1592,7 @@ impl LinuxKeyring {
                 AosError::Crypto("Invalid keyring data encoding".to_string())
             })?;
 
-            let key_data = base64::decode(&key_data_b64).map_err(|e| {
+            let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
                 error!(error = %e, key_id = %key_id, "Invalid base64 in keyring data");
                 AosError::Crypto("Invalid keyring data format".to_string())
             })?;
@@ -1699,7 +1700,7 @@ impl LinuxKeyring {
             use secret_service::blocking::SecretService;
             use secret_service::EncryptionType;
 
-            let key_data_b64 = base64::encode(key_data);
+            let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
             let ss = SecretService::connect(EncryptionType::Dh).map_err(|e| {
                 error!(error = %e, key_id = %key_id, "Failed to connect to secret service");
@@ -1851,7 +1852,7 @@ impl LinuxKeyring {
                 AosError::Crypto("Invalid symmetric keyring data encoding".to_string())
             })?;
 
-            let key_data = base64::decode(&key_data_b64).map_err(|e| {
+            let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
                 error!(error = %e, key_id = %key_id, "Invalid base64 in symmetric keyring data");
                 AosError::Crypto("Invalid symmetric keyring data format".to_string())
             })?;
@@ -2311,7 +2312,9 @@ mod tests {
         let public_key = VerifyingKey::from_bytes(
             handle.public_key.as_ref().unwrap().as_slice().try_into().unwrap()
         ).unwrap();
-        assert!(public_key.verify(message, &signature.try_into().unwrap()).is_ok());
+        let signature_bytes: [u8; 64] = signature.as_slice().try_into().unwrap();
+        let signature = ed25519_dalek::Signature::from(signature_bytes);
+        assert!(public_key.verify(message, &signature).is_ok());
 
         // Rotate key
         let receipt = provider.rotate(key_id).await.unwrap();
@@ -2370,6 +2373,7 @@ mod tests {
             KeychainBackend::SecretService => assert!(attestation.provider_type.contains("secret-service")),
             #[cfg(target_os = "linux")]
             KeychainBackend::KernelKeyring => assert!(attestation.provider_type.contains("kernel-keyring")),
+            #[cfg(feature = "password-fallback")]
             KeychainBackend::PasswordFallback => assert!(attestation.provider_type.contains("password-fallback")),
         }
     }

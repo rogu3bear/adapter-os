@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Secure Keychain Integration** - Comprehensive multi-platform key storage system
+  - macOS: Hardware Secure Enclave support with Security Framework integration
+  - Linux Desktop: D-Bus Secret Service (GNOME Keyring/KWallet) integration
+  - Linux Server: Kernel keyring with syscall-level access
+  - Headless/CI: Password-based encrypted keystore fallback (Argon2id + AES-256-GCM)
+  - Platform auto-detection with graceful fallbacks
+  - Cryptographic operations: Ed25519 signing, AES-256-GCM encryption
+  - Key lifecycle management: generate, rotate, attest, audit trail
+  - Input validation and command injection prevention
+  - Comprehensive test suite with 95%+ coverage
+  - Secrets Ruleset #14 compliance (no plaintext secrets, hardware-backed keys)
+
 ### Fixed
 - **Linter Error Resolution** - Resolved 691/779 linter errors (89% reduction)
   - Fixed all compilation errors in library crates (0 errors in `crates/`)

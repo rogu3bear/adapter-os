@@ -140,13 +140,13 @@ pub struct ModelRuntimeImpl {
     seed: [u8; 32],
 }
 
-impl Default for ModelRuntime {
+impl Default for ModelRuntimeImpl {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ModelRuntime {
+impl ModelRuntimeImpl {
     pub fn new() -> Self {
         Self::with_seed([0u8; 32]) // Default seed for development
     }
@@ -1044,7 +1044,7 @@ impl ModelRuntime {
     }
 
     #[cfg(not(feature = "mlx-ffi-backend"))]
-    fn estimate_memory_usage_mb(_config: &ModelConfig) -> i32 {
+    fn estimate_memory_usage_mb(_config: &()) -> i32 {
         1024 // Default estimate when MLX not available
     }
 }

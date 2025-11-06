@@ -266,10 +266,10 @@ impl ExperimentalRegistry {
 
     /// Get features by status
     #[must_use]
-    pub fn get_features_by_status(&self, status: FeatureStatus) -> Vec<&ExperimentalFeature> {
+    pub fn get_features_by_status(&self, status: &FeatureStatus) -> Vec<&ExperimentalFeature> {
         self.features
             .values()
-            .filter(|f| std::mem::discriminant(&f.status) == std::mem::discriminant(&status))
+            .filter(|f| std::mem::discriminant(&f.status) == std::mem::discriminant(status))
             .collect()
     }
 }

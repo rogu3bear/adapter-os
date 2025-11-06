@@ -10,6 +10,8 @@ repository.workspace = true
 default = ["telemetry"]
 extended-tests = []
 telemetry = ["adapteros-telemetry", "adapteros-telemetry-types", "adapteros-system-metrics"]
+experimental-backends = []
+mlx-ffi-backend = []
 
 [[bin]]
 name = "adapteros-server"

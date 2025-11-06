@@ -693,6 +693,7 @@ mod tests {
             max_tokens: 100,
             cpid: "test-cp-001".to_string(),
             require_evidence: false,
+            request_type: None,
         };
         assert_eq!(request.max_tokens, 100);
     }

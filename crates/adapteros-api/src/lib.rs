@@ -28,16 +28,13 @@ use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, Sse};
 use axum::{
-    body::Body,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use futures_util::stream::Stream;
-use futures_util::TryStreamExt;
-use http_body_util::BodyExt;
+use futures_util::Stream;
 use hyper_util::rt::TokioExecutor;
 use hyper_util::server::conn::auto::Builder;
 use serde::{Deserialize, Serialize};
@@ -46,14 +43,12 @@ use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
-use tower::Service;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 pub mod types;
 
-use adapteros_lora_kernel_api::FusedKernels;
 
 /// API server state
 pub struct ApiState {
@@ -172,8 +167,8 @@ async fn serve_uds_with_metal_kernels_impl<P: AsRef<Path>>(
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                let io = hyper_util::rt::TokioIo::new(stream);
-                let make_service_clone = make_service.clone();
+                let _io = hyper_util::rt::TokioIo::new(stream);
+                let _make_service_clone = make_service.clone();
                 let _builder_clone = builder.clone();
                 // TODO: Implement UDS connection handling
                 let _ = spawn_deterministic("UDS connection handler".to_string(), async move {
@@ -294,13 +289,13 @@ async fn serve_uds_with_worker_impl<P: AsRef<Path>>(
 
     // In Axum 0.7, Router with state implements Service<Request<Body>>
     // Clone router for each connection (pattern from adapteros-server/src/main.rs L1512)
-    let app_service: Router<Arc<ApiState>> = app;
-    let builder = Builder::new(TokioExecutor::new());
+    let _app_service: Router<Arc<ApiState>> = app;
+    let _builder = Builder::new(TokioExecutor::new());
 
     // Accept connections and serve
     loop {
         match listener.accept().await {
-            Ok((stream, _addr)) => {
+            Ok((_stream, _addr)) => {
                 let _ = spawn_deterministic("UDS connection handler".to_string(), async move {
                     // TODO: Implement proper HTTP over UDS serving
                     // For now, just accept connections without serving HTTP
@@ -319,7 +314,6 @@ async fn serve_uds_with_worker_impl<P: AsRef<Path>>(
 
 // Concrete handlers for MetalKernels (avoid generic closure issues)
 // Use concrete ApiState<MetalKernels> type directly to avoid type alias issues with Axum
-type MetalApiState = ApiState;
 
 async fn inference_handler_metal(
     state: State<Arc<ApiState>>,
@@ -445,7 +439,7 @@ async fn inference_handler(
     });
 
     // Forward request to worker; worker policy remains source of truth
-    let mut worker = state.worker.lock().await;
+    let worker = state.worker.lock().await;
     let response = worker
         .infer(request)
         .await
@@ -486,7 +480,7 @@ async fn adapter_command_handler(
 ) -> Result<Json<adapteros_lora_worker::AdapterCommandResult>, ApiError> {
     admin_guard(&headers)?;
     // Forward command to worker
-    let mut worker = state.worker.lock().await;
+    let worker = state.worker.lock().await;
     let result = worker
         .execute_adapter_command(command)
         .await
@@ -569,7 +563,7 @@ async fn warmup_handler(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     admin_guard(&headers)?;
-    let mut worker = state.worker.lock().await;
+    let worker = state.worker.lock().await;
     let report = worker
         .warmup()
         .await

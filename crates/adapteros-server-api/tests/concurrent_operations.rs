@@ -134,6 +134,7 @@ impl TestConfig {
             Arc::new(training_service),
             None,
             None,
+            [0u8; 32], // Test global seed
         );
 
         // Create test server
