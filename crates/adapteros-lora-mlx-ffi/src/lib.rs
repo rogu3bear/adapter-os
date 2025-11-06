@@ -63,6 +63,183 @@ fn default_rope_theta() -> f32 {
 }
 
 impl MLXFFIModel {
+    /// Create a new empty MLX model container
+    ///
+    /// # Returns
+    /// Empty model container ready for incremental loading
+    pub fn new() -> Result<Self> {
+        #[cfg(mlx_stub)]
+        {
+            return Err(AosError::FeatureDisabled {
+                feature: "MLX C++ API".to_string(),
+                reason: "FFI is stub. Install MLX C++ headers/libs or use Metal backend."
+                    .to_string(),
+                alternative: Some("Use Metal backend".to_string()),
+            });
+        }
+
+        #[cfg(mlx_real)]
+        {
+            // Note: Current FFI doesn't support incremental loading.
+            // Create a placeholder that will be replaced when load_base is called.
+            Ok(Self {
+                model: std::ptr::null_mut(),
+                config: ModelConfig {
+                    hidden_size: 0,
+                    num_hidden_layers: 0,
+                    num_attention_heads: 0,
+                    num_key_value_heads: 0,
+                    intermediate_size: 0,
+                    vocab_size: 0,
+                    max_position_embeddings: 0,
+                    rope_theta: 10000.0,
+                },
+                lm_head: vec![],
+            })
+        }
+    }
+
+    /// Load base model weights and configuration
+    ///
+    /// # Arguments
+    /// * `model_path` - Path to directory containing model files
+    /// * `quant` - Optional quantization specification (e.g., "4bit")
+    ///
+    /// # Returns
+    /// Success if base model loaded
+    pub fn load_base<P: AsRef<Path>>(&mut self, model_path: P, _quant: Option<&str>) -> Result<()> {
+        #[cfg(mlx_stub)]
+        {
+            return Err(AosError::FeatureDisabled {
+                feature: "MLX C++ API".to_string(),
+                reason: "FFI is stub. Install MLX C++ headers/libs or use Metal backend."
+                    .to_string(),
+                alternative: Some("Use Metal backend".to_string()),
+            });
+        }
+
+        #[cfg(mlx_real)]
+        {
+            // Current FFI only supports loading everything at once.
+            // We'll use mlx_model_load() here and ignore quantization for now.
+            let model_path = model_path.as_ref();
+
+            // Load config
+            let config_path = model_path.join("config.json");
+            let config_str = std::fs::read_to_string(&config_path)
+                .map_err(|e| AosError::Io(format!("Failed to read config: {}", e)))?;
+            let config: ModelConfig = serde_json::from_str(&config_str)
+                .map_err(|e| AosError::Parse(format!("Failed to parse config: {}", e)))?;
+
+            // Convert path to C string
+            let path_str = model_path
+                .to_str()
+                .ok_or_else(|| AosError::Internal("Invalid model path".to_string()))?;
+            let path_cstr = std::ffi::CString::new(path_str)
+                .map_err(|e| AosError::Internal(format!("Invalid path string: {}", e)))?;
+
+            // Clear any previous errors
+            unsafe {
+                mlx_clear_error();
+            }
+
+            // Load model via FFI
+            let model = unsafe { mlx_model_load(path_cstr.as_ptr()) };
+            if model.is_null() {
+                let error_msg = unsafe { mlx_get_last_error() };
+                let error_str = if error_msg.is_null() {
+                    "Unknown MLX error".to_string()
+                } else {
+                    unsafe {
+                        std::ffi::CStr::from_ptr(error_msg)
+                            .to_string_lossy()
+                            .to_string()
+                    }
+                };
+                return Err(AosError::Mlx(format!(
+                    "Failed to load MLX model: {}",
+                    error_str
+                )));
+            }
+
+            tracing::info!("MLX base model loaded via FFI: {}", path_str);
+
+            // Update config and initialize LM head weights
+            self.model = model;
+            self.config = config;
+            self.lm_head = Self::init_lm_head_weights(&self.config, model_path)?;
+
+            Ok(())
+        }
+    }
+
+    /// Load LoRA adapter weights for hot-swap
+    ///
+    /// # Arguments
+    /// * `adapter_dir` - Path to directory containing adapter files (must have adapter_config.json)
+    ///
+    /// # Returns
+    /// Success if adapter loaded
+    pub fn load_adapter<P: AsRef<Path>>(&mut self, adapter_dir: P) -> Result<()> {
+        #[cfg(mlx_stub)]
+        {
+            return Err(AosError::FeatureDisabled {
+                feature: "MLX C++ API".to_string(),
+                reason: "FFI is stub. Install MLX C++ headers/libs or use Metal backend."
+                    .to_string(),
+                alternative: Some("Use Metal backend".to_string()),
+            });
+        }
+
+        #[cfg(mlx_real)]
+        {
+            let adapter_dir = adapter_dir.as_ref();
+
+            // Validate adapter directory has adapter_config.json
+            let config_path = adapter_dir.join("adapter_config.json");
+            if !config_path.exists() {
+                return Err(AosError::Io(format!(
+                    "Adapter config not found: {}",
+                    config_path.display()
+                )));
+            }
+
+            // Current FFI doesn't support hot-swapping adapters.
+            // This is a known limitation - adapter loading must be done at model load time.
+            Err(AosError::FeatureDisabled {
+                feature: "MLX adapter hot-swapping".to_string(),
+                reason: "Current MLX FFI only supports loading adapters during initial model load".to_string(),
+                alternative: Some("Load adapter during initial model loading with load_base()".to_string()),
+            })
+        }
+    }
+
+    /// Warm up the model by compiling kernels and preparing for inference
+    ///
+    /// # Returns
+    /// Success if warmup completed
+    pub fn warmup(&mut self) -> Result<()> {
+        #[cfg(mlx_stub)]
+        {
+            return Err(AosError::FeatureDisabled {
+                feature: "MLX C++ API".to_string(),
+                reason: "FFI is stub. Install MLX C++ headers/libs or use Metal backend."
+                    .to_string(),
+                alternative: Some("Use Metal backend".to_string()),
+            });
+        }
+
+        #[cfg(mlx_real)]
+        {
+            // Note: Current FFI doesn't support explicit warmup.
+            // MLX typically compiles kernels on first inference.
+            // For now, this is a no-op that succeeds.
+            tracing::info!("MLX model warmup requested but not supported by current FFI. \
+                           Kernels will be compiled on first inference.");
+            Ok(())
+        }
+    }
+
     /// Load a model from MLX format using FFI
     ///
     /// # Arguments
