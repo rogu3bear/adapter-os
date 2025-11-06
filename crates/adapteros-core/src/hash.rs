@@ -91,6 +91,12 @@ impl fmt::Display for B3Hash {
     }
 }
 
+impl fmt::LowerHex for B3Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+}
+
 impl Serialize for B3Hash {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where

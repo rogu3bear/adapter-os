@@ -36,7 +36,7 @@ impl SystemMetricsPolicy {
     /// Check if system metrics meet policy thresholds
     pub fn check_thresholds(&self, metrics: &SystemMetrics) -> Result<()> {
         // Check CPU usage threshold
-        if metrics.cpu_usage > self.thresholds.cpu_critical as f64 {
+        if metrics.cpu_usage > self.thresholds.cpu_critical {
             return Err(AosError::PerformanceViolation(format!(
                 "CPU usage {:.1}% exceeds critical threshold {:.1}%",
                 metrics.cpu_usage, self.thresholds.cpu_critical
@@ -44,7 +44,7 @@ impl SystemMetricsPolicy {
         }
 
         // Check memory usage threshold
-        if metrics.memory_usage > self.thresholds.memory_critical as f64 {
+        if metrics.memory_usage > self.thresholds.memory_critical {
             return Err(AosError::MemoryPressure(format!(
                 "Memory usage {:.1}% exceeds critical threshold {:.1}%",
                 metrics.memory_usage, self.thresholds.memory_critical
@@ -52,7 +52,7 @@ impl SystemMetricsPolicy {
         }
 
         // Check disk usage threshold
-        if metrics.disk_io.usage_percent > self.thresholds.disk_critical {
+        if metrics.disk_io.usage_percent as f64 > self.thresholds.disk_critical {
             return Err(AosError::ResourceExhaustion(format!(
                 "Disk usage {:.1}% exceeds critical threshold {:.1}%",
                 metrics.disk_io.usage_percent, self.thresholds.disk_critical
@@ -61,7 +61,7 @@ impl SystemMetricsPolicy {
 
         // Check GPU utilization threshold
         if let Some(gpu_util) = metrics.gpu_metrics.utilization {
-            if gpu_util > self.thresholds.gpu_critical as f64 {
+            if gpu_util > self.thresholds.gpu_critical {
                 return Err(AosError::PerformanceViolation(format!(
                     "GPU utilization {:.1}% exceeds critical threshold {:.1}%",
                     gpu_util, self.thresholds.gpu_critical
@@ -74,7 +74,7 @@ impl SystemMetricsPolicy {
 
     /// Check memory headroom policy (Memory Ruleset #12)
     pub fn check_memory_headroom(&self, headroom_pct: f32) -> Result<()> {
-        if headroom_pct < self.thresholds.min_memory_headroom {
+        if (headroom_pct as f64) < self.thresholds.min_memory_headroom {
             return Err(AosError::MemoryPressure(format!(
                 "Insufficient memory headroom: {:.1}% < {:.1}% (Memory Ruleset #12)",
                 headroom_pct, self.thresholds.min_memory_headroom
@@ -98,22 +98,22 @@ impl SystemMetricsPolicy {
         let mut violations = Vec::new();
 
         // CPU usage violations
-        if metrics.cpu_usage > self.thresholds.cpu_critical as f64 {
+        if metrics.cpu_usage > self.thresholds.cpu_critical {
             violations.push(PolicyViolation {
                 metric: "cpu_usage".to_string(),
                 current_value: metrics.cpu_usage,
-                threshold_value: self.thresholds.cpu_critical as f64,
+                threshold_value: self.thresholds.cpu_critical,
                 severity: ViolationSeverity::Critical,
                 message: format!(
                     "CPU usage {:.1}% exceeds critical threshold {:.1}%",
                     metrics.cpu_usage, self.thresholds.cpu_critical
                 ),
             });
-        } else if metrics.cpu_usage > self.thresholds.cpu_warning as f64 {
+        } else if metrics.cpu_usage > self.thresholds.cpu_warning {
             violations.push(PolicyViolation {
                 metric: "cpu_usage".to_string(),
                 current_value: metrics.cpu_usage,
-                threshold_value: self.thresholds.cpu_warning as f64,
+                threshold_value: self.thresholds.cpu_warning,
                 severity: ViolationSeverity::Warning,
                 message: format!(
                     "CPU usage {:.1}% exceeds warning threshold {:.1}%",
@@ -123,22 +123,22 @@ impl SystemMetricsPolicy {
         }
 
         // Memory usage violations
-        if metrics.memory_usage > self.thresholds.memory_critical as f64 {
+        if metrics.memory_usage > self.thresholds.memory_critical {
             violations.push(PolicyViolation {
                 metric: "memory_usage".to_string(),
                 current_value: metrics.memory_usage,
-                threshold_value: self.thresholds.memory_critical as f64,
+                threshold_value: self.thresholds.memory_critical,
                 severity: ViolationSeverity::Critical,
                 message: format!(
                     "Memory usage {:.1}% exceeds critical threshold {:.1}%",
                     metrics.memory_usage, self.thresholds.memory_critical
                 ),
             });
-        } else if metrics.memory_usage > self.thresholds.memory_warning as f64 {
+        } else if metrics.memory_usage > self.thresholds.memory_warning {
             violations.push(PolicyViolation {
                 metric: "memory_usage".to_string(),
                 current_value: metrics.memory_usage,
-                threshold_value: self.thresholds.memory_warning as f64,
+                threshold_value: self.thresholds.memory_warning,
                 severity: ViolationSeverity::Warning,
                 message: format!(
                     "Memory usage {:.1}% exceeds warning threshold {:.1}%",
@@ -148,22 +148,22 @@ impl SystemMetricsPolicy {
         }
 
         // Disk usage violations
-        if metrics.disk_io.usage_percent > self.thresholds.disk_critical {
+        if metrics.disk_io.usage_percent as f64 > self.thresholds.disk_critical {
             violations.push(PolicyViolation {
                 metric: "disk_usage".to_string(),
                 current_value: metrics.disk_io.usage_percent as f64,
-                threshold_value: self.thresholds.disk_critical as f64,
+                threshold_value: self.thresholds.disk_critical,
                 severity: ViolationSeverity::Critical,
                 message: format!(
                     "Disk usage {:.1}% exceeds critical threshold {:.1}%",
                     metrics.disk_io.usage_percent, self.thresholds.disk_critical
                 ),
             });
-        } else if metrics.disk_io.usage_percent > self.thresholds.disk_warning {
+        } else if metrics.disk_io.usage_percent as f64 > self.thresholds.disk_warning {
             violations.push(PolicyViolation {
                 metric: "disk_usage".to_string(),
                 current_value: metrics.disk_io.usage_percent as f64,
-                threshold_value: self.thresholds.disk_warning as f64,
+                threshold_value: self.thresholds.disk_warning,
                 severity: ViolationSeverity::Warning,
                 message: format!(
                     "Disk usage {:.1}% exceeds warning threshold {:.1}%",
@@ -174,22 +174,22 @@ impl SystemMetricsPolicy {
 
         // GPU utilization violations
         if let Some(gpu_util) = metrics.gpu_metrics.utilization {
-            if gpu_util > self.thresholds.gpu_critical as f64 {
+            if gpu_util > self.thresholds.gpu_critical {
                 violations.push(PolicyViolation {
                     metric: "gpu_utilization".to_string(),
                     current_value: gpu_util,
-                    threshold_value: self.thresholds.gpu_critical as f64,
+                    threshold_value: self.thresholds.gpu_critical,
                     severity: ViolationSeverity::Critical,
                     message: format!(
                         "GPU utilization {:.1}% exceeds critical threshold {:.1}%",
                         gpu_util, self.thresholds.gpu_critical
                     ),
                 });
-            } else if gpu_util > self.thresholds.gpu_warning as f64 {
+            } else if gpu_util > self.thresholds.gpu_warning {
                 violations.push(PolicyViolation {
                     metric: "gpu_utilization".to_string(),
                     current_value: gpu_util,
-                    threshold_value: self.thresholds.gpu_warning as f64,
+                    threshold_value: self.thresholds.gpu_warning,
                     severity: ViolationSeverity::Warning,
                     message: format!(
                         "GPU utilization {:.1}% exceeds warning threshold {:.1}%",
@@ -265,7 +265,7 @@ mod tests {
     use crate::{DiskMetrics, GpuMetrics, NetworkMetrics};
     use std::time::SystemTime;
 
-    fn create_test_metrics(cpu_usage: f64, memory_usage: f64, disk_usage: f32) -> SystemMetrics {
+    fn create_test_metrics(cpu_usage: f64, memory_usage: f64, disk_usage: f64) -> SystemMetrics {
         SystemMetrics {
             cpu_usage,
             memory_usage,
@@ -274,7 +274,7 @@ mod tests {
                 write_bytes: 1000,
                 read_ops: 10,
                 write_ops: 10,
-                usage_percent: disk_usage,
+                usage_percent: disk_usage as f32,
                 available_bytes: 1000,
                 total_bytes: 1000,
             },

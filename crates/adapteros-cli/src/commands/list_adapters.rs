@@ -22,7 +22,7 @@ pub async fn run(tier: Option<&str>, output: &OutputWriter) -> Result<()> {
     // Filter adapters if tier is specified
     let filtered: Vec<_> = adapters
         .into_iter()
-        .filter(|adapter| tier.is_none_or(|filter_tier| adapter.tier == filter_tier))
+        .filter(|adapter| tier.map_or(true, |ft| adapter.tier == ft))
         .collect();
 
     if filtered.is_empty() {
