@@ -255,6 +255,11 @@ impl LifecycleManager {
         self.hot_swap.clone()
     }
 
+    /// Get reference to adapter loader for testing
+    pub fn loader(&self) -> Arc<RwLock<AdapterLoader>> {
+        self.loader.clone()
+    }
+
     /// Update rolling activation tracker window size (primarily for tests).
     pub fn set_activation_window(&self, window: usize) {
         let mut tracker = self.activation_tracker.write();
@@ -560,86 +565,100 @@ impl LifecycleManager {
         warn!("Handling memory pressure");
 
         let metrics = profiler.get_all_metrics();
-        let mut states = self.states.write();
+        let mut candidates_to_evict = Vec::new();
 
-        // Sort adapters by eviction priority (cold, low activation first)
-        let mut candidates: Vec<(u16, &AdapterMetrics)> = states
-            .iter()
-            .filter_map(|(id, record)| {
-                if record.pinned {
-                    return None; // Never evict pinned
+        // Collect candidates without holding the lock
+        {
+            let states = self.states.read();
+
+            // Sort adapters by eviction priority (cold, low activation first)
+            let mut candidates: Vec<(u16, &AdapterMetrics)> = states
+                .iter()
+                .filter_map(|(id, record)| {
+                    if record.pinned {
+                        return None; // Never evict pinned
+                    }
+                    metrics
+                        .iter()
+                        .find(|m| m.adapter_id == record.adapter_id)
+                        .map(|m| (*id, m))
+                })
+                .collect();
+
+            // Sort by activation percentage (lowest first)
+            candidates.sort_by(|a, b| {
+                a.1.activation_pct
+                    .partial_cmp(&b.1.activation_pct)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            // Collect adapter IDs to evict
+            for (adapter_id, metric) in candidates {
+                if let Some(record) = states.get(&adapter_id) {
+                    if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
+                        candidates_to_evict.push(adapter_id);
+                        break; // Just evict one for now
+                    }
                 }
-                metrics
-                    .iter()
-                    .find(|m| m.adapter_id == record.adapter_id)
-                    .map(|m| (*id, m))
-            })
-            .collect();
+            }
+        }
 
-        // Sort by activation percentage (lowest first)
-        candidates.sort_by(|a, b| {
-            a.1.activation_pct
-                .partial_cmp(&b.1.activation_pct)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Try evicting cold adapters first
-        for (adapter_id, metric) in candidates {
+        // Now perform eviction without holding the states lock
+        for adapter_id in candidates_to_evict {
+            let mut states = self.states.write();
             if let Some(record) = states.get_mut(&adapter_id) {
-                if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
-                    let _old_state = record.state;
-                    record.state = AdapterState::Unloaded;
+                let _old_state = record.state;
+                record.state = AdapterState::Unloaded;
 
-                    info!(
-                        "Evicted adapter {} due to memory pressure",
-                        record.adapter_id
-                    );
+                info!(
+                    "Evicted adapter {} due to memory pressure",
+                    record.adapter_id
+                );
 
-                    if let Some(ref telemetry) = self.telemetry {
-                        telemetry.log(
-                            "adapter_evicted",
-                            AdapterEvictionEvent {
-                                adapter_id: record.adapter_id.clone(),
-                                from_state: record.state.to_string(),
-                                category: record.category.clone(),
-                                memory_freed: record.memory_bytes,
-                            },
-                        )?;
-                    }
-
-                    // Unload from memory
-                    let unload_start = std::time::Instant::now();
-                    let unload_result = {
-                        let mut loader = self.loader.write();
-                        loader.unload_adapter(adapter_id)
-                    };
-
-                    match unload_result {
-                        Ok(_) => {
-                            if let Some(ref metrics) = self.metrics_collector {
-                                metrics.record_adapter_unload_latency(
-                                    &record.adapter_id,
-                                    METRICS_TENANT_DEFAULT,
-                                    unload_start.elapsed().as_secs_f64(),
-                                    "success",
-                                );
-                            }
-                        }
-                        Err(err) => {
-                            if let Some(ref metrics) = self.metrics_collector {
-                                metrics.record_adapter_unload_latency(
-                                    &record.adapter_id,
-                                    METRICS_TENANT_DEFAULT,
-                                    unload_start.elapsed().as_secs_f64(),
-                                    "failure",
-                                );
-                            }
-                            return Err(err);
-                        }
-                    }
-
-                    return Ok(()); // Evicted one, check if enough
+                if let Some(ref telemetry) = self.telemetry {
+                    telemetry.log(
+                        "adapter_evicted",
+                        AdapterEvictionEvent {
+                            adapter_id: record.adapter_id.clone(),
+                            from_state: record.state.to_string(),
+                            category: record.category.clone(),
+                            memory_freed: record.memory_bytes,
+                        },
+                    )?;
                 }
+
+                // Unload from memory
+                let unload_start = std::time::Instant::now();
+                let unload_result = {
+                    let mut loader = self.loader.write();
+                    loader.unload_adapter(adapter_id)
+                };
+
+                match unload_result {
+                    Ok(_) => {
+                        if let Some(ref metrics) = self.metrics_collector {
+                            metrics.record_adapter_unload_latency(
+                                &record.adapter_id,
+                                METRICS_TENANT_DEFAULT,
+                                unload_start.elapsed().as_secs_f64(),
+                                "success",
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        if let Some(ref metrics) = self.metrics_collector {
+                            metrics.record_adapter_unload_latency(
+                                &record.adapter_id,
+                                METRICS_TENANT_DEFAULT,
+                                unload_start.elapsed().as_secs_f64(),
+                                "failure",
+                            );
+                        }
+                        return Err(err);
+                    }
+                }
+
+                return Ok(()); // Evicted one, check if enough
             }
         }
 
@@ -1171,9 +1190,10 @@ impl LifecycleManager {
 
                 // Load adapter using the loader with error handling
                 let load_result = {
+                    #[allow(clippy::await_holding_lock)]
                     let mut loader = self.loader.write();
                     loader
-                        .load_adapter_async(*adapter_id, &adapter_name, None)
+                        .load_adapter_async(*adapter_id, adapter_name, None)
                         .await
                 };
 
@@ -1182,7 +1202,7 @@ impl LifecycleManager {
                         // Update state to Cold (loaded but not active)
                         {
                             let mut states = self.states.write();
-                            if let Some(record) = states.get_mut(&adapter_id) {
+                            if let Some(record) = states.get_mut(adapter_id) {
                                 record.state = AdapterState::Cold;
                                 record.memory_bytes = 50 * 1024 * 1024; // Estimate 50MB per adapter
                             }
@@ -1202,7 +1222,7 @@ impl LifecycleManager {
 
                         if let Some(ref metrics) = self.metrics_collector {
                             metrics.record_adapter_load_latency(
-                                adapter_name,
+                                adapter_name.as_str(),
                                 METRICS_TENANT_DEFAULT,
                                 load_duration.as_secs_f64(),
                                 "success",
@@ -1246,7 +1266,7 @@ impl LifecycleManager {
 
                         if let Some(ref metrics) = self.metrics_collector {
                             metrics.record_adapter_load_latency(
-                                adapter_name,
+                                adapter_name.as_str(),
                                 METRICS_TENANT_DEFAULT,
                                 load_start.elapsed().as_secs_f64(),
                                 "failure",

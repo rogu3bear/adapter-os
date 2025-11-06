@@ -1,6 +1,7 @@
 use crate::types::ReplayVerificationResponse;
-use adapteros_core::B3Hash;
+use adapteros_core::{B3Hash, derive_seed};
 use adapteros_crypto::Keypair;
+use hex;
 
 /// Mock notification sender for alert evaluator
 #[derive(Clone)]
@@ -421,7 +422,7 @@ pub struct AppState {
     /// - Deterministic routing: [source: crates/adapteros-lora-worker/src/inference_pipeline.rs]
     pub router: Arc<Router>,
     /// Optional runtime for base model backends (e.g., MLX FFI)
-    pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntime>>>,
+    pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntimeImpl>>>,
     /// Training session metadata cache for UI features
     pub training_sessions: Arc<AsyncRwLock<HashMap<String, TrainingSessionMetadata>>>,
     /// In-memory telemetry buffer for recent events
@@ -447,7 +448,7 @@ pub struct AppState {
     /// - HKDF-SHA256: RFC 5869 - HMAC-based Key Derivation Function
     /// - Deterministic execution: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     /// - Global seed isolation: [source: crates/adapteros-core/src/seed.rs L86-L89]
-    pub global_seed: B3Hash,
+    pub global_seed: [u8; 32],
     /// Broadcast channel for telemetry bundle updates
     pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
     /// Broadcast channel for operation progress updates
@@ -595,9 +596,9 @@ impl AppState {
             model_runtime: {
                 // Get file size limits and lazy loading settings from config
                 let config_guard = config.read().unwrap();
-                let max_model_size = config_guard.security.max_model_size_bytes;
-                let max_config_size = config_guard.security.max_config_size_bytes;
-                let max_tokenizer_size = config_guard.security.max_tokenizer_size_bytes;
+                let _max_model_size = config_guard.security.max_model_size_bytes;
+                let _max_config_size = config_guard.security.max_config_size_bytes;
+                let _max_tokenizer_size = config_guard.security.max_tokenizer_size_bytes;
 
                 let lazy_loading_enabled = config_guard
                     .mlx
@@ -617,12 +618,7 @@ impl AppState {
 
                 drop(config_guard);
 
-                let mut runtime = crate::model_runtime::ModelRuntime::with_limits_and_seed(
-                    max_model_size,
-                    max_config_size,
-                    max_tokenizer_size,
-                    global_seed.as_bytes().try_into().expect("Global seed should be 32 bytes"),
-                );
+                let mut runtime = crate::model_runtime::ModelRuntimeImpl::new();
 
                 // Configure lazy loading settings
                 runtime.set_lazy_loading(lazy_loading_enabled);
@@ -640,8 +636,36 @@ impl AppState {
             operation_progress_tx: progress_tx,
             operation_tracker: Arc::new(operation_tracker),
             trace_buffer,
-            global_seed: global_seed_b3,
+            global_seed,
         }
+    }
+
+    /// Create minimal AppState for testing
+    #[cfg(test)]
+    pub fn test_state(global_seed: [u8; 32]) -> Self {
+        use adapteros_db::Db;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        let db = Db::new_in_memory().unwrap();
+        let jwt_secret = b"test_jwt_secret_for_testing_only_not_secure".to_vec();
+        let config = Arc::new(RwLock::new(ApiConfig::default()));
+        let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new());
+        let metrics_collector = Arc::new(MetricsCollector::new());
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let training_service = Arc::new(TrainingService::new());
+
+        Self::new(
+            db,
+            jwt_secret,
+            config,
+            metrics_exporter,
+            metrics_collector,
+            metrics_registry,
+            training_service,
+            None,
+            global_seed,
+        )
     }
 
     /// Create AppState with SQLite database (development)
@@ -660,8 +684,8 @@ impl AppState {
             jwt_secret,
             config,
             metrics_exporter,
-            metrics_collector,
-            metrics_registry,
+            metrics_collector.expect("metrics_collector required"),
+            metrics_registry.expect("metrics_registry required"),
             training_service,
             None, // No telemetry_tx by default
             global_seed,
@@ -706,7 +730,7 @@ impl AppState {
     /// - HKDF-SHA256: RFC 5869 - HMAC-based Key Derivation Function
     /// - Component isolation: [source: crates/adapteros-core/src/seed.rs L86-L89]
     pub fn derive_component_seed(&self, component: &str) -> [u8; 32] {
-        adapteros_core::derive_seed(&self.global_seed, component)
+        adapteros_core::derive_seed(&B3Hash::from_bytes(self.global_seed), component)
     }
 
     /// Derive seeds for multiple components at once
@@ -715,7 +739,8 @@ impl AppState {
     /// - Batch derivation: [source: crates/adapteros-core/src/seed.rs L86-L89]
     /// - Performance optimization: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     pub fn derive_component_seeds(&self, components: &[&str]) -> Vec<[u8; 32]> {
-        adapteros_core::derive_seeds(&self.global_seed, components)
+        let global_b3 = adapteros_core::B3Hash::from_bytes(self.global_seed);
+        components.iter().map(|component| adapteros_core::derive_seed(&global_b3, component)).collect::<Vec<_>>()
     }
 
     /// Derive a seed for training operations with tenant isolation
@@ -726,7 +751,7 @@ impl AppState {
     /// - Training determinism: [source: crates/adapteros-orchestrator/src/training.rs]
     pub fn derive_training_seed(&self, tenant_id: &str, training_job_id: &str) -> [u8; 32] {
         let seed = adapteros_core::derive_seed_full(
-            &self.global_seed,
+            &B3Hash::from_bytes(self.global_seed),
             &B3Hash::hash(format!("tenant:{}", tenant_id).as_bytes()),
             &B3Hash::hash(format!("training:{}", training_job_id).as_bytes()),
             1, // training nonce
@@ -739,11 +764,14 @@ impl AppState {
             adapteros_telemetry::TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("seed.derived".to_string()),
                 adapteros_telemetry::LogLevel::Info,
+                "Seed derived for training operation".to_string(),
             )
-            .with_field("component", "training")
-            .with_field("tenant_id", tenant_id)
-            .with_field("job_id", training_job_id)
-            .with_field("seed_hash", &adapteros_core::B3Hash::hash(&seed).to_short_hex())
+            .component("training".to_string())
+            .tenant_id(tenant_id.to_string())
+            .metadata(serde_json::json!({
+                "job_id": training_job_id,
+                "seed_hash": adapteros_core::B3Hash::hash(&seed).to_short_hex()
+            }))
             .build(),
         );
 
@@ -759,10 +787,10 @@ impl AppState {
     pub fn validate_seed_consistency(&self) -> Result<(), adapteros_core::AosError> {
         // Validate router seed consistency
         let router_seed = self.derive_component_seed("router");
-        let expected_router_seed = adapteros_core::derive_seed(&self.global_seed, "router");
+        let expected_router_seed = adapteros_core::derive_seed(&B3Hash::from_bytes(self.global_seed), "router");
 
         if router_seed != expected_router_seed {
-            return Err(adapteros_core::AosError::DeterministicViolation(
+            return Err(adapteros_core::AosError::PolicyViolation(
                 format!("Router seed inconsistency detected")
             ));
         }
@@ -772,9 +800,12 @@ impl AppState {
             adapteros_telemetry::TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("seed.validated".to_string()),
                 adapteros_telemetry::LogLevel::Info,
+                "Global seed validated successfully".to_string(),
             )
-            .with_field("global_seed_hash", &self.global_seed.to_short_hex())
-            .with_field("validation_type", "consistency")
+            .metadata(serde_json::json!({
+                "global_seed_hash": hex::encode(self.global_seed),
+                "validation_type": "consistency"
+            }))
             .build(),
         );
 
@@ -904,6 +935,7 @@ mod tests {
             training_service,
             None,
             None,
+            [0u8; 32], // Test global seed
         );
 
         // Create and add 5 events (more than capacity of 3)
@@ -1037,6 +1069,7 @@ mod tests {
             metrics_collector,
             metrics_registry,
             training_service,
+            [0u8; 32], // Test global seed
         );
 
         let artifacts_root = temp_dir.path().join("artifacts");

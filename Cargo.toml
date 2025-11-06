@@ -87,6 +87,7 @@ deterministic-only = []
 experimental-backends = ["dep:pyo3"]
 mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi", "adapteros-lora-worker/mlx-ffi-backend"]
 extended-tests = []
+integration_tests = []
 
 [dependencies]
 # Re-export key crates for integration tests
@@ -132,6 +133,7 @@ tar = "0.4"
 # Async & Concurrency
 tokio = { version = "1.35", features = ["full"] }
 tokio-stream = "0.1"
+futures = "0.3"
 futures-util = "0.3"
 async-stream = "0.3"
 crossbeam = "0.8"
@@ -330,6 +332,7 @@ adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }
 adapteros-crypto = { path = "crates/adapteros-crypto" }
 adapteros-sbom = { path = "crates/adapteros-sbom" }
 adapteros-api = { path = "crates/adapteros-api" }
+adapteros-api-types = { path = "crates/adapteros-api-types" }
 adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
 adapteros-graph = { path = "crates/adapteros-graph" }
 adapteros-replay = { path = "crates/adapteros-replay" }
@@ -338,6 +341,7 @@ adapteros-config = { path = "crates/adapteros-config" }
 adapteros-base-llm = { path = "crates/adapteros-base-llm" }
 tempfile.workspace = true
 axum.workspace = true
+axum-test = "14.0"
 tower.workspace = true
 sqlx.workspace = true
 chrono.workspace = true

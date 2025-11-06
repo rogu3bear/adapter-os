@@ -38,6 +38,18 @@ This project adheres to a code of conduct. By participating, you are expected to
    git remote add upstream https://github.com/rogu3bear/adapter-os.git
    ```
 
+### Security Considerations
+
+AdapterOS uses a comprehensive keychain integration for secure cryptographic operations. When contributing to security-critical code:
+
+- **Never store secrets in code**: All sensitive data must use the keychain provider
+- **Test with secure backends**: Use platform keychains or password fallbacks, never in-memory storage
+- **Validate input handling**: Command injection prevention is required for CLI operations
+- **Follow Secrets Ruleset #14**: No plaintext secrets, hardware-backed keys when available
+- **Error handling**: Never leak sensitive information in error messages
+
+For keychain testing, use environment variables like `ADAPTEROS_KEYCHAIN_FALLBACK=pass:testpassword` to enable secure testing modes.
+
 ## Development Setup
 
 ### Build the Project

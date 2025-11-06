@@ -788,6 +788,8 @@ pub async fn cancel_model_operation(
                 )),
             ))
         }
+        // Catch-all for future OperationCancellationError variants
+        #[allow(unreachable_patterns)]
         Err(_) => {
             let technical_msg = "Failed to cancel operation";
             Err((

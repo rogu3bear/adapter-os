@@ -9,7 +9,7 @@
 //! - Retry logic: Implements exponential backoff for transient errors【3†demo_ux_improvements.rs:6-10】
 
 use adapteros_api_types::ErrorResponse;
-use adapteros_core::{AosError, Result};
+use adapteros_core::AosError;
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{Map, Value};

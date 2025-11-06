@@ -16,7 +16,7 @@ use adapteros_server_api::{routes, AppState};
 #[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
 #[cfg(feature = "telemetry")]
-use adapteros_telemetry::metrics::{SystemMetricsProvider, SystemMetricsSnapshot};
+use adapteros_telemetry::metrics::SystemMetricsSnapshot;
 #[cfg(feature = "telemetry")]
 use async_trait::async_trait;
 
@@ -35,7 +35,15 @@ impl adapteros_telemetry::metrics::SystemMetricsProvider for TelemetrySystemMetr
             Ok(collector) => collector,
             Err(e) => {
                 error!("Failed to lock system metrics collector: {}. Using default metrics.", e);
-                return adapteros_telemetry::metrics::SystemMetricsSnapshot::default();
+                return adapteros_telemetry::metrics::SystemMetricsSnapshot {
+                    cpu_usage_percent: 0.0,
+                    memory_usage_mb: 0.0,
+                    disk_io_utilization: 0.0,
+                    network_bandwidth_mbps: 0.0,
+                    gpu_utilization: None,
+                    gpu_memory_used_mb: None,
+                    gpu_temperature: None,
+                };
             }
         };
         let metrics = collector.collect_metrics();
@@ -1072,7 +1080,7 @@ async fn main() -> Result<()> {
     // - Determinism enforcement: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     // - Startup validation: [source: crates/adapteros-server/src/main.rs]
     if let Err(e) = state.validate_seed_consistency() {
-        return Err(AosError::DeterministicViolation(
+        return Err(AosError::DeterminismViolation(
             format!("Seed consistency validation failed: {}", e)
         ));
     }
@@ -2270,13 +2278,13 @@ async fn cleanup_models(
         stats.total_models = loaded_models.len();
         info!("Unloading {} models during shutdown", stats.total_models);
 
-        for (tenant_id, model_id) in loaded_models {
+        for model_key in loaded_models {
             let model_start = std::time::Instant::now();
             let timeout = std::time::Duration::from_secs(30);
 
             let result = tokio::time::timeout(timeout, async {
                 let mut guard = model_runtime.lock().await;
-                guard.unload_model(&tenant_id, &model_id)
+                guard.unload_model(&model_key.tenant_id, &model_key.model_id)
             })
             .await;
 
@@ -2285,18 +2293,18 @@ async fn cleanup_models(
             match result {
                 Ok(Ok(())) => {
                     stats.models_unloaded += 1;
-                    info!("Model {} unloaded successfully", model_id);
+                    info!("Model {} unloaded successfully", model_key.model_id);
 
                     // Emit telemetry
                     let event = TelemetryEventBuilder::new(
                         EventType::ModelUnload,
                         LogLevel::Info,
-                        format!("Model {} unloaded during shutdown", model_id),
+                        format!("Model {} unloaded during shutdown", model_key.model_id),
                     )
                     .component("server".to_string())
-                    .tenant_id(tenant_id.clone())
+                    .tenant_id(model_key.tenant_id.clone())
                     .metadata(serde_json::json!({
-                        "model_id": model_id,
+                        "model_id": model_key.model_id,
                         "duration_ms": model_duration.as_millis(),
                         "success": true
                     }))
@@ -2305,19 +2313,19 @@ async fn cleanup_models(
                 }
                 Ok(Err(e)) => {
                     stats.models_failed += 1;
-                    error!("Failed to unload model {}: {}", model_id, e);
+                    error!("Failed to unload model {}: {}", model_key.model_id, e);
                 }
                 Err(_) => {
                     stats.models_timed_out += 1;
-                    error!("Model {} unload timed out", model_id);
+                    error!("Model {} unload timed out", model_key.model_id);
                 }
             }
 
             // Update database status
             if let Err(e) = sqlx::query!(
                 "UPDATE base_model_status SET status = 'unloaded', updated_at = datetime('now') WHERE model_id = ? AND tenant_id = ?",
-                model_id,
-                tenant_id
+                model_key.model_id,
+                model_key.tenant_id
             )
             .execute(state.db.pool())
             .await {
@@ -2432,10 +2440,9 @@ async fn check_shutdown_readiness(
     // TODO: Implement check for active requests in flight
 
     // Check for active training jobs
-    if let Some(training_service) = &state.training_service {
-        // This would need to be added to TrainingService
-        // readiness.active_training_jobs = training_service.active_jobs().await;
-    }
+    let training_service = &state.training_service;
+    // This would need to be added to TrainingService
+    // readiness.active_training_jobs = training_service.active_jobs().await;
 
     // Check for loaded models/adapters that would take time to unload
     if let Some(model_runtime) = &state.model_runtime {

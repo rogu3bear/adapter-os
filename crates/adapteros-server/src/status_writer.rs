@@ -1199,9 +1199,10 @@ mod tests {
             vec![], // empty JWT secret for testing
             api_config,
             metrics_exporter,
-            metrics_collector,
-            metrics_registry,
+            Some(metrics_collector),
+            Some(metrics_registry),
             training_service,
+            [0u8; 32], // test global seed
         )
     }
 

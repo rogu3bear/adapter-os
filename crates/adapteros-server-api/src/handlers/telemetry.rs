@@ -8,6 +8,7 @@ use crate::types::{
     MetricsSnapshotResponse,
 };
 use adapteros_db::{activity_events::ActivityEvent, users::Role};
+use chrono::TimeZone;
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
 use adapteros_trace::{Trace, TraceSearchQuery};
 use axum::extract::{Extension, Path, Query, State};
@@ -590,7 +591,7 @@ fn parse_timestamp(value: &str) -> chrono::DateTime<chrono::Utc> {
     }
 
     if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
-        return chrono::DateTime::<chrono::Utc>::from_utc(ndt, chrono::Utc);
+        return chrono::Utc.from_utc_datetime(&ndt);
     }
 
     chrono::Utc::now()

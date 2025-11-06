@@ -155,7 +155,7 @@ impl UdsServer {
     ///
     /// Citation: docs/llm-interface-specification.md §5.1
     async fn handle_inference_with_signals(
-        mut stream: UnixStream,
+        stream: UnixStream,
         worker: Arc<Mutex<Worker>>,
         inference_req: InferenceRequest,
     ) -> Result<()> {
@@ -164,11 +164,11 @@ impl UdsServer {
 
         // Clone stream for signal transmission
         // Note: UnixStream doesn't implement Clone, so we split it
-        let (_read_half, mut write_half) = stream.into_split();
+        let (_read_half, write_half) = stream.into_split();
 
         // Run inference (signal streaming disabled for now)
         let inference_result = {
-            let mut worker_guard = worker.lock().await;
+            let worker_guard = worker.lock().await;
             worker_guard.infer(inference_req).await
         };
 

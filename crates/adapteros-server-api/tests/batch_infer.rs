@@ -98,9 +98,10 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
         b"test-secret".to_vec(),
         Arc::new(RwLock::new(config)),
         metrics,
-        metrics_collector,
-        metrics_registry,
+        Some(metrics_collector),
+        Some(metrics_registry),
         training_service,
+        [0u8; 32], // test global seed
     ))
 }
 

@@ -376,7 +376,7 @@ impl Database {
     pub async fn migrate(&self) -> Result<()> {
         match &self.0 {
             DatabaseBackend::Sqlite(db) => db.migrate().await,
-            DatabaseBackend::Postgres(db) => db.migrate().await.map_err(|e| anyhow::Error::from(e)),
+            DatabaseBackend::Postgres(db) => db.migrate().await.map_err(anyhow::Error::from),
         }
     }
 
@@ -384,9 +384,7 @@ impl Database {
     pub async fn seed_dev_data(&self) -> Result<()> {
         match &self.0 {
             DatabaseBackend::Sqlite(db) => db.seed_dev_data().await,
-            DatabaseBackend::Postgres(db) => {
-                db.seed_dev_data().await.map_err(|e| anyhow::Error::from(e))
-            }
+            DatabaseBackend::Postgres(db) => db.seed_dev_data().await.map_err(anyhow::Error::from),
         }
     }
 
@@ -406,7 +404,7 @@ impl Database {
             DatabaseBackend::Postgres(db) => db
                 .insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
                 .await
-                .map_err(|e| anyhow::Error::from(e)),
+                .map_err(anyhow::Error::from),
         }
     }
 
@@ -424,7 +422,7 @@ impl Database {
             DatabaseBackend::Postgres(db) => db
                 .get_policy_hash(policy_pack_id, cpid)
                 .await
-                .map_err(|e| anyhow::Error::from(e)),
+                .map_err(anyhow::Error::from),
         }
     }
 
@@ -441,7 +439,7 @@ impl Database {
             DatabaseBackend::Postgres(db) => db
                 .list_policy_hashes(cpid)
                 .await
-                .map_err(|e| anyhow::Error::from(e)),
+                .map_err(anyhow::Error::from),
         }
     }
 }

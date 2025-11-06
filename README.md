@@ -12,6 +12,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
+- **Secure Keychain Integration**: Multi-platform hardware-backed key storage (Secure Enclave, OS keychains, encrypted fallbacks)
 - **Policy Enforcement**: 21 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
@@ -43,6 +44,13 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 │         ▼                                               │
 │  ┌──────────────────────────────────────────────────┐  │
 │  │         Base Model (Qwen, Llama, etc.)           │  │
+│  └──────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │      Secure Keychain Integration                 │  │
+│  │  • Hardware Secure Enclave (macOS)              │  │
+│  │  • OS Keychain Services                          │  │
+│  │  • Encrypted Keystore Fallback                   │  │
 │  └──────────────────────────────────────────────────┘  │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
