@@ -1227,6 +1227,41 @@ pub struct PromotionRecord {
     pub before_cpid: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PolicyViolationRecord {
+    pub id: String,
+    pub reason: String,
+    pub violation_type: Option<String>,
+    pub created_at: String,
+    pub released: bool,
+    pub cpid: Option<String>,
+    pub metadata: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct Alert {
+    pub id: String,
+    pub rule_id: String,
+    pub worker_id: String,
+    pub tenant_id: String,
+    pub alert_type: String,
+    pub severity: String,
+    pub title: String,
+    pub message: String,
+    pub metric_value: Option<f64>,
+    pub threshold_value: Option<f64>,
+    pub status: String,
+    pub acknowledged_by: Option<String>,
+    pub acknowledged_at: Option<String>,
+    pub resolved_at: Option<String>,
+    pub suppression_reason: Option<String>,
+    pub suppression_until: Option<String>,
+    pub escalation_level: i32,
+    pub notification_sent: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ===== Policy Management Types (Phase 6) =====
 
 /// Sign policy response
