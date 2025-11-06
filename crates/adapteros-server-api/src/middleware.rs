@@ -337,7 +337,7 @@ pub async fn user_friendly_error_middleware(
 pub fn to_user_friendly_response<E>(
     error: E,
     fallback_code: &str,
-    fallback_message: &str,
+    _fallback_message: &str,
 ) -> (StatusCode, Json<ErrorResponse>)
 where
     E: std::error::Error + Send + Sync + 'static + std::any::Any,

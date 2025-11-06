@@ -1,5 +1,5 @@
 use crate::types::ReplayVerificationResponse;
-use adapteros_core::{B3Hash, derive_seed};
+use adapteros_core::B3Hash;
 use adapteros_crypto::Keypair;
 use hex;
 

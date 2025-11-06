@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::warn;
 
 #[cfg(feature = "mlx-ffi-backend")]
@@ -325,7 +325,7 @@ impl ModelRuntimeImpl {
         tenant_id: &str,
         model_id: &str,
     ) -> Result<(), String> {
-        let model_key = (tenant_id.to_string(), model_id.to_string());
+        let _model_key = (tenant_id.to_string(), model_id.to_string());
 
         // If lazy loading is disabled, assume model is already loaded
         if !self.lazy_loading_enabled {
@@ -443,7 +443,7 @@ impl ModelRuntimeImpl {
         model_path: &str,
         _memory_usage_mb: i32,
     ) -> Result<(), String> {
-        let model_key = (tenant_id.to_string(), model_id.to_string());
+        let _model_key = (tenant_id.to_string(), model_id.to_string());
 
         // If lazy loading is enabled, just cache the model path instead of loading
         if self.lazy_loading_enabled {
@@ -619,7 +619,7 @@ impl ModelRuntimeImpl {
         model_id: &str,
         model_path: &str,
         progress_callback: F,
-        timeout: Duration,
+        _timeout: Duration,
     ) -> Result<(), String>
     where
         F: Fn(f64, String) + Send + Sync + 'static,
@@ -1053,8 +1053,8 @@ impl ModelRuntimeImpl {
 impl ModelRuntime for ModelRuntimeImpl {
     async fn load_model_async_with_progress<F>(
         &self,
-        req: LoadModelSpec,
-        on_progress: F,
+        _req: LoadModelSpec,
+        _on_progress: F,
     ) -> Result<ModelHandle, ModelLoadError>
     where
         F: Fn(ProgressEvent) + Send + Sync + 'static,
@@ -1116,10 +1116,10 @@ impl ModelRuntime for ModelRuntimeImpl {
         }
     }
 
-    fn is_loaded(&self, key: &ModelKey) -> bool {
+    fn is_loaded(&self, _key: &ModelKey) -> bool {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.models.contains_key(key)
+            self.models.contains_key(_key)
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
@@ -1127,13 +1127,13 @@ impl ModelRuntime for ModelRuntimeImpl {
         }
     }
 
-    async fn unload(&self, key: &ModelKey) -> Result<(), ModelLoadError> {
+    async fn unload(&self, _key: &ModelKey) -> Result<(), ModelLoadError> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            if self.models.remove(key).is_some() {
+            if self.models.remove(_key).is_some() {
                 Ok(())
             } else {
-                Err(ModelLoadError::NotFound(format!("{}:{}", key.tenant_id, key.model_id)))
+                Err(ModelLoadError::NotFound(format!("{}:{}", _key.tenant_id, _key.model_id)))
             }
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
