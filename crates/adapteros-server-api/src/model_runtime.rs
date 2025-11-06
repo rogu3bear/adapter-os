@@ -816,8 +816,13 @@ impl ModelRuntime {
         {
             let key = (tenant_id.to_string(), model_id.to_string());
             if self.models.remove(&key).is_some() {
-                // Also remove from active operations if present
+                // Also remove from active operations and cache if present
                 self.active_operations.remove(&key);
+                let cache_key = ModelKey {
+                    tenant_id: tenant_id.to_string(),
+                    model_id: model_id.to_string(),
+                };
+                self.model_cache.pop(&cache_key);
                 info!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
@@ -881,6 +886,12 @@ impl ModelRuntime {
                 Ok(Ok(Ok(()))) => {
                     // Unload is just removing from HashMap
                     if self.models.remove(&key).is_some() {
+                        // Also remove from cache to prevent memory leak
+                        let cache_key = ModelKey {
+                            tenant_id: tenant_id.to_string(),
+                            model_id: model_id.to_string(),
+                        };
+                        self.model_cache.pop(&cache_key);
                         info!(
                             tenant_id = %tenant_id,
                             model_id = %model_id,
