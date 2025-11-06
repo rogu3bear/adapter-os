@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use tracing::warn;
 
 #[cfg(feature = "mlx-ffi-backend")]
-use adapteros_lora_mlx_ffi::MLXFFIModel;
+use adapteros_lora_mlx_ffi::{MLXFFIModel, ModelConfig};
 #[cfg(feature = "mlx-ffi-backend")]
 use lru::LruCache;
 #[cfg(feature = "mlx-ffi-backend")]
@@ -19,9 +19,72 @@ use tracing::info;
 
 use adapteros_secure_fs::traversal::normalize_path;
 
+/// Model loading specification
+#[derive(Clone, Debug)]
+pub struct LoadModelSpec {
+    pub tenant_id: String,
+    pub model_id: String,
+    pub model_path: std::path::PathBuf,
+    pub adapter_path: Option<std::path::PathBuf>,
+    pub quantization: Option<String>,
+}
+
 /// Key for tracking loaded models: (tenant_id, model_id)
-#[cfg(feature = "mlx-ffi-backend")]
-type ModelKey = (String, String);
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct ModelKey {
+    pub tenant_id: String,
+    pub model_id: String,
+}
+
+/// Handle to a loaded model
+#[derive(Clone, Debug)]
+pub struct ModelHandle {
+    pub key: ModelKey,
+    pub memory_usage_mb: i32,
+}
+
+/// Progress event during model loading
+#[derive(Clone, Debug)]
+pub struct ProgressEvent {
+    pub pct: f64,
+    pub message: String,
+}
+
+/// Model loading error types
+#[derive(thiserror::Error, Debug)]
+pub enum ModelLoadError {
+    #[error("model not found: {0}")]
+    NotFound(String),
+    #[error("invalid model: {0}")]
+    Invalid(String),
+    #[error("io error: {0}")]
+    Io(String),
+    #[error("backend error: {0}")]
+    Backend(String),
+    #[error("canceled")]
+    Canceled,
+}
+
+/// Trait for model runtime implementations
+#[async_trait::async_trait]
+pub trait ModelRuntime: Send + Sync {
+    /// Load (or hot-swap) a model (and optional adapter) asynchronously and report progress.
+    async fn load_model_async_with_progress<F>(
+        &self,
+        req: LoadModelSpec,
+        on_progress: F,
+    ) -> Result<ModelHandle, ModelLoadError>
+    where
+        F: Fn(ProgressEvent) + Send + Sync + 'static;
+
+    /// Check if a model is already loaded by key.
+    fn is_loaded(&self, key: &ModelKey) -> bool;
+
+    /// Unload a model if loaded.
+    async fn unload(&self, key: &ModelKey) -> Result<(), ModelLoadError>;
+}
+
+/// Key for tracking loaded models: (tenant_id, model_id)
 
 /// Model metadata including memory usage
 #[cfg(feature = "mlx-ffi-backend")]
@@ -40,7 +103,7 @@ struct ModelCacheEntry {
     size_bytes: u64,
 }
 
-pub struct ModelRuntime {
+pub struct ModelRuntimeImpl {
     #[cfg(feature = "mlx-ffi-backend")]
     /// Loaded models by (tenant_id, model_id) with metadata
     models: HashMap<ModelKey, ModelMetadata>,
@@ -328,7 +391,7 @@ impl ModelRuntime {
     pub fn check_tenant_load_limit(&self, _tenant_id: &str) -> Result<(), String> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let tenant_models = self.models.keys().filter(|(t, _)| t == _tenant_id).count();
+            let tenant_models = self.models.keys().filter(|key| key.tenant_id == _tenant_id).count();
             if tenant_models >= self.max_tenant_models {
                 return Err(format!(
                     "Tenant model limit exceeded for '{}': {} models loaded, maximum is {}",
@@ -874,13 +937,10 @@ impl ModelRuntime {
     }
 
     /// Get all loaded models for reconciliation
-    pub fn get_all_loaded_models(&self) -> Vec<(String, String)> {
+    pub fn get_all_loaded_models(&self) -> Vec<ModelKey> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.models
-                .keys()
-                .map(|(t, m)| (t.clone(), m.clone()))
-                .collect()
+            self.models.keys().cloned().collect()
         }
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
@@ -930,6 +990,117 @@ impl ModelRuntime {
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
             Self::new().with_limit(5)
+        }
+    }
+
+    /// Estimate memory usage in MB based on model configuration
+    #[cfg(feature = "mlx-ffi-backend")]
+    fn estimate_memory_usage_mb(config: &ModelConfig) -> i32 {
+        // Estimate: parameters × 2 bytes per parameter (weights + gradients/kv cache)
+        // Conservative estimate based on MLX memory patterns
+        let num_parameters = config.hidden_size * config.num_hidden_layers * config.num_attention_heads;
+        let bytes_per_param = 2; // FP16 weights
+        let total_bytes = num_parameters * bytes_per_param * 2; // ×2 for weights + gradients/kv cache
+        let total_mb = total_bytes / (1024 * 1024);
+        total_mb.max(512) as i32 // Minimum 512MB for any model
+    }
+
+    #[cfg(not(feature = "mlx-ffi-backend"))]
+    fn estimate_memory_usage_mb(_config: &ModelConfig) -> i32 {
+        1024 // Default estimate when MLX not available
+    }
+}
+
+#[async_trait::async_trait]
+impl ModelRuntime for ModelRuntimeImpl {
+    async fn load_model_async_with_progress<F>(
+        &self,
+        req: LoadModelSpec,
+        on_progress: F,
+    ) -> Result<ModelHandle, ModelLoadError>
+    where
+        F: Fn(ProgressEvent) + Send + Sync + 'static,
+    {
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            // Check if already loaded
+            let key = ModelKey {
+                tenant_id: req.tenant_id.clone(),
+                model_id: req.model_id.clone(),
+            };
+
+            if let Some(metadata) = self.models.get(&key) {
+                on_progress(ProgressEvent { pct: 100.0, message: "Model already loaded".to_string() });
+                return Ok(ModelHandle {
+                    key,
+                    memory_usage_mb: metadata.memory_usage_mb,
+                });
+            }
+
+            // Create new MLX model container
+            on_progress(ProgressEvent { pct: 40.0, message: "allocating graph".to_string() });
+            let mut model = MLXFFIModel::new()
+                .map_err(|e| ModelLoadError::Backend(format!("Failed to create MLX model: {}", e)))?;
+
+            // Load base model weights
+            on_progress(ProgressEvent { pct: 60.0, message: "loading base weights".to_string() });
+            model.load_base(&req.model_path, req.quantization.as_deref())
+                .map_err(|e| ModelLoadError::Backend(format!("Failed to load base model: {}", e)))?;
+
+            // Load adapter if specified
+            if let Some(adapter_path) = &req.adapter_path {
+                on_progress(ProgressEvent {
+                    pct: 80.0,
+                    message: format!("applying adapter: {}", adapter_path.display())
+                });
+                model.load_adapter(adapter_path)
+                    .map_err(|e| ModelLoadError::Backend(format!("Failed to load adapter: {}", e)))?;
+            }
+
+            // Warm up the model
+            on_progress(ProgressEvent { pct: 90.0, message: "warming up".to_string() });
+            model.warmup()
+                .map_err(|e| ModelLoadError::Backend(format!("Failed to warmup model: {}", e)))?;
+
+            // Register in runtime with estimated memory usage
+            let memory_usage_mb = Self::estimate_memory_usage_mb(&model.config);
+            let metadata = ModelMetadata {
+                model,
+                memory_usage_mb,
+            };
+            self.models.insert(key.clone(), metadata);
+
+            Ok(ModelHandle { key, memory_usage_mb })
+        }
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            Err(ModelLoadError::Backend("MLX backend not available".to_string()))
+        }
+    }
+
+    fn is_loaded(&self, key: &ModelKey) -> bool {
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            self.models.contains_key(key)
+        }
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            false
+        }
+    }
+
+    async fn unload(&self, key: &ModelKey) -> Result<(), ModelLoadError> {
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            if self.models.remove(key).is_some() {
+                Ok(())
+            } else {
+                Err(ModelLoadError::NotFound(format!("{}:{}", key.tenant_id, key.model_id)))
+            }
+        }
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            Err(ModelLoadError::Backend("MLX backend not available".to_string()))
         }
     }
 }
