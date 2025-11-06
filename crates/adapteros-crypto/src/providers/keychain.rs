@@ -780,7 +780,7 @@ impl MacKeychain {
         Ok(())
     }
 
-    /// Retrieve Ed25519 private key from macOS Keychain using secure CLI approach
+    /// Retrieve Ed25519 private key from macOS Keychain using secure CLI
     fn retrieve_ed25519_private_key(&self, key_id: &str) -> Result<ed25519_dalek::SigningKey> {
         use std::process::Command;
 
@@ -823,7 +823,7 @@ impl MacKeychain {
 
         let key_data_b64 = String::from_utf8(result.stdout)
             .map_err(|e| {
-                error!(error = %e, key_id = %key_id, error = %e, "Invalid UTF-8 in keychain data");
+                error!(error = %e, key_id = %key_id, "Invalid UTF-8 in keychain data");
                 AosError::Crypto("Invalid keychain data encoding".to_string())
             })?
             .trim()
@@ -845,7 +845,7 @@ impl MacKeychain {
         key_bytes.copy_from_slice(&key_data);
 
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
-        info!(key_id = %key_id, "Retrieved Ed25519 key from macOS Keychain");
+        info!(key_id = %key_id, "Retrieved Ed25519 key from macOS Keychain via secure CLI");
         Ok(signing_key)
     }
 
@@ -862,7 +862,7 @@ impl MacKeychain {
         Ok(())
     }
 
-    /// Retrieve symmetric key from macOS Keychain using secure CLI approach
+    /// Retrieve symmetric key from macOS Keychain using secure CLI
     fn retrieve_symmetric_key(&self, key_id: &str) -> Result<Vec<u8>> {
         use std::process::Command;
 
@@ -916,11 +916,11 @@ impl MacKeychain {
             AosError::Crypto("Invalid symmetric keychain data format".to_string())
         })?;
 
-        info!(key_id = %key_id, "Retrieved symmetric key from macOS Keychain");
+        info!(key_id = %key_id, "Retrieved symmetric key from macOS Keychain via secure CLI");
         Ok(key_data)
     }
 
-    /// Delete a keychain item (used for rotation) using secure CLI approach
+    /// Delete a keychain item (used for rotation) using secure CLI
     fn delete_keychain_item(&self, account: &str) -> Result<()> {
         use std::process::Command;
 
@@ -932,7 +932,6 @@ impl MacKeychain {
             return Err(AosError::Crypto("Invalid service name contains shell metacharacters".to_string()));
         }
 
-        // Use secure CLI approach with proper input validation
         let result = Command::new("security")
             .args([
                 "delete-generic-password",
@@ -952,13 +951,11 @@ impl MacKeychain {
             warn!(account = %account, stderr = %stderr, "Security command reported non-success for deletion, but continuing");
         }
 
-        info!(account = %account, "Deleted keychain item");
+        info!(account = %account, "Deleted keychain item via secure CLI");
         Ok(())
     }
 
-    /// Store keychain item with update handling using secure CLI approach
-    /// Note: Using CLI instead of native API due to security-framework API instability
-    /// This approach is more secure and reliable than unstable native bindings
+    /// Store keychain item with update handling using secure CLI
     fn store_keychain_item(&self, account: &str, label: &str, password_data: &[u8]) -> Result<()> {
         use std::process::Command;
 
@@ -1011,6 +1008,7 @@ impl MacKeychain {
             return Err(AosError::Crypto(error_msg));
         }
 
+        info!(account = %account, "Stored keychain item via secure CLI");
         Ok(())
     }
 }
