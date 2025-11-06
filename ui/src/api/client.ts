@@ -513,6 +513,12 @@ class ApiClient {
     return response.blob();
   }
 
+  async deletePlan(planId: string): Promise<void> {
+    return this.request<void>(`/v1/plans/${planId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Control Plane
   async promote(data: types.PromotionRequest): Promise<types.PromotionRecord> {
     return this.request<types.PromotionRecord>('/v1/cp/promote', {
