@@ -32,7 +32,6 @@ struct LoadedDomainAdapter {
     loaded_at: chrono::DateTime<Utc>,
 }
 
-/// Global registry of loaded domain adapters
 lazy_static::lazy_static! {
     static ref LOADED_ADAPTERS: Arc<Mutex<HashMap<String, LoadedDomainAdapter>>> =
         Arc::new(Mutex::new(HashMap::new()));

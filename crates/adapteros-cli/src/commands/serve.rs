@@ -562,7 +562,7 @@ pub async fn run(
 
     // 5. Create worker with all components
     output.info("Creating worker instance...");
-    let mut worker = adapteros_lora_worker::Worker::new(
+    let worker = adapteros_lora_worker::Worker::new(
         manifest.clone(),
         kernels,
         rag,

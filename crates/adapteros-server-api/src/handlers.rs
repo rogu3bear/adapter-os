@@ -582,7 +582,7 @@ async fn check_model_runtime_health_uncached(
 
     // Check for inconsistencies (simplified version)
     let mut inconsistencies_count = 0;
-    let mut _runtime_model_set: std::collections::HashSet<(String, String)> =
+    let mut runtime_model_set: std::collections::HashSet<(String, String)> =
         runtime_models.iter().map(|k| (k.tenant_id.clone(), k.model_id.clone())).collect();
 
     // Check each DB model
