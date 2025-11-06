@@ -650,580 +650,466 @@ mod tests {
 
 impl AdapterOSClient for UdsClient {
     // Health & Auth
-    fn health(&self) -> impl std::future::Future<Output = Result<HealthResponse>> + Send {
-        async {
-            Ok(HealthResponse {
-                status: "uds".to_string(),
-                version: "unavailable".to_string(),
-                models: None, // UDS client doesn't check model health
-            })
-        }
+    async fn health(&self) -> Result<HealthResponse> {
+        Ok(HealthResponse {
+            status: "uds".to_string(),
+            version: "unavailable".to_string(),
+            models: None, // UDS client doesn't check model health
+        })
     }
 
-    fn login(
+    async fn login(
         &self,
         _req: LoginRequest,
-    ) -> impl std::future::Future<Output = Result<LoginResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement authentication"
-            ))
-        }
+    ) -> Result<LoginResponse> {
+        Err(anyhow::anyhow!(
+            "UDS client does not implement authentication"
+        ))
     }
 
-    fn logout(&self) -> impl std::future::Future<Output = Result<()>> + Send {
-        async { Ok(()) }
-    }
+    async fn logout(&self) -> Result<()> { Ok(()) }
 
-    fn me(&self) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement user information"
-            ))
-        }
+    async fn me(&self) -> Result<UserInfoResponse> {
+        Err(anyhow::anyhow!(
+            "UDS client does not implement user information"
+        ))
     }
 
     // Extended Auth Methods
-    fn refresh_token(
+    async fn refresh_token(
         &self,
         _token: &str,
-    ) -> impl std::future::Future<Output = Result<String>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement token refresh"
-            ))
-        }
+    ) -> Result<String> {
+        Err(anyhow::anyhow!(
+            "UDS client does not implement token refresh"
+        ))
     }
 
-    fn list_sessions(
+    async fn list_sessions(
         &self,
         _token: &str,
-    ) -> impl std::future::Future<Output = Result<Vec<adapteros_api_types::auth::SessionInfo>>> + Send
+    ) -> Result<Vec<adapteros_api_types::auth::SessionInfo>>
     {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement session listing"
-            ))
-        }
+        Err(anyhow::anyhow!(
+            "UDS client does not implement session listing"
+        ))
     }
 
-    fn revoke_session(
+    async fn revoke_session(
         &self,
         _token: &str,
         _session_id: &str,
-    ) -> impl std::future::Future<Output = Result<String>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement session revocation"
-            ))
-        }
+    ) -> Result<String> {
+        Err(anyhow::anyhow!(
+            "UDS client does not implement session revocation"
+        ))
     }
 
-    fn logout_all(&self, _token: &str) -> impl std::future::Future<Output = Result<String>> + Send {
-        async { Err(anyhow::anyhow!("UDS client does not implement logout all")) }
-    }
+    async fn logout_all(&self, _token: &str) -> Result<String> { Err(anyhow::anyhow!("UDS client does not implement logout all")) }
 
-    fn rotate_token(
+    async fn rotate_token(
         &self,
         _token: &str,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::RotateTokenResponse>> + Send
+    ) -> Result<adapteros_api_types::auth::RotateTokenResponse>
     {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement token rotation"
-            ))
-        }
+        Err(anyhow::anyhow!(
+            "UDS client does not implement token rotation"
+        ))
     }
 
-    fn get_token_metadata(
+    async fn get_token_metadata(
         &self,
         _token: &str,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::TokenMetadata>> + Send
+    ) -> Result<adapteros_api_types::auth::TokenMetadata>
     {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement token metadata"
-            ))
-        }
+        Err(anyhow::anyhow!(
+            "UDS client does not implement token metadata"
+        ))
     }
 
-    fn update_profile(
+    async fn update_profile(
         &self,
         _token: &str,
         _req: adapteros_api_types::auth::UpdateProfileRequest,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::ProfileResponse>> + Send
+    ) -> Result<adapteros_api_types::auth::ProfileResponse>
     {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement profile updates"
-            ))
-        }
+        Err(anyhow::anyhow!(
+            "UDS client does not implement profile updates"
+        ))
     }
 
-    fn get_auth_config(
+    async fn get_auth_config(
         &self,
         _token: &str,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send
-    {
-        async { Err(anyhow::anyhow!("UDS client does not implement auth config")) }
-    }
+    ) -> Result<adapteros_api_types::auth::AuthConfigResponse>
+    { Err(anyhow::anyhow!("UDS client does not implement auth config")) }
 
-    fn update_auth_config(
+    async fn update_auth_config(
         &self,
         _token: &str,
         _req: adapteros_api_types::auth::UpdateAuthConfigRequest,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send
+    ) -> Result<adapteros_api_types::auth::AuthConfigResponse>
     {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not implement auth config updates"
-            ))
-        }
+        Err(anyhow::anyhow!(
+            "UDS client does not implement auth config updates"
+        ))
     }
 
-    fn get_user_info(
+    async fn get_user_info(
         &self,
         _token: &str,
-    ) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send {
-        async { Err(anyhow::anyhow!("UDS client does not implement user info")) }
-    }
+    ) -> Result<UserInfoResponse> { Err(anyhow::anyhow!("UDS client does not implement user info")) }
 
     // Tenants
-    fn list_tenants(
+    async fn list_tenants(
         &self,
-    ) -> impl std::future::Future<Output = Result<Vec<TenantResponse>>> + Send {
-        async { Ok(Vec::new()) }
-    }
+    ) -> Result<Vec<TenantResponse>> { Ok(Vec::new()) }
 
-    fn create_tenant(
+    async fn create_tenant(
         &self,
         _req: CreateTenantRequest,
-    ) -> impl std::future::Future<Output = Result<TenantResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not manage control-plane tenants"
-            ))
-        }
+    ) -> Result<TenantResponse> {
+        Err(anyhow::anyhow!(
+            "UDS client does not manage control-plane tenants"
+        ))
     }
 
     // Adapters
-    fn list_adapters(
+    async fn list_adapters(
         &self,
-    ) -> impl std::future::Future<Output = Result<Vec<AdapterResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not expose structured adapter listings"
-            ))
-        }
+    ) -> Result<Vec<AdapterResponse>> {
+        Err(anyhow::anyhow!(
+            "UDS client does not expose structured adapter listings"
+        ))
     }
 
-    fn register_adapter(
+    async fn register_adapter(
         &self,
         _req: RegisterAdapterRequest,
-    ) -> impl std::future::Future<Output = Result<AdapterResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not register adapters with control plane"
-            ))
-        }
+    ) -> Result<AdapterResponse> {
+        Err(anyhow::anyhow!(
+            "UDS client does not register adapters with control plane"
+        ))
     }
 
-    fn evict_adapter(
+    async fn evict_adapter(
         &self,
         _adapter_id: &str,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not manage adapter eviction via control plane"
-            ))
-        }
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "UDS client does not manage adapter eviction via control plane"
+        ))
     }
 
-    fn pin_adapter(
+    async fn pin_adapter(
         &self,
         _adapter_id: &str,
         _pinned: bool,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not manage adapter pinning via control plane"
-            ))
-        }
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "UDS client does not manage adapter pinning via control plane"
+        ))
     }
 
     // Memory Management
-    fn get_memory_usage(
+    async fn get_memory_usage(
         &self,
-    ) -> impl std::future::Future<Output = Result<MemoryUsageResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "UDS client does not expose control-plane memory usage"
-            ))
-        }
+    ) -> Result<MemoryUsageResponse> {
+        Err(anyhow::anyhow!(
+            "UDS client does not expose control-plane memory usage"
+        ))
     }
 
     // Training
-    fn start_adapter_training(
+    async fn start_adapter_training(
         &self,
         _req: StartTrainingRequest,
-    ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send {
-        async { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
-    }
+    ) -> Result<TrainingSessionResponse> { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
 
-    fn get_training_session(
+    async fn get_training_session(
         &self,
         _session_id: &str,
-    ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send {
-        async { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
-    }
+    ) -> Result<TrainingSessionResponse> { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
 
-    fn list_training_sessions(
+    async fn list_training_sessions(
         &self,
-    ) -> impl std::future::Future<Output = Result<Vec<TrainingSessionResponse>>> + Send {
-        async { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
-    }
+    ) -> Result<Vec<TrainingSessionResponse>> { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
 
     // Telemetry
-    fn get_telemetry_events(
+    async fn get_telemetry_events(
         &self,
         _filters: TelemetryFilters,
-    ) -> impl std::future::Future<Output = Result<Vec<TelemetryEvent>>> + Send {
-        async { Err(anyhow::anyhow!("Telemetry via UDS client is unsupported")) }
-    }
+    ) -> Result<Vec<TelemetryEvent>> { Err(anyhow::anyhow!("Telemetry via UDS client is unsupported")) }
 
     // Nodes
-    fn list_nodes(&self) -> impl std::future::Future<Output = Result<Vec<NodeResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Node management via UDS client is unsupported"
-            ))
-        }
+    async fn list_nodes(&self) -> Result<Vec<NodeResponse>> {
+        Err(anyhow::anyhow!(
+            "Node management via UDS client is unsupported"
+        ))
     }
 
-    fn register_node(
+    async fn register_node(
         &self,
         _req: RegisterNodeRequest,
-    ) -> impl std::future::Future<Output = Result<NodeResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Node registration via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<NodeResponse> {
+        Err(anyhow::anyhow!(
+            "Node registration via UDS client is unsupported"
+        ))
     }
 
     // Plans
-    fn list_plans(
+    async fn list_plans(
         &self,
         _tenant_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<PlanResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Plan management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<Vec<PlanResponse>> {
+        Err(anyhow::anyhow!(
+            "Plan management via UDS client is unsupported"
+        ))
     }
 
-    fn build_plan(
+    async fn build_plan(
         &self,
         _req: BuildPlanRequest,
-    ) -> impl std::future::Future<Output = Result<JobResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Plan building via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<JobResponse> {
+        Err(anyhow::anyhow!(
+            "Plan building via UDS client is unsupported"
+        ))
     }
 
     // Workers
-    fn list_workers(
+    async fn list_workers(
         &self,
         _tenant_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<WorkerResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Worker management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<Vec<WorkerResponse>> {
+        Err(anyhow::anyhow!(
+            "Worker management via UDS client is unsupported"
+        ))
     }
 
-    fn spawn_worker(
+    async fn spawn_worker(
         &self,
         _req: SpawnWorkerRequest,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Worker spawning via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Worker spawning via UDS client is unsupported"
+        ))
     }
 
     // CP Operations
-    fn promote_cp(
+    async fn promote_cp(
         &self,
         _req: PromoteCPRequest,
-    ) -> impl std::future::Future<Output = Result<PromotionResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Control-plane promotion via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<PromotionResponse> {
+        Err(anyhow::anyhow!(
+            "Control-plane promotion via UDS client is unsupported"
+        ))
     }
 
-    fn promotion_gates(
+    async fn promotion_gates(
         &self,
         _cpid: String,
-    ) -> impl std::future::Future<Output = Result<PromotionGatesResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Control-plane promotion via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<PromotionGatesResponse> {
+        Err(anyhow::anyhow!(
+            "Control-plane promotion via UDS client is unsupported"
+        ))
     }
 
-    fn rollback_cp(
+    async fn rollback_cp(
         &self,
         _req: RollbackCPRequest,
-    ) -> impl std::future::Future<Output = Result<RollbackResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Control-plane rollback via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<RollbackResponse> {
+        Err(anyhow::anyhow!(
+            "Control-plane rollback via UDS client is unsupported"
+        ))
     }
 
     // Jobs
-    fn list_jobs(
+    async fn list_jobs(
         &self,
         _tenant_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<JobResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Job management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<Vec<JobResponse>> {
+        Err(anyhow::anyhow!(
+            "Job management via UDS client is unsupported"
+        ))
     }
 
     // Models
-    fn import_model(
+    async fn import_model(
         &self,
         _req: ImportModelRequest,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Model import via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Model import via UDS client is unsupported"
+        ))
     }
 
     // Policies
-    fn list_policies(
+    async fn list_policies(
         &self,
-    ) -> impl std::future::Future<Output = Result<Vec<PolicyPackResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Policy management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<Vec<PolicyPackResponse>> {
+        Err(anyhow::anyhow!(
+            "Policy management via UDS client is unsupported"
+        ))
     }
 
-    fn get_policy(
+    async fn get_policy(
         &self,
         _cpid: String,
-    ) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Policy management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<PolicyPackResponse> {
+        Err(anyhow::anyhow!(
+            "Policy management via UDS client is unsupported"
+        ))
     }
 
-    fn validate_policy(
+    async fn validate_policy(
         &self,
         _req: ValidatePolicyRequest,
-    ) -> impl std::future::Future<Output = Result<PolicyValidationResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Policy management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<PolicyValidationResponse> {
+        Err(anyhow::anyhow!(
+            "Policy management via UDS client is unsupported"
+        ))
     }
 
-    fn apply_policy(
+    async fn apply_policy(
         &self,
         _req: ApplyPolicyRequest,
-    ) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Policy management via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<PolicyPackResponse> {
+        Err(anyhow::anyhow!(
+            "Policy management via UDS client is unsupported"
+        ))
     }
 
     // Telemetry Bundles
-    fn list_telemetry_bundles(
+    async fn list_telemetry_bundles(
         &self,
-    ) -> impl std::future::Future<Output = Result<Vec<TelemetryBundleResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Telemetry bundles via UDS client are unsupported"
-            ))
-        }
+    ) -> Result<Vec<TelemetryBundleResponse>> {
+        Err(anyhow::anyhow!(
+            "Telemetry bundles via UDS client are unsupported"
+        ))
     }
 
     // Code Intelligence
-    fn register_repo(
+    async fn register_repo(
         &self,
         _req: RegisterRepoRequest,
-    ) -> impl std::future::Future<Output = Result<RepoResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<RepoResponse> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
-    fn scan_repo(
+    async fn scan_repo(
         &self,
         _req: ScanRepoRequest,
-    ) -> impl std::future::Future<Output = Result<JobResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<JobResponse> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
-    fn list_repos(&self) -> impl std::future::Future<Output = Result<Vec<RepoResponse>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    async fn list_repos(&self) -> Result<Vec<RepoResponse>> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
-    fn list_adapters_by_tenant(
+    async fn list_adapters_by_tenant(
         &self,
         _tenant_id: String,
-    ) -> impl std::future::Future<Output = Result<ListAdaptersResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<ListAdaptersResponse> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
-    fn get_adapter_activations(
+    async fn get_adapter_activations(
         &self,
-    ) -> impl std::future::Future<Output = Result<Vec<ActivationData>>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<Vec<ActivationData>> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
-    fn create_commit_delta(
+    async fn create_commit_delta(
         &self,
         _req: CommitDeltaRequest,
-    ) -> impl std::future::Future<Output = Result<CommitDeltaResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<CommitDeltaResponse> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
-    fn get_commit_details(
+    async fn get_commit_details(
         &self,
         _repo_id: String,
         _commit: String,
-    ) -> impl std::future::Future<Output = Result<CommitDetailsResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Code intelligence via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<CommitDetailsResponse> {
+        Err(anyhow::anyhow!(
+            "Code intelligence via UDS client is unsupported"
+        ))
     }
 
     // Routing Inspector
-    fn extract_router_features(
+    async fn extract_router_features(
         &self,
         _req: RouterFeaturesRequest,
-    ) -> impl std::future::Future<Output = Result<RouterFeaturesResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Routing inspector via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<RouterFeaturesResponse> {
+        Err(anyhow::anyhow!(
+            "Routing inspector via UDS client is unsupported"
+        ))
     }
 
-    fn score_adapters(
+    async fn score_adapters(
         &self,
         _req: ScoreAdaptersRequest,
-    ) -> impl std::future::Future<Output = Result<ScoreAdaptersResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Routing inspector via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<ScoreAdaptersResponse> {
+        Err(anyhow::anyhow!(
+            "Routing inspector via UDS client is unsupported"
+        ))
     }
 
     // Patch Lab
-    fn propose_patch(
+    async fn propose_patch(
         &self,
         _req: ProposePatchRequest,
-    ) -> impl std::future::Future<Output = Result<ProposePatchResponse>> + Send {
-        async { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
-    }
+    ) -> Result<ProposePatchResponse> { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
 
-    fn validate_patch(
+    async fn validate_patch(
         &self,
         _req: ValidatePatchRequest,
-    ) -> impl std::future::Future<Output = Result<ValidatePatchResponse>> + Send {
-        async { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
-    }
+    ) -> Result<ValidatePatchResponse> { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
 
-    fn apply_patch(
+    async fn apply_patch(
         &self,
         _req: ApplyPatchRequest,
-    ) -> impl std::future::Future<Output = Result<ApplyPatchResponse>> + Send {
-        async { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
-    }
+    ) -> Result<ApplyPatchResponse> { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
 
     // Code Policy
-    fn get_code_policy(
+    async fn get_code_policy(
         &self,
-    ) -> impl std::future::Future<Output = Result<GetCodePolicyResponse>> + Send {
-        async { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
-    }
+    ) -> Result<GetCodePolicyResponse> { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
 
-    fn update_code_policy(
+    async fn update_code_policy(
         &self,
         _req: UpdateCodePolicyRequest,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
-        async { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
-    }
+    ) -> Result<()> { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
 
     // Metrics Dashboard
-    fn get_code_metrics(
+    async fn get_code_metrics(
         &self,
         _req: CodeMetricsRequest,
-    ) -> impl std::future::Future<Output = Result<CodeMetricsResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Metrics dashboard via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<CodeMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "Metrics dashboard via UDS client is unsupported"
+        ))
     }
 
-    fn compare_metrics(
+    async fn compare_metrics(
         &self,
         _req: CompareMetricsRequest,
-    ) -> impl std::future::Future<Output = Result<CompareMetricsResponse>> + Send {
-        async {
-            Err(anyhow::anyhow!(
-                "Metrics dashboard via UDS client is unsupported"
-            ))
-        }
+    ) -> Result<CompareMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "Metrics dashboard via UDS client is unsupported"
+        ))
     }
 }
