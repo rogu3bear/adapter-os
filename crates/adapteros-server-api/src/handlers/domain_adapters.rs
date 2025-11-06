@@ -5,7 +5,6 @@ use adapteros_api_types::{
     DomainAdapterExecutionResponse,
     DomainAdapterManifestResponse,
     DomainAdapterResponse,
-    InferenceTrace,
     LoadDomainAdapterRequest,
     TestDomainAdapterRequest,
     TestDomainAdapterResponse,
