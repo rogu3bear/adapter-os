@@ -184,29 +184,29 @@ pub struct MetricsConfig {
 /// Thresholds configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThresholdsConfig {
-    pub cpu_warning: f32,
-    pub cpu_critical: f32,
-    pub memory_warning: f32,
-    pub memory_critical: f32,
-    pub disk_warning: f32,
-    pub disk_critical: f32,
-    pub gpu_warning: f32,
-    pub gpu_critical: f32,
-    pub min_memory_headroom: f32,
+    pub cpu_warning: f64,
+    pub cpu_critical: f64,
+    pub memory_warning: f64,
+    pub memory_critical: f64,
+    pub disk_warning: f64,
+    pub disk_critical: f64,
+    pub gpu_warning: f64,
+    pub gpu_critical: f64,
+    pub min_memory_headroom: f64,
 }
 
 impl Default for ThresholdsConfig {
     fn default() -> Self {
         Self {
-            cpu_warning: 70.0,
-            cpu_critical: 90.0,
-            memory_warning: 80.0,
-            memory_critical: 95.0,
-            disk_warning: 85.0,
-            disk_critical: 95.0,
-            gpu_warning: 80.0,
-            gpu_critical: 95.0,
-            min_memory_headroom: 15.0,
+            cpu_warning: 70.0_f64,
+            cpu_critical: 90.0_f64,
+            memory_warning: 80.0_f64,
+            memory_critical: 95.0_f64,
+            disk_warning: 85.0_f64,
+            disk_critical: 95.0_f64,
+            gpu_warning: 80.0_f64,
+            gpu_critical: 95.0_f64,
+            min_memory_headroom: 15.0_f64,
         }
     }
 }
