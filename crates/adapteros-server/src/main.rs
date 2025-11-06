@@ -1050,6 +1050,18 @@ async fn main() -> Result<()> {
         state = state.with_metrics_server(metrics_server);
     }
 
+    // Validate seed consistency for deterministic execution
+    //
+    // # Citations
+    // - Seed validation: [source: crates/adapteros-server-api/src/state.rs L753-L782]
+    // - Determinism enforcement: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
+    // - Startup validation: [source: crates/adapteros-server/src/main.rs]
+    if let Err(e) = state.validate_seed_consistency() {
+        return Err(AosError::DeterministicViolation(
+            format!("Seed consistency validation failed: {}", e)
+        ));
+    }
+
     {
         let signing_path_opt = {
             let cfg = config
