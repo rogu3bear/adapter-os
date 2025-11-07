@@ -277,4 +277,22 @@ pub trait AdapterOSClient {
         &self,
         req: CompareMetricsRequest,
     ) -> impl std::future::Future<Output = Result<CompareMetricsResponse>> + Send;
+
+    // Inference
+    fn infer(
+        &self,
+        req: InferRequest,
+    ) -> impl std::future::Future<Output = Result<InferResponse>> + Send;
+
+    // System Metrics
+    fn get_system_metrics(
+        &self,
+    ) -> impl std::future::Future<Output = Result<SystemMetricsResponse>> + Send;
+
+    // Journeys
+    fn get_journey(
+        &self,
+        journey_type: String,
+        id: String,
+    ) -> impl std::future::Future<Output = Result<serde_json::Value>> + Send;
 }
