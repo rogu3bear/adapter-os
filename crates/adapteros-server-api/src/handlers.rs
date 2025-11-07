@@ -460,7 +460,7 @@ use tokio::sync::RwLock;
 
 /// Internal model runtime health status
 #[derive(Debug, Clone)]
-struct ModelRuntimeHealth {
+pub struct ModelRuntimeHealth {
     /// Total number of models in the database
     total_models: i32,
     /// Number of models currently loaded
@@ -516,7 +516,7 @@ static HEALTH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HealthCache>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HealthCache::new(30)))); // 30 second cache
 
 /// Check model runtime health summary for health endpoint with caching
-async fn check_model_runtime_health_summary(
+pub async fn check_model_runtime_health_summary(
     state: &AppState,
 ) -> Result<ModelRuntimeHealth, anyhow::Error> {
     let start_time = std::time::Instant::now();
@@ -864,7 +864,7 @@ pub async fn upsert_directory_adapter(
             .adapter_id(&adapter_id)
             .name(&adapter_id)
             .hash_b3(&hash_b3)
-            .rank((analysis.symbols.len() as i32 % 17 + 16))
+            .rank(analysis.symbols.len() as i32 % 17 + 16)
             .tier(4)
             .languages_json(Some(languages_json))
             .framework(Some("directory"))
@@ -7130,117 +7130,6 @@ pub async fn load_model_with_retry(
             ))
         }
     }
-}
-
-/// Internal model loading logic (extracted for retry capability)
-async fn load_model_internal(
-    state: &AppState,
-    model_id: &str,
-    request: &LoadModelRequest,
-    tenant_id: &str,
-) -> Result<ModelResponse, anyhow::Error> {
-    // Determine whether the legacy schema (without model_type) is still in use.
-    let has_model_type = sqlx::query_scalar!(
-        r#"
-        SELECT 1 FROM pragma_table_info('models')
-        WHERE name = 'model_type'
-        LIMIT 1
-        "#
-    )
-    .fetch_optional(state.db.pool())
-    .await?
-    .is_some();
-
-    // Retrieve model metadata, falling back to a legacy query if necessary.
-    let (model_id_value, model_name_value, model_status_value, model_type_value, model_path_value) = if has_model_type
-    {
-        let record = sqlx::query!(
-            r#"
-            SELECT id, name, hash_b3, config_hash_b3, metadata_json
-            FROM models
-            WHERE id = ?
-            "#,
-            model_id
-        )
-        .fetch_optional(state.db.pool())
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
-
-        // Construct model path from hash (assuming models are stored by hash)
-        let model_path = format!("models/{}", record.hash_b3);
-
-        (
-            record.id.unwrap_or_else(|| model_id.to_string()),
-            record.name,
-            "available".to_string(), // Default status since not in schema
-            "base_model".to_string(), // Default model_type since not in schema
-            Some(model_path),
-        )
-    } else {
-        let record = sqlx::query!(
-            r#"
-            SELECT id, name, hash_b3, config_hash_b3, metadata_json
-            FROM models
-            WHERE id = ?
-            "#,
-            model_id
-        )
-        .fetch_optional(state.db.pool())
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
-
-        // Construct model path from hash (assuming models are stored by hash)
-        let model_path = format!("models/{}", record.hash_b3);
-
-        (
-            record.id.unwrap_or_else(|| model_id.to_string()),
-            record.name,
-            "available".to_string(), // Default status since not in schema
-            "base_model".to_string(),
-            Some(model_path),
-        )
-    };
-
-    // Check model status
-    if model_status_value != "available" {
-        return Err(anyhow::anyhow!(
-            "Model is not available for loading: {}",
-            model_status_value
-        ));
-    }
-
-    // Get model runtime and perform actual loading
-    // Citation: [source: crates/adapteros-server-api/src/model_runtime.rs L526-575]
-    let mut runtime = state.model_runtime.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Model runtime not available"))?
-        .lock().await;
-
-    // Perform actual model loading with progress tracking
-    let model_path = model_path_value
-        .ok_or_else(|| anyhow::anyhow!("Model path not configured"))?;
-
-    runtime.load_model_async_with_progress(
-        tenant_id,
-        &model_id_value,
-        &model_path,
-        |_progress_pct, _message| {
-            // Progress callbacks handled by operation tracker in parent function
-            // This is just a placeholder - actual progress is sent via operation tracker
-        },
-        Duration::from_secs(request.timeout_secs.unwrap_or(300)),
-    ).await.map_err(anyhow::Error::msg)?;
-
-    // Create response with real data
-    let response = ModelResponse {
-        id: model_id_value,
-        name: model_name_value,
-        model_type: model_type_value,
-        status: "loaded".to_string(),
-        loaded_at: Some(chrono::Utc::now()),
-        memory_usage: Some(1024 * 1024 * 1024), // TODO: Get real usage from runtime
-    };
-
-    Ok(response)
 }
 
 /// Load model with progress callback support
@@ -14398,7 +14287,7 @@ pub async fn stream_log_file(
     // Spawn a task to read the file and send lines
     tokio::spawn(async move {
         let reader = BufReader::new(file);
-        let mut lines = reader.lines();
+        let lines = reader.lines();
 
         for line in lines {
             match line {
