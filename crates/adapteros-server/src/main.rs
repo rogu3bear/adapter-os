@@ -16,8 +16,6 @@ use adapteros_server_api::{routes, AppState};
 #[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
 #[cfg(feature = "telemetry")]
-use adapteros_telemetry::metrics::SystemMetricsSnapshot;
-#[cfg(feature = "telemetry")]
 use async_trait::async_trait;
 
 #[cfg(feature = "telemetry")]
@@ -73,7 +71,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
-use tokio::sync::Mutex;
 use tower::Service;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -1056,6 +1053,9 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Clone training_service before moving it into state
+    let training_service_for_cleanup = Arc::clone(&training_service);
+    
     let mut state = AppState::new(
         db.clone(),
         jwt_secret,
@@ -1591,12 +1591,11 @@ async fn main() -> Result<()> {
 
     // Background task to clean up old training logs periodically
     {
-        let training_service_clone = training_service.clone();
         let _ = spawn_deterministic("Training log cleanup".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(3600)); // Run hourly
             loop {
                 interval.tick().await;
-                match training_service_clone.cleanup_old_logs(7).await {
+                match training_service_for_cleanup.cleanup_old_logs(7).await {
                     Ok(count) => {
                         if count > 0 {
                             info!("Cleaned up {} old training log files", count);
@@ -1612,6 +1611,8 @@ async fn main() -> Result<()> {
     }
 
     // Build router with UI (after spawning background tasks)
+    // Clone state before moving it into routes
+    let state_for_cleanup = state.clone();
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
 
@@ -1648,13 +1649,12 @@ async fn main() -> Result<()> {
 
         let app_service = app.clone();
         let builder = HyperBuilder::new(hyper_util::rt::TokioExecutor::new());
-
-        let state_for_cleanup = state.clone();
-        let shutdown = async {
+        let state_for_shutdown = state_for_cleanup.clone();
+        let shutdown = async move {
             let signal = shutdown_signal().await;
 
             // Check system readiness for shutdown
-            let readiness = check_shutdown_readiness(&state_for_cleanup).await;
+            let readiness = check_shutdown_readiness(&state_for_shutdown).await;
             info!(
                 "Shutdown readiness: active_requests={}, training_jobs={}, models={}, adapters={}, estimated_time={:?}",
                 readiness.active_requests,
@@ -1677,7 +1677,7 @@ async fn main() -> Result<()> {
                 _ => signal,
             };
 
-            let stats = cleanup_resources(&state_for_cleanup, effective_signal).await;
+            let stats = cleanup_resources(&state_for_shutdown, effective_signal).await;
             info!("Shutdown completed with stats: {:?}", stats);
         };
         tokio::pin!(shutdown);
@@ -1699,17 +1699,9 @@ async fn main() -> Result<()> {
                                 let hyper_svc = hyper::service::service_fn(move |req| {
                                     let mut svc_clone = svc.clone();
                                     async move {
-                                        svc_clone.call(req).await.map_err(|e| {
-                                            tracing::error!(error = %e, "UDS service call failed");
-                                            // Convert service errors to appropriate HTTP status codes
-                                            match e {
-                                                // Handle specific error types if available
-                                                _ => {
-                                                    tracing::error!(error = %e, "Unhandled service error in UDS handler");
-                                                    std::io::Error::new(std::io::ErrorKind::Other, format!("Service error: {}", e))
-                                                }
-                                            }
-                                        })
+                                        // Axum Router with state returns Infallible error type,
+                                        // so this call can never fail
+                                        svc_clone.call(req).await
                                     }
                                 });
                                 if let Err(e) = builder_clone.serve_connection(io, hyper_svc).await {
@@ -1745,12 +1737,12 @@ async fn main() -> Result<()> {
         warn!("⚠️  Starting control plane on TCP (development mode)");
         info!("UI available at http://{}:{}/", addr.ip(), port);
         info!("API available at http://{}:{}/api/", addr.ip(), port);
-        let state_for_cleanup = state.clone();
-        let shutdown = async {
+        let state_for_shutdown_tcp = state_for_cleanup.clone();
+        let shutdown = async move {
             let signal = shutdown_signal().await;
 
             // Check system readiness for shutdown
-            let readiness = check_shutdown_readiness(&state_for_cleanup).await;
+            let readiness = check_shutdown_readiness(&state_for_shutdown_tcp).await;
             info!(
                 "Shutdown readiness: active_requests={}, training_jobs={}, models={}, adapters={}, estimated_time={:?}",
                 readiness.active_requests,
@@ -1773,7 +1765,7 @@ async fn main() -> Result<()> {
                 _ => signal,
             };
 
-            let stats = cleanup_resources(&state_for_cleanup, effective_signal).await;
+            let stats = cleanup_resources(&state_for_shutdown_tcp, effective_signal).await;
             info!("Shutdown completed with stats: {:?}", stats);
         };
         let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -2068,11 +2060,8 @@ async fn cleanup_resources(
     state: &adapteros_server_api::state::AppState,
     shutdown_signal: ShutdownSignal,
 ) -> CleanupStats {
-    use adapteros_lora_lifecycle::AdapterLoader;
-    use adapteros_server_api::model_runtime::ModelRuntime;
     use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
-    use std::time::Duration;
-    use tracing::{error, info, warn};
+    use tracing::{error, info};
 
     let shutdown_start = std::time::Instant::now();
     let mut cleanup_stats = CleanupStats::default();
@@ -2237,7 +2226,7 @@ async fn execute_shutdown_phase(
 
 /// Flush telemetry buffers during critical shutdown phase
 async fn flush_telemetry_buffers(
-    state: &adapteros_server_api::state::AppState,
+    _state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Flushing telemetry buffers");
@@ -2266,7 +2255,6 @@ async fn cleanup_models(
     state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use adapteros_server_api::model_runtime::ModelRuntime;
     use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
 
     if let Some(model_runtime) = &state.model_runtime {
@@ -2342,7 +2330,7 @@ async fn cleanup_adapters(
     state: &adapteros_server_api::state::AppState,
     stats: &mut CleanupStats,
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use adapteros_lora_lifecycle::{AdapterLoader, AdapterState};
+    use adapteros_lora_lifecycle::AdapterState;
     use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
 
     if let Some(lifecycle_manager) = &state.lifecycle_manager {
@@ -2440,7 +2428,7 @@ async fn check_shutdown_readiness(
     // TODO: Implement check for active requests in flight
 
     // Check for active training jobs
-    let training_service = &state.training_service;
+    let _training_service = &state.training_service;
     // This would need to be added to TrainingService
     // readiness.active_training_jobs = training_service.active_jobs().await;
 
@@ -2457,7 +2445,7 @@ async fn check_shutdown_readiness(
         let guard = lifecycle_manager.lock().await;
         let loader = guard.loader();
         let loaded_adapters: Vec<u16> = {
-            let loader_guard = loader.read().await;
+            let loader_guard = loader.read();
             (0..u16::MAX)
                 .filter(|&id| loader_guard.is_loaded(id))
                 .collect()
