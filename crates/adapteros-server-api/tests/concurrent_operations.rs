@@ -7,14 +7,15 @@
 //! - Database transaction atomicity
 //! - Memory pressure scenarios
 
-use adapteros_db::Db;
+use adapteros_db::{Db, Database};
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::{
-    handlers::models::{load_model, unload_model, ModelStatusResponse},
+    handlers::models::{load_model, unload_model},
     operation_tracker::{ModelOperationType, OperationTracker, OperationType},
     state::{ApiConfig, AppState, MetricsConfig, OperationRetryConfig, RepositoryPathsConfig, SecurityConfig},
 };
+use axum::http::StatusCode;
 use axum_test::TestServer;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -120,16 +121,16 @@ impl TestConfig {
         // Create test components
         let jwt_secret = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let metrics_exporter = MetricsExporter::new(Default::default()).unwrap();
-        let metrics_collector = MetricsCollector::new().unwrap();
-        let metrics_registry = Arc::new(MetricsRegistry::new(Arc::new(metrics_collector.clone())));
+        let metrics_collector = Arc::new(MetricsCollector::new().unwrap());
+        let metrics_registry = Arc::new(MetricsRegistry::new(Arc::clone(&metrics_collector)));
         let training_service = TrainingService::new();
 
         let state = AppState::new_with_system_collector(
-            db.clone(),
+            Database::new(db.clone()),
             jwt_secret,
             config,
             Arc::new(metrics_exporter),
-            Arc::new(metrics_collector),
+            metrics_collector,
             metrics_registry,
             Arc::new(training_service),
             None,
@@ -188,29 +189,25 @@ async fn test_concurrent_load_same_model() {
     let token = config.create_test_user().await;
 
     // Create multiple concurrent load requests
-    let mut handles = vec![];
+    // Note: Using futures_util::future::join_all instead of tokio::spawn because
+    // TestServer futures are not Send, but they can still run concurrently
+    use futures_util::future;
+    
+    let futures: Vec<_> = (0..5)
+        .map(|i| {
+            let server = Arc::clone(&config.server);
+            let token = token.clone();
+            async move {
+                let response = server
+                    .post(&format!("/v1/models/{}/load", "test-model"))
+                    .authorization_bearer(&token)
+                    .await;
+                (i, response.status_code(), response.text())
+            }
+        })
+        .collect();
 
-    for i in 0..5 {
-        let server = Arc::clone(&config.server);
-        let token = token.clone();
-
-        let handle = tokio::spawn(async move {
-            let response = server
-                .post(&format!("/v1/models/{}/load", "test-model"))
-                .authorization_bearer(&token)
-                .await;
-
-            (i, response.status_code(), response.text().await)
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all requests to complete
-    let mut results = vec![];
-    for handle in handles {
-        results.push(handle.await.unwrap());
-    }
+    let results = future::join_all(futures).await;
 
     // Exactly one request should succeed, others should be rejected
     let success_count = results
@@ -264,7 +261,9 @@ async fn test_simultaneous_load_unload() {
     assert_eq!(load_response.status_code(), StatusCode::OK);
 
     // Now try simultaneous load and unload operations
-    let load_handle = tokio::spawn({
+    // Note: Using tokio::join! directly instead of tokio::spawn because
+    // TestServer futures are not Send, but they can still run concurrently
+    let load_future = {
         let server = config.server.clone();
         let token = token.clone();
         async move {
@@ -273,9 +272,9 @@ async fn test_simultaneous_load_unload() {
                 .authorization_bearer(&token)
                 .await
         }
-    });
+    };
 
-    let unload_handle = tokio::spawn({
+    let unload_future = {
         let server = config.server.clone();
         let token = token.clone();
         async move {
@@ -284,11 +283,9 @@ async fn test_simultaneous_load_unload() {
                 .authorization_bearer(&token)
                 .await
         }
-    });
+    };
 
-    let (load_result, unload_result) = tokio::join!(load_handle, unload_handle);
-    let load_response = load_result.unwrap();
-    let unload_response = unload_result.unwrap();
+    let (load_response, unload_response) = tokio::join!(load_future, unload_future);
 
     // One operation should succeed, the other should be rejected
     let load_success = load_response.status_code() == StatusCode::OK;
@@ -477,14 +474,14 @@ async fn test_tenant_isolation() {
     // Start operation for tenant1
     let result1 = config
         .operation_tracker
-        .start_operation("test-model", "test-tenant", ModelOperationType::Load)
+        .start_operation("test-model", "test-tenant", OperationType::Model(ModelOperationType::Load))
         .await;
     assert!(result1.is_ok());
 
     // Operation for tenant2 should not conflict
     let result2 = config
         .operation_tracker
-        .start_operation("test-model", "tenant2", ModelOperationType::Load)
+        .start_operation("test-model", "tenant2", OperationType::Model(ModelOperationType::Load))
         .await;
     assert!(result2.is_ok(), "Different tenants should not conflict");
 
