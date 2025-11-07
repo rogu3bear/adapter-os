@@ -642,21 +642,49 @@ impl AppState {
 
     /// Create minimal AppState for testing
     #[cfg(test)]
-    pub fn test_state(global_seed: [u8; 32]) -> Self {
+    pub async fn test_state(global_seed: [u8; 32]) -> Self {
         use adapteros_db::Db;
         use std::sync::Arc;
-        use tokio::sync::RwLock;
 
-        let db = Db::new_in_memory().unwrap();
+        let db = Db::connect("sqlite::memory:").await.unwrap();
         let jwt_secret = b"test_jwt_secret_for_testing_only_not_secure".to_vec();
-        let config = Arc::new(RwLock::new(ApiConfig::default()));
-        let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new());
-        let metrics_collector = Arc::new(MetricsCollector::new());
-        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let api_config = ApiConfig {
+            metrics: MetricsConfig {
+                enabled: false,
+                bearer_token: String::new(),
+                system_metrics_interval_secs: default_system_metrics_interval_secs(),
+                telemetry_buffer_capacity: default_telemetry_buffer_capacity(),
+                telemetry_channel_capacity: default_telemetry_channel_capacity(),
+                trace_buffer_capacity: default_trace_buffer_capacity(),
+                server_port: default_metrics_server_port(),
+                server_enabled: default_metrics_server_enabled(),
+            },
+            golden_gate: None,
+            bundles_root: "/tmp".to_string(),
+            rate_limits: None,
+            path_policy: PathPolicyConfig {
+                allowlist: default_path_allowlist(),
+                denylist: default_path_denylist(),
+            },
+            repository_paths: RepositoryPathsConfig::default(),
+            production_mode: false,
+            model_load_timeout_secs: default_model_load_timeout_secs(),
+            model_unload_timeout_secs: default_model_unload_timeout_secs(),
+            operation_retry: OperationRetryConfig::default(),
+            security: SecurityConfig::default(),
+            mlx: None,
+        };
+        let config = Arc::new(std::sync::RwLock::new(api_config));
+        let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).unwrap());
+        let metrics_collector = Arc::new(
+            MetricsCollector::new_with_system_provider(None)
+                .expect("failed to create metrics collector"),
+        );
+        let metrics_registry = Arc::new(MetricsRegistry::new(metrics_collector.clone()));
         let training_service = Arc::new(TrainingService::new());
 
         Self::new(
-            db,
+            db.into(),
             jwt_secret,
             config,
             metrics_exporter,
@@ -1066,8 +1094,8 @@ mod tests {
             b"secret".to_vec(),
             config,
             metrics_exporter,
-            metrics_collector,
-            metrics_registry,
+            Some(metrics_collector),
+            Some(metrics_registry),
             training_service,
             [0u8; 32], // Test global seed
         );
@@ -1105,7 +1133,7 @@ mod tests {
     #[tokio::test]
     async fn test_seed_derivation_determinism() {
         let global_seed = [42u8; 32];
-        let state = AppState::test_state(global_seed);
+        let state = AppState::test_state(global_seed).await;
 
         // Test component seed derivation consistency
         let router_seed1 = state.derive_component_seed("router");
@@ -1132,7 +1160,7 @@ mod tests {
     #[tokio::test]
     async fn test_training_seed_isolation() {
         let global_seed = [123u8; 32];
-        let state = AppState::test_state(global_seed);
+        let state = AppState::test_state(global_seed).await;
 
         // Same tenant, different jobs should get different seeds
         let seed1 = state.derive_training_seed("tenant1", "job1");
@@ -1156,7 +1184,7 @@ mod tests {
     #[tokio::test]
     async fn test_seed_consistency_validation() {
         let global_seed = [99u8; 32];
-        let state = AppState::test_state(global_seed);
+        let state = AppState::test_state(global_seed).await;
 
         // Valid state should pass validation
         assert!(state.validate_seed_consistency().is_ok(),
@@ -1171,11 +1199,10 @@ mod tests {
     #[tokio::test]
     async fn test_global_seed_storage() {
         let global_seed_bytes = [42u8; 32];
-        let state = AppState::test_state(global_seed_bytes);
+        let state = AppState::test_state(global_seed_bytes).await;
 
         // Verify global seed is stored correctly
-        let expected_hash = adapteros_core::B3Hash::from_bytes(global_seed_bytes);
-        assert_eq!(state.global_seed, expected_hash,
-                  "Global seed should be stored as B3Hash");
+        assert_eq!(state.global_seed, global_seed_bytes,
+                  "Global seed should be stored correctly");
     }
 }
