@@ -525,8 +525,16 @@ AdapterOS alpha-v0.01-1 includes:
 - ✅ **Integration Tests**: E2E flows for policy, routing, determinism, memory, tenants【@tests/integration_tests.rs §new tests】
 
 ### In Progress
+- 🔄 **Server Compilation**: Fix async lifetime issues in adapteros-server
 - 🔄 **MLX Backend UI Integration**: Add MLX backend selection to web dashboard
 - 🔄 **Observability**: Prometheus hooks, threat detection【@README.md §431】
+
+### MVP Status
+- ✅ **Core Components**: Inference pipeline, router, CLI all functional
+- ✅ **Security**: Keychain implementations secure (no hardcoded keys)
+- ✅ **Testing**: Integration tests enabled, unit tests passing
+- ⚠️ **Server**: Compilation errors prevent full E2E testing
+- See [MVP Quick Start Guide](docs/MVP_QUICKSTART.md) for details
 
 ### Planned for v0.02
 - 📋 **MLX Backend Default Build**: Consider including MLX in default build (currently opt-in)
@@ -543,6 +551,7 @@ AdapterOS alpha-v0.01-1 includes:
 ## 📚 Documentation
 
 ### Quick Links
+- **[MVP Quick Start Guide](docs/MVP_QUICKSTART.md)** - MVP status and quick start (NEW)
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
 - **[System Architecture](docs/architecture.md)** - High-level design and components
