@@ -1,5 +1,6 @@
 use adapteros_server_api::model_runtime::{ModelRuntime, ModelKey, LoadModelSpec, ProgressEvent};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[tokio::test]
 async fn model_runtime_trait_smoke_test() {
@@ -37,8 +38,9 @@ async fn model_runtime_trait_smoke_test() {
     }
 
     let runtime = TestRuntime;
-    let mut progress_events = Vec::new();
+    let progress_events = Arc::new(Mutex::new(Vec::new()));
 
+    let progress_events_clone = Arc::clone(&progress_events);
     let result = runtime.load_model_async_with_progress(
         LoadModelSpec {
             tenant_id: "test".to_string(),
@@ -47,13 +49,16 @@ async fn model_runtime_trait_smoke_test() {
             adapter_path: None,
             quantization: None,
         },
-        |ev| progress_events.push(ev),
+        move |ev| {
+            progress_events_clone.lock().unwrap().push(ev);
+        },
     ).await;
 
     assert!(result.is_ok());
-    assert_eq!(progress_events.len(), 1);
-    assert_eq!(progress_events[0].pct, 50.0);
-    assert_eq!(progress_events[0].message, "test progress");
+    let events = progress_events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].pct, 50.0);
+    assert_eq!(events[0].message, "test progress");
     assert_eq!(result.unwrap().memory_usage_mb, 1024);
 }
 
