@@ -26,10 +26,8 @@ use tracing::{error, info, warn};
 /// Tracks loaded domain adapters in the deterministic executor
 #[derive(Debug)]
 struct LoadedDomainAdapter {
-    adapter_id: String,
     task_ids: Vec<TaskId>,
     manifest: serde_json::Value,
-    loaded_at: chrono::DateTime<Utc>,
 }
 
 lazy_static::lazy_static! {
@@ -301,10 +299,8 @@ pub async fn load_domain_adapter(
 
             // Register adapter in global registry
             let loaded_adapter = LoadedDomainAdapter {
-                adapter_id: adapter_id_clone.clone(),
                 task_ids: Vec::new(),
                 manifest: serde_json::to_value(manifest_clone).unwrap_or(serde_json::Value::Null),
-                loaded_at: Utc::now(),
             };
 
             LOADED_ADAPTERS
