@@ -8,6 +8,7 @@ use adapteros_policy::{
     },
     PolicyPackManager,
 };
+use adapteros_policy::unified_enforcement::PolicyEnforcer as _;
 use std::collections::HashMap;
 
 #[tokio::test]
@@ -51,8 +52,8 @@ async fn test_policy_enforcement_inference_request() -> Result<()> {
         metadata: operation.metadata.clone(),
     };
 
-    // Validate the request
-    let result = manager.validate_request(&request).await?;
+    // Validate the request using the PolicyEnforcer trait method
+    let result = PolicyEnforcer::validate_request(&manager, &request).await?;
 
     // Should validate successfully (no violations for basic request)
     assert!(result.valid || !result.violations.is_empty());

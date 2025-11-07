@@ -7,7 +7,7 @@ use adapteros_policy::{
         Operation as PolicyOperation, OperationType as PolicyOperationType,
         PolicyContext as UnifiedPolicyContext, PolicyEnforcer, Priority as UnifiedPriority,
     },
-    EnforcementLevel, PolicyPackManager, ViolationSeverity,
+    EnforcementLevel, PolicyPackManager,
 };
 use futures_util::future;
 use std::collections::HashMap;
@@ -239,15 +239,16 @@ async fn test_manifest_configuration_integration() -> Result<()> {
 
 #[tokio::test]
 async fn test_concurrent_policy_validation() -> Result<()> {
+    use std::sync::Arc;
     use tokio::task;
 
-    let manager = PolicyPackManager::new();
+    let manager = Arc::new(PolicyPackManager::new());
 
     // Create multiple concurrent validation requests
     let mut handles = Vec::new();
 
     for i in 0..10 {
-        let manager_ref = &manager;
+        let manager = manager.clone();
         let handle = task::spawn(async move {
             let mut parameters = HashMap::new();
             parameters.insert("prompt_length".to_string(), serde_json::json!(i * 10));
@@ -269,7 +270,7 @@ async fn test_concurrent_policy_validation() -> Result<()> {
                 metadata: None,
             };
 
-            manager_ref.enforce_policy(&operation).await
+            manager.enforce_policy(&operation).await
         });
 
         handles.push(handle);
