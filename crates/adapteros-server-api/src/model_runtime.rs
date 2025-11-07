@@ -132,12 +132,6 @@ pub struct ModelRuntimeImpl {
     max_tenant_models: usize,
     /// Per-tenant file size limits (tenant_id -> max_bytes)
     per_tenant_limits: HashMap<String, u64>,
-    /// Global seed for deterministic operations
-    ///
-    /// # Citations
-    /// - Seed derivation: [source: crates/adapteros-core/src/seed.rs L39-L56]
-    /// - Deterministic loading: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
-    seed: [u8; 32],
 }
 
 impl Default for ModelRuntimeImpl {
@@ -148,10 +142,6 @@ impl Default for ModelRuntimeImpl {
 
 impl ModelRuntimeImpl {
     pub fn new() -> Self {
-        Self::with_seed([0u8; 32]) // Default seed for development
-    }
-
-    pub fn with_seed(seed: [u8; 32]) -> Self {
         Self {
             #[cfg(feature = "mlx-ffi-backend")]
             models: HashMap::new(),
@@ -168,7 +158,6 @@ impl ModelRuntimeImpl {
             max_loaded_models: 5,                          // Default: 5 models globally
             max_tenant_models: 2,                          // Default: 2 models per tenant
             per_tenant_limits: HashMap::new(),
-            seed,
         }
     }
 
@@ -177,21 +166,6 @@ impl ModelRuntimeImpl {
         max_model_size_bytes: u64,
         max_config_size_bytes: u64,
         max_tokenizer_size_bytes: u64,
-    ) -> Self {
-        Self::with_limits_and_seed(
-            max_model_size_bytes,
-            max_config_size_bytes,
-            max_tokenizer_size_bytes,
-            [0u8; 32], // Default seed
-        )
-    }
-
-    /// Create a new ModelRuntime with custom file size limits and seed
-    pub fn with_limits_and_seed(
-        max_model_size_bytes: u64,
-        max_config_size_bytes: u64,
-        max_tokenizer_size_bytes: u64,
-        seed: [u8; 32],
     ) -> Self {
         Self {
             #[cfg(feature = "mlx-ffi-backend")]
@@ -209,7 +183,6 @@ impl ModelRuntimeImpl {
             max_loaded_models: 5, // Default: 5 models globally
             max_tenant_models: 2, // Default: 2 models per tenant
             per_tenant_limits: HashMap::new(),
-            seed,
         }
     }
 
@@ -1044,6 +1017,7 @@ impl ModelRuntimeImpl {
     }
 
     #[cfg(not(feature = "mlx-ffi-backend"))]
+    #[allow(unused)]
     fn estimate_memory_usage_mb(_config: &()) -> i32 {
         1024 // Default estimate when MLX not available
     }
@@ -1149,20 +1123,20 @@ mod tests {
 
     #[test]
     fn test_model_runtime_creation() {
-        let _runtime = ModelRuntime::new();
+        let _runtime = ModelRuntimeImpl::new();
         // Runtime created successfully
         assert!(true);
     }
 
     #[test]
     fn test_is_model_loaded_empty() {
-        let runtime = ModelRuntime::new();
+        let runtime = ModelRuntimeImpl::new();
         assert!(!runtime.is_model_loaded("tenant1", "model1"));
     }
 
     #[tokio::test]
     async fn test_cancel_operation() {
-        let mut runtime = ModelRuntime::new();
+        let mut runtime = ModelRuntimeImpl::new();
 
         // Without mlx-ffi-backend, cancel should return false
         assert!(!runtime.cancel_operation("tenant1", "model1"));
@@ -1170,7 +1144,7 @@ mod tests {
 
     #[test]
     fn test_get_all_loaded_models() {
-        let runtime = ModelRuntime::new();
+        let runtime = ModelRuntimeImpl::new();
         let models = runtime.get_all_loaded_models();
         assert!(models.is_empty());
     }
