@@ -109,6 +109,8 @@ impl KeychainProvider {
 
     /// Parse ADAPTEROS_KEYCHAIN_FALLBACK environment variable
     /// Expected format: "pass:<password>"
+    #[cfg(any(feature = "password-fallback", test))]
+    #[allow(dead_code)] // Used in tests even when feature is disabled
     fn parse_fallback_env(env_value: &str) -> Option<String> {
         if let Some(password) = env_value.strip_prefix("pass:") {
             if password.len() >= 8 {
@@ -121,6 +123,11 @@ impl KeychainProvider {
             warn!("Invalid ADAPTEROS_KEYCHAIN_FALLBACK format. Expected 'pass:<password>' where password is at least 8 characters. Example: ADAPTEROS_KEYCHAIN_FALLBACK=pass:mysecretpassword123");
             None
         }
+    }
+
+    /// Get the current backend type
+    pub fn backend(&self) -> KeychainBackend {
+        self.backend.clone()
     }
 
     /// Check backend health and perform dynamic switching if needed
@@ -1082,6 +1089,7 @@ impl KeyringImpl for MacKeychain {
         Ok(signature.to_bytes().to_vec())
     }
 
+    #[allow(deprecated)]
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         // Retrieve symmetric key from macOS Keychain
         let key_data = self.retrieve_symmetric_key(key_id)?;
@@ -1090,8 +1098,8 @@ impl KeyringImpl for MacKeychain {
         use aes_gcm::aead::{Aead, KeyInit};
         use aes_gcm::{Aes256Gcm, Nonce};
 
-        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_data);
-        let cipher = Aes256Gcm::new(key);
+        let cipher = Aes256Gcm::new_from_slice(&key_data)
+            .map_err(|e| AosError::Crypto(format!("Failed to create AES cipher: {}", e)))?;
 
         // Generate a random nonce
         use rand::rngs::OsRng;
@@ -1287,9 +1295,9 @@ struct LinuxKeyring {
     backend: LinuxKeyringBackend,
 }
 
-/// Backend types for key storage
-#[derive(Clone, Debug)]
-enum KeychainBackend {
+/// Backend type for keychain provider
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeychainBackend {
     /// macOS Security Framework
     #[cfg(target_os = "macos")]
     MacOS,
@@ -2321,8 +2329,10 @@ mod tests {
         assert_eq!(receipt.key_id, key_id);
 
         // Verify new signature still works
-        let new_signature = provider.sign(key_id, message).await.unwrap();
-        assert!(!new_signature.is_empty());
+        let new_signature_bytes = provider.sign(key_id, message).await.unwrap();
+        assert!(!new_signature_bytes.is_empty());
+        let new_signature_bytes_array: [u8; 64] = new_signature_bytes.as_slice().try_into().unwrap();
+        let new_signature = ed25519_dalek::Signature::from(new_signature_bytes_array);
         assert_ne!(signature, new_signature); // Should be different after rotation
     }
 
