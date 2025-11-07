@@ -338,10 +338,10 @@ mod tests {
         assert_eq!(features.len(), 4);
 
         // Test status filtering
-        let completed = registry.get_features_by_status(FeatureStatus::Completed);
+        let completed = registry.get_features_by_status(&FeatureStatus::Completed);
         assert_eq!(completed.len(), 2); // aos-cli and error-recovery are completed
 
-        let in_development = registry.get_features_by_status(FeatureStatus::InDevelopment);
+        let in_development = registry.get_features_by_status(&FeatureStatus::InDevelopment);
         assert_eq!(in_development.len(), 2); // migration-conflicts and domain-adapters are still in development
     }
 
