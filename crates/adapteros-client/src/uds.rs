@@ -13,9 +13,10 @@ use crate::{types::*, AdapterOSClient};
 use adapteros_api_types::{
     telemetry::TelemetryBundleResponse,
     AdapterResponse, BuildPlanRequest, CreateTenantRequest, HealthResponse,
-    LoginRequest, LoginResponse, NodeResponse, PlanResponse, RegisterAdapterRequest,
-    RegisterNodeRequest, SpawnWorkerRequest, StartTrainingRequest, TenantResponse,
-    UserInfoResponse, WorkerResponse
+    InferRequest, InferResponse, LoginRequest, LoginResponse, NodeResponse,
+    PlanResponse, RegisterAdapterRequest, RegisterNodeRequest, SpawnWorkerRequest,
+    StartTrainingRequest, SystemMetricsResponse, TenantResponse, UserInfoResponse,
+    WorkerResponse
 };
 use anyhow::Result;
 use futures_util::stream::BoxStream;
@@ -1110,6 +1111,36 @@ impl AdapterOSClient for UdsClient {
     ) -> Result<CompareMetricsResponse> {
         Err(anyhow::anyhow!(
             "Metrics dashboard via UDS client is unsupported"
+        ))
+    }
+
+    // Inference
+    async fn infer(
+        &self,
+        _req: InferRequest,
+    ) -> Result<InferResponse> {
+        Err(anyhow::anyhow!(
+            "Inference via UDS client should use inference_with_signals"
+        ))
+    }
+
+    // System Metrics
+    async fn get_system_metrics(
+        &self,
+    ) -> Result<SystemMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "System metrics via UDS client is unsupported"
+        ))
+    }
+
+    // Journeys
+    async fn get_journey(
+        &self,
+        _journey_type: String,
+        _id: String,
+    ) -> Result<serde_json::Value> {
+        Err(anyhow::anyhow!(
+            "Journey endpoints via UDS client is unsupported"
         ))
     }
 }

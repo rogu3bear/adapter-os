@@ -525,6 +525,30 @@ impl NativeClient {
             .await
             .context("Failed to parse metrics comparison")
     }
+
+    async fn infer(&self, req: InferRequest) -> Result<InferResponse> {
+        let url = format!("{}/v1/infer", self.base_url);
+        let resp = self.client.post(&url).json(&req).send().await?;
+        resp.json()
+            .await
+            .context("Failed to parse inference response")
+    }
+
+    async fn get_system_metrics(&self) -> Result<SystemMetricsResponse> {
+        let url = format!("{}/v1/metrics/system", self.base_url);
+        let resp = self.client.get(&url).send().await?;
+        resp.json()
+            .await
+            .context("Failed to parse system metrics")
+    }
+
+    async fn get_journey(&self, journey_type: String, id: String) -> Result<serde_json::Value> {
+        let url = format!("{}/v1/journeys/{}/{}", self.base_url, journey_type, id);
+        let resp = self.client.get(&url).send().await?;
+        resp.json()
+            .await
+            .context("Failed to parse journey response")
+    }
 }
 
 macro_rules! forward_async_methods {
@@ -595,6 +619,9 @@ impl AdapterOSClient for NativeClient {
         get_code_policy() -> GetCodePolicyResponse,
         update_code_policy(req: UpdateCodePolicyRequest) -> (),
         get_code_metrics(req: CodeMetricsRequest) -> CodeMetricsResponse,
-        compare_metrics(req: CompareMetricsRequest) -> CompareMetricsResponse
+        compare_metrics(req: CompareMetricsRequest) -> CompareMetricsResponse,
+        infer(req: InferRequest) -> InferResponse,
+        get_system_metrics() -> SystemMetricsResponse,
+        get_journey(journey_type: String, id: String) -> serde_json::Value
     );
 }
