@@ -300,6 +300,7 @@ required-features = ["extended-tests"]
 
 # Test dependencies
 [dev-dependencies]
+futures = "0.3"
 adapteros-core = { path = "crates/adapteros-core" }
 adapteros-manifest = { path = "crates/adapteros-manifest" }
 adapteros-chat = { path = "crates/adapteros-chat" }
