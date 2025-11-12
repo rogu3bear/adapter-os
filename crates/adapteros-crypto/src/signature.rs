@@ -21,7 +21,10 @@ pub struct Keypair {
 impl Keypair {
     /// Generate a new random keypair
     pub fn generate() -> Self {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        use rand::RngCore;
+        let mut seed = [0u8; 32];
+        OsRng.fill_bytes(&mut seed);
+        let signing_key = SigningKey::from_bytes(&seed);
         Self { signing_key }
     }
 
@@ -188,7 +191,10 @@ pub fn verify_signature(
 
 /// Generate a new Ed25519 keypair
 pub fn generate_keypair() -> (SigningKey, Ed25519PublicKey) {
-    let signing_key = SigningKey::generate(&mut OsRng);
+    use rand::RngCore;
+    let mut seed = [0u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let signing_key = SigningKey::from_bytes(&seed);
     let verifying_key = signing_key.verifying_key();
     (signing_key, verifying_key)
 }

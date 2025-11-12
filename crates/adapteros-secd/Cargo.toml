@@ -29,7 +29,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 base64 = "0.22"
 hex = "0.4"
 clap = { workspace = true, features = ["derive"] }
-nix = { workspace = true }
+nix = { version = "0.28", features = ["signal", "process"] }
 hkdf = { workspace = true }
 sha2 = { workspace = true }
 ring = "0.17"

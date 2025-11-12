@@ -74,7 +74,7 @@ async fn register_repository_registers_branch_manager() -> anyhow::Result<()> {
 
     assert_eq!(response.analysis.git_info.branch, "main");
     assert_eq!(response.analysis.git_info.commit_count, 1);
-    
+
     // BranchManager should now know about the repository so sessions can start
     let session = git_subsystem
         .branch_manager()

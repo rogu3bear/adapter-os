@@ -45,6 +45,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import type { UserRole } from '@/api/types';
+import { cn, FROST_OVERLAY } from '@/components/ui/utils';
 
 function RootLayoutContent() {
   // All hooks must be called before any conditional returns
@@ -186,7 +187,7 @@ function RootLayoutContent() {
       </header>
 
       {/* Overlay for mobile */}
-      {isSidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />}
+      {isSidebarOpen && <div className={cn("fixed inset-0 z-40", FROST_OVERLAY, "md:hidden")} onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />}
 
       {/* Body with sidebar and content */}
       <div className="flex min-h-[calc(100vh-4rem)]">

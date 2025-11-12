@@ -10,6 +10,7 @@
 
 use adapteros_core::{AosError, Result};
 use metal::*;
+use std::ffi::c_void;
 use std::sync::Arc;
 
 use super::ring_buffer::RawRingBuffer;
@@ -128,20 +129,20 @@ impl FusedMlpKernel {
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
         let params = MetalMlpParams {
-            input: input.gpu_address(),
-            output: output.gpu_address(),
-            gate_weight: gate_weight.gpu_address(),
-            up_weight: up_weight.gpu_address(),
-            down_weight: down_weight.gpu_address(),
+            input: input.contents() as *mut c_void as u64,
+            output: output.contents() as *mut c_void as u64,
+            gate_weight: gate_weight.contents() as *mut c_void as u64,
+            up_weight: up_weight.contents() as *mut c_void as u64,
+            down_weight: down_weight.contents() as *mut c_void as u64,
             gate_bias: 0,
             up_bias: 0,
             down_bias: 0,
-            gate_lora_a: gate_lora_a.gpu_address(),
-            gate_lora_b: gate_lora_b.gpu_address(),
-            up_lora_a: up_lora_a.gpu_address(),
-            up_lora_b: up_lora_b.gpu_address(),
-            down_lora_a: down_lora_a.gpu_address(),
-            down_lora_b: down_lora_b.gpu_address(),
+            gate_lora_a: gate_lora_a.contents() as *mut c_void as u64,
+            gate_lora_b: gate_lora_b.contents() as *mut c_void as u64,
+            up_lora_a: up_lora_a.contents() as *mut c_void as u64,
+            up_lora_b: up_lora_b.contents() as *mut c_void as u64,
+            down_lora_a: down_lora_a.contents() as *mut c_void as u64,
+            down_lora_b: down_lora_b.contents() as *mut c_void as u64,
             lora_config: *lora_config,
             ring_buffer: ring_state,
             dropout_seed,

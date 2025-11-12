@@ -3,27 +3,44 @@ use utoipa::ToSchema;
 
 // Re-export shared API types
 pub use adapteros_api_types::telemetry::{
-    MetricDataPointResponse, MetricsSeriesResponse, MetricsSnapshotResponse,
-    SystemMetricsResponse, AdapterMetricsResponse,
+    AdapterMetricsResponse, MetricDataPointResponse, MetricsSeriesResponse,
+    MetricsSnapshotResponse, SystemMetricsResponse,
 };
 pub use adapteros_api_types::{
-    // Training types
-    StartTrainingRequest, TrainingJobResponse, TrainingMetricsResponse, TrainingTemplateResponse,
-    TrainingConfigRequest,
-    // Tenant types
-    CreateTenantRequest, TenantResponse,
-    // Inference types
-    InferRequest, InferResponse, RouterDecision,
-    // Adapter types
-    AdapterResponse, AdapterStats, RegisterAdapterRequest, AdapterActivationResponse,
-    // Repository types
-    RegisterRepositoryRequest, TriggerScanRequest,
-    // Domain adapter types
-    CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
-    DomainAdapterResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
-    TestDomainAdapterResponse, EpsilonStatsResponse,
+    AdapterActivationResponse,
     // Metrics types
-    AdapterPerformance, LoadAverageResponse, QualityMetricsResponse,
+    AdapterPerformance,
+    // Adapter types
+    AdapterResponse,
+    AdapterStats,
+    // Domain adapter types
+    CreateDomainAdapterRequest,
+    // Tenant types
+    CreateTenantRequest,
+    DomainAdapterExecutionResponse,
+    DomainAdapterManifestResponse,
+    DomainAdapterResponse,
+    EpsilonStatsResponse,
+    // Inference types
+    InferRequest,
+    InferResponse,
+    LoadAverageResponse,
+    LoadDomainAdapterRequest,
+    QualityMetricsResponse,
+    RegisterAdapterRequest,
+    // Repository types
+    RegisterRepositoryRequest,
+    RouterDecision,
+    // Training types
+    StartTrainingRequest,
+    TenantResponse,
+    TestDomainAdapterRequest,
+    TestDomainAdapterResponse,
+    TrainingConfigRequest,
+    TrainingJobResponse,
+    TrainingMetricsResponse,
+    TrainingTemplateResponse,
+    TriggerScanRequest,
 };
 // Note: adapteros_api_types::* is re-exported at crate level through lib.rs
 use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
@@ -1784,8 +1801,7 @@ pub struct ProcessHealthMetricResponse {
 }
 
 /// Process alert
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-#[derive(Clone)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ProcessAlertResponse {
     pub id: String,
     pub rule_id: String,

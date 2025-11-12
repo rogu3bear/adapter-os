@@ -3,13 +3,13 @@
 use crate::auth::AuthService;
 use crate::config::SupervisorConfig;
 use crate::error::{Result, SupervisorError};
-use crate::health::{HealthMonitor, HealthCheck, HealthResult};
+use crate::health::{HealthCheck, HealthMonitor, HealthResult};
 use crate::service::{ManagedService, ServiceStatus};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Health check wrapper for ManagedService
 struct ManagedServiceHealthCheck(Arc<ManagedService>);
@@ -19,7 +19,9 @@ impl HealthCheck for ManagedServiceHealthCheck {
     async fn check(&self) -> HealthResult {
         match self.0.check_health().await {
             Ok(crate::service::HealthStatus::Healthy) => HealthResult::Healthy,
-            Ok(crate::service::HealthStatus::Unhealthy) => HealthResult::Unhealthy("Service is unhealthy".to_string()),
+            Ok(crate::service::HealthStatus::Unhealthy) => {
+                HealthResult::Unhealthy("Service is unhealthy".to_string())
+            }
             Ok(crate::service::HealthStatus::Unknown) => HealthResult::Unknown,
             Ok(crate::service::HealthStatus::Checking) => HealthResult::Unknown,
             Err(e) => HealthResult::Unhealthy(e.to_string()),
@@ -50,7 +52,9 @@ impl ServiceSupervisor {
         };
 
         let auth_service = Arc::new(AuthService::new(keypair, config.auth.token_ttl_hours));
-        let health_monitor = Arc::new(HealthMonitor::new(config.monitoring.health_check_interval_seconds));
+        let health_monitor = Arc::new(HealthMonitor::new(
+            config.monitoring.health_check_interval_seconds,
+        ));
 
         let supervisor = Self {
             config,
@@ -78,10 +82,12 @@ impl ServiceSupervisor {
 
             // Register health check
             if service_config.health_check.enabled {
-                self.health_monitor.register_check(
-                    service_id.clone(),
-                    Box::new(ManagedServiceHealthCheck(managed_service.clone()))
-                ).await;
+                self.health_monitor
+                    .register_check(
+                        service_id.clone(),
+                        Box::new(ManagedServiceHealthCheck(managed_service.clone())),
+                    )
+                    .await;
             }
 
             info!("Initialized service: {}", service_id);
@@ -111,7 +117,9 @@ impl ServiceSupervisor {
 
         // Sort by startup order
         statuses.sort_by_key(|s| {
-            self.config.services.get(&s.id)
+            self.config
+                .services
+                .get(&s.id)
                 .map(|config| config.startup_order)
                 .unwrap_or(999)
         });
@@ -169,7 +177,8 @@ impl ServiceSupervisor {
         let mut errors = Vec::new();
 
         // Sort by startup order
-        let mut essential_services: Vec<_> = services.values()
+        let mut essential_services: Vec<_> = services
+            .values()
             .filter(|service| {
                 if let Some(config) = self.config.services.get(service.id()) {
                     config.essential
@@ -180,7 +189,9 @@ impl ServiceSupervisor {
             .collect();
 
         essential_services.sort_by_key(|service| {
-            self.config.services.get(service.id())
+            self.config
+                .services
+                .get(service.id())
                 .map(|config| config.startup_order)
                 .unwrap_or(999)
         });
@@ -200,9 +211,10 @@ impl ServiceSupervisor {
         if errors.is_empty() {
             Ok(results)
         } else {
-            Err(SupervisorError::ServiceOperation(
-                format!("Some services failed to start: {}", errors.join(", "))
-            ))
+            Err(SupervisorError::ServiceOperation(format!(
+                "Some services failed to start: {}",
+                errors.join(", ")
+            )))
         }
     }
 
@@ -212,7 +224,8 @@ impl ServiceSupervisor {
         let mut results = Vec::new();
 
         // Sort by reverse startup order for shutdown
-        let mut essential_services: Vec<_> = services.values()
+        let mut essential_services: Vec<_> = services
+            .values()
             .filter(|service| {
                 if let Some(config) = self.config.services.get(service.id()) {
                     config.essential
@@ -223,8 +236,10 @@ impl ServiceSupervisor {
             .collect();
 
         essential_services.sort_by_key(|service| {
-            self.config.services.get(service.id())
-                .map(|config| - (config.startup_order as i32)) // Negative for reverse order
+            self.config
+                .services
+                .get(service.id())
+                .map(|config| -(config.startup_order as i32)) // Negative for reverse order
                 .unwrap_or(-999)
         });
 

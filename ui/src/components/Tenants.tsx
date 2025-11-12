@@ -439,7 +439,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         URL.revokeObjectURL(url);
       } else {
         // CSV export
-        const headers: (keyof types.Tenant)[] = ['id', 'name', 'description', 'status', 'data_classification', 'itar_compliant', 'users', 'adapters', 'policies', 'last_activity', 'created_at'];
+        const headers: (keyof ApiTenant)[] = ['id', 'name', 'description', 'status', 'data_classification', 'itar_compliant', 'users', 'adapters', 'policies', 'last_activity', 'created_at'];
         const csvRows = tenantsToExport.map(t => 
           headers.map(header => {
             const value = t[header] ?? '';

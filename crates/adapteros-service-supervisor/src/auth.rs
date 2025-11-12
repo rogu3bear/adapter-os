@@ -1,7 +1,7 @@
 //! Authentication service for the supervisor using JWT with Ed25519
 
-use adapteros_crypto::Keypair;
 use adapteros_core::Result as CoreResult;
+use adapteros_crypto::Keypair;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -11,12 +11,12 @@ use tracing::{info, warn};
 /// JWT claims for service supervisor authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String, // service_id or user_id
+    pub sub: String,  // service_id or user_id
     pub role: String, // "admin", "operator", "service"
     pub exp: i64,
     pub iat: i64,
-    pub jti: String, // JWT ID for tracking
-    pub nbf: i64,    // Not Before
+    pub jti: String,              // JWT ID for tracking
+    pub nbf: i64,                 // Not Before
     pub permissions: Vec<String>, // Specific permissions
 }
 
@@ -105,9 +105,11 @@ impl AuthService {
 
     /// Check if the authenticated user has the required permission
     pub fn has_permission(&self, claims: &Claims, required_permission: &str) -> bool {
-        claims.permissions.contains(&required_permission.to_string()) ||
-        claims.permissions.contains(&"admin".to_string()) ||
-        claims.role == "admin"
+        claims
+            .permissions
+            .contains(&required_permission.to_string())
+            || claims.permissions.contains(&"admin".to_string())
+            || claims.role == "admin"
     }
 
     /// Get permissions for a role (factory method for common roles)
@@ -129,14 +131,8 @@ impl AuthService {
                 "services.restart".to_string(),
                 "system.read".to_string(),
             ],
-            "viewer" => vec![
-                "services.read".to_string(),
-                "system.read".to_string(),
-            ],
-            "service" => vec![
-                "services.read".to_string(),
-                "services.write".to_string(),
-            ],
+            "viewer" => vec!["services.read".to_string(), "system.read".to_string()],
+            "service" => vec!["services.read".to_string(), "services.write".to_string()],
             _ => vec![],
         }
     }

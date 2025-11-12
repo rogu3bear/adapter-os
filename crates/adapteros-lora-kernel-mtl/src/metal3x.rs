@@ -7,12 +7,10 @@
 //! - Enhanced compute shader features
 
 use adapteros_core::Result;
-use metal::foreign_types::ForeignType;
 use metal::*;
+use std::ffi::c_void;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
-use adapteros_core::AosError;
-use blake3;
 
 /// Metal 3.x feature flags
 #[derive(Debug, Clone)]
@@ -322,7 +320,7 @@ impl Metal3xMemoryManager {
             if let Some(pos) = pool
                 .allocated_buffers
                 .iter()
-                .position(|b| b.as_ptr() == buffer.as_ptr())
+                .position(|b| (b.contents() as *mut c_void as u64) == (buffer.contents() as *mut c_void as u64))
             {
                 pool.allocated_buffers.remove(pos);
                 pool.available_buffers.push(buffer);

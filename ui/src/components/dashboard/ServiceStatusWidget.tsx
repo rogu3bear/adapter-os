@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -22,7 +22,7 @@ export function ServiceStatusWidget() {
     }
   );
 
-  const failedServices = status?.services?.filter(s => s.state === 'failed') || [];
+  const failedServices = useMemo(() => status?.services?.filter(s => s.state === 'failed') || [], [status]);
   const hasFailures = failedServices.length > 0;
   const totalServices = status?.services?.length || 0;
 
@@ -37,7 +37,7 @@ export function ServiceStatusWidget() {
         }
       );
     }
-  }, [hasFailures, failedServices.length]);
+  }, [hasFailures, failedServices.length, failedServices]);  // Add failedServices to deps
 
   if (isLoading) {
     return (

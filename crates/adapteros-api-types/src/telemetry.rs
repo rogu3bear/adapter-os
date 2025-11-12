@@ -1,16 +1,11 @@
 //! Telemetry types
 
 use adapteros_telemetry_types::{
-    AdapterMetrics as TelemetryAdapterMetrics,
-    DeterminismMetrics as TelemetryDeterminismMetrics,
-    DiskMetrics as TelemetryDiskMetrics,
-    LatencyMetrics as TelemetryLatencyMetrics,
-    MetricDataPoint as TelemetryMetricDataPoint,
-    MetricsSnapshot as TelemetryMetricsSnapshot,
-    NetworkMetrics as TelemetryNetworkMetrics,
-    PolicyMetrics as TelemetryPolicyMetrics,
-    QueueDepthMetrics as TelemetryQueueDepthMetrics,
-    SystemMetrics as TelemetrySystemMetrics,
+    AdapterMetrics as TelemetryAdapterMetrics, DeterminismMetrics as TelemetryDeterminismMetrics,
+    DiskMetrics as TelemetryDiskMetrics, LatencyMetrics as TelemetryLatencyMetrics,
+    MetricDataPoint as TelemetryMetricDataPoint, MetricsSnapshot as TelemetryMetricsSnapshot,
+    NetworkMetrics as TelemetryNetworkMetrics, PolicyMetrics as TelemetryPolicyMetrics,
+    QueueDepthMetrics as TelemetryQueueDepthMetrics, SystemMetrics as TelemetrySystemMetrics,
     ThroughputMetrics as TelemetryThroughputMetrics,
 };
 use serde::{Deserialize, Serialize};

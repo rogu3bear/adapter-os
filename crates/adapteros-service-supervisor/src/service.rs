@@ -118,7 +118,11 @@ impl ManagedService {
                 status.start_time = Some(chrono::Utc::now());
                 status.restart_count += 1;
                 *self.process.write().await = Some(child);
-                info!("Service {} started with PID {}", self.config.name, pid.unwrap_or(0));
+                info!(
+                    "Service {} started with PID {}",
+                    self.config.name,
+                    pid.unwrap_or(0)
+                );
                 Ok(())
             }
             Err(e) => {
@@ -155,12 +159,14 @@ impl ManagedService {
 
             // Wait for graceful shutdown or force kill
             match timeout(Duration::from_secs(10), child.wait()).await {
-                Ok(result) => {
-                    match result {
-                        Ok(status) => info!("Service {} stopped with exit code: {}", self.config.name, status.code().unwrap_or(-1)),
-                        Err(e) => warn!("Error waiting for service {}: {}", self.config.name, e),
-                    }
-                }
+                Ok(result) => match result {
+                    Ok(status) => info!(
+                        "Service {} stopped with exit code: {}",
+                        self.config.name,
+                        status.code().unwrap_or(-1)
+                    ),
+                    Err(e) => warn!("Error waiting for service {}: {}", self.config.name, e),
+                },
                 Err(_) => {
                     // Timeout - force kill
                     if let Some(pid) = child.id() {
@@ -232,12 +238,18 @@ impl ManagedService {
                 if let Some(mut child) = self.process.write().await.as_mut() {
                     match child.try_wait() {
                         Ok(Some(exit_status)) => {
-                            warn!("Service {} process exited: {}", self.config.name, exit_status);
+                            warn!(
+                                "Service {} process exited: {}",
+                                self.config.name, exit_status
+                            );
                             Ok(HealthStatus::Unhealthy)
                         }
                         Ok(None) => Ok(HealthStatus::Healthy),
                         Err(e) => {
-                            warn!("Failed to check process status for {}: {}", self.config.name, e);
+                            warn!(
+                                "Failed to check process status for {}: {}",
+                                self.config.name, e
+                            );
                             Ok(HealthStatus::Unhealthy)
                         }
                     }
@@ -265,8 +277,9 @@ impl ManagedService {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
 
-        let child = command.spawn()
-            .map_err(|e| SupervisorError::Process(format!("Failed to spawn {}: {}", self.config.name, e)))?;
+        let child = command.spawn().map_err(|e| {
+            SupervisorError::Process(format!("Failed to spawn {}: {}", self.config.name, e))
+        })?;
 
         Ok(child)
     }
@@ -275,11 +288,16 @@ impl ManagedService {
     async fn check_http_health(&self, endpoint: &str) -> Result<bool> {
         // Simple HTTP check using reqwest
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(self.config.health_check.timeout_seconds))
+            .timeout(Duration::from_secs(
+                self.config.health_check.timeout_seconds,
+            ))
             .build()
             .map_err(|e| SupervisorError::Http(format!("Failed to create HTTP client: {}", e)))?;
 
-        let response = client.get(endpoint).send().await
+        let response = client
+            .get(endpoint)
+            .send()
+            .await
             .map_err(|e| SupervisorError::Http(format!("HTTP request failed: {}", e)))?;
         Ok(response.status().is_success())
     }
@@ -290,8 +308,10 @@ impl ManagedService {
 
         match tokio::time::timeout(
             Duration::from_secs(self.config.health_check.timeout_seconds),
-            TcpStream::connect(format!("127.0.0.1:{}", port))
-        ).await {
+            TcpStream::connect(format!("127.0.0.1:{}", port)),
+        )
+        .await
+        {
             Ok(Ok(_)) => Ok(true),
             _ => Ok(false),
         }
@@ -320,7 +340,9 @@ impl crate::health::HealthCheck for ManagedService {
     async fn check(&self) -> crate::health::HealthResult {
         match self.check_health().await {
             Ok(HealthStatus::Healthy) => crate::health::HealthResult::Healthy,
-            Ok(HealthStatus::Unhealthy) => crate::health::HealthResult::Unhealthy("Service is unhealthy".to_string()),
+            Ok(HealthStatus::Unhealthy) => {
+                crate::health::HealthResult::Unhealthy("Service is unhealthy".to_string())
+            }
             Ok(HealthStatus::Unknown) => crate::health::HealthResult::Unknown,
             Ok(HealthStatus::Checking) => crate::health::HealthResult::Unknown,
             Err(e) => crate::health::HealthResult::Unhealthy(e.to_string()),

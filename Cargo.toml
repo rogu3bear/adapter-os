@@ -1,355 +1,81 @@
-[package]
-name = "adapter-os"
-version = "0.1.0"
-edition = "2021"
-authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/rogu3bear/mplora"
-
 [workspace]
-resolver = "2"
 members = [
-    "crates/adapteros-core",
-    "crates/adapteros-crypto",
-    "crates/adapteros-manifest",
-    "crates/adapteros-registry",
-    "crates/adapteros-artifacts",
-    "crates/adapteros-cdp",
-    "crates/adapteros-lora-kernel-api",
-    "crates/adapteros-lora-kernel-mtl",
-    "crates/adapteros-lora-kernel-prof",
-    "crates/adapteros-system-metrics",
-    # MLX FFI excluded - experimental backend with PyO3 linker issues
-    # Re-enable with: --features experimental-backends
-    "crates/adapteros-autograd",  # Rust autograd system
-    "crates/adapteros-lora-plan",
-    "crates/adapteros-lora-router",
-    "crates/adapteros-lora-rag",
-    "crates/adapteros-lora-worker",
-    "crates/adapteros-telemetry",
-    "crates/adapteros-telemetry-types",
-    "crates/adapteros-policy",
-    "crates/adapteros-config",
-    "crates/adapteros-cli",
-    "crates/adapteros-api",
-    "crates/adapteros-sbom",
-    "crates/adapteros-lora-quant",
-    "crates/adapteros-server",
-    "crates/adapteros-server-api",
-    "crates/adapteros-db",
-    "crates/adapteros-client",
-    "crates/adapteros-node",
-    "crates/adapteros-chat",
-    "crates/adapteros-metrics-exporter",
-    "crates/adapteros-metrics-collector",
-    "crates/adapteros-orchestrator",
-    "crates/adapteros-profiler",
-    "crates/adapteros-lora-lifecycle",
-    "crates/adapteros-aos",
-    "crates/adapteros-single-file-adapter",
-    "crates/adapteros-storage",
-    "crates/adapteros-temp",
-    "crates/adapteros-secure-fs",
-    "crates/adapteros-concurrent-fs",
-    "crates/adapteros-platform",
-    "crates/adapteros-error-recovery",
-    "crates/adapteros-federation",
-    "crates/adapteros-git",
-    "crates/adapteros-deterministic-exec",
-    "crates/adapteros-graph",
-    "crates/adapteros-codegraph",
-    "crates/adapteros-patch",
-    "crates/adapteros-replay",
-    "crates/adapteros-trace",
-    "crates/adapteros-numerics",
-    "crates/adapteros-memory",
-    "crates/adapteros-lint",
-    "crates/adapteros-verify",
-    "crates/adapteros-base-llm",
-    "crates/adapteros-testing",
-    "crates/adapteros-verification",
-    "crates/adapteros-codegraph",
-    "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)
-    "xtask",
-    "fuzz",
+    "crates/adapteros-*"
 ]
+
+resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
-authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
+authors = ["rogu3bear <vats-springs0m@icloud.com>"]
+edition = "2021"  # Inherited by members for consistency
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/rogu3bear/mplora"
-
-[features]
-default = ["deterministic-only"]
-deterministic-only = []
-experimental-backends = ["dep:pyo3"]
-mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi", "adapteros-lora-worker/mlx-ffi-backend"]
-extended-tests = []
-integration_tests = []
-
-[dependencies]
-tower_governor = "0.5"
-# Re-export key crates for integration tests
-adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
-pyo3 = { workspace = true, features = ["extension-module"], optional = true }
-anyhow = "1.0"
-thiserror.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-tokio.workspace = true
-
-security-framework-sys = "2.9"
+repository = "https://github.com/rogu3bear/adapter-os"
 
 [workspace.dependencies]
-# Core
+aes-gcm = "0.10"
 anyhow = "1.0"
-thiserror = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# Crypto
+bincode = "1.3"
 blake3 = "1.5"
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+ed25519-dalek = "2.0"
+ring = "0.16"
+thiserror = "1.0"
+serde = { version = "1.0" , features = ["derive"] }
+serde_json = "1.0"
+serde_jcs = "0.1"
+schemars = "0.8"
 hkdf = "0.12"
 sha2 = "0.10"
-aes-gcm = "0.10"
 rand = "0.8"
-rand_core = "0.9"
-
-# Schema & Validation
-schemars = "0.8"
-serde_jcs = "0.1"
-serde_cbor = "0.11"
-
-# Database
-rusqlite = { version = "0.31", features = ["bundled"] }
-refinery = { version = "0.8", features = ["rusqlite"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
-
-# Compression & Archive
-zstd = "0.13"
-tar = "0.4"
-
-# Async & Concurrency
-tokio = { version = "1.35", features = ["full"] }
-tokio-stream = "0.1"
-futures = "0.3"
-futures-util = "0.3"
-async-stream = "0.3"
+rusqlite = "0.31"
+sqlx = { version = "0.8" , features = ["runtime-tokio-rustls" , "sqlite"] }
+tracing = "0.1"
+proptest = "1.4"
+pyo3 = "0.22"
+tokenizers = "0.19"
+safetensors = "0.4"
+memmap2 = "0.9"
 crossbeam = "0.8"
 parking_lot = "0.12"
-
-# HTTP & API
-axum = { version = "0.7", features = ["tokio", "macros"] }
+nix = "0.28"
+tokio = { version = "1.0" , features = ["full"] }
+walkdir = "2.5"
+tempfile = "3.13"
+futures = "0.3"
+hex = "0.4"
+uuid = { version = "1.10" , features = ["v4" , "serde"] }
+chrono = { version = "0.4" , features = ["serde"] }
+base64 = "0.22"
+serde_cbor = "0.11"
+clap = { version = "4.5" , features = ["derive"] }
+axum = "0.7"
 tower = "0.4"
-hyper = { version = "1.0", features = ["full"] }
-hyper-util = "0.1"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
-reqwest = { version = "0.12", features = ["json"] }
-
-# CLI
-clap = { version = "4.4", features = ["derive", "env"] }
-comfy-table = "7.1"
-
-# ML & Search
-hnsw_rs = "0.3"
-tantivy = "0.22"
-tokenizers = "0.15"
-safetensors = "0.4"
-
-# Python/MLX Integration
-pyo3 = { version = "0.22", features = ["auto-initialize", "extension-module"] }
-numpy = "0.22"
-
-# Metal (macOS)
-metal = "0.28"
-objc = "0.2"
+tower-http = "0.5"
+async-trait = "0.1"
+rand_core = "0.6"
+zeroize = "1.8"
 cocoa = "0.25"
 core-foundation = "0.9"
-security-framework = "2.9"
-
-# Filesystem
-cap-std = "3.0"
-tempfile = "3.8"
-
-# Utilities
-smallvec = "1.11"
-bytemuck = { version = "1.14", features = ["derive"] }
-memmap2 = "0.9"
-walkdir = "2.4"
-nix = { version = "0.29", features = ["user", "process", "signal"] }
-bincode = "1.3"
+metal = "0.24"
+objc = "0.2"
 serde_derive = "1.0"
-uuid = { version = "1.6", features = ["v7", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-hex = "0.4"
-base64 = "0.22"
-hostname = "0.3"
-zeroize = "1.0"
-async-trait = "0.1"
-
-# Auth & Security
-argon2 = "0.5"
-jsonwebtoken = "9.2"
-
-# API
-utoipa = { version = "4.2", features = ["axum_extras", "uuid"] }
-utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
-
-# Observability
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-sysinfo = "0.30"
+bytemuck = { version = "1.16" , features = ["derive"] }
 prometheus = "0.13"
-
-# Testing
-proptest = "1.4"
-
-[profile.release]
-opt-level = 3
-lto = "thin"  # Changed from "fat" (true) for faster compilation
-codegen-units = 16  # Changed from 1 for parallel compilation
-strip = "symbols"  # Strip symbols but preserve UUID load commands
-
-[profile.dev]
-opt-level = 0
-
-[profile.test]
-opt-level = 1
-
-# Test configurations
-[[test]]
-name = "determinism"
-path = "tests/determinism.rs"
-
-[[test]]
-name = "integration"
-path = "tests/integration_tests.rs"
-
-
-[[test]]
-name = "integration_qwen"
-path = "tests/integration_qwen.rs"
-
-[[test]]
-name = "deterministic_exec"
-path = "tests/deterministic_exec.rs"
-
-[[test]]
-name = "replay_identical"
-path = "tests/replay_identical.rs"
-
-[[test]]
-name = "cross_platform_determinism"
-path = "tests/cross_platform_determinism.rs"
-
-[[test]]
-name = "ipc_integration"
-path = "tests/integration/ipc_tests.rs"
-
-# Example binaries (require extended-tests)
-[[example]]
-name = "aos_usage"
-path = "examples/aos_usage.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "basic_inference"
-path = "examples/basic_inference.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "cursor_workflow"
-path = "examples/cursor_workflow.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "load_aos_adapter"
-path = "examples/load_aos_adapter.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "lora_routing"
-path = "examples/lora_routing.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "metrics_collector_example"
-path = "examples/metrics_collector_example.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "mlx_inference"
-path = "examples/mlx_inference.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "patch_proposal_advanced"
-path = "examples/patch_proposal_advanced.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "patch_proposal_api"
-path = "examples/patch_proposal_api.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "patch_proposal_basic"
-path = "examples/patch_proposal_basic.rs"
-required-features = ["extended-tests"]
-
-# Test dependencies
-[dev-dependencies]
-futures = "0.3"
-adapteros-core = { path = "crates/adapteros-core" }
-adapteros-manifest = { path = "crates/adapteros-manifest" }
-adapteros-chat = { path = "crates/adapteros-chat" }
-adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
-adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
-adapteros-telemetry = { path = "crates/adapteros-telemetry" }
-adapteros-policy = { path = "crates/adapteros-policy" }
-adapteros-lora-router = { path = "crates/adapteros-lora-router" }
-adapteros-lora-rag = { path = "crates/adapteros-lora-rag", default-features = false }
-adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
-adapteros-server = { path = "crates/adapteros-server" }
-adapteros-server-api = { path = "crates/adapteros-server-api" }
-adapteros-db = { path = "crates/adapteros-db" }
-adapteros-client = { path = "crates/adapteros-client" }
-adapteros-node = { path = "crates/adapteros-node" }
-adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
-adapteros-orchestrator = { path = "crates/adapteros-orchestrator" }
-adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
-reqwest = { workspace = true }
-blake3 = { workspace = true }
-hex = { workspace = true }
-adapteros-profiler = { path = "crates/adapteros-profiler" }
-adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
-adapteros-registry = { path = "crates/adapteros-registry" }
-adapteros-artifacts = { path = "crates/adapteros-artifacts" }
-adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
-adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }
-adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }
-adapteros-crypto = { path = "crates/adapteros-crypto" }
-adapteros-sbom = { path = "crates/adapteros-sbom" }
-adapteros-api = { path = "crates/adapteros-api" }
-adapteros-api-types = { path = "crates/adapteros-api-types" }
-adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
-adapteros-graph = { path = "crates/adapteros-graph" }
-adapteros-replay = { path = "crates/adapteros-replay" }
-adapteros-trace = { path = "crates/adapteros-trace" }
-adapteros-config = { path = "crates/adapteros-config" }
-adapteros-base-llm = { path = "crates/adapteros-base-llm" }
-tempfile.workspace = true
-axum.workspace = true
-axum-test = "14.0"
-tower.workspace = true
-sqlx.workspace = true
-chrono.workspace = true
-uuid.workspace = true
-adapteros-experimental = { path = "deprecated/adapteros-experimental" }
-futures-util = { workspace = true }
-serde_yaml = "0.9"
+hyper = "1.0"
+hyper-util = "0.1"
+futures-util = "0.3"
+sysinfo = "0.30"
+tantivy = "0.22"
+reqwest = { version = "0.12" , features = ["json"] }
+tar = "0.4"
+zstd = "0.13"
+security-framework = { version = "2.11.1" , features = ["OSX_10_13"] }
+argon2 = { version = "0.5" , features = ["std"] }
+comfy-table = "7.2.1"
+async-stream = "0.3"
+hnsw_rs = "0.3.2"
+smallvec = "1.13"
+tracing-subscriber = { version = "0.3" , features = ["env-filter" , "json"] }
+tokio-stream = "0.1"
+refinery = "0.8"
+hostname = "0.3"

@@ -51,21 +51,20 @@ declare global {
 }
 
 // Login command - authenticates and caches token with automatic refresh
-Cypress.Commands.add('login', () => {
-  const existingToken = Cypress.env('authToken');
-  
-  // Check if existing token is still valid
-  if (existingToken && typeof existingToken === 'string') {
-    if (!shouldRefreshToken(existingToken)) {
-      // Token is still valid, return it
-      return cy.wrap(existingToken);
-    }
-  }
-  
-  // Need to login (either no token or token expired)
-  return login().then((token: string) => {
-    Cypress.env('authToken', token);
-    return token;
+Cypress.Commands.add('login', (email = Cypress.env('TEST_USER_EMAIL'), password = Cypress.env('TEST_USER_PASSWORD')) => {
+  return cy.request({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    body: { email, password },
+  }).then((response) => {
+    expect(response.status).to.eq(200);
+    cy.setCookie('auth_token', response.body.token);
+    // Set localStorage or session for frontend state
+    cy.window().then((win) => {
+      win.localStorage.setItem('auth_token', response.body.token);
+    });
+    // Removed: cy.visit('/dashboard'); 
+    return cy.wrap(response.body.token);
   });
 });
 

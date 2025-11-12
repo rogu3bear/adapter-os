@@ -9,6 +9,7 @@
 //! - Progress broadcasting: [source: crates/adapteros-server-api/src/state.rs L428-L429]
 
 use crate::types::OperationProgressEvent;
+use adapteros_core::AosError;
 use chrono::Utc;
 use std::{
     collections::HashMap,
@@ -18,7 +19,6 @@ use std::{
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-use adapteros_core::AosError;
 
 #[cfg(feature = "metrics")]
 use adapteros_metrics_exporter::MetricsCollector;
@@ -538,11 +538,7 @@ impl OperationTracker {
     }
 
     /// Check whether an operation has been cancelled
-    pub async fn is_operation_cancelled(
-        &self,
-        resource_id: &str,
-        tenant_id: &str,
-    ) -> Option<bool> {
+    pub async fn is_operation_cancelled(&self, resource_id: &str, tenant_id: &str) -> Option<bool> {
         let key = (resource_id.to_string(), tenant_id.to_string());
         let operations_lock = self.get_operations_read();
         let operations = operations_lock.read().await;
@@ -776,7 +772,11 @@ mod tests {
 
         // Now unload should work
         tracker
-            .start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Unload))
+            .start_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Unload),
+            )
             .await
             .unwrap();
     }
@@ -800,7 +800,11 @@ mod tests {
 
         // Should allow new operation after cleanup
         tracker
-            .start_operation("model1", "tenant1", OperationType::Model(ModelOperationType::Unload))
+            .start_operation(
+                "model1",
+                "tenant1",
+                OperationType::Model(ModelOperationType::Unload),
+            )
             .await
             .unwrap();
     }

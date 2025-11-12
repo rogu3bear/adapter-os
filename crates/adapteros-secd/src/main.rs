@@ -27,10 +27,9 @@ fn derive_global_seed_from_manifest() -> [u8; 32] {
     );
 
     // Also include target architecture and OS for platform-specific determinism
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH")
-        .unwrap_or_else(|_| "unknown".to_string());
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS")
-        .unwrap_or_else(|_| "unknown".to_string());
+    let target_arch =
+        std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".to_string());
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".to_string());
     let platform_data = format!("{}:{}", target_arch, target_os);
 
     // Combine manifest and platform data

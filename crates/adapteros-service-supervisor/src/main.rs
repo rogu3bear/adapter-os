@@ -1,6 +1,6 @@
 //! Main binary for the AdapterOS Service Supervisor
 
-use adapteros_service_supervisor::{SupervisorConfig, ServiceSupervisor, SupervisorServer};
+use adapteros_service_supervisor::{ServiceSupervisor, SupervisorConfig, SupervisorServer};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -21,7 +21,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
     let config = match SupervisorConfig::load() {
         Ok(config) => {
-            info!("Loaded configuration with {} services", config.services.len());
+            info!(
+                "Loaded configuration with {} services",
+                config.services.len()
+            );
             config
         }
         Err(e) => {

@@ -3,59 +3,24 @@
 use crate::auth::{generate_token, generate_token_ed25519, refresh_token, verify_password, Claims};
 use crate::errors::ErrorResponseExt;
 use crate::middleware::{require_any_role, require_role};
-use crate::operation_tracker::{
-    ModelOperationType, OperationCancellationError,
-};
+use crate::operation_tracker::{ModelOperationType, OperationCancellationError};
 use crate::services::repo_url::infer_repo_urls_parallel;
 use crate::state::{AppState, JwtMode, TrainingSessionMetadata};
-use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::types::AdapterOSStatus;
+use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
 use adapteros_api_types::{
-    repositories::RepositorySummary,
-    AdapterActivationResponse,
-    AdapterHealthResponse,
-    AdapterManifest,
-    AdapterMetricsResponse,
-    AdapterPerformance,
-    AdapterResponse,
-    AdapterStateResponse,
-    AdapterStats,
-    AuthConfigResponse,
-    BuildPlanRequest,
-    ComparePlansRequest,
-    CreateTenantRequest,
-    HealthResponse,
-    InferRequest,
-    InferResponse,
-    InferenceTrace,
-    LoadAverageResponse,
-    LoginRequest,
-    LoginResponse,
-    NodeDetailsResponse,
-    NodePingResponse,
-    NodeResponse,
-    PlanComparisonResponse,
-    PlanDetailsResponse,
-    PlanRebuildResponse,
-    PlanResponse,
-    ProfileResponse,
-    QualityMetricsResponse,
-    RegisterAdapterRequest,
-    RegisterNodeRequest,
-    RotateTokenResponse,
-    SessionInfo,
-    SystemMetricsResponse,
-    TenantResponse,
-    TenantUsageResponse,
-    TokenMetadata,
-    UpdateAuthConfigRequest,
-    UpdateProfileRequest,
-    UpdateTenantRequest,
-    UserInfoResponse,
-    WorkerInfo,
-    WorkerResponse,
+    repositories::RepositorySummary, AdapterActivationResponse, AdapterHealthResponse,
+    AdapterManifest, AdapterMetricsResponse, AdapterPerformance, AdapterResponse,
+    AdapterStateResponse, AdapterStats, AuthConfigResponse, BuildPlanRequest, ComparePlansRequest,
+    CreateTenantRequest, HealthResponse, InferRequest, InferResponse, InferenceTrace,
+    LoadAverageResponse, LoginRequest, LoginResponse, NodeDetailsResponse, NodePingResponse,
+    NodeResponse, PlanComparisonResponse, PlanDetailsResponse, PlanRebuildResponse, PlanResponse,
+    ProfileResponse, QualityMetricsResponse, RegisterAdapterRequest, RegisterNodeRequest,
+    RotateTokenResponse, SessionInfo, SystemMetricsResponse, TenantResponse, TenantUsageResponse,
+    TokenMetadata, UpdateAuthConfigRequest, UpdateProfileRequest, UpdateTenantRequest,
+    UserInfoResponse, WorkerInfo, WorkerResponse,
 };
 use adapteros_lora_lifecycle::state::AdapterState;
 use adapteros_orchestrator::training::TrainingJobBuilder;
@@ -332,10 +297,7 @@ fn map_git_error(message: &str, err: AosError) -> (StatusCode, Json<ErrorRespons
 }
 
 fn map_alert_to_response(alert: ProcessAlert) -> ProcessAlertResponse {
-    let escalation_level: i32 = alert
-        .escalation_level
-        .try_into()
-        .unwrap_or(i32::MAX);
+    let escalation_level: i32 = alert.escalation_level.try_into().unwrap_or(i32::MAX);
 
     ProcessAlertResponse {
         id: alert.id,
@@ -361,11 +323,10 @@ fn map_alert_to_response(alert: ProcessAlert) -> ProcessAlertResponse {
     }
 }
 
-fn map_system_alert_to_response(alert: adapteros_system_metrics::monitoring_types::AlertResponse) -> ProcessAlertResponse {
-    let escalation_level: i32 = alert
-        .escalation_level
-        .try_into()
-        .unwrap_or(i32::MAX);
+fn map_system_alert_to_response(
+    alert: adapteros_system_metrics::monitoring_types::AlertResponse,
+) -> ProcessAlertResponse {
+    let escalation_level: i32 = alert.escalation_level.try_into().unwrap_or(i32::MAX);
 
     ProcessAlertResponse {
         id: alert.id,
@@ -542,7 +503,9 @@ pub async fn check_model_runtime_health_summary(
     let duration = start_time.elapsed().as_secs_f64();
 
     // Record metrics
-    state.metrics_collector.record_inference_latency("health", "cache_miss", duration);
+    state
+        .metrics_collector
+        .record_inference_latency("health", "cache_miss", duration);
     // Could add custom counter for cache misses if needed
 
     // Update cache
@@ -582,8 +545,10 @@ async fn check_model_runtime_health_uncached(
 
     // Check for inconsistencies (simplified version)
     let mut inconsistencies_count = 0;
-    let runtime_model_set: std::collections::HashSet<(String, String)> =
-        runtime_models.iter().map(|k| (k.tenant_id.clone(), k.model_id.clone())).collect();
+    let runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models
+        .iter()
+        .map(|k| (k.tenant_id.clone(), k.model_id.clone()))
+        .collect();
 
     // Check each DB model
     for db_model in &db_models {
@@ -4070,7 +4035,7 @@ pub async fn list_policies(
     }
 
     let policies = sqlx::query_as::<_, PolicyRow>(
-        "SELECT cpid, content, hash_b3, created_at FROM policies ORDER BY created_at DESC"
+        "SELECT cpid, content, hash_b3, created_at FROM policies ORDER BY created_at DESC",
     )
     .fetch_all(&state.db.pool)
     .await
@@ -4086,12 +4051,15 @@ pub async fn list_policies(
         )
     })?;
 
-    let response: Vec<PolicyPackResponse> = policies.into_iter().map(|row| PolicyPackResponse {
-        cpid: row.cpid,
-        content: row.content,
-        hash_b3: row.hash_b3,
-        created_at: row.created_at,
-    }).collect();
+    let response: Vec<PolicyPackResponse> = policies
+        .into_iter()
+        .map(|row| PolicyPackResponse {
+            cpid: row.cpid,
+            content: row.content,
+            hash_b3: row.hash_b3,
+            created_at: row.created_at,
+        })
+        .collect();
 
     Ok(Json(response))
 }
@@ -4112,7 +4080,7 @@ pub async fn get_policy(
     }
 
     let policy = sqlx::query_as::<_, PolicyRow>(
-        "SELECT content, hash_b3, created_at FROM policies WHERE cpid = $1"
+        "SELECT content, hash_b3, created_at FROM policies WHERE cpid = $1",
     )
     .bind(&cpid)
     .fetch_optional(&state.db.pool)
@@ -4220,7 +4188,7 @@ pub async fn apply_policy(
             hash_b3 = $3,
             updated_at = $4
         RETURNING cpid, content, hash_b3, created_at
-        "#
+        "#,
     )
     .bind(&req.cpid)
     .bind(&req.content)
@@ -5048,6 +5016,17 @@ pub async fn infer(
     let request_id = uuid::Uuid::new_v4().to_string();
     let tenant_id = claims.tenant_id.clone();
     let max_tokens = req.max_tokens.unwrap_or(100);
+
+    if max_tokens < 1 || max_tokens > 4096 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(
+                ErrorResponse::new("max_tokens must be between 1 and 4096")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
     let require_evidence = req.require_evidence.unwrap_or(false);
     let policy_context = UnifiedPolicyContext {
         component: "server.api".to_string(),
@@ -7002,10 +6981,7 @@ pub async fn cancel_model_operation(
     // Check if there's an active operation for this model
     let tracker = state.operation_tracker.clone();
 
-    match tracker
-        .cancel_model_operation(&model_id, &tenant_id)
-        .await
-    {
+    match tracker.cancel_model_operation(&model_id, &tenant_id).await {
         Ok(()) => {
             info!(
                 model_id = %model_id,
@@ -7138,7 +7114,8 @@ pub async fn load_model_with_retry(
         |_progress_pct, _message| {
             // Progress callbacks temporarily disabled
         },
-    ).await;
+    )
+    .await;
 
     // Complete the operation (best effort)
     tracker
@@ -7218,7 +7195,7 @@ where
         (
             record.id.unwrap_or_else(|| model_id.to_string()),
             record.name,
-            "available".to_string(), // Default status since not in schema
+            "available".to_string(),  // Default status since not in schema
             "base_model".to_string(), // Default model type
             Some(model_path),
         )
@@ -7237,26 +7214,32 @@ where
     progress_callback(20.0, "Model status validated".to_string());
 
     // Get model runtime (30%)
-    let mut runtime = state.model_runtime.as_ref()
+    let mut runtime = state
+        .model_runtime
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Model runtime not available"))?
-        .lock().await;
+        .lock()
+        .await;
 
     progress_callback(30.0, "Model runtime acquired".to_string());
 
     // Load model with progress (30-90%)
-    let model_path = model_path_value
-        .ok_or_else(|| anyhow::anyhow!("Model path not configured"))?;
+    let model_path =
+        model_path_value.ok_or_else(|| anyhow::anyhow!("Model path not configured"))?;
 
-    runtime.load_model_async_with_progress(
-        tenant_id,
-        &model_id_value,
-        &model_path,
-        |_pct, _msg| {
-            // Progress callbacks disabled for now to resolve lifetime issues
-            // TODO: Re-implement progress callbacks with proper lifetime management
-        },
-        Duration::from_secs(request.timeout_secs.unwrap_or(300)),
-    ).await.map_err(anyhow::Error::msg)?;
+    runtime
+        .load_model_async_with_progress(
+            tenant_id,
+            &model_id_value,
+            &model_path,
+            |_pct, _msg| {
+                // Progress callbacks disabled for now to resolve lifetime issues
+                // TODO: Re-implement progress callbacks with proper lifetime management
+            },
+            Duration::from_secs(request.timeout_secs.unwrap_or(300)),
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
 
     progress_callback(90.0, "Model loaded, finalizing".to_string());
 
@@ -7403,9 +7386,10 @@ pub async fn unload_adapter(
     {
         return Err((
             StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", e.to_string()),
-            ),
+            Json(ErrorResponse::new_user_friendly(
+                "OPERATION_IN_PROGRESS",
+                e.to_string(),
+            )),
         ));
     }
 
@@ -7904,7 +7888,10 @@ pub async fn update_adapter_policy(
                 Json(
                     ErrorResponse::new("Invalid category")
                         .with_code("INVALID_CATEGORY")
-                        .with_string_details("Category must be one of: code, framework, codebase, ephemeral".to_string()),
+                        .with_string_details(
+                            "Category must be one of: code, framework, codebase, ephemeral"
+                                .to_string(),
+                        ),
                 ),
             ));
         }
@@ -8099,9 +8086,7 @@ pub async fn update_category_policy(
 
     // Convert request to CategoryPolicy
     let policy = adapteros_lora_lifecycle::CategoryPolicy {
-        promotion_threshold: std::time::Duration::from_millis(
-            request.promotion_threshold_ms,
-        ),
+        promotion_threshold: std::time::Duration::from_millis(request.promotion_threshold_ms),
         demotion_threshold: std::time::Duration::from_millis(request.demotion_threshold_ms),
         memory_limit: request.memory_limit,
         eviction_priority: match request.eviction_priority.as_str() {
@@ -8766,7 +8751,7 @@ pub async fn get_system_metrics(
                 started_sessions.difference(&completed_sessions).count() as i32
             } else {
                 // Fallback: approximate as started - completed
-                
+
                 if started > completed {
                     (started - completed) as i32
                 } else {
@@ -9919,8 +9904,11 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                     .map(|dt| dt.with_timezone(&chrono::Utc))
                     .or_else(|_| {
                         // Try SQLite datetime format: "YYYY-MM-DD HH:MM:SS"
-                        chrono::NaiveDateTime::parse_from_str(updated_at.as_str(), "%Y-%m-%d %H:%M:%S")
-                            .map(|dt| dt.and_utc())
+                        chrono::NaiveDateTime::parse_from_str(
+                            updated_at.as_str(),
+                            "%Y-%m-%d %H:%M:%S",
+                        )
+                        .map(|dt| dt.and_utc())
                     })
                     .or_else(|_| {
                         // Try ISO8601 without timezone
@@ -10268,7 +10256,7 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
                 started_sessions.difference(&completed_sessions).count() as i32
             } else {
                 // Fallback: approximate as started - completed
-                
+
                 if started > completed {
                     (started - completed) as i32
                 } else {
@@ -11450,7 +11438,9 @@ pub async fn list_training_sessions(
         // Check if job is in terminal state and mark session for cleanup
         use adapteros_core::TrainingJobStatus;
         match job.status {
-            TrainingJobStatus::Completed | TrainingJobStatus::Failed | TrainingJobStatus::Cancelled => {
+            TrainingJobStatus::Completed
+            | TrainingJobStatus::Failed
+            | TrainingJobStatus::Cancelled => {
                 sessions_to_cleanup.push(job.id.clone());
             }
             _ => {}
@@ -11995,7 +11985,6 @@ pub async fn get_training_artifacts(
     let mut manifest_hash_b3 = None;
     let mut manifest_hash_matches = false;
     let mut signature_valid = false;
-    
 
     if let (Some(path), Some(aid)) = (job.artifact_path.clone(), job.adapter_id.clone()) {
         let dir = std::path::PathBuf::from(path.clone());
@@ -12513,12 +12502,12 @@ pub async fn list_alerts(
     let filters = adapteros_system_metrics::AlertFilters {
         tenant_id: params.get("tenant_id").cloned(),
         worker_id: params.get("worker_id").cloned(),
-        status: params.get("status").map(|s| adapteros_system_metrics::AlertStatus::from_string(
-                s.to_string(),
-            )),
-        severity: params.get("severity").map(|s| adapteros_system_metrics::AlertSeverity::from_string(
-                s.to_string(),
-            )),
+        status: params
+            .get("status")
+            .map(|s| adapteros_system_metrics::AlertStatus::from_string(s.to_string())),
+        severity: params
+            .get("severity")
+            .map(|s| adapteros_system_metrics::AlertSeverity::from_string(s.to_string())),
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
@@ -12715,9 +12704,9 @@ pub async fn list_anomalies(
     let filters = adapteros_system_metrics::AnomalyFilters {
         tenant_id: params.get("tenant_id").cloned(),
         worker_id: params.get("worker_id").cloned(),
-        status: params.get("status").map(|s| adapteros_system_metrics::AnomalyStatus::from_string(
-                s.to_string(),
-            )),
+        status: params
+            .get("status")
+            .map(|s| adapteros_system_metrics::AnomalyStatus::from_string(s.to_string())),
         anomaly_type: params.get("anomaly_type").cloned(),
         start_time: None,
         end_time: None,
@@ -13128,7 +13117,7 @@ pub async fn alerts_stream(
         limit: Some(50),
     };
 
-    let backlog_alerts: Vec<crate::types::ProcessAlertResponse> = 
+    let backlog_alerts: Vec<crate::types::ProcessAlertResponse> =
         match state.db.list_process_alerts(filters).await {
             Ok(alerts) => alerts.into_iter().map(map_alert_to_response).collect(),
             Err(e) => {
@@ -13138,15 +13127,20 @@ pub async fn alerts_stream(
         };
 
     // Send backlog alerts
-    let backlog_stream = stream::iter(backlog_alerts.into_iter().map(|alert| {
-        match serde_json::to_string(&alert) {
-            Ok(json) => Ok(Event::default().event("alert").data(json)),
-            Err(e) => {
-                tracing::warn!("Failed to serialize backlog alert: {}", e);
-                Ok(Event::default().event("error").data("{\"error\": \"serialization failed\"}".to_string()))
-            }
-        }
-    }));
+    let backlog_stream =
+        stream::iter(
+            backlog_alerts
+                .into_iter()
+                .map(|alert| match serde_json::to_string(&alert) {
+                    Ok(json) => Ok(Event::default().event("alert").data(json)),
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize backlog alert: {}", e);
+                        Ok(Event::default()
+                            .event("error")
+                            .data("{\"error\": \"serialization failed\"}".to_string()))
+                    }
+                }),
+        );
 
     // Real-time alert stream from broadcast channel
     let rx = state.alert_tx.subscribe();
@@ -13161,7 +13155,7 @@ pub async fn alerts_stream(
                         None
                     }
                 }
-            },
+            }
             Err(_) => None,
         }
     });

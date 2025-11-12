@@ -462,7 +462,9 @@ impl AlertEvaluator {
             // Citation: [source: crates/adapteros-server-api/src/handlers.rs L4598-L4603] - Alert update broadcasting pattern
             if let Some(alert_tx) = &self.alert_tx {
                 // Fetch the created alert to broadcast
-                if let Ok(Some(created_alert)) = ProcessAlert::get_by_id(self.db.pool(), &alert_id).await {
+                if let Ok(Some(created_alert)) =
+                    ProcessAlert::get_by_id(self.db.pool(), &alert_id).await
+                {
                     let alert_response = created_alert.into();
                     let _ = alert_tx.send(alert_response);
                 }
@@ -1312,23 +1314,26 @@ impl AlertEvaluator {
             "SELECT id, name, tier, hash_b3, active FROM adapters WHERE active = 1 AND tenant_id = $1"
         )
         .bind(tenant_id)
-        .fetch_all(&self.db.pool)
+        .fetch_all(&self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get adapters for tenant {}: {}", tenant_id, e)))?;
 
-        let adapter_infos = rows.into_iter().filter_map(|row| {
-            if row.active == 1 {
-                Some(AdapterInfo {
-                    id: row.id,
-                    name: row.name,
-                    tier: row.tier,
-                    hash_b3: row.hash_b3,
-                    // map other fields
-                })
-            } else {
-                None
-            }
-        }).collect();
+        let adapter_infos = rows
+            .into_iter()
+            .filter_map(|row| {
+                if row.active == 1 {
+                    Some(AdapterInfo {
+                        id: row.id,
+                        name: row.name,
+                        tier: row.tier,
+                        hash_b3: row.hash_b3,
+                        // map other fields
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         info!(tenant_id = %tenant_id, count = adapter_infos.len(), "Retrieved active adapters for tenant");
 
@@ -1338,9 +1343,12 @@ impl AlertEvaluator {
     /// Evict an adapter
     async fn evict_adapter(&self, adapter_id: &str, tenant_id: &str) -> Result<()> {
         // Update adapter state to evicted
-        self.db.update_adapter_state(adapter_id, "evicted", "Memory pressure eviction")
+        self.db
+            .update_adapter_state(adapter_id, "evicted", "Memory pressure eviction")
             .await
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to evict adapter: {}", e)))?;
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to evict adapter: {}", e))
+            })?;
 
         // Log eviction to telemetry
         if let Err(e) = self.telemetry_writer.log(
@@ -1595,7 +1603,10 @@ impl AlertEvaluator {
         // Check if control matrix cross-links resolve to existing evidence (Compliance Ruleset #16)
         if let Some(ref policy_engine) = self.policy_engine {
             // Get compliance policy configuration
-            if let Some(compliance_config) = policy_engine.pack_manager().get_config(&adapteros_policy::PolicyPackId::Compliance) {
+            if let Some(compliance_config) = policy_engine
+                .pack_manager()
+                .get_config(&adapteros_policy::PolicyPackId::Compliance)
+            {
                 // Extract compliance-specific configuration
                 let compliance_data = &compliance_config.config;
                 if let Some(compliance_obj) = compliance_data.get("compliance") {
@@ -1609,10 +1620,13 @@ impl AlertEvaluator {
                                     // Validate required evidence fields
                                     let evidence_file = control_obj.get("evidence_file");
                                     let evidence_hash = control_obj.get("evidence_hash");
-                                    let verification_status = control_obj.get("verification_status");
+                                    let verification_status =
+                                        control_obj.get("verification_status");
 
                                     // Check evidence file exists
-                                    if let Some(evidence_path) = evidence_file.and_then(|v| v.as_str()) {
+                                    if let Some(evidence_path) =
+                                        evidence_file.and_then(|v| v.as_str())
+                                    {
                                         if !std::path::Path::new(evidence_path).exists() {
                                             tracing::warn!(
                                                 tenant_id = %tenant_id,
@@ -1642,7 +1656,9 @@ impl AlertEvaluator {
                                     }
 
                                     // Check verification status
-                                    if let Some(status) = verification_status.and_then(|v| v.as_str()) {
+                                    if let Some(status) =
+                                        verification_status.and_then(|v| v.as_str())
+                                    {
                                         if status == "failed" || status == "expired" {
                                             tracing::warn!(
                                                 tenant_id = %tenant_id,
@@ -1863,10 +1879,13 @@ impl AlertEvaluator {
             })?;
 
         // Filter by time window (created_at within last hour)
-        let recent_proposals: Vec<_> = patch_proposals.into_iter()
+        let recent_proposals: Vec<_> = patch_proposals
+            .into_iter()
             .filter(|proposal| {
                 // Parse created_at timestamp and check if it's within the window
-                if let Ok(proposal_time) = chrono::DateTime::parse_from_rfc3339(&proposal.created_at) {
+                if let Ok(proposal_time) =
+                    chrono::DateTime::parse_from_rfc3339(&proposal.created_at)
+                {
                     let proposal_time_utc = proposal_time.with_timezone(&chrono::Utc);
                     proposal_time_utc >= start_time && proposal_time_utc <= end_time
                 } else {
@@ -1878,7 +1897,8 @@ impl AlertEvaluator {
         let total_validations = recent_proposals.len();
 
         // Count successful validations based on status
-        let successful_validations = recent_proposals.iter()
+        let successful_validations = recent_proposals
+            .iter()
             .filter(|proposal| {
                 // Consider "completed" or "applied" as successful validations
                 proposal.status == "completed" || proposal.status == "applied"
@@ -1898,9 +1918,13 @@ impl AlertEvaluator {
 
         for proposal in &recent_proposals {
             // Try to parse validation_result_json for timing data
-            if let Ok(validation_result) = serde_json::from_str::<serde_json::Value>(&proposal.validation_result_json) {
-                if let Some(validation_time) = validation_result.get("validation_time_ms")
-                    .and_then(|v| v.as_f64()) {
+            if let Ok(validation_result) =
+                serde_json::from_str::<serde_json::Value>(&proposal.validation_result_json)
+            {
+                if let Some(validation_time) = validation_result
+                    .get("validation_time_ms")
+                    .and_then(|v| v.as_f64())
+                {
                     total_validation_time += validation_time;
                     timed_validations += 1;
                 }

@@ -537,9 +537,7 @@ impl NativeClient {
     async fn get_system_metrics(&self) -> Result<SystemMetricsResponse> {
         let url = format!("{}/v1/metrics/system", self.base_url);
         let resp = self.client.get(&url).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse system metrics")
+        resp.json().await.context("Failed to parse system metrics")
     }
 
     async fn get_journey(&self, journey_type: String, id: String) -> Result<serde_json::Value> {

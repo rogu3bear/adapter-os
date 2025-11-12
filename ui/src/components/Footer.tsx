@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
 import { MetaResponse } from '../api/types';
+import { cn, FROST_BACKGROUND } from '@/components/ui/utils';
 
 export const Footer: React.FC = () => {
   const { data: meta, isLoading } = useQuery<MetaResponse>({
@@ -18,7 +19,7 @@ export const Footer: React.FC = () => {
   };
 
   return (
-    <footer className="border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <footer className={cn("border-t", FROST_BACKGROUND, "supports-[backdrop-filter]:bg-background/60")}>
       <div className="container mx-auto px-4 py-6">
         <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
           <div className="flex flex-col md:flex-row items-center space-y-2 md:space-y-0 md:space-x-6">

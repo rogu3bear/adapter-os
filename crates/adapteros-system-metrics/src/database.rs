@@ -26,8 +26,9 @@ impl SystemMetricsDb {
 
     /// Run database migrations
     pub async fn run_migrations(&self) -> Result<()> {
-        MIGRATIONS.run(&self.pool).await
-            .map_err(|e| AosError::Database(format!("Failed to run system metrics migrations: {}", e)))?;
+        MIGRATIONS.run(&self.pool).await.map_err(|e| {
+            AosError::Database(format!("Failed to run system metrics migrations: {}", e))
+        })?;
         Ok(())
     }
 
@@ -65,7 +66,9 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
 
-        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
+        Ok(result
+            .last_insert_id()
+            .expect("Failed to get last insert ID"))
     }
 
     /// Get system metrics history
@@ -158,7 +161,9 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store health check: {}", e)))?;
 
-        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
+        Ok(result
+            .last_insert_id()
+            .expect("Failed to get last insert ID"))
     }
 
     /// Store threshold violation
@@ -190,7 +195,9 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
 
-        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
+        Ok(result
+            .last_insert_id()
+            .expect("Failed to get last insert ID"))
     }
 
     /// Get unresolved threshold violations

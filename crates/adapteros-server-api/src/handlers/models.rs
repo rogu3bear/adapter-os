@@ -8,6 +8,7 @@
 //! - Policy Pack #8 (Isolation): Per-tenant operations with UID/GID checks
 //! - Handler pattern from handlers.rs L4567-4597
 
+use crate::services::auth::{require_any_role, require_role};
 use crate::{
     auth::Claims,
     errors::ErrorResponseExt,
@@ -23,6 +24,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use blake3;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -30,11 +32,12 @@ use tokio::fs;
 use tokio_util::io::ReaderStream;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use blake3;
-use crate::services::auth::{require_role, require_any_role};
-use crate::services::adapter_loader::AdapterLoader;
+// Change to correct crate
 use crate::errors::AosError;
 use crate::services::retry::exponential_backoff;
+use adapteros_server::services::adapter_loader::AdapterLoader;
+use axum::http::StatusCode;
+use axum::Json as AxumJson;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -179,34 +182,40 @@ pub async fn import_model(
     }
 
     // Compute hashes for files (synchronous read for small files; async for large in prod)
-    let weights_bytes = tokio::fs::read(&req.weights_path).await
-        .map_err(|e| {
-            error!("Failed to read weights for hashing: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
-            )
-        })?;
+    let weights_bytes = tokio::fs::read(&req.weights_path).await.map_err(|e| {
+        error!("Failed to read weights for hashing: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly(
+                "HASH_COMPUTE_ERROR",
+                e.to_string(),
+            )),
+        )
+    })?;
     let weights_hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
 
-    let config_bytes = tokio::fs::read(&req.config_path).await
-        .map_err(|e| {
-            error!("Failed to read config for hashing: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
-            )
-        })?;
+    let config_bytes = tokio::fs::read(&req.config_path).await.map_err(|e| {
+        error!("Failed to read config for hashing: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly(
+                "HASH_COMPUTE_ERROR",
+                e.to_string(),
+            )),
+        )
+    })?;
     let config_hash_b3 = blake3::hash(&config_bytes).to_hex().to_string();
 
-    let tokenizer_bytes = tokio::fs::read(&req.tokenizer_path).await
-        .map_err(|e| {
-            error!("Failed to read tokenizer for hashing: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
-            )
-        })?;
+    let tokenizer_bytes = tokio::fs::read(&req.tokenizer_path).await.map_err(|e| {
+        error!("Failed to read tokenizer for hashing: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly(
+                "HASH_COMPUTE_ERROR",
+                e.to_string(),
+            )),
+        )
+    })?;
     let tokenizer_hash_b3 = blake3::hash(&tokenizer_bytes).to_hex().to_string();
 
     let tokenizer_config_hash_b3 = if let Some(tk_cfg_path) = &req.tokenizer_config_path {
@@ -245,13 +254,16 @@ pub async fn import_model(
         tokenizer_hash_b3,
         metadata_str
     )
-    .fetch_one(state.db.pool())
+    .fetch_one(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to insert/update model record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_INSERT_ERROR", e.to_string())),
+            Json(ErrorResponse::new_user_friendly(
+                "DB_INSERT_ERROR",
+                e.to_string(),
+            )),
         )
     })?;
 
@@ -261,7 +273,7 @@ pub async fn import_model(
     )
     .bind(&model_id_str)
     .bind(tenant_id)
-    .fetch_one(state.db.pool())
+    .fetch_one(&state.db.pool()) // Assume state.db.pool
     .await
     .unwrap_or(0);
 
@@ -272,7 +284,7 @@ pub async fn import_model(
             model_id_str,
             import_id
         )
-        .execute(state.db.pool())
+        .execute(&state.db.pool()) // Assume state.db.pool
         .await
         .map_err(|e| {
             warn!("Failed to create base_model_status: {}", e);
@@ -288,7 +300,7 @@ pub async fn import_model(
         completed_at,
         import_id
     )
-    .execute(state.db.pool())
+    .execute(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to update import status: {}", e);
@@ -354,7 +366,7 @@ pub async fn load_model(
         model_id,
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
@@ -380,7 +392,10 @@ pub async fn load_model(
     let hash_b3 = if row.hash_b3.is_empty() {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("MISSING_HASH", "Model missing hash_b3 field")),
+            Json(ErrorResponse::new_user_friendly(
+                "MISSING_HASH",
+                "Model missing hash_b3 field",
+            )),
         ));
     } else {
         &row.hash_b3
@@ -398,7 +413,15 @@ pub async fn load_model(
             ),
         )
         .await
-        .map_err(|e| (StatusCode::CONFLICT, Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new_user_friendly(
+                    "OPERATION_IN_PROGRESS",
+                    e.to_string(),
+                )),
+            )
+        })?;
 
     // Update status to loading
     let now = chrono::Utc::now().to_rfc3339();
@@ -408,7 +431,7 @@ pub async fn load_model(
         model_id,
         tenant_id
     )
-    .execute(state.db.pool())
+    .execute(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to update model status: {}", e);
@@ -425,7 +448,7 @@ pub async fn load_model(
     let load_result: Result<(), String> = Ok(()); // M0 Stub: Full MLX in M1 per MasterPlan L234
     let memory_mb: i32 = 4096; // Fixed stub memory
 
-    let result = exponential_backoff(3, Duration::from_millis(500), |attempt| Ok(())) .await;
+    let result = exponential_backoff(3, Duration::from_millis(500), |attempt| Ok(())).await;
     let memory_mb = 4096;
 
     match load_result {
@@ -442,19 +465,22 @@ pub async fn load_model(
                                     model_id,
                                     tenant_id
                                 )
-            .execute(state.db.pool())
+            .execute(&state.db.pool()) // Assume state.db.pool
                                 .await;
 
             if let Err(e) = update_result {
                 error!("Failed to update loaded status: {}", e);
-                let _ = state.operation_tracker.complete_operation(
-                    &model_id,
-                    tenant_id,
-                    crate::operation_tracker::OperationType::Model(
-                        crate::operation_tracker::ModelOperationType::Load,
-                    ),
-                    false,
-                ).await;
+                let _ = state
+                    .operation_tracker
+                    .complete_operation(
+                        &model_id,
+                        tenant_id,
+                        crate::operation_tracker::OperationType::Model(
+                            crate::operation_tracker::ModelOperationType::Load,
+                        ),
+                        false,
+                    )
+                    .await;
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
@@ -504,20 +530,23 @@ pub async fn load_model(
                 model_id,
                 tenant_id
             )
-            .execute(state.db.pool())
+            .execute(&state.db.pool()) // Assume state.db.pool
             .await;
 
             if let Err(db_err) = update_result {
                 error!("Failed to update error status: {}", db_err);
             }
-            let _ = state.operation_tracker.complete_operation(
-                &model_id,
-                tenant_id,
-                crate::operation_tracker::OperationType::Model(
-                    crate::operation_tracker::ModelOperationType::Load,
-                ),
-                false,
-            ).await;
+            let _ = state
+                .operation_tracker
+                .complete_operation(
+                    &model_id,
+                    tenant_id,
+                    crate::operation_tracker::OperationType::Model(
+                        crate::operation_tracker::ModelOperationType::Load,
+                    ),
+                    false,
+                )
+                .await;
 
             error!(
                 model_id = %model_id,
@@ -564,7 +593,7 @@ pub async fn unload_model(
         model_id,
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
@@ -614,7 +643,7 @@ pub async fn unload_model(
             model_id,
             tenant_id
         )
-    .execute(state.db.pool())
+    .execute(&state.db.pool()) // Assume state.db.pool
         .await
         .map_err(|e| {
         error!("Failed to update status: {}", e);
@@ -643,7 +672,7 @@ pub async fn unload_model(
                     model_id,
                     tenant_id
                 )
-    .execute(state.db.pool())
+    .execute(&state.db.pool()) // Assume state.db.pool
                 .await
                 .map_err(|e| {
         error!("Failed to update unloaded status: {}", e);
@@ -781,7 +810,7 @@ pub async fn get_import_status(
         import_id,
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to get import status: {}", e);
@@ -840,7 +869,7 @@ pub async fn get_model_status(
         model_id,
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to get model status: {}", e);
@@ -903,7 +932,7 @@ pub async fn download_model(
         model_id,
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to get model info: {}", e);
@@ -935,7 +964,7 @@ pub async fn download_model(
         tenant_id,
         model_info.name
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to fetch model import record: {}", e);
@@ -1333,7 +1362,7 @@ pub async fn get_model_diagnostics(
         "SELECT bms.model_id FROM base_model_status bms WHERE bms.tenant_id = ?",
         tenant_id
     )
-    .fetch_all(state.db.pool())
+    .fetch_all(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to query database models: {}", e);
@@ -1435,7 +1464,7 @@ pub async fn validate_model(
         model_id,
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
@@ -1557,7 +1586,7 @@ pub async fn get_cursor_config(
          WHERE bms.tenant_id = ? ORDER BY bms.updated_at DESC LIMIT 1",
         tenant_id
     )
-    .fetch_optional(state.db.pool())
+    .fetch_optional(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model status: {}", e);
@@ -1613,7 +1642,7 @@ async fn track_journey_step(
         step,
         now
     )
-    .execute(state.db.pool())
+    .execute(&state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         warn!("Failed to track journey step: {}", e);
@@ -1661,7 +1690,7 @@ pub async fn model_runtime_health(
     };
 
     let db_models = sqlx::query!("SELECT tenant_id, model_id, status FROM base_model_status")
-        .fetch_all(state.db.pool())
+        .fetch_all(&state.db.pool()) // Assume state.db.pool
         .await
         .map_err(|e| {
             error!("Failed to query model states: {}", e);
@@ -1677,8 +1706,10 @@ pub async fn model_runtime_health(
     drop(guard);
 
     let mut inconsistencies = Vec::new();
-    let runtime_model_set: std::collections::HashSet<(String, String)> =
-        runtime_models.iter().map(|key| (key.tenant_id.clone(), key.model_id.clone())).collect();
+    let runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models
+        .iter()
+        .map(|key| (key.tenant_id.clone(), key.model_id.clone()))
+        .collect();
 
     for db_model in &db_models {
         let tenant_id = &db_model.tenant_id;

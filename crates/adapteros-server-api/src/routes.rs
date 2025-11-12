@@ -13,10 +13,10 @@ use axum::{
 };
 use axum::{Extension, Json};
 // Note: Rate limiting disabled - consider using tower-governor for proper rate limiting
+use crate::handlers::replay::replay_from_bundle;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use crate::handlers::replay::replay_from_bundle;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -433,10 +433,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::create_process_monitoring_rule),
         )
         .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
-        .route(
-            "/v1/monitoring/alerts/stream",
-            get(handlers::alerts_stream),
-        )
+        .route("/v1/monitoring/alerts/stream", get(handlers::alerts_stream))
         .route(
             "/v1/monitoring/alerts/:alert_id/acknowledge",
             post(handlers::acknowledge_process_alert),
@@ -502,10 +499,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/replay/sessions/:id/verify",
             post(handlers::replay::verify_replay_session),
         )
-        .route(
-            "/v1/replay/:bundle_id",
-            post(replay_from_bundle),
-        )
+        .route("/v1/replay/:bundle_id", post(replay_from_bundle))
         .route(
             "/v1/tenants/:tenant_id/cp-pointers",
             get(handlers::list_cp_pointers),
@@ -975,7 +969,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry::search_traces),
         )
         .route("/api/traces/:trace_id", get(handlers::telemetry::get_trace))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(per_tenant_rate_limit_middleware(state.clone()));
 
     // Configure CORS for development

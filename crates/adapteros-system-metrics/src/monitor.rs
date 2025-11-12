@@ -7,8 +7,8 @@
 
 use crate::policy::SystemMetricsPolicy;
 use crate::{MetricsConfig, SystemMetricsCollector};
-use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use adapteros_core::Result;
+use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use std::time::{Duration, SystemTime};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
