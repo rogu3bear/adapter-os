@@ -34,10 +34,8 @@ fn main() {
         .output()
         .expect("Failed to compile Metal shaders");
 
-    if !output.status.success() {
-        eprintln!("Metal compilation failed:");
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        panic!("Metal compilation failed");
+    if let Err(e) = output {
+        error!(error_msg = %String::from_utf8_lossy(&e.stderr), "Metal compilation failed");
     }
 
     // Link metallib
@@ -54,10 +52,8 @@ fn main() {
         .output()
         .expect("Failed to link metallib");
 
-    if !output.status.success() {
-        eprintln!("Metallib linking failed:");
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        panic!("Metallib linking failed");
+    if let Err(e) = output {
+        error!(error_msg = %String::from_utf8_lossy(&e.stderr), "Metallib linking failed");
     }
 
     // Compute BLAKE3 hash

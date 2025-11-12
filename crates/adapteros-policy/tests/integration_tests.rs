@@ -894,9 +894,9 @@ async fn test_comprehensive_policy_integration() {
     let result = manager.validate_request(&complex_request).unwrap();
 
     // Debug: Print actual violations
-    println!("DEBUG: Found {} violations:", result.violations.len());
+    info!(violations_len = result.violations.len(), "Found violations");
     for violation in &result.violations {
-        println!("  - {}: {}", violation.policy_pack, violation.message);
+        info!(policy_pack = %violation.policy_pack, message = %violation.message, "Violation detail");
     }
 
     // Should have multiple violations from different policy packs
