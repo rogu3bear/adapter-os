@@ -84,6 +84,11 @@ describe('usePolling Effect Dependency Churn', () => {
       vi.advanceTimersByTime(3000);
     });
 
+    // Flush promises
+    await act(async () => {
+      await Promise.resolve();
+    });
+
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledTimes(2); // Initial + 1 poll
     });
@@ -117,6 +122,10 @@ describe('usePolling Effect Dependency Churn', () => {
       vi.advanceTimersByTime(3000);
     });
 
+    await act(async () => {
+      await Promise.resolve();
+    });
+
     await waitFor(() => {
       expect(mockFetch2).toHaveBeenCalledTimes(1);
     });
@@ -124,6 +133,10 @@ describe('usePolling Effect Dependency Churn', () => {
     // Should still be polling correctly
     act(() => {
       vi.advanceTimersByTime(3000);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
     });
 
     await waitFor(() => {
@@ -171,6 +184,12 @@ describe('usePolling Effect Dependency Churn', () => {
     // Advance time - should only trigger one fetch per interval, not multiple overlapping ones
     act(() => {
       vi.advanceTimersByTime(1000);
+    });
+
+    // Flush promises and timers
+    await act(async () => {
+      await Promise.resolve();
+      vi.runOnlyPendingTimers();
     });
 
     // Give time for any overlapping intervals to fire

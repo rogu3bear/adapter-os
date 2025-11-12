@@ -498,12 +498,6 @@ class ApiClient {
     });
   }
 
-  async deletePlan(planId: string): Promise<void> {
-    return this.request<void>(`/v1/plans/${planId}`, {
-      method: 'DELETE',
-    });
-  }
-
   async exportPlanManifest(planId: string): Promise<Blob> {
     const url = `${this.baseUrl}/v1/plans/${planId}/manifest`;
     const response = await fetch(url, { credentials: 'include' });
@@ -511,12 +505,6 @@ class ApiClient {
       throw new Error(`Failed to export plan manifest: ${response.statusText}`);
     }
     return response.blob();
-  }
-
-  async deletePlan(planId: string): Promise<void> {
-    return this.request<void>(`/v1/plans/${planId}`, {
-      method: 'DELETE',
-    });
   }
 
   // Control Plane
@@ -2297,6 +2285,12 @@ class ApiClient {
   async getStatus(): Promise<types.AdapterOSStatus> {
     return this.request<types.AdapterOSStatus>('/v1/status', {
       method: 'GET',
+    });
+  }
+
+  async deletePlan(planId: string): Promise<void> {
+    return this.request<void>(`/v1/plans/${planId}`, {
+      method: 'DELETE',
     });
   }
 }

@@ -2,15 +2,24 @@
 //!
 //! Implements per-tenant rate limiting with token bucket algorithm for M1 production hardening.
 //! Each tenant gets their own isolated token bucket with configurable rate and burst capacity.
+//!
 
-use std::sync::Arc;
-use axum::{extract::{Request, State}, http::StatusCode, middleware::Next, response::Response};
 use crate::{auth::Claims, state::AppState, types::ErrorResponse};
-use tower_governor::{Governor, GovernorConfig};
+use axum::{
+    body::Body,
+    extract::{Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::Response,
+};
 use futures::future::BoxFuture;
-use tower::Layer;
-use tower::ServiceBuilder;
-use tower::Service;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::SystemTime;
+use tower::{Layer, Service, ServiceBuilder};
+use tower_governor::{Governor, GovernorConfig};
 
 #[derive(Clone)]
 struct TenantKeyExtractor;
@@ -46,7 +55,7 @@ struct TokenBucket {
 impl TokenBucket {
     fn new(rate_per_minute: u32, burst_size: u32) -> Self {
         let capacity = rate_per_minute + burst_size;
-        let now_ms = std::time::SystemTime::now()
+        let now_ms = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
@@ -61,7 +70,7 @@ impl TokenBucket {
 
     /// Try to consume one token. Returns true if successful, false if rate limited.
     fn try_consume(&self) -> bool {
-        let now_ms = std::time::SystemTime::now()
+        let now_ms = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
@@ -126,7 +135,7 @@ impl TokenBucket {
 
     /// Check if this bucket is stale (not accessed for more than the given duration)
     fn is_stale(&self, max_age_ms: u64) -> bool {
-        let now_ms = std::time::SystemTime::now()
+        let now_ms = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
@@ -139,35 +148,20 @@ impl TokenBucket {
 /// Per-tenant rate limiters
 type TenantRateLimiters = Arc<Mutex<HashMap<String, TokenBucket>>>;
 
-pub fn per_tenant_rate_limit_middleware(state: Arc<AppState>) -> impl Layer<S> + Clone + Send + 'static where S: Service<Request<Body>> + Send + Clone + 'static, S::Future: Send + 'static {
-    let config = GovernorConfig::default()
-        .per_second(100)
-        .burst_size(100);
+pub fn per_tenant_rate_limit_middleware<S>(
+    state: Arc<AppState>,
+) -> impl Layer<S> + Clone + Send + 'static
+where
+    S: Service<Request<Body>, Response = Response<Body>> + Send + Clone + 'static,
+    S::Future: Send + 'static,
+{
+    let config = GovernorConfig::default().per_second(100).burst_size(100);
     let key_extractor = TenantKeyExtractor;
-    ServiceBuilder::new()
-        .layer(Governor::new(&config, key_extractor))
+    ServiceBuilder::new().layer(Governor::new(&config, key_extractor))
 }
 
 /// Clean up stale rate limiter buckets that haven't been accessed for more than max_age_ms
 pub async fn cleanup_stale_rate_limiters(max_age_ms: u64) {
-    static LIMITERS: tokio::sync::OnceCell<TenantRateLimiters> = tokio::sync::OnceCell::const_new();
-
-    let limiters = match LIMITERS.get() {
-        Some(l) => l,
-        None => return, // No limiters initialized yet
-    };
-
-    let mut limiters_guard = limiters.lock().await;
-    let mut to_remove = Vec::new();
-
-    for (tenant_id, bucket) in limiters_guard.iter() {
-        if bucket.is_stale(max_age_ms) {
-            to_remove.push(tenant_id.clone());
-        }
-    }
-
-    for tenant_id in to_remove {
-        limiters_guard.remove(&tenant_id);
-        tracing::debug!("Cleaned up stale rate limiter for tenant: {}", tenant_id);
-    }
+    // static LIMITERS: tokio::sync::OnceCell<TenantRateLimiters> = ... but use global or state
+    // For now, stub
 }

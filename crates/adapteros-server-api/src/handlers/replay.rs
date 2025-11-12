@@ -6,7 +6,7 @@ use adapteros_crypto::signature::Keypair;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State, Extension},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::state::AppState;
-use crate::types::{ErrorResponse, ReplayVerificationResponse};
 use crate::auth::Claims;
 use crate::services::replay::reconstruct_bundle;
+use crate::state::AppState;
+use crate::types::{ErrorResponse, ReplayVerificationResponse};
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReplaySessionsParams {
@@ -231,7 +231,12 @@ pub async fn replay_from_bundle(
         .bind(&bundle_id)
         .fetch_optional(&state.db.pool())
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
+            )
+        })?;
 
     let (cpid, plan_id) = if let Some(row) = row {
         let cpid: String = row.get("cpid");

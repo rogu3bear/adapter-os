@@ -86,17 +86,17 @@ impl Orchestrator {
 
         for gate in &self.gates {
             let gate_name = gate.name();
-            println!("Running gate: {}...", gate_name);
+            info!(gate_name = %gate_name, "Running gate");
 
             let result = gate.check(&self.config).await;
 
             match &result {
                 Ok(()) => {
-                    println!("  ✓ {} PASSED", gate_name);
+                    info!(gate_name = %gate_name, status = "PASSED", "Gate passed");
                     report.add_result(gate_name, GateResult::passed());
                 }
                 Err(e) => {
-                    println!("  ✗ {} FAILED: {}", gate_name, e);
+                    info!(gate_name = %gate_name, error = %e, "Gate failed");
                     report.add_result(gate_name, GateResult::failed(e.to_string()));
 
                     if !self.config.continue_on_error {

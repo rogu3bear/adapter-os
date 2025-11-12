@@ -11,6 +11,7 @@
 
 use adapteros_core::{AosError, Result};
 use metal::*;
+use std::ffi::c_void;
 use std::sync::Arc;
 
 use super::ring_buffer::RawRingBuffer;
@@ -195,19 +196,19 @@ impl FusedQkvKernel {
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
         let pointer_set = AttentionPointerSet {
-            input: input.gpu_address(),
-            q_output: q_output.gpu_address(),
-            k_output: k_output.gpu_address(),
-            v_output: v_output.gpu_address(),
-            q_weight: q_weight.gpu_address(),
-            k_weight: k_weight.gpu_address(),
-            v_weight: v_weight.gpu_address(),
-            q_lora_a: q_lora_a.gpu_address(),
-            q_lora_b: q_lora_b.gpu_address(),
-            k_lora_a: k_lora_a.gpu_address(),
-            k_lora_b: k_lora_b.gpu_address(),
-            v_lora_a: v_lora_a.gpu_address(),
-            v_lora_b: v_lora_b.gpu_address(),
+            input: input.contents() as *mut c_void as u64,
+            q_output: q_output.contents() as *mut c_void as u64,
+            k_output: k_output.contents() as *mut c_void as u64,
+            v_output: v_output.contents() as *mut c_void as u64,
+            q_weight: q_weight.contents() as *mut c_void as u64,
+            k_weight: k_weight.contents() as *mut c_void as u64,
+            v_weight: v_weight.contents() as *mut c_void as u64,
+            q_lora_a: q_lora_a.contents() as *mut c_void as u64,
+            q_lora_b: q_lora_b.contents() as *mut c_void as u64,
+            k_lora_a: k_lora_a.contents() as *mut c_void as u64,
+            k_lora_b: k_lora_b.contents() as *mut c_void as u64,
+            v_lora_a: v_lora_a.contents() as *mut c_void as u64,
+            v_lora_b: v_lora_b.contents() as *mut c_void as u64,
         };
 
         let params = MetalAttentionParams {
@@ -345,10 +346,10 @@ impl FlashAttentionKernel {
         };
 
         let params = MetalFlashAttentionParams {
-            q: q.gpu_address(),
-            k: k.gpu_address(),
-            v: v.gpu_address(),
-            output: output.gpu_address(),
+            q: q.contents() as *mut c_void as u64,
+            k: k.contents() as *mut c_void as u64,
+            v: v.contents() as *mut c_void as u64,
+            output: output.contents() as *mut c_void as u64,
             gqa_config: self.gqa_config,
             batch_size: batch_size as u32,
             sequence_length: sequence_length as u32,

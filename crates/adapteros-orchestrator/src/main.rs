@@ -4,6 +4,7 @@ use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tracing::info;
 
 #[derive(Parser)]
 #[command(name = "mplora-orchestrator")]
@@ -61,8 +62,8 @@ async fn main() -> Result<()> {
             report,
             format,
         } => {
-            println!("AdapterOS Promotion Gate Orchestrator");
-            println!("====================================");
+            info!(cpid = %cpid, "AdapterOS Promotion Gate Orchestrator");
+            println!("=====================================");
             println!("CPID: {}", cpid);
             println!();
 
@@ -83,6 +84,7 @@ async fn main() -> Result<()> {
             println!("====================================");
 
             if gate_report.all_passed {
+                info!(cpid = %cpid, gate_passed = true, "All gates passed");
                 println!("✅ ALL GATES PASSED");
                 println!();
                 println!("CPID {} is ready for promotion.", cpid);

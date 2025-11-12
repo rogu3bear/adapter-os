@@ -20,6 +20,7 @@ use std::ffi::c_void;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::info;
 
 pub mod ane_acceleration;
 pub mod compute_shaders;

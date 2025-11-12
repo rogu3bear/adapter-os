@@ -9,6 +9,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
+use tracing::error;
 
 pub mod alerting;
 pub mod audit_log;
@@ -54,9 +55,7 @@ pub use adapteros_telemetry_types::{
     SystemMetrics, ThroughputMetrics,
 };
 // Re-export metrics collector and registry (implementation, not types)
-pub use metrics::{
-    MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer,
-};
+pub use metrics::{MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer};
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
     PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor,

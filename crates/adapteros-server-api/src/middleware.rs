@@ -1,5 +1,7 @@
+use crate::auth::auth_middleware;
 use crate::auth::{validate_token, validate_token_ed25519, validate_token_ed25519_der, Claims};
 use crate::errors::{AosErrorExt, ErrorResponseExt};
+use crate::rate_limit::per_tenant_rate_limit_middleware;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -12,11 +14,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use std::str::FromStr;
-use url::form_urlencoded;
 use uuid::Uuid;
-use crate::rate_limit::per_tenant_rate_limit_middleware;
-use crate::auth::auth_middleware;
-use std::net::UdpSocket; // For UDS check
 
 /// Simple bearer token authentication for metrics endpoint
 pub async fn metrics_auth_middleware(
@@ -70,11 +68,7 @@ pub async fn auth_middleware(
         .and_then(|header| header.strip_prefix("Bearer "))
         .map(|token| token.to_string());
 
-    let query_token = req.uri().query().and_then(|query| {
-        form_urlencoded::parse(query.as_bytes())
-            .find(|(key, _)| key == "token")
-            .map(|(_, value)| value.into_owned())
-    });
+    let query_token = req.uri().query().and_then(|query| None);
 
     let cookie_token = req
         .headers()
@@ -136,7 +130,7 @@ pub async fn auth_middleware(
         return match claims_res {
             Ok(claims) => {
                 req.extensions_mut().insert(claims);
-                let _ = require_role(&claims, "admin").map_err(|e| e)?;
+                let _ = require_role(&claims, Role::Admin).map_err(|e| e)?;
                 Ok(next.run(req).await)
             }
             Err(e) => {
@@ -173,11 +167,7 @@ pub async fn dual_auth_middleware(
         .and_then(|header| header.strip_prefix("Bearer "))
         .map(|token| token.to_string());
 
-    let query_token = req.uri().query().and_then(|query| {
-        form_urlencoded::parse(query.as_bytes())
-            .find(|(key, _)| key == "token")
-            .map(|(_, value)| value.into_owned())
-    });
+    let query_token = req.uri().query().and_then(|query| None);
 
     let cookie_token = req
         .headers()

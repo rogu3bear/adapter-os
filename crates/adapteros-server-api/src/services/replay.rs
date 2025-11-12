@@ -11,7 +11,15 @@ pub async fn fetch_bundle_metadata(db: &Db, bundle_id: &str) -> Result<(String, 
         .bind(bundle_id)
         .fetch_optional(db.pool())
         .await?;
-    let metadata: serde_json::Value = row.map(|r| serde_json::from_str(r.get("metadata_json")).unwrap()).unwrap_or(serde_json::from_str(r#"{"cpid": "default", "plan_id": "default"}"#)?;
+
+    let metadata_json = row.as_ref().map(|r| r.get::<String, _>("metadata_json")).unwrap_or_else(|| r#"{"cpid": "default", "plan_id": "default"}"#.to_string());
+    let metadata: serde_json::Value = serde_json::from_str(&metadata_json)
+        .map_err(|e| sqlx::Error::RowRead {
+            row: row.clone().unwrap_or_default(),
+            field: 0,
+            source: Box::new(e),
+        })?;
+
     let cpid = metadata["cpid"].as_str().unwrap_or("default").to_string();
     let plan_id = metadata["plan_id"].as_str().unwrap_or("default").to_string();
     let seed = GlobalSeed::get_or_init(b"replay_seed");

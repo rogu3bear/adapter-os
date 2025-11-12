@@ -391,7 +391,11 @@ impl ModelRuntimeImpl {
     pub fn check_tenant_load_limit(&self, _tenant_id: &str) -> Result<(), String> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let tenant_models = self.models.keys().filter(|key| key.tenant_id == _tenant_id).count();
+            let tenant_models = self
+                .models
+                .keys()
+                .filter(|key| key.tenant_id == _tenant_id)
+                .count();
             if tenant_models >= self.max_tenant_models {
                 return Err(format!(
                     "Tenant model limit exceeded for '{}': {} models loaded, maximum is {}",
@@ -622,7 +626,10 @@ impl ModelRuntimeImpl {
         for i in 2..=9 {
             tokio::time::sleep(Duration::from_millis(100)).await; // Simulate work
             let progress = (i * 10) as f64;
-            progress_callback(progress, format!("Loading model components ({}%)", progress));
+            progress_callback(
+                progress,
+                format!("Loading model components ({}%)", progress),
+            );
         }
 
         // Actually load the model
@@ -1009,7 +1016,8 @@ impl ModelRuntimeImpl {
     fn estimate_memory_usage_mb(config: &ModelConfig) -> i32 {
         // Estimate: parameters × 2 bytes per parameter (weights + gradients/kv cache)
         // Conservative estimate based on MLX memory patterns
-        let num_parameters = config.hidden_size * config.num_hidden_layers * config.num_attention_heads;
+        let num_parameters =
+            config.hidden_size * config.num_hidden_layers * config.num_attention_heads;
         let bytes_per_param = 2; // FP16 weights
         let total_bytes = num_parameters * bytes_per_param * 2; // ×2 for weights + gradients/kv cache
         let total_mb = total_bytes / (1024 * 1024);
@@ -1042,7 +1050,10 @@ impl ModelRuntime for ModelRuntimeImpl {
             };
 
             if let Some(metadata) = self.models.get(&key) {
-                on_progress(ProgressEvent { pct: 100.0, message: "Model already loaded".to_string() });
+                on_progress(ProgressEvent {
+                    pct: 100.0,
+                    message: "Model already loaded".to_string(),
+                });
                 return Ok(ModelHandle {
                     key,
                     memory_usage_mb: metadata.memory_usage_mb,
@@ -1050,28 +1061,43 @@ impl ModelRuntime for ModelRuntimeImpl {
             }
 
             // Create new MLX model container
-            on_progress(ProgressEvent { pct: 40.0, message: "allocating graph".to_string() });
-            let mut model = MLXFFIModel::new()
-                .map_err(|e| ModelLoadError::Backend(format!("Failed to create MLX model: {}", e)))?;
+            on_progress(ProgressEvent {
+                pct: 40.0,
+                message: "allocating graph".to_string(),
+            });
+            let mut model = MLXFFIModel::new().map_err(|e| {
+                ModelLoadError::Backend(format!("Failed to create MLX model: {}", e))
+            })?;
 
             // Load base model weights
-            on_progress(ProgressEvent { pct: 60.0, message: "loading base weights".to_string() });
-            model.load_base(&req.model_path, req.quantization.as_deref())
-                .map_err(|e| ModelLoadError::Backend(format!("Failed to load base model: {}", e)))?;
+            on_progress(ProgressEvent {
+                pct: 60.0,
+                message: "loading base weights".to_string(),
+            });
+            model
+                .load_base(&req.model_path, req.quantization.as_deref())
+                .map_err(|e| {
+                    ModelLoadError::Backend(format!("Failed to load base model: {}", e))
+                })?;
 
             // Load adapter if specified
             if let Some(adapter_path) = &req.adapter_path {
                 on_progress(ProgressEvent {
                     pct: 80.0,
-                    message: format!("applying adapter: {}", adapter_path.display())
+                    message: format!("applying adapter: {}", adapter_path.display()),
                 });
-                model.load_adapter(adapter_path)
-                    .map_err(|e| ModelLoadError::Backend(format!("Failed to load adapter: {}", e)))?;
+                model.load_adapter(adapter_path).map_err(|e| {
+                    ModelLoadError::Backend(format!("Failed to load adapter: {}", e))
+                })?;
             }
 
             // Warm up the model
-            on_progress(ProgressEvent { pct: 90.0, message: "warming up".to_string() });
-            model.warmup()
+            on_progress(ProgressEvent {
+                pct: 90.0,
+                message: "warming up".to_string(),
+            });
+            model
+                .warmup()
                 .map_err(|e| ModelLoadError::Backend(format!("Failed to warmup model: {}", e)))?;
 
             // Register in runtime with estimated memory usage
@@ -1082,11 +1108,16 @@ impl ModelRuntime for ModelRuntimeImpl {
             };
             self.models.insert(key.clone(), metadata);
 
-            Ok(ModelHandle { key, memory_usage_mb })
+            Ok(ModelHandle {
+                key,
+                memory_usage_mb,
+            })
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            Err(ModelLoadError::Backend("MLX backend not available".to_string()))
+            Err(ModelLoadError::Backend(
+                "MLX backend not available".to_string(),
+            ))
         }
     }
 
@@ -1107,12 +1138,17 @@ impl ModelRuntime for ModelRuntimeImpl {
             if self.models.remove(_key).is_some() {
                 Ok(())
             } else {
-                Err(ModelLoadError::NotFound(format!("{}:{}", _key.tenant_id, _key.model_id)))
+                Err(ModelLoadError::NotFound(format!(
+                    "{}:{}",
+                    _key.tenant_id, _key.model_id
+                )))
             }
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            Err(ModelLoadError::Backend("MLX backend not available".to_string()))
+            Err(ModelLoadError::Backend(
+                "MLX backend not available".to_string(),
+            ))
         }
     }
 }

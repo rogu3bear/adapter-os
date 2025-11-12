@@ -50,7 +50,12 @@ pub fn record_health_check(_service_id: &str, _success: bool) {
 }
 
 /// Record HTTP request
-pub fn record_http_request(_method: &str, _path: &str, _status: u16, _duration: std::time::Duration) {
+pub fn record_http_request(
+    _method: &str,
+    _path: &str,
+    _status: u16,
+    _duration: std::time::Duration,
+) {
     // Simplified metrics for now
 }
 

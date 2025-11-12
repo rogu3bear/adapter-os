@@ -182,6 +182,14 @@ info!(violations_len = result.violations.len(), "Found violations");
 ```
 [source: crates/adapteros-policy/tests/integration_tests.rs L897]
 
+### Structured logging in crypto keychain
+
+```rust
+// ✅ GOOD: Structured logging in crypto keychain (from crypto/providers/keychain.rs L2252)
+info!(sig_len = signature.len(), "Signing successful");
+```
+[source: crates/adapteros-crypto/src/providers/keychain.rs L2252]
+
 ---
 
 ## Policy Packs

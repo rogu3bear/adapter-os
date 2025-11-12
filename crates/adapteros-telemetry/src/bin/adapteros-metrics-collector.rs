@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use adapteros_core::{AosError, Result};
+use adapteros_telemetry::metrics::system;
 use adapteros_telemetry::metrics::{
     MetricsCollector, MetricsRegistry, MetricsServer, SystemMetricsProvider, SystemMetricsSnapshot,
 };
-use adapteros_telemetry::metrics::system;
 use async_trait::async_trait;
 use clap::Parser;
 use tokio::time::interval;
@@ -31,7 +31,7 @@ impl SystemMetricsProvider for TelemetrySystemMetricsProvider {
         SystemMetricsSnapshot {
             cpu_usage_percent: event.cpu_usage as f64,
             memory_usage_mb: event.memory_usage as f64,
-            disk_io_utilization: 0.0, // Placeholder
+            disk_io_utilization: 0.0,    // Placeholder
             network_bandwidth_mbps: 0.0, // Placeholder
             gpu_utilization: event.gpu_utilization.map(|v| v as f64),
             gpu_memory_used_mb: event.gpu_memory_used.map(|b| b as f64 / 1_048_576.0),

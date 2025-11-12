@@ -63,6 +63,6 @@ tempfile = "3.8"
 criterion = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nix = { workspace = true }
+nix = { version = "0.28", features = ["user"] }
 mach = "0.3"
 metal = "0.27"

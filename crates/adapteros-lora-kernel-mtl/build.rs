@@ -36,7 +36,10 @@ fn main() {
 
     if let Ok(output) = compile_output {
         if !output.status.success() {
-            eprintln!("Metal compilation failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Metal compilation failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             std::process::exit(1);
         }
     } else {
@@ -59,7 +62,10 @@ fn main() {
 
     if let Ok(output) = link_output {
         if !output.status.success() {
-            eprintln!("Metallib linking failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Metallib linking failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             std::process::exit(1);
         }
     } else {

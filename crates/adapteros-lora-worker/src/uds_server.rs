@@ -77,10 +77,7 @@ impl UdsServer {
     }
 
     /// Handle individual UDS connection
-    async fn handle_connection(
-        mut stream: UnixStream,
-        worker: Arc<Mutex<Worker>>,
-    ) -> Result<()> {
+    async fn handle_connection(mut stream: UnixStream, worker: Arc<Mutex<Worker>>) -> Result<()> {
         // Parse HTTP request from UDS stream
         let request = Self::parse_request(&mut stream).await?;
 

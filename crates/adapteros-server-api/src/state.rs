@@ -9,7 +9,10 @@ struct MockNotificationSender;
 
 #[async_trait::async_trait]
 impl adapteros_system_metrics::alerting::NotificationSender for MockNotificationSender {
-    async fn send_notification(&self, _notification: adapteros_system_metrics::alerting::NotificationRequest) -> adapteros_core::Result<()> {
+    async fn send_notification(
+        &self,
+        _notification: adapteros_system_metrics::alerting::NotificationRequest,
+    ) -> adapteros_core::Result<()> {
         // Mock implementation - could be extended to send real notifications
         Ok(())
     }
@@ -524,14 +527,16 @@ impl AppState {
                 std::path::Path::new("var/log"),
                 1000,
                 1024 * 1024,
-            ).unwrap_or_else(|_| {
+            )
+            .unwrap_or_else(|_| {
                 // Fallback: create a minimal telemetry writer that doesn't persist
                 adapteros_telemetry::TelemetryWriter::new_with_broadcast(
                     std::path::Path::new("/tmp"),
                     100,
                     64 * 1024,
                     None,
-                ).expect("Failed to create fallback telemetry writer")
+                )
+                .expect("Failed to create fallback telemetry writer")
             });
 
             let alerting_config = adapteros_system_metrics::alerting::AlertingConfig::default();
@@ -675,7 +680,9 @@ impl AppState {
             mlx: None,
         };
         let config = Arc::new(std::sync::RwLock::new(api_config));
-        let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).unwrap());
+        let metrics_exporter = Arc::new(
+            adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).unwrap(),
+        );
         let metrics_collector = Arc::new(
             MetricsCollector::new_with_system_provider(None)
                 .expect("failed to create metrics collector"),
@@ -747,7 +754,10 @@ impl AppState {
     }
 
     /// Query telemetry buffer
-    pub fn query_telemetry(&self, filters: &adapteros_telemetry::TelemetryFilters) -> Vec<UnifiedTelemetryEvent> {
+    pub fn query_telemetry(
+        &self,
+        filters: &adapteros_telemetry::TelemetryFilters,
+    ) -> Vec<UnifiedTelemetryEvent> {
         self.telemetry_buffer.query(filters)
     }
 
@@ -768,7 +778,10 @@ impl AppState {
     /// - Performance optimization: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     pub fn derive_component_seeds(&self, components: &[&str]) -> Vec<[u8; 32]> {
         let global_b3 = adapteros_core::B3Hash::from_bytes(self.global_seed);
-        components.iter().map(|component| adapteros_core::derive_seed(&global_b3, component)).collect::<Vec<_>>()
+        components
+            .iter()
+            .map(|component| adapteros_core::derive_seed(&global_b3, component))
+            .collect::<Vec<_>>()
     }
 
     /// Derive a seed for training operations with tenant isolation
@@ -815,11 +828,12 @@ impl AppState {
     pub fn validate_seed_consistency(&self) -> Result<(), adapteros_core::AosError> {
         // Validate router seed consistency
         let router_seed = self.derive_component_seed("router");
-        let expected_router_seed = adapteros_core::derive_seed(&B3Hash::from_bytes(self.global_seed), "router");
+        let expected_router_seed =
+            adapteros_core::derive_seed(&B3Hash::from_bytes(self.global_seed), "router");
 
         if router_seed != expected_router_seed {
             return Err(adapteros_core::AosError::PolicyViolation(
-                "Router seed inconsistency detected".to_string()
+                "Router seed inconsistency detected".to_string(),
             ));
         }
 
@@ -1138,11 +1152,17 @@ mod tests {
         // Test component seed derivation consistency
         let router_seed1 = state.derive_component_seed("router");
         let router_seed2 = state.derive_component_seed("router");
-        assert_eq!(router_seed1, router_seed2, "Component seeds should be deterministic");
+        assert_eq!(
+            router_seed1, router_seed2,
+            "Component seeds should be deterministic"
+        );
 
         // Test different components get different seeds
         let model_seed = state.derive_component_seed("model_runtime");
-        assert_ne!(router_seed1, model_seed, "Different components should get different seeds");
+        assert_ne!(
+            router_seed1, model_seed,
+            "Different components should get different seeds"
+        );
 
         // Test batch seed derivation
         let components = vec!["router", "model_runtime", "training"];
@@ -1187,8 +1207,10 @@ mod tests {
         let state = AppState::test_state(global_seed).await;
 
         // Valid state should pass validation
-        assert!(state.validate_seed_consistency().is_ok(),
-                "Valid seed state should pass consistency validation");
+        assert!(
+            state.validate_seed_consistency().is_ok(),
+            "Valid seed state should pass consistency validation"
+        );
     }
 
     /// Test global seed storage and access
@@ -1202,7 +1224,9 @@ mod tests {
         let state = AppState::test_state(global_seed_bytes).await;
 
         // Verify global seed is stored correctly
-        assert_eq!(state.global_seed, global_seed_bytes,
-                  "Global seed should be stored correctly");
+        assert_eq!(
+            state.global_seed, global_seed_bytes,
+            "Global seed should be stored correctly"
+        );
     }
 }

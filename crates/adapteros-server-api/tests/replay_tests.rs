@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::StatusCode;
     use crate::state::AppState;
+    use axum::http::StatusCode;
     use sqlx::SqlitePool;
 
     #[tokio::test]
@@ -18,8 +18,17 @@ mod tests {
             .unwrap();
 
         let state = AppState::new_with_db(sqlx::Pool::from(pool)); // Assume new_with_db for test
-        let claims = Claims { tenant_id: "test".to_string(), ... Default }; // Stub
-        let response = replay_from_bundle(State(state), Extension(claims), Path("test-bundle".to_string())).await.unwrap();
+        let claims = Claims {
+            tenant_id: "test".to_string(),
+            ..Default::default()
+        }; // Stub
+        let response = replay_from_bundle(
+            State(state),
+            Extension(claims),
+            Path("test-bundle".to_string()),
+        )
+        .await
+        .unwrap();
         let body = response.unwrap().into_parts().1; // Parse JSON
         let session: ReplaySessionResponse = serde_json::from_str(&body); // Assert cpid == "test-cpid"
         assert_eq!(session.cpid, "test-cpid");

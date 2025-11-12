@@ -19,4 +19,4 @@ serde_json.workspace = true
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 
 # Prometheus metrics
-prometheus = "0.13"
+prometheus = { workspace = true }

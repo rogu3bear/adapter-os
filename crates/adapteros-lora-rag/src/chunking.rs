@@ -9,6 +9,7 @@ use adapteros_core::B3Hash;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tracing::info;
 
 /// Chunking configuration
 #[derive(Debug, Clone)]
@@ -312,6 +313,7 @@ impl CodeChunker {
         // Handle any remaining code not covered by symbols (if needed)
         // This could be module-level code, comments, etc.
 
+        info!(chunk_size = chunks.len(), "Chunking completed");
         Ok(chunks)
     }
 

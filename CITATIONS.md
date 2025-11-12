@@ -821,3 +821,25 @@ For each patch:
 **Last Updated:** 2025-11-06  
 **Status:** Comprehensive patching plan ready for implementation  
 **Next Action:** Begin Phase 2B - Control Matrix Validation implementation
+
+# Citations for API Error Handling
+
+## Middleware Extraction
+【2025-11-12†api_error†middleware】
+- Files: crates/adapteros-api/src/middleware.rs, logger.rs, ratelimit.rs
+- Description: Extracted error catcher, panic recovery, extractor error, logger, rate limit layers to modular files from inline in lib.rs. Reduced duplication, enabled composition. Impact: 300+ lines consolidated, consistent error handling across UDS/TCP.
+
+## UDS Handler
+【2025-11-12†uds_handler†dispatch】
+- Files: crates/adapteros-api/src/uds.rs
+- Description: Extracted UDS connection handling from server stub to shared module. Added perms, shutdown. Impact: No duplication with server, UDS now full HTTP with middleware.
+
+## Error Variants Expansion
+【2025-11-12†api_error_variants†domain_specific】
+- Files: crates/adapteros-api/src/lib.rs
+- Description: Added domain variants (EgressViolation, DeterminismViolation, etc.), mapped from AosError. Updated IntoResponse with codes. Impact: Specific HTTP status for policy/infra errors, better client handling.
+
+## Trace ID Propagation
+【2025-11-12†api_error†trace_id】
+- Files: crates/adapteros-api/src/lib.rs
+- Description: Added trace_id to ApiError, ErrorResponse, signals. UUID generation in From/handlers. Impact: Audit trails for errors across layers, telemetry correlation.
