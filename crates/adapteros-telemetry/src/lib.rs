@@ -137,7 +137,7 @@ impl TelemetryWriter {
                 max_bytes,
                 bundle_state_clone,
             ) {
-                eprintln!("Telemetry writer error: {}", e);
+                error!(error = %e, "Telemetry writer error");
             }
         });
 

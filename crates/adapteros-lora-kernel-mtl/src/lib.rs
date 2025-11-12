@@ -326,7 +326,7 @@ impl MetalKernels {
 
             if idx < devices.len() {
                 let device = devices[idx].clone();
-                println!("Selected GPU {}: {}", idx, device.name());
+                info!(gpu_idx = idx, device_name = %device.name(), "Selected GPU");
                 return Ok(device);
             } else {
                 return Err(AosError::Kernel(format!(

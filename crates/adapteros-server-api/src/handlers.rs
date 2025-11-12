@@ -4061,10 +4061,39 @@ pub async fn list_policies(
 ) -> Result<Json<Vec<PolicyPackResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    // For now, return an empty list as no policy storage is implemented yet
-    // TODO: Implement policy storage and retrieval from database
-    info!("Listing policies (not yet implemented in database)");
-    Ok(Json(vec![]))
+    #[derive(sqlx::FromRow)]
+    struct PolicyRow {
+        cpid: String,
+        content: String,
+        hash_b3: String,
+        created_at: String,
+    }
+
+    let policies = sqlx::query_as::<_, PolicyRow>(
+        "SELECT cpid, content, hash_b3, created_at FROM policies ORDER BY created_at DESC"
+    )
+    .fetch_all(&state.db.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error listing policies: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let response: Vec<PolicyPackResponse> = policies.into_iter().map(|row| PolicyPackResponse {
+        cpid: row.cpid,
+        content: row.content,
+        hash_b3: row.hash_b3,
+        created_at: row.created_at,
+    }).collect();
+
+    Ok(Json(response))
 }
 
 /// Get policy by CPID
@@ -4075,15 +4104,43 @@ pub async fn get_policy(
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    // For now, return a placeholder response as policy storage is not implemented
-    // TODO: Implement policy retrieval from database by CPID
-    warn!(cpid = %cpid, "Policy retrieval not implemented, returning placeholder");
+    #[derive(sqlx::FromRow)]
+    struct PolicyRow {
+        content: String,
+        hash_b3: String,
+        created_at: String,
+    }
+
+    let policy = sqlx::query_as::<_, PolicyRow>(
+        "SELECT content, hash_b3, created_at FROM policies WHERE cpid = $1"
+    )
+    .bind(&cpid)
+    .fetch_optional(&state.db.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error getting policy {}: {}", cpid, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?
+    .ok_or_else(|| {
+        tracing::warn!("Policy not found: {}", cpid);
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("policy not found").with_code("POLICY_NOT_FOUND")),
+        )
+    })?;
 
     Ok(Json(PolicyPackResponse {
         cpid,
-        content: r#"{"schema": "adapteros.policy.v1", "packs": {}}"#.to_string(),
-        hash_b3: "b3:placeholder".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        content: policy.content,
+        hash_b3: policy.hash_b3,
+        created_at: policy.created_at,
     }))
 }
 
@@ -4146,57 +4203,52 @@ pub async fn apply_policy(
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    // First validate the policy
-    match serde_json::from_str::<serde_json::Value>(&req.content) {
-        Ok(json_value) => {
-            // Check schema
-            if let Some(schema) = json_value.get("schema").and_then(|s| s.as_str()) {
-                if !schema.starts_with("adapteros.policy.") {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(
-                            ErrorResponse::new("Invalid policy schema")
-                                .with_code("INVALID_POLICY")
-                                .with_string_details("Schema must start with 'adapteros.policy.'"),
-                        ),
-                    ));
-                }
-            } else {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("Missing policy schema")
-                            .with_code("INVALID_POLICY")
-                            .with_string_details("Policy must have a 'schema' field"),
-                    ),
-                ));
-            }
-        }
-        Err(e) => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Invalid policy JSON")
-                        .with_code("INVALID_POLICY")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
-        }
-    }
+    let hash_b3 = blake3::Hasher::new()
+        .update(req.content.as_bytes())
+        .finalize()
+        .to_hex()
+        .to_string();
 
-    // Generate hash
-    let hash_b3 = format!("b3:{:x}", md5::compute(&req.content));
     let created_at = chrono::Utc::now().to_rfc3339();
 
-    // TODO: Store policy in database
-    warn!(cpid = %req.cpid, hash = %hash_b3, "Policy application not fully implemented - validation only");
+    let result = sqlx::query(
+        r#"
+        INSERT INTO policies (cpid, content, hash_b3, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (cpid) DO UPDATE SET
+            content = $2,
+            hash_b3 = $3,
+            updated_at = $4
+        RETURNING cpid, content, hash_b3, created_at
+        "#
+    )
+    .bind(&req.cpid)
+    .bind(&req.content)
+    .bind(&hash_b3)
+    .bind(&created_at)
+    .fetch_one(&state.db.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error applying policy {}: {}", req.cpid, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
-    info!(cpid = %req.cpid, "Policy validated and ready for application");
+    let row: (String, String, String, String) = result;
+
+    info!("Policy applied: {} with hash {}", req.cpid, hash_b3);
+
     Ok(Json(PolicyPackResponse {
-        cpid: req.cpid,
-        content: req.content,
-        hash_b3,
-        created_at,
+        cpid: row.0,
+        content: row.1,
+        hash_b3: row.2,
+        created_at: row.3,
     }))
 }
 

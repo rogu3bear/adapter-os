@@ -3,11 +3,12 @@ mod assets;
 use adapteros_core::AosError;
 use adapteros_core::Result;
 use adapteros_crypto::Keypair;
+use adapteros_crypto::ed25519::Keypair;
 use adapteros_db::Database;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
-use adapteros_orchestrator::{CodeJobManager, TrainingService};
+use adapteros_orchestrator::{CodeJobManager, TrainingService, FederationDaemonConfig};
 use adapteros_policy::PolicyPackManager;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
@@ -17,6 +18,7 @@ use adapteros_server_api::{routes, AppState};
 use adapteros_system_metrics::SystemMetricsCollector;
 #[cfg(feature = "telemetry")]
 use async_trait::async_trait;
+use adapteros_federation::FederationManager;
 
 #[cfg(feature = "telemetry")]
 /// System metrics provider implementation using SystemMetricsCollector
@@ -921,51 +923,27 @@ async fn main() -> Result<()> {
         info!("Rate limiter cleanup loop scheduled (24h interval)");
     }
 
-    // TODO: Start Federation Daemon once dependencies are fixed
-    // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
-    // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
-    //
-    // Once fixed, uncomment this block:
-    // {
-    //     info!("Initializing federation daemon");
-    //
-    //     // Reuse telemetry and policy_watcher from above (would need to move out of scope)
-    //     // Create federation manager
-    //     // Note: FederationManager needs Db, so extract from Database wrapper
-    //     use adapteros_db::DatabaseBackend;
-    //     let db_for_federation = match db.backend() {
-    //         DatabaseBackend::Sqlite(db_inner) => db_inner.clone(),
-    //         DatabaseBackend::Postgres(_) => {
-    //             return Err(AosError::Config(
-    //                 "Federation daemon requires SQLite backend".to_string()
-    //             ).into());
-    //         }
-    //     };
-    //     let federation_keypair = adapteros_crypto::Keypair::generate();
-    //     let federation_manager = Arc::new(
-    //         adapteros_federation::FederationManager::new(db_for_federation, federation_keypair)?
-    //     );
-    //
-    //     // Create federation daemon config (5 minute interval per spec)
-    //     let federation_config = adapteros_orchestrator::FederationDaemonConfig {
-    //         interval_secs: 300, // 5 minutes
-    //         max_hosts_per_sweep: 10,
-    //         enable_quarantine: true,
-    //     };
-    //
-    //     // Create and start daemon
-    //     // FederationDaemon now expects Arc<Database>
-    //     let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
-    //         federation_manager,
-    //         policy_watcher.clone(),
-    //         telemetry.clone(),
-    //         Arc::new(db.clone()),
-    //         federation_config,
-    //     ));
-    //
-    //     let _federation_handle = federation_daemon.start();
-    //     info!("Federation daemon started (300s interval)");
-    // }
+    // Initialize federation daemon
+    info!("Initializing federation daemon");
+
+    let keypair = Keypair::generate();
+    let federation_manager = Arc::new(FederationManager::new(Arc::clone(&db), keypair));
+
+    let federation_config = FederationDaemonConfig::default();
+
+    let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
+        federation_manager,
+        Arc::clone(&policy_watcher),
+        Arc::clone(&telemetry),
+        Arc::clone(&db),
+        federation_config,
+    ));
+
+    let _federation_handle = federation_daemon.start();
+    info!("Federation daemon started ({}s interval)", federation_config.interval_secs);
+
+    // Set in AppState
+    app_state.federation_daemon = Some(federation_daemon);
 
     // Create metrics exporter
     let metrics_exporter = {

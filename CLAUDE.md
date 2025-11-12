@@ -144,28 +144,10 @@ AosError::Network("reason")                 // Network errors
 ### Use `tracing` (Not `println!`)
 
 ```rust
-use tracing::{info, warn, error, debug, trace};
-
-// ✅ GOOD: Structured logging with tracing
-pub async fn process_request(&self, req: Request) -> Result<Response> {
-    info!(request_id = %req.id, "Processing request");
-    
-    let result = self.handle(req).await?;
-    
-    info!(
-        request_id = %req.id,
-        duration_ms = ?result.duration,
-        "Request processed successfully"
-    );
-    
-    Ok(result)
-}
-
-// ❌ BAD: Using println! for logging
-pub fn log_event(&self, event: &str) {
-    println!("Event: {}", event); // DON'T DO THIS
-}
+// ✅ GOOD: Structured logging in tests (from aos/tests/integration_tests.rs L35)
+info!(adapter_id = %adapter.adapter_id(), "Loaded adapter");
 ```
+[source: crates/adapteros-aos/tests/integration_tests.rs L35]
 
 ### Log Levels
 
@@ -191,6 +173,14 @@ info!(
 
 // Fields can be queried in log aggregation systems
 ```
+
+### Structured logging in policy tests
+
+```rust
+// ✅ GOOD: Structured logging in policy tests (from policy/tests/integration_tests.rs L897)
+info!(violations_len = result.violations.len(), "Found violations");
+```
+[source: crates/adapteros-policy/tests/integration_tests.rs L897]
 
 ---
 
