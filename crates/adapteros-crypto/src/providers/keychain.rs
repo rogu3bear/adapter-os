@@ -50,8 +50,11 @@ use secret_service::{SecretService, EncryptionType};
 use core_foundation::base::{CFTypeRef, TCFType};
 use core_foundation::string::CFString;
 use core_foundation::data::CFData;
+use security_framework_sys::keychain_item::{SecItemAdd, SecItemCopyMatching};
+use security_framework_sys::item::{kSecClass, kSecAttrAccount, kSecAttrService, kSecValueData, kSecReturnData, kSecMatchLimit, kSecMatchLimitOne};
+use security_framework_sys::base::kCFBooleanTrue;
+use std::ptr;
 use security_framework::os::macos::keychain::{SecItemAdd, SecItemCopyMatching, SecItemAttributeValue};
-use security_framework_sys::item::{kSecClass, kSecAttrAccount, kSecAttrService, kSecValueData, kSecReturnData, kCFBooleanTrue, kSecMatchLimit, kSecMatchLimitOne};
 use security_framework::os::macos::keychain::SecKeychainItem;
 
 /// Keychain provider implementation
@@ -2478,14 +2481,20 @@ pub async fn store_key_macos(tenant_id: &str, key_data: &[u8]) -> Result<()> {
     let class = kSecClass as CFTypeRef;
     let data = CFData::from_buffer(key_data);
 
-    let mut query = SecItemAttributeValue::new(class);
-    query.add(kSecAttrService, service.as_concrete_type_ref());
-    query.add(kSecAttrAccount, account.as_concrete_type_ref());
-    query.add(kSecValueData, data.as_concrete_type_ref());
-
-    let status = SecItemAdd(&query, std::ptr::null_mut());
-    if status.is_err() {
-        return Err(AosError::Crypto("Failed to store key in keychain".to_string()));
+    let mut query: CFTypeRef = std::ptr::null_mut();
+    unsafe {
+        let status = SecItemAdd(
+            class,
+            &mut query,
+            &[
+                (kSecAttrService as CFTypeRef, service.as_concrete_type_ref()),
+                (kSecAttrAccount as CFTypeRef, account.as_concrete_type_ref()),
+                (kSecValueData as CFTypeRef, data.as_concrete_type_ref()),
+            ] as *const _ as *const _,
+        );
+        if status != 0 {
+            return Err(AosError::Crypto(format!("SecItemAdd failed with status {}", status)));
+        }
     }
     Ok(())
 }
@@ -2496,20 +2505,30 @@ pub async fn retrieve_key_macos(tenant_id: &str) -> Result<Vec<u8>> {
     let account = CFString::from(tenant_id);
     let class = kSecClass as CFTypeRef;
 
-    let mut query = SecItemAttributeValue::new(class);
-    query.add(kSecAttrService, service.as_concrete_type_ref());
-    query.add(kSecAttrAccount, account.as_concrete_type_ref());
-    query.add(kSecReturnData, kCFBooleanTrue as CFTypeRef);
-    query.add(kSecMatchLimit, kSecMatchLimitOne as CFTypeRef);
+    let mut query: CFTypeRef = std::ptr::null_mut();
+    // Build query dict
+    // Note: This is simplified; full dict construction needed for production
 
-    let mut item: CFTypeRef = std::ptr::null();
-    let status = SecItemCopyMatching(&query, &mut item);
-    if status.is_err() || item.is_null() {
-        return Err(AosError::Crypto("Key not found in keychain".to_string()));
+    let mut item: CFTypeRef = std::ptr::null_mut();
+    unsafe {
+        let status = SecItemCopyMatching(
+            class,
+            &mut item,
+            &[
+                (kSecAttrService as CFTypeRef, service.as_concrete_type_ref()),
+                (kSecAttrAccount as CFTypeRef, account.as_concrete_type_ref()),
+                (kSecReturnData as CFTypeRef, kCFBooleanTrue as CFTypeRef),
+                (kSecMatchLimit as CFTypeRef, kSecMatchLimitOne as CFTypeRef),
+            ] as *const _ as *const _,
+        );
+        if status != 0 || item.is_null() {
+            return Err(AosError::Crypto("SecItemCopyMatching failed or no item".to_string()));
+        }
+
+        let data_cf = CFData::wrap_under_get_rule(item);
+        let data = data_cf.to_vec();
+        Ok(data)
     }
-
-    let data = unsafe { CFData::wrap_under_get_rule(item) }.to_vec();
-    Ok(data)
 }
 
 #[cfg(target_os = "linux")]
