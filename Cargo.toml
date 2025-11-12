@@ -90,7 +90,7 @@ extended-tests = []
 integration_tests = []
 
 [dependencies]
-tower-governor = "0.5"
+tower_governor = "0.5"
 # Re-export key crates for integration tests
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
