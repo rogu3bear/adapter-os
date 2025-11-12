@@ -2,6 +2,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
 import { RealtimeMetrics } from '../components/RealtimeMetrics';
 import * as api from '../api/client';
+import { act } from 'react';
 
 // Mock api client default export and named apiClient
 vi.mock('../api/client', () => {
@@ -75,7 +76,9 @@ describe('RealtimeMetrics', () => {
     });
 
     const refreshButton = screen.getByRole('button', { name: /Refresh/ });
-    fireEvent.click(refreshButton);
+    await act(async () => {
+      fireEvent.click(refreshButton);
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/45(\.0)?%/)).toBeInTheDocument();

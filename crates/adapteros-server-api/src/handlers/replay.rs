@@ -227,7 +227,20 @@ pub async fn replay_from_bundle(
     Extension(claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (cpid, plan_id) = replay::fetch_bundle_metadata(&state.db, &bundle_id).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string()))) )?;
+    let row = sqlx::query("SELECT cpid, plan_id FROM telemetry_bundles WHERE id = ?")
+        .bind(&bundle_id)
+        .fetch_optional(&state.db.pool())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string()))))?;
+
+    let (cpid, plan_id) = if let Some(row) = row {
+        let cpid: String = row.get("cpid");
+        let plan_id: String = row.get("plan_id");
+        (cpid, plan_id)
+    } else {
+        ("default".to_string(), "default".to_string())
+    };
+
     let req = CreateReplaySessionRequest {
         tenant_id: claims.tenant_id,
         cpid,

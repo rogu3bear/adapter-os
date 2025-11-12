@@ -74,6 +74,8 @@ export function usePolling<T>(
   const onSuccessRef = useRef(onSuccess);
   const configRef = useRef(config);
   
+  const isInitialRef = useRef(true);
+
   useEffect(() => {
     fetchFnRef.current = fetchFn;
     showLoadingIndicatorRef.current = showLoadingIndicator;
@@ -243,13 +245,27 @@ export function usePolling<T>(
       return;
     }
 
+    // Set initial loading state based on config
+    const currentShow = showLoadingIndicatorRef.current;
+    setIsLoading(!!currentShow);
+
     // Clean up any existing interval first
     if (intervalRef.current) {
       clearTimeout(intervalRef.current);
       intervalRef.current = null;
     }
 
-    // Schedule next poll function (uses refs to avoid circular dependencies)
+    // Reset failure state etc.
+    failureCountRef.current = 0;
+    backoffMultiplierRef.current = 1;
+    currentIntervalRef.current = intervalMs;
+    circuitOpenTimeRef.current = null;
+    if (circuitBreakerTimeoutRef.current) {
+      clearTimeout(circuitBreakerTimeoutRef.current);
+      circuitBreakerTimeoutRef.current = null;
+    }
+
+    // Schedule next poll function
     const scheduleNextPoll = () => {
       if (!mountedRef.current || !enabled) return;
       
@@ -276,11 +292,15 @@ export function usePolling<T>(
       }, currentIntervalRef.current);
     };
 
-    // Store scheduleNextPoll in ref so fetchData can call it
     scheduleNextPollRef.current = scheduleNextPoll;
 
-    // Initial fetch - this will schedule the next poll
-    fetchData();
+    // Initial fetch only on first mount
+    if (isInitialRef.current) {
+      isInitialRef.current = false;
+      fetchData();
+    } else {
+      scheduleNextPoll();
+    }
 
     return () => {
       mountedRef.current = false;

@@ -975,14 +975,8 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry::search_traces),
         )
         .route("/api/traces/:trace_id", get(handlers::telemetry::get_trace))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            per_tenant_rate_limit_middleware(state.clone()),
-        ));
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(per_tenant_rate_limit_middleware(state.clone()));
 
     // Configure CORS for development
     let cors = CorsLayer::permissive(); // Allow all origins in dev mode

@@ -79,6 +79,8 @@ glob = "0.3"
 lazy_static = "1.4"
 walkdir = "2.4"
 blake3 = { workspace = true }
+futures = "0.3"
+tower_governor = "0.5"
 
 [dev-dependencies]
 axum-test = "15.0"
