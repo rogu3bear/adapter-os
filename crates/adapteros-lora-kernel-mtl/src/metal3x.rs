@@ -11,6 +11,8 @@ use metal::foreign_types::ForeignType;
 use metal::*;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+use adapteros_core::AosError;
+use blake3;
 
 /// Metal 3.x feature flags
 #[derive(Debug, Clone)]

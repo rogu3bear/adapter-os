@@ -1406,12 +1406,71 @@ class ApiClient {
   // Routing methods
   async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.RoutingDecision[]> {
     const params = new URLSearchParams();
-    if (filters?.limit) params.append('limit', filters.limit.toString());
-    if (filters?.adapter_id) params.append('adapter_id', filters.adapter_id);
-    if (filters?.start_time) params.append('start_time', filters.start_time);
-    if (filters?.end_time) params.append('end_time', filters.end_time);
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.RoutingDecision[]>(`/v1/routing/decisions${query}`);
+    // Backend requires 'tenant' parameter in query struct (even though handler uses claims.tenant_id)
+    // Always send tenant parameter - use provided value or 'default' as fallback
+    const tenant = filters?.tenant || 'default';
+    params.append('tenant', tenant);
+    
+    if (filters?.limit) {
+      params.append('limit', filters.limit.toString());
+    }
+    // Note: adapter_id is not in the backend query struct, so we skip it
+    if (filters?.start_time) {
+      params.append('since', filters.start_time);
+    }
+    // Note: end_time is not supported by backend query struct
+    
+    const query = `?${params.toString()}`;
+    
+    logger.debug('Fetching routing decisions', {
+      component: 'ApiClient',
+      operation: 'getRoutingDecisions',
+      query,
+      tenant,
+    });
+    
+    // Backend returns RoutingDecisionsResponse with 'items' field
+    interface BackendRoutingDecision {
+      ts: string;
+      tenant_id: string;
+      adapters_used: string[];
+      activations: number[];
+      reason: string;
+      trace_id: string;
+    }
+    
+    interface BackendRoutingDecisionsResponse {
+      items: BackendRoutingDecision[];
+    }
+    
+    const response = await this.request<BackendRoutingDecisionsResponse>(`/v1/routing/decisions${query}`);
+    
+    // Transform backend format to frontend format
+    return response.items.map((item, index) => ({
+      id: item.trace_id || `decision-${index}`,
+      timestamp: item.ts,
+      prompt_hash: item.trace_id || '',
+      input_hash: item.trace_id ? item.trace_id.slice(0, 16) : undefined,
+      adapters: item.adapters_used,
+      gates: item.activations,
+      total_score: item.activations.reduce((sum, val) => sum + val, 0) / item.activations.length,
+      k_value: item.adapters_used.length,
+      entropy: this.calculateEntropy(item.activations),
+      trace_id: item.trace_id,
+    }));
+  }
+  
+  private calculateEntropy(values: number[]): number {
+    if (values.length === 0) return 0;
+    // Normalize values to probabilities
+    const sum = values.reduce((a, b) => a + b, 0);
+    if (sum === 0) return 0;
+    const probs = values.map(v => v / sum);
+    // Calculate Shannon entropy
+    return -probs.reduce((entropy, p) => {
+      if (p === 0) return entropy;
+      return entropy + p * Math.log2(p);
+    }, 0);
   }
 
   // Workspace methods

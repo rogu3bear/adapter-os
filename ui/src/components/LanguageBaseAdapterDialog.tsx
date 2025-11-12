@@ -113,6 +113,8 @@ export function LanguageBaseAdapterDialog({
         tenant_id: tenantId || undefined,
         package: packaging || undefined,
         adapters_root: packaging ? adaptersRoot : undefined,
+        category: 'code',
+        language: language,
       };
 
       const job = await apiClient.startTraining(req);

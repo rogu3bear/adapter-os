@@ -434,7 +434,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
               <SelectValue placeholder="Choose a template..." />
             </SelectTrigger>
             <SelectContent>
-              {templates.map((template) => (
+              {templates.filter(template => template.id && template.id !== '').map((template) => (
                 <SelectItem key={template.id} value={template.id}>
                   {template.name} - {template.description}
                 </SelectItem>
@@ -452,7 +452,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
               <SelectValue placeholder="Choose a repository..." />
             </SelectTrigger>
             <SelectContent>
-              {repositories.map((repo) => (
+              {repositories.filter(repo => repo.id && repo.id !== '').map((repo) => (
                 <SelectItem key={repo.id} value={repo.id}>
                   {repo.url} ({repo.branch})
                 </SelectItem>
@@ -1103,6 +1103,42 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         adapter_id: state.adapterId || undefined,
         tier: state.tier,
       };
+
+      // Add category and configuration fields
+      trainingRequest.category = state.category || 'codebase';
+
+      switch (state.category) {
+        case 'code':
+          trainingRequest.language = state.language;
+          if (state.symbolTargets && state.symbolTargets.length > 0) {
+            trainingRequest.symbol_targets = state.symbolTargets;
+          }
+          break;
+        case 'framework':
+          trainingRequest.framework_id = state.frameworkId;
+          trainingRequest.framework_version = state.frameworkVersion;
+          if (state.apiPatterns && state.apiPatterns.length > 0) {
+            trainingRequest.api_patterns = state.apiPatterns;
+          }
+          break;
+        case 'codebase':
+          trainingRequest.repo_scope = state.repoScope;
+          if (state.filePatterns && state.filePatterns.length > 0) {
+            trainingRequest.file_patterns = state.filePatterns;
+          }
+          if (state.excludePatterns && state.excludePatterns.length > 0) {
+            trainingRequest.exclude_patterns = state.excludePatterns;
+          }
+          break;
+        case 'ephemeral':
+          if (state.ttlSeconds) {
+            trainingRequest.ttl_seconds = state.ttlSeconds;
+          }
+          if (state.contextWindow) {
+            trainingRequest.context_window = state.contextWindow;
+          }
+          break;
+      }
 
       // Add data source based on type
       if (state.dataSourceType === 'template' && state.templateId) {

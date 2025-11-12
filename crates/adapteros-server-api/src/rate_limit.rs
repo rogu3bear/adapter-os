@@ -3,29 +3,13 @@
 //! Implements per-tenant rate limiting with token bucket algorithm for M1 production hardening.
 //! Each tenant gets their own isolated token bucket with configurable rate and burst capacity.
 
-use crate::auth::Claims;
-use crate::state::AppState;
-use crate::types::ErrorResponse;
-use axum::{
-    extract::{Request, State},
-    http::{StatusCode, StatusCode as HttpStatusCode},
-    middleware::Next,
-    response::Response,
-    Json,
-};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing::warn;
+use axum::{extract::{Request, State}, http::StatusCode, middleware::Next, response::Response};
+use crate::{auth::Claims, state::AppState, types::ErrorResponse};
 use tower_governor::{Governor, GovernorConfig, key_extractor::KeyExtractor};
-use axum::http::Request;
-use std::sync::Arc;
-use crate::state::AppState;
-use crate::auth::Claims;
+use futures::future::BoxFuture;
 use tower::Layer;
 use tower::ServiceBuilder;
-use futures::future::BoxFuture;
 use tower::Service;
 
 #[derive(Clone)]

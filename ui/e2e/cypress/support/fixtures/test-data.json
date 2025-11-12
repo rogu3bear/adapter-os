@@ -1,0 +1,21 @@
+{
+  "testUser": {
+    "email": "test@example.com",
+    "password": "password"
+  },
+  "testAdapter": {
+    "name": "test-adapter",
+    "description": "Test adapter for Cypress tests"
+  },
+  "testTenant": {
+    "name": "test-tenant"
+  },
+  "testContact": {
+    "name": "Test Contact",
+    "email": "contact@example.com"
+  },
+  "testWorkspace": {
+    "name": "test-workspace"
+  }
+}
+

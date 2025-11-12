@@ -296,8 +296,12 @@ launch_system() {
 
     # Wait for user interrupt to stop everything gracefully
     cleanup_and_exit() {
-        echo -e "\n${YELLOW}Shutting down all services...${NC}"
-        ./scripts/service-manager.sh stop all
+        echo -e "\n${YELLOW}Shutting down all services gracefully...${NC}"
+        if [ -f "./scripts/graceful-shutdown.sh" ]; then
+            ./scripts/graceful-shutdown.sh graceful
+        else
+            ./scripts/service-manager.sh stop all graceful
+        fi
         echo -e "${GREEN}All services stopped. Goodbye! 👋${NC}"
         exit 0
     }
@@ -326,7 +330,12 @@ case "${1:-}" in
         ;;
     "stop")
         # Stop all services
-        ./scripts/service-manager.sh stop all
+        local mode="${2:-graceful}"
+        if [ -f "./scripts/graceful-shutdown.sh" ]; then
+            ./scripts/graceful-shutdown.sh "$mode"
+        else
+            ./scripts/service-manager.sh stop all "$mode"
+        fi
         echo -e "${GREEN}All services stopped${NC}"
         ;;
     "backend")
@@ -374,7 +383,7 @@ case "${1:-}" in
         echo "  ./launch.sh backend mlx <path>  # Launch backend with MLX backend (requires --features mlx-ffi-backend)"
         echo "  ./launch.sh ui                 # Launch backend + UI only"
         echo "  ./launch.sh status             # Show service status"
-        echo "  ./launch.sh stop               # Stop all services"
+        echo "  ./launch.sh stop [mode]        # Stop all services (graceful|fast|immediate)"
         echo "  ./launch.sh help               # Show this help"
         echo ""
         echo "The launch panel will:"

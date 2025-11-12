@@ -864,14 +864,6 @@ async fn test_metrics_collection() -> Result<()> {
     assert!(metrics.compile_success >= 0.0 && metrics.compile_success <= 1.0);
     assert!(metrics.test_pass_rate >= 0.0 && metrics.test_pass_rate <= 1.0);
 
-    println!("Metrics for code_v1:");
-    println!("  Acceptance rate: {:.2}%", metrics.acceptance_rate * 100.0);
-    println!(
-        "  Compile success: {:.2}%",
-        metrics.compile_success * 100.0
-    );
-    println!("  Test pass rate: {:.2}%", metrics.test_pass_rate * 100.0);
-
     Ok(())
 }
 
@@ -1127,7 +1119,7 @@ async fn test_fusion_performance_metrics() -> Result<()> {
         create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // Test that fusion operations are tracked in metrics
-    let metrics = client
+    let _ = client
         .get_code_metrics(CodeMetricsRequest {
             cpid: "fusion_test".to_string(),
             time_range: "1h".to_string(),
@@ -1299,7 +1291,7 @@ async fn test_fusion_accuracy_validation() -> Result<()> {
     // 3. Verifying results are within numerical precision bounds
 
     // For now, verify that fusion operations are tracked in metrics
-    let metrics = client
+    let _ = client
         .get_code_metrics(CodeMetricsRequest {
             cpid: "fusion_accuracy_test".to_string(),
             time_range: "1h".to_string(),
@@ -1658,7 +1650,7 @@ async fn test_multi_tenant_isolation() -> Result<()> {
         name: "tenant1".to_string(),
         itar_flag: false,
     };
-    let tenant1 = client.create_tenant(tenant1_req).await?;
+    let _ = client.create_tenant(tenant1_req).await?;
 
     // Register adapter in tenant1
     let adapter1_req = RegisterAdapterRequest {
@@ -1716,11 +1708,11 @@ async fn test_threat_detection_alert() -> Result<()> {
         require_evidence: None,
     };
 
-    let resp = client.infer(low_conf_req).await?;
+    let _ = client.infer(low_conf_req).await?;
     // Assert alert (check logs or metric)
     // Note: SystemMetricsResponse doesn't have threat_detected field
     // Threat detection would be logged or tracked via telemetry events
-    let _metrics = client.get_system_metrics().await?;
+    let _ = client.get_system_metrics().await?;
     // In a real implementation, check telemetry events or logs for threat alerts
 
     // Check log (mock: assume telemetry exposes recent)
@@ -1781,7 +1773,6 @@ async fn test_journey_endpoints() -> Result<()> {
 }
 
 /// Test helper functions
-#[cfg(test)]
 mod helpers {
     use super::*;
 
@@ -1820,26 +1811,43 @@ pub async fn create_authenticated_client(
     helpers::create_authenticated_client(email, password).await
 }
 
-/// Setup test environment
+/// Setup test environment with unique database isolation
+#[allow(dead_code)]
 async fn setup_test_env() -> Result<()> {
+    // Generate unique database file path using UUID for test isolation
+    let db_uuid = uuid::Uuid::new_v4().simple();
+    let db_path = format!("/tmp/adapteros_test_{}.db", db_uuid);
+
+    // Set up environment variables for testing with unique database
+    std::env::set_var("DATABASE_URL", db_path);
+
     // Create test directories
     std::fs::create_dir_all("/tmp/test-repo")?;
     std::fs::create_dir_all("/tmp/e2e-test-repo")?;
 
     // Initialize git repositories
     std::process::Command::new("git")
-        .args(&["init", "/tmp/test-repo"])
+        .args(["init", "/tmp/test-repo"])
         .output()?;
 
     std::process::Command::new("git")
-        .args(&["init", "/tmp/e2e-test-repo"])
+        .args(["init", "/tmp/e2e-test-repo"])
         .output()?;
 
     Ok(())
 }
 
-/// Cleanup test environment
+/// Cleanup test environment and remove unique database files
+#[allow(dead_code)]
 async fn cleanup_test_env() -> Result<()> {
+    // Remove the unique database file if it exists
+    if let Ok(db_path) = std::env::var("DATABASE_URL") {
+        let db_path = std::path::Path::new(&db_path);
+        if db_path.exists() {
+            std::fs::remove_file(db_path).ok();
+        }
+    }
+
     std::fs::remove_dir_all("/tmp/test-repo").ok();
     std::fs::remove_dir_all("/tmp/e2e-test-repo").ok();
     Ok(())

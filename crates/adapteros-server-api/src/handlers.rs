@@ -4,7 +4,7 @@ use crate::auth::{generate_token, generate_token_ed25519, refresh_token, verify_
 use crate::errors::ErrorResponseExt;
 use crate::middleware::{require_any_role, require_role};
 use crate::operation_tracker::{
-    ModelOperationType, OperationCancellationError, OperationConflict,
+    ModelOperationType, OperationCancellationError,
 };
 use crate::services::repo_url::infer_repo_urls_parallel;
 use crate::state::{AppState, JwtMode, TrainingSessionMetadata};
@@ -2299,7 +2299,6 @@ pub async fn list_nodes(
 
     Ok(Json(response))
 }
-
 /// Register node
 pub async fn register_node(
     State(state): State<AppState>,
@@ -2823,7 +2822,6 @@ pub async fn build_plan(
         created_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
-
 /// Promote CP with quality gates
 #[axum::debug_handler]
 pub async fn cp_promote(
@@ -4517,7 +4515,7 @@ pub async fn verify_bundle_signature(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("verification task failed")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -5128,7 +5126,7 @@ pub async fn infer(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -5200,7 +5198,6 @@ pub async fn infer(
         )),
     }
 }
-
 /// Streaming inference via SSE bridging worker signals
 pub async fn infer_stream(
     State(state): State<AppState>,
@@ -7343,7 +7340,7 @@ pub async fn unload_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(OperationConflict { .. }) = state
+    if let Err(e) = state
         .operation_tracker
         .start_adapter_operation(
             &adapter_id,
@@ -7355,8 +7352,7 @@ pub async fn unload_adapter(
         return Err((
             StatusCode::CONFLICT,
             Json(
-                ErrorResponse::new("Adapter is already being unloaded")
-                    .with_code("OPERATION_CONFLICT"),
+                ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", e.to_string()),
             ),
         ));
     }
@@ -13737,7 +13733,7 @@ pub async fn get_federation_audit(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to fetch federation signatures")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -13778,7 +13774,7 @@ pub async fn get_federation_audit(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to check quarantine status")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -13839,7 +13835,7 @@ pub async fn get_compliance_audit(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to count violations")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -13864,7 +13860,7 @@ pub async fn get_compliance_audit(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to fetch violations")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )

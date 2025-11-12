@@ -2024,6 +2024,7 @@ export interface RoutingDecisionFilters {
   adapter_id?: string;
   start_time?: string;
   end_time?: string;
+  tenant?: string; // Optional tenant ID (if not provided, backend uses JWT claims)
 }
 
 export interface AdapterSelection {

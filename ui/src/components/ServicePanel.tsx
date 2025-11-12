@@ -27,7 +27,8 @@ import { ServiceCard } from './ServiceCard';
 import { TerminalOutput } from './TerminalOutput';
 import PromptOrchestrationPanel from './PromptOrchestrationPanel';
 import { AuthenticationSettings } from './AuthenticationSettings';
-import { logger } from '../utils/logger';
+import { logger, toError } from '../utils/logger';
+import apiClient from '../api/client';
 
 // Simple service interface
 interface SimpleService {
@@ -55,46 +56,63 @@ export default function ServicePanel() {
   // Load services from backend
   const loadServices = useCallback(async () => {
     try {
-      const response = await fetch('/api/services');
+      const data = await apiClient.getStatus();
+      // Map status.services to SimpleService format
+      const services: SimpleService[] = (data.services || []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        status: s.state as 'running' | 'stopped' | 'starting' | 'stopping' | 'error',
+        port: s.port,
+        pid: s.pid,
+        startTime: s.start_time,
+        category: s.category || 'core',
+        essential: s.essential,
+        dependencies: s.dependencies,
+        startupOrder: s.startup_order,
+        logs: s.logs || [],
+      }));
+      setServices(services);
 
-      if (response.ok) {
-        const data = await response.json();
-        setServices(data.services);
+      // Calculate global status
+      const running = services.filter((s) => s.status === 'running').length;
+      const total = services.length;
 
-        // Calculate global status
-        const running = data.services.filter((s: SimpleService) => s.status === 'running').length;
-        const total = data.services.length;
-
-        if (running === total) {
-          setGlobalStatus('healthy');
-        } else if (running >= total * 0.5) {
-          setGlobalStatus('warning');
-        } else {
-          setGlobalStatus('error');
-        }
+      if (running === total) {
+        setGlobalStatus('healthy');
+      } else if (running >= total * 0.5) {
+        setGlobalStatus('warning');
       } else {
         setGlobalStatus('error');
-        logger.error('Failed to load services', {
-          component: 'ServicePanel',
-          status: response.status
-        });
       }
     } catch (error) {
-      logger.error('Failed to load services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
+      logger.error('Failed to load services', { 
+        component: 'ServicePanel',
+        error: toError(error),
+      });
       setGlobalStatus('error');
     }
   }, []);
 
   // Load essential services
   const loadEssentialServices = useCallback(async () => {
+    // For now, filter essential from services
+    // This is a placeholder; implement proper essential services endpoint when available
     try {
-      const response = await fetch('/api/services/essential');
-      if (response.ok) {
-        const data = await response.json();
-        setEssentialServices(data.essentialServices);
-      }
+      const data = await apiClient.getStatus();
+      const essential = (data.services || [])
+        .filter((s: any) => s.essential)
+        .map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          status: s.state,
+          // ... other fields
+        }));
+      setEssentialServices(essential);
     } catch (error) {
-      logger.error('Failed to load essential services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
+      logger.error('Failed to load essential services', { 
+        component: 'ServicePanel',
+        error: toError(error),
+      });
     }
   }, []);
 
@@ -109,113 +127,39 @@ export default function ServicePanel() {
     return () => clearInterval(interval);
   }, [loadServices, loadEssentialServices]);
 
-  // Service control handlers
+  // Disable service control functions with placeholders
   const handleStartService = async (service: SimpleService) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/services/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serviceId: service.id })
-      });
-
-      if (response.ok) {
-        await loadServices(); // Refresh services
-      } else {
-        const error = await response.json();
-        logger.error('Failed to start service', {
-          component: 'ServicePanel',
-          serviceId: service.id,
-          error
-        });
-      }
-    } catch (error) {
-      logger.error('Error starting service', { component: 'ServicePanel', serviceId: service.id }, error instanceof Error ? error : new Error(String(error)));
-    }
-    setIsLoading(false);
+    // Placeholder: Service control under development
+    logger.warn('Service start requested but not implemented', {
+      component: 'ServicePanel',
+      serviceId: service.id,
+    });
+    // TODO: Implement when backend endpoint available
   };
 
   const handleStopService = async (service: SimpleService) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/services/stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serviceId: service.id })
-      });
-
-      if (response.ok) {
-        await loadServices(); // Refresh services
-      } else {
-        const error = await response.json();
-        logger.error('Failed to stop service', {
-          component: 'ServicePanel',
-          serviceId: service.id,
-          error
-        });
-      }
-    } catch (error) {
-      logger.error('Error stopping service', { component: 'ServicePanel', serviceId: service.id }, error instanceof Error ? error : new Error(String(error)));
-    }
-    setIsLoading(false);
+    // Placeholder: Service control under development
+    logger.warn('Service stop requested but not implemented', {
+      component: 'ServicePanel',
+      serviceId: service.id,
+    });
+    // TODO: Implement when backend endpoint available
   };
 
   // Start all essential services
   const handleStartEssentialServices = async () => {
-    setEssentialOperation('starting');
-    try {
-      const response = await fetch('/api/services/essential/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        logger.info('Essential services start result', {
-          component: 'ServicePanel',
-          result: data
-        });
-        await loadServices(); // Refresh services
-      } else {
-        const error = await response.json();
-        logger.error('Failed to start essential services', {
-          component: 'ServicePanel',
-          error
-        });
-      }
-    } catch (error) {
-      logger.error('Error starting essential services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
-    }
-    setEssentialOperation('idle');
+    // Placeholder
+    logger.warn('Essential services start requested but not implemented', {
+      component: 'ServicePanel',
+    });
   };
 
   // Stop all essential services
   const handleStopEssentialServices = async () => {
-    setEssentialOperation('stopping');
-    try {
-      const response = await fetch('/api/services/essential/stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        logger.info('Essential services stop result', {
-          component: 'ServicePanel',
-          result: data
-        });
-        await loadServices(); // Refresh services
-      } else {
-        const error = await response.json();
-        logger.error('Failed to stop essential services', {
-          component: 'ServicePanel',
-          error
-        });
-      }
-    } catch (error) {
-      logger.error('Error stopping essential services', { component: 'ServicePanel' }, error instanceof Error ? error : new Error(String(error)));
-    }
-    setEssentialOperation('idle');
+    // Placeholder
+    logger.warn('Essential services stop requested but not implemented', {
+      component: 'ServicePanel',
+    });
   };
 
   const coreServices = services.filter(s => s.category === 'core');
@@ -316,39 +260,21 @@ export default function ServicePanel() {
                   <div className="flex gap-2">
                     <Button
                       onClick={handleStartEssentialServices}
-                      disabled={essentialOperation !== 'idle'}
+                      disabled={true}
                       variant="default"
                       size="sm"
+                      title="Essential services management under development"
                     >
-                      {essentialOperation === 'starting' ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Starting...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-4 h-4 mr-2" />
-                          Start All Essential
-                        </>
-                      )}
+                      Start All Essential
                     </Button>
                     <Button
                       onClick={handleStopEssentialServices}
-                      disabled={essentialOperation !== 'idle'}
+                      disabled={true}
                       variant="outline"
                       size="sm"
+                      title="Essential services management under development"
                     >
-                      {essentialOperation === 'stopping' ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Stopping...
-                        </>
-                      ) : (
-                        <>
-                          <Square className="w-4 h-4 mr-2" />
-                          Stop All Essential
-                        </>
-                      )}
+                      Stop All Essential
                     </Button>
                   </div>
                 </div>

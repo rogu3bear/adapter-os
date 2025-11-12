@@ -6,7 +6,7 @@ use adapteros_crypto::signature::Keypair;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, Extension},
     http::StatusCode,
     Json,
 };
@@ -17,6 +17,8 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::state::AppState;
 use crate::types::{ErrorResponse, ReplayVerificationResponse};
+use crate::auth::Claims;
+use crate::services::replay::reconstruct_bundle;
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReplaySessionsParams {
@@ -76,12 +78,7 @@ pub async fn list_replay_sessions(
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
-            )
-        })?;
+        .map_err(db_error_to_response)?;
 
     let responses: Vec<ReplaySessionResponse> = sessions
         .into_iter()
@@ -114,12 +111,7 @@ pub async fn get_replay_session(
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
-            )
-        })?
+        .map_err(db_error_to_response)?
         .ok_or((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("replay session not found").with_code("NOT_FOUND")),
@@ -207,12 +199,7 @@ pub async fn create_replay_session(
         .db
         .create_replay_session(&session)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
-            )
-        })?;
+        .map_err(db_error_to_response)?;
 
     let response = session_to_response(session).map_err(|e| {
         (
@@ -222,6 +209,33 @@ pub async fn create_replay_session(
     })?;
 
     Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/replay/{bundle_id}",
+    params(
+        ("bundle_id" = String, Path, description = "Telemetry bundle ID to replay from")
+    ),
+    responses(
+        (status = 200, description = "Replay session created", body = ReplaySessionResponse),
+    ),
+    tag = "replay"
+)]
+pub async fn replay_from_bundle(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(bundle_id): Path<String>,
+) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (cpid, plan_id) = replay::fetch_bundle_metadata(&state.db, &bundle_id).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string()))) )?;
+    let req = CreateReplaySessionRequest {
+        tenant_id: claims.tenant_id,
+        cpid,
+        plan_id,
+        telemetry_bundle_ids: vec![bundle_id],
+        snapshot_at: None,
+    };
+    create_replay_session(State(state), Json(req)).await
 }
 
 /// Verify a replay session's cryptographic integrity

@@ -169,7 +169,7 @@ function RootLayoutContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">Default</SelectItem>
-                  {tenants.map((t) => (
+                  {tenants.filter(t => t.id && t.id !== '').map((t) => (
                     <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                   ))}
                 </SelectContent>

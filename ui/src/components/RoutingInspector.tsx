@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useTimestamp } from '../hooks/useTimestamp';
 import { RoutingDecision } from '../api/types';
 import apiClient from '../api/client';
+import { useTenant } from '../providers/FeatureProviders';
 
 interface RoutingInspectorProps {
   className?: string;
@@ -18,17 +19,20 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   const [limit, setLimit] = useState(50);
   const [filter, setFilter] = useState('all');
   const [searchHash, setSearchHash] = useState('');
+  const { selectedTenant } = useTenant();
 
   const { data: decisions, isLoading, error } = useQuery<RoutingDecision[]>({
-    queryKey: ['/v1/routing/decisions', limit, filter],
+    queryKey: ['/v1/routing/decisions', limit, filter, selectedTenant],
     queryFn: async () => {
-      // Citation: ui/src/api/client.ts L809-L817
       return apiClient.getRoutingDecisions({
         limit,
+        tenant: selectedTenant || 'default',
         // Note: filter and searchHash parameters would need to be added to the API client method
       });
     },
     refetchInterval: 5000, // Refresh every 5 seconds
+    retry: 1, // Only retry once on failure
+    retryDelay: 1000,
   });
 
 

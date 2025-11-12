@@ -14,6 +14,9 @@ use chrono::{Duration, Utc};
 use std::str::FromStr;
 use url::form_urlencoded;
 use uuid::Uuid;
+use crate::rate_limit::per_tenant_rate_limit_middleware;
+use crate::auth::auth_middleware;
+use std::net::UdpSocket; // For UDS check
 
 /// Simple bearer token authentication for metrics endpoint
 pub async fn metrics_auth_middleware(
@@ -133,6 +136,7 @@ pub async fn auth_middleware(
         return match claims_res {
             Ok(claims) => {
                 req.extensions_mut().insert(claims);
+                let _ = require_role(&claims, "admin").map_err(|e| e)?;
                 Ok(next.run(req).await)
             }
             Err(e) => {

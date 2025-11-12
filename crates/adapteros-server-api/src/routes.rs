@@ -16,6 +16,7 @@ use axum::{Extension, Json};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use crate::handlers::replay::replay_from_bundle;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -124,6 +125,7 @@ use utoipa_swagger_ui::SwaggerUi;
         // handlers::tutorials::unmark_tutorial_completed,
         // handlers::tutorials::mark_tutorial_dismissed,
         // handlers::tutorials::unmark_tutorial_dismissed,
+        handlers::replay::replay_from_bundle,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -384,7 +386,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/plans/:plan_id/details",
             get(handlers::get_plan_details),
         )
-        .route("/v1/plans/:plan_id", delete(handlers::delete_plan))
         .route("/v1/plans/:plan_id/rebuild", post(handlers::rebuild_plan))
         .route("/v1/plans/compare", post(handlers::compare_plans))
         .route("/v1/plans/:plan_id/pin", post(handlers::pin_plan_alias))
@@ -500,6 +501,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/replay/sessions/:id/verify",
             post(handlers::replay::verify_replay_session),
+        )
+        .route(
+            "/v1/replay/:bundle_id",
+            post(replay_from_bundle),
         )
         .route(
             "/v1/tenants/:tenant_id/cp-pointers",
@@ -747,19 +752,13 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/tutorials", get(handlers::tutorials::list_tutorials))
         .route(
             "/v1/tutorials/:id/complete",
-            post(handlers::tutorials::mark_tutorial_completed),
-        )
-        .route(
-            "/v1/tutorials/:id/complete",
-            delete(handlers::tutorials::unmark_tutorial_completed),
+            post(handlers::tutorials::mark_tutorial_completed)
+                .delete(handlers::tutorials::unmark_tutorial_completed),
         )
         .route(
             "/v1/tutorials/:id/dismiss",
-            post(handlers::tutorials::mark_tutorial_dismissed),
-        )
-        .route(
-            "/v1/tutorials/:id/dismiss",
-            delete(handlers::tutorials::unmark_tutorial_dismissed),
+            post(handlers::tutorials::mark_tutorial_dismissed)
+                .delete(handlers::tutorials::unmark_tutorial_dismissed),
         )
         // Activity routes
         .route(
@@ -982,17 +981,11 @@ pub fn build(state: AppState) -> Router {
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            per_tenant_rate_limit_middleware,
+            per_tenant_rate_limit_middleware(state.clone()),
         ));
 
     // Configure CORS for development
     let cors = CorsLayer::permissive(); // Allow all origins in dev mode
-
-    // Apply auth middleware to protected routes
-    let protected_routes = protected_routes.layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth_middleware,
-    ));
 
     // Combine routes
     Router::new()

@@ -57,7 +57,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
-  const [selectedAdapterId, setSelectedAdapterId] = useState<string>('');
+  const [selectedAdapterId, setSelectedAdapterId] = useState<string>('none');
   const [inferenceError, setInferenceError] = useState<Error | null>(null);
   const [adaptersLoadError, setAdaptersLoadError] = useState<Error | null>(null);
 
@@ -214,7 +214,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         // Include adapters array if selected
         const inferenceRequest: InferRequest = {
           ...config,
-          adapters: selectedAdapterId ? [selectedAdapterId] : undefined,
+          adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
         };
         const response = await apiClient.infer(inferenceRequest, {}, false, signal);
         setResponse(response);
@@ -272,6 +272,11 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       setResponseA(session.response);
     }
     // Success - UI updates are sufficient feedback
+  };
+
+  const handleReplay = async (bundleId: string) => {
+    const trace = await apiClient.get(`/api/replay/${bundleId}`);
+    // setTrace(trace.data); // Display bundle
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
@@ -407,7 +412,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           </CardHeader>
           <CardContent>
             <div className="relative">
-              <pre className="whitespace-pre-wrap text-sm p-4 bg-muted rounded-lg">
+              <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg">
                 {response.text}
               </pre>
               <Button
@@ -517,8 +522,8 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                       <SelectValue placeholder={adapters.length === 0 ? "No adapters available" : "Select adapter or use default..."} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Default (No adapter)</SelectItem>
-                      {adapters.map((adapter) => (
+                      <SelectItem value="none">Default (No adapter)</SelectItem>
+                      {adapters.filter(adapter => adapter.id && adapter.id !== '').map((adapter) => (
                         <SelectItem key={adapter.id} value={adapter.id}>
                           <div className="flex items-center gap-2">
                             <Code className="h-4 w-4" aria-hidden="true" />
