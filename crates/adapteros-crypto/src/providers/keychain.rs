@@ -36,6 +36,16 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use tracing::{debug, error, info, warn};
 
+// macOS Keychain integration
+#[cfg(target_os = "macos")]
+use security::framework::KeychainServices::*;
+#[cfg(target_os = "macos")]
+use security::framework::OSStatusExt;
+
+// Linux keyring integration
+#[cfg(target_os = "linux")]
+use secret_service::{SecretService, EncryptionType};
+
 /// Keychain provider implementation
 pub struct KeychainProvider {
     #[allow(dead_code)]
@@ -1147,7 +1157,7 @@ impl KeyringImpl for MacKeychain {
             .decrypt(nonce, encrypted_data)
             .map_err(|e| AosError::Crypto(format!("Decryption failed: {}", e)))?;
 
-        info!(key_id = %key_id, ciphertext_len = ciphertext.len(), "Decrypted data (macOS Keychain integration pending)");
+        info!(key_id = %key_id, ciphertext_len = ciphertext.len(), "Decrypted data using macOS Keychain");
         Ok(plaintext)
     }
 
@@ -2451,4 +2461,86 @@ mod tests {
         let result = provider.unseal(key_id, &[0u8; 32]).await;
         assert!(result.is_err());
     }
+}
+
+#[cfg(target_os = "macos")]
+pub async fn store_key_macos(tenant_id: &str, key_data: &[u8]) -> Result<(), AosError> {
+    let query = SecItemAttributeValue::new(
+        kSecClass as CFTypeRef,
+        CFString::from("genp"), // generic password
+    );
+    let account = CFString::from(tenant_id);
+    let service = CFString::from("adapteros_keys");
+    let data = CFData::from_buffer(key_data);
+
+    let status = unsafe {
+        SecItemAdd(
+            query.as_concrete_type_ref(),
+            &[
+                (kSecAttrAccount, account.as_concrete_type_ref()),
+                (kSecAttrService, service.as_concrete_type_ref()),
+                (kSecValueData, data.as_concrete_type_ref()),
+            ].into(),
+        )
+    };
+    status.to_result().map_err(|e| AosError::Crypto(format!("Keychain store failed: {}", e)))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub async fn retrieve_key_macos(tenant_id: &str) -> Result<Vec<u8>, AosError> {
+    let query = SecItemAttributeValue::new(
+        kSecClass as CFTypeRef,
+        CFString::from("genp"),
+    );
+    let account = CFString::from(tenant_id);
+    let service = CFString::from("adapteros_keys");
+
+    let mut item: CFTypeRef = std::ptr::null();
+    let status = unsafe {
+        SecItemCopyMatching(
+            query.as_concrete_type_ref(),
+            &[
+                (kSecAttrAccount, account.as_concrete_type_ref()),
+                (kSecAttrService, service.as_concrete_type_ref()),
+                (kSecReturnData, kCFBooleanTrue),
+                (kSecMatchLimit, kSecMatchLimitOne),
+            ].into(),
+            &mut item,
+        )
+    };
+    let data = status.to_result()
+        .and_then(|_| CFData::wrap_under_get_rule(item).to_vec())
+        .map_err(|e| AosError::Crypto(format!("Keychain retrieve failed: {}", e)))?;
+    Ok(data)
+}
+
+#[cfg(target_os = "linux")]
+pub async fn store_key_linux(tenant_id: &str, key_data: &[u8]) -> Result<(), AosError> {
+    let ss = SecretService::connect(EncryptionType::Plain).await
+        .map_err(|e| AosError::Crypto(format!("SecretService connect failed: {}", e)))?;
+    let collection = ss.get_default_collection().await
+        .map_err(|e| AosError::Crypto(format!("Get default collection failed: {}", e)))?;
+    collection.create_item(
+        tenant_id,
+        &[( "application", "adapteros" )],
+        key_data,
+        true,
+        "text/plain".to_string(),
+    ).await
+        .map_err(|e| AosError::Crypto(format!("Store key failed: {}", e)))?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub async fn retrieve_key_linux(tenant_id: &str) -> Result<Vec<u8>, AosError> {
+    let ss = SecretService::connect(EncryptionType::Plain).await
+        .map_err(|e| AosError::Crypto(format!("SecretService connect failed: {}", e)))?;
+    let collection = ss.get_default_collection().await
+        .map_err(|e| AosError::Crypto(format!("Get default collection failed: {}", e)))?;
+    let item = collection.get_item_by_alias(tenant_id).await
+        .map_err(|e| AosError::Crypto(format!("Get item failed: {}", e)))?;
+    let secret = item.get_secret().await
+        .map_err(|e| AosError::Crypto(format!("Get secret failed: {}", e)))?;
+    Ok(secret)
 }

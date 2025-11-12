@@ -23,7 +23,7 @@ fn test_adapter_path() -> Option<PathBuf> {
 #[tokio::test]
 async fn test_load_adapter() {
     let Some(adapter_path) = test_adapter_path() else {
-        eprintln!("No .aos files found, skipping test");
+        warn!("No .aos files found, skipping test");
         return;
     };
 
@@ -32,13 +32,13 @@ async fn test_load_adapter() {
 
     match result {
         Ok(adapter) => {
-            println!("Loaded: {}", adapter.adapter_id());
-            println!("Version: {}", adapter.version());
-            println!("Size: {} bytes", adapter.size_bytes());
+            info!(adapter_id = %adapter.adapter_id(), "Loaded adapter");
+            info!(version = %adapter.version(), "Adapter version");
+            info!(size_bytes = adapter.size_bytes(), "Adapter size");
             assert!(!adapter.adapter_id().is_empty());
         }
         Err(e) => {
-            eprintln!("Failed to load: {}", e);
+            error!(error = %e, "Failed to load adapter");
         }
     }
 }
@@ -46,7 +46,7 @@ async fn test_load_adapter() {
 #[tokio::test]
 async fn test_manager_with_cache() {
     let Some(adapter_path) = test_adapter_path() else {
-        eprintln!("No .aos files found, skipping test");
+        warn!("No .aos files found, skipping test");
         return;
     };
 
@@ -71,7 +71,7 @@ async fn test_manager_with_cache() {
 #[tokio::test]
 async fn test_hot_swap() {
     let Some(adapter_path) = test_adapter_path() else {
-        eprintln!("No .aos files found, skipping test");
+        warn!("No .aos files found, skipping test");
         return;
     };
 
