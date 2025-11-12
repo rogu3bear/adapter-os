@@ -18,6 +18,34 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::warn;
+use tower_governor::{Governor, GovernorConfig, key_extractor::KeyExtractor};
+use axum::http::Request;
+use std::sync::Arc;
+use crate::state::AppState;
+use crate::auth::Claims;
+use tower::Layer;
+use tower::ServiceBuilder;
+use futures::future::BoxFuture;
+use tower::Service;
+
+#[derive(Clone)]
+struct TenantKeyExtractor {
+    state: Arc<AppState>,
+}
+
+impl KeyExtractor for TenantKeyExtractor {
+    type Key = String;
+    type Fut = BoxFuture<'static, Self::Key>;
+    fn extract(&self, req: &Request<Body>) -> Self::Fut {
+        Box::pin(async move {
+            if let Some(claims) = req.extensions().get::<Claims>() {
+                claims.tenant_id.clone()
+            } else {
+                "anonymous".to_string()
+            }
+        })
+    }
+}
 
 /// Token bucket implementation for rate limiting
 struct TokenBucket {
@@ -129,70 +157,13 @@ impl TokenBucket {
 /// Per-tenant rate limiters
 type TenantRateLimiters = Arc<Mutex<HashMap<String, TokenBucket>>>;
 
-/// Per-tenant rate limiting middleware
-pub async fn per_tenant_rate_limit_middleware(
-    State(state): State<AppState>,
-    req: Request<axum::body::Body>,
-    next: Next,
-) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    // Get rate limit config
-    let rate_limits = {
-        let config = state.config.read().map_err(|_| {
-            (
-                HttpStatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("config lock poisoned").with_code("INTERNAL_ERROR")),
-            )
-        })?;
-        config.rate_limits.clone()
-    };
-
-    // If no rate limits configured, pass through
-    let Some(rate_limits) = rate_limits else {
-        return Ok(next.run(req).await);
-    };
-
-    // Get tenant ID from JWT claims (if authenticated)
-    let tenant_id = req
-        .extensions()
-        .get::<Claims>()
-        .map(|claims| claims.tenant_id.clone())
-        .unwrap_or_else(|| "default".to_string());
-
-    // Get or create rate limiter for this tenant
-    // Use a static store for per-tenant token buckets
-    static LIMITERS: tokio::sync::OnceCell<TenantRateLimiters> = tokio::sync::OnceCell::const_new();
-
-    let limiters = LIMITERS
-        .get_or_init(|| async { Arc::new(Mutex::new(HashMap::new())) })
-        .await;
-
-    let consumed = {
-        let mut limiters_guard = limiters.lock().await;
-        let bucket = limiters_guard.entry(tenant_id.clone()).or_insert_with(|| {
-            TokenBucket::new(rate_limits.requests_per_minute, rate_limits.burst_size)
-        });
-        bucket.try_consume()
-    };
-
-    if !consumed {
-        warn!(
-            tenant_id = %tenant_id,
-            "Rate limit exceeded for tenant"
-        );
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(
-                ErrorResponse::new("rate limit exceeded")
-                    .with_code("RATE_LIMIT_EXCEEDED")
-                    .with_string_details(format!(
-                        "Tenant '{}' has exceeded rate limit of {} requests/minute",
-                        tenant_id, rate_limits.requests_per_minute
-                    )),
-            ),
-        ));
-    }
-
-    Ok(next.run(req).await)
+pub fn per_tenant_rate_limit_middleware(state: Arc<AppState>) -> impl Layer< S > + Clone + Send + 'static where S: Service<Request<Body>, Response = Response> + Send + Clone + 'static, S::Future: Send + 'static {
+    let config = GovernorConfig::default()
+        .per_second(100)
+        .burst_size(100)
+        .key_prefix("rate_limit");
+    let key_extractor = TenantKeyExtractor { state: state.clone() };
+    ServiceBuilder::new().layer(Governor::new(&config, key_extractor))
 }
 
 /// Clean up stale rate limiter buckets that haven't been accessed for more than max_age_ms
