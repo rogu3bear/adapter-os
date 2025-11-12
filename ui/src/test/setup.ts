@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
+import './matchers'; // Initialize custom matchers
 
 // TextEncoder/TextDecoder polyfills
 try {

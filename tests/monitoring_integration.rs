@@ -1,10 +1,5 @@
 use adapteros_api_types::{HealthResponse, ModelRuntimeHealth};
-use adapteros_server_api::{handlers, state::AppState};
 use adapteros_telemetry::MetricsCollector;
-use axum_test::TestServer;
-use sqlx::SqlitePool;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 #[tokio::test]
 async fn test_health_response_with_models() {
@@ -55,7 +50,6 @@ async fn test_metrics_collector_prometheus_output() {
 #[tokio::test]
 async fn test_health_cache_functionality() {
     // Test that the health cache works properly
-    use adapteros_server_api::handlers::check_model_runtime_health_summary;
 
     // Create a minimal mock state (this would be complex in real integration test)
     // For now, just test that the function signature works and cache is accessible
@@ -69,8 +63,11 @@ async fn test_health_cache_functionality() {
 mod integration_tests {
     use super::*;
     use adapteros_server_api::routes;
-    use adapteros_server_api::state::{ApiConfig, MetricsConfig};
-    use std::collections::HashMap;
+    use adapteros_server_api::state::{AppState, ApiConfig, MetricsConfig};
+    use axum_test::TestServer;
+    use sqlx::SqlitePool;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     async fn setup_test_server() -> TestServer {
         // Create test database

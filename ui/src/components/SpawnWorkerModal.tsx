@@ -173,7 +173,7 @@ export function SpawnWorkerModal({
                 <SelectValue placeholder="Select a node..." />
               </SelectTrigger>
               <SelectContent>
-                {nodes.map((node) => (
+                {nodes.filter(node => node.id && node.id !== '').map((node) => (
                   <SelectItem key={node.id} value={node.id}>
                     {node.hostname} - {node.metal_family} ({node.memory_gb}GB)
                   </SelectItem>
@@ -196,7 +196,7 @@ export function SpawnWorkerModal({
                 <SelectValue placeholder="Select a plan..." />
               </SelectTrigger>
               <SelectContent>
-                {plans.map((plan) => (
+                {plans.filter(plan => plan.id && plan.id !== '').map((plan) => (
                   <SelectItem key={plan.id} value={plan.id}>
                     {plan.cpid} - {plan.status}
                   </SelectItem>

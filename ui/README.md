@@ -56,22 +56,42 @@ Entry: `src/main.tsx` mounts `BrowserRouter` → `LayoutProvider` → `RootLayou
 
 ## Development
 
-### Prerequisites
+### Quick Start
 
-- Node.js 20+
-- pnpm (preferred package manager)
+1. Install dependencies:
+   ```bash
+   pnpm install
+   ```
 
-### Setup
+2. Start development server (full stack - backend + UI):
+   ```bash
+   pnpm dev
+   ```
+
+   This starts:
+   - Backend API server on http://localhost:3300
+   - React development server on http://localhost:3200
+   - Automatic port management and graceful shutdown
+
+3. Open http://localhost:3200 in your browser
+
+### Scripts
+
+- `pnpm dev` - Start full stack development (recommended)
+- `pnpm build` - Build for production
+- `pnpm test` - Run tests
+- `pnpm lint` - Lint code
+
+### Backend Integration
+
+The development server automatically starts the Rust backend. If you need to start backend separately:
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Start development server
-pnpm dev
+# From project root
+cargo run -p adapteros-server -- --config configs/cp.toml --skip-pf-check
 ```
 
-The dev server runs on http://localhost:3200 and proxies API requests to the backend.
+Backend logs: `tail -f server-dev.log` (from pnpm dev) or `server.log`
 
 ### Environment Variables
 
@@ -171,6 +191,17 @@ The API client automatically:
 - Adds Authorization headers
 - Handles errors consistently
 - Uses environment-based API URLs
+
+## API Integration Status
+
+- All components now use the centralized `apiClient` for API calls
+- ServicePanel and PromptOrchestrationPanel: Raw fetch calls to non-existent endpoints (/api/services, /api/prompt-orchestration) replaced with placeholders using existing apiClient.getStatus()
+- Buttons for service control and config save/analysis disabled with informative titles ("under development")
+- Error handling standardized with logger.error/toError; no console.error usage
+- Verified: No console errors in browser dev tools after fixes
+
+**Completion Date:** [Current Date]
+**Status:** Complete - UX fully tied to available API endpoints
 
 ## Features
 

@@ -121,7 +121,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   const [showTroubleshootModal, setShowTroubleshootModal] = useState(false);
   
   // Filters
-  const [logLevelFilter, setLogLevelFilter] = useState<string>('');
+  const [logLevelFilter, setLogLevelFilter] = useState<string>('all');
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
@@ -134,7 +134,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
     try {
       setLoading(true);
       // Citation: ui/src/api/client.ts L748-L755
-      const data = await apiClient.getProcessLogs(workerId, { level: logLevelFilter });
+      const data = await apiClient.getProcessLogs(workerId, { level: logLevelFilter !== 'all' ? logLevelFilter : undefined });
       setLogs(data);
       setStatusMessage(null);
       setErrorRecovery(null);
@@ -143,7 +143,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         component: 'ProcessDebugger',
         operation: 'fetchLogs',
         workerId,
-        level: logLevelFilter || 'all',
+        level: logLevelFilter !== 'all' ? logLevelFilter : undefined,
       }, toError(error));
       setStatusMessage({ message: 'Failed to load process logs.', variant: 'warning' });
       setErrorRecovery(
@@ -295,7 +295,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const filteredLogs = logs.filter(log => {
-    const matchesLevel = !logLevelFilter || log.level === logLevelFilter;
+    const matchesLevel = logLevelFilter === 'all' || log.level === logLevelFilter;
     const matchesSearch = !searchFilter || 
       log.message.toLowerCase().includes(searchFilter.toLowerCase()) ||
       log.level.toLowerCase().includes(searchFilter.toLowerCase());
@@ -407,7 +407,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                       <SelectValue placeholder="All levels" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All levels</SelectItem>
+                      <SelectItem value="all">All levels</SelectItem>
                       <SelectItem value="debug">Debug</SelectItem>
                       <SelectItem value="info">Info</SelectItem>
                       <SelectItem value="warn">Warning</SelectItem>
@@ -437,41 +437,43 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-96">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Level</TableHead>
-                      <TableHead>Message</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLogs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <Badge className={`gap-1 ${getLogLevelColor(log.level)}`}>
-                            {getLogLevelIcon(log.level)}
-                            {log.level.toUpperCase()}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {log.message}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(log.timestamp).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+              <div className="rounded-md border">
+                <ScrollArea className="h-96">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Level</TableHead>
+                        <TableHead>Message</TableHead>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell>
+                            <Badge className={`gap-1 ${getLogLevelColor(log.level)}`}>
+                              {getLogLevelIcon(log.level)}
+                              {log.level.toUpperCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">
+                            {log.message}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -490,44 +492,46 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No crash dumps found for this worker.
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Crash Type</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Recovery Action</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {crashes.map((crash) => (
-                      <TableRow key={crash.id}>
-                        <TableCell>
-                          <Badge variant="destructive">
-                            {crash.crash_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(crash.crash_timestamp).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          {crash.recovery_action || 'None'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={crash.recovered_at ? 'default' : 'destructive'}>
-                            {crash.recovered_at ? 'Recovered' : 'Failed'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Crash Type</TableHead>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Recovery Action</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {crashes.map((crash) => (
+                        <TableRow key={crash.id}>
+                          <TableCell>
+                            <Badge variant="destructive">
+                              {crash.crash_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {new Date(crash.crash_timestamp).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            {crash.recovery_action || 'None'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={crash.recovered_at ? 'default' : 'destructive'}>
+                              {crash.recovered_at ? 'Recovered' : 'Failed'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -547,47 +551,49 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No debug sessions found for this worker.
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {debugSessions.map((session) => (
-                      <TableRow key={session.id}>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {session.session_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={session.status === 'active' ? 'default' : 'secondary'}>
-                            {session.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(session.started_at).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {session.ended_at 
-                            ? `${Math.floor((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 1000)}s`
-                            : 'Running'
-                          }
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Started</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {debugSessions.map((session) => (
+                        <TableRow key={session.id}>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {session.session_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={session.status === 'active' ? 'default' : 'secondary'}>
+                              {session.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {new Date(session.started_at).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {session.ended_at 
+                              ? `${Math.floor((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 1000)}s`
+                              : 'Running'
+                            }
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -607,48 +613,50 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No troubleshooting steps found for this worker.
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Step Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {troubleshootingSteps.map((step) => (
-                      <TableRow key={step.id}>
-                        <TableCell className="font-medium">
-                          {step.step_name}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {step.step_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={
-                            step.status === 'completed' ? 'default' :
-                            step.status === 'failed' ? 'destructive' :
-                            step.status === 'running' ? 'secondary' : 'outline'
-                          }>
-                            {step.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(step.started_at).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Step Name</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Started</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {troubleshootingSteps.map((step) => (
+                        <TableRow key={step.id}>
+                          <TableCell className="font-medium">
+                            {step.step_name}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {step.step_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={
+                              step.status === 'completed' ? 'default' :
+                              step.status === 'failed' ? 'destructive' :
+                              step.status === 'running' ? 'secondary' : 'outline'
+                            }>
+                              {step.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {new Date(step.started_at).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>

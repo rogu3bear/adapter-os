@@ -24,6 +24,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tempfile::{tempdir, TempDir};
 use tokio::time::{timeout, Duration};
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 /// Test configuration for integration tests
 #[derive(Debug, Clone)]
@@ -111,21 +113,98 @@ impl TestConfig {
     }
 }
 
-/// Helper to run aosctl commands
-async fn run_aosctl_command(args: &[&str]) -> Result<String> {
-    let mut cmd = Command::new("cargo");
-    cmd.args(&["run", "--bin", "aosctl", "--"])
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+/// Helper to resolve aosctl binary path with fallback mechanisms
+fn resolve_aosctl_binary() -> Result<String> {
+    // Check common binary locations in order of preference
+    let candidate_paths = vec![
+        // 1. Pre-built binary in target directory (CI/development)
+        "target/debug/aosctl",
+        "target/release/aosctl",
+        // 2. System PATH (installed binary)
+        "aosctl",
+        // 3. Local cargo build (fallback)
+        "cargo",
+    ];
 
-    let output = cmd.output()?;
+    for path in candidate_paths {
+        if path == "cargo" {
+            // Special case: use cargo run --bin aosctl
+            return Ok("cargo".to_string());
+        }
+
+        // Check if binary exists and is executable
+        if std::path::Path::new(path).exists() {
+            // Try to execute to verify it's working
+            match Command::new(path).arg("--help").output() {
+                Ok(output) if output.status.success() => {
+                    return Ok(path.to_string());
+                }
+                _ => continue, // Try next candidate
+            }
+        }
+    }
+
+    // If no binary found, provide helpful error message
+    Err(anyhow::anyhow!(
+        "aosctl binary not found. Please ensure one of the following:\n\
+         1. Run 'cargo build' to build the binary\n\
+         2. Install aosctl system-wide\n\
+         3. Set AOSCTL_BINARY_PATH environment variable\n\
+         4. Run tests with --features extended-tests"
+    ))
+}
+
+/// Helper to run aosctl commands with robust binary resolution
+async fn run_aosctl_command(args: &[&str]) -> Result<String> {
+    let binary_path = resolve_aosctl_binary()?;
+
+    let mut cmd = if binary_path == "cargo" {
+        // Use cargo run --bin aosctl for development
+        let mut c = Command::new("cargo");
+        c.args(&["run", "--bin", "aosctl", "--"]).args(args)
+    } else {
+        // Use direct binary path
+        let mut c = Command::new(&binary_path);
+        c.args(args)
+    };
+
+    cmd.stdout(Stdio::piped())
+       .stderr(Stdio::piped());
+
+    let output = cmd.output()
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to execute aosctl command (binary: {}): {}\n\
+                 Command args: {:?}\n\
+                 Try running 'cargo build' first or check binary permissions.",
+                binary_path, e, args
+            )
+        })?;
 
     if output.status.success() {
         Ok(String::from_utf8(output.stdout)?)
     } else {
         let stderr = String::from_utf8(output.stderr)?;
-        Err(anyhow::anyhow!("Command failed: {}", stderr))
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        Err(anyhow::anyhow!(
+            "aosctl command failed (binary: {}):\n\
+             Command: aosctl {}\n\
+             Exit code: {}\n\
+             Stderr: {}\n\
+             Stdout: {}\n\
+             \n\
+             Troubleshooting:\n\
+             - Ensure binary is built: cargo build\n\
+             - Check binary permissions: ls -la {}\n\
+             - Verify command syntax: aosctl --help",
+            binary_path,
+            args.join(" "),
+            output.status.code().unwrap_or(-1),
+            stderr.trim(),
+            stdout.trim(),
+            binary_path
+        ))
     }
 }
 
@@ -138,25 +217,40 @@ async fn run_aosctl_json(args: &[&str]) -> Result<serde_json::Value> {
     Ok(serde_json::from_str(&output)?)
 }
 
-/// Setup test environment
-async fn setup_test_env() -> Result<(TestConfig, Db)> {
+/// Setup test environment with unique database isolation
+async fn setup_test_env() -> Result<(TestConfig, Db, String)> {
     let config = TestConfig::new()?;
 
-    // Set up environment variables for testing
-    std::env::set_var("AOS_DB_PATH", config.temp_dir.join("test.db"));
+    // Generate unique database file path using UUID for test isolation
+    let db_uuid = Uuid::new_v4().simple();
+    let db_path = config.temp_dir.join(format!("test_{}.db", db_uuid));
+
+    // Set up environment variables for testing with unique database
+    std::env::set_var("DATABASE_URL", db_path.to_string_lossy().to_string());
     std::env::set_var("AOS_VAR_DIR", &config.var_dir);
 
-    // Initialize database
+    // Initialize database with unique file
     let db = Db::connect_env().await?;
 
-    // Initialize tenant for testing
-    db.create_tenant("integration_test", false).await?;
+    // Generate unique tenant name using UUID to prevent conflicts
+    let tenant_name = format!("integration_test_{}", Uuid::new_v4().simple());
 
-    Ok((config, db))
+    // Initialize tenant for testing
+    db.create_tenant(&tenant_name, false).await?;
+
+    Ok((config, db, tenant_name))
 }
 
-/// Cleanup test environment
+/// Cleanup test environment and remove unique database files
 async fn cleanup_test_env(config: &TestConfig) -> Result<()> {
+    // Remove the unique database file if it exists
+    if let Ok(db_path) = std::env::var("DATABASE_URL") {
+        let db_path = std::path::Path::new(&db_path);
+        if db_path.exists() {
+            std::fs::remove_file(db_path).ok();
+        }
+    }
+
     config.cleanup()
 }
 
@@ -165,7 +259,7 @@ async fn cleanup_test_env(config: &TestConfig) -> Result<()> {
 async fn test_build_plan_integration() -> Result<()> {
     println!("\n🔧 Testing aosctl build-plan integration\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, tenant_name) = setup_test_env().await?;
 
     // Test 1: Build plan from manifest
     println!("1. Building plan from manifest...");
@@ -177,7 +271,7 @@ async fn test_build_plan_integration() -> Result<()> {
         "--output",
         &output_path.to_string_lossy(),
         "--tenant-id",
-        "integration_test",
+        &tenant_name,
     ];
 
     let output = run_aosctl_command(args).await?;
@@ -248,7 +342,7 @@ async fn test_build_plan_integration() -> Result<()> {
 async fn test_serve_integration() -> Result<()> {
     println!("\n🚀 Testing aosctl serve integration\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, tenant_name) = setup_test_env().await?;
 
     // Test 1: Dry-run serve validation
     println!("1. Testing dry-run serve validation...");
@@ -256,7 +350,7 @@ async fn test_serve_integration() -> Result<()> {
     let args = &[
         "serve",
         "--tenant",
-        "integration_test",
+        &tenant_name,
         "--plan",
         "test_plan",
         "--dry-run",
@@ -283,7 +377,7 @@ async fn test_serve_integration() -> Result<()> {
     let args = &[
         "serve",
         "--tenant",
-        "integration_test",
+        &tenant_name,
         "--plan",
         "nonexistent_plan",
         "--socket",
@@ -325,7 +419,7 @@ async fn test_serve_integration() -> Result<()> {
 async fn test_telemetry_ingest_integration() -> Result<()> {
     println!("\n📊 Testing telemetry ingest integration\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, tenant_name) = setup_test_env().await?;
 
     // Test 1: Initialize telemetry writer
     println!("1. Initializing telemetry writer...");
@@ -345,7 +439,7 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
     let test_events = vec![
         serde_json::json!({
             "type": "router.decision",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "data": {
                 "adapter_scores": [
                     {"adapter_id": "adapter_001", "score": 0.8, "selected": true},
@@ -358,7 +452,7 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
         }),
         serde_json::json!({
             "type": "inference.start",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "data": {
                 "prompt_length": 150,
                 "max_tokens": 200,
@@ -367,7 +461,7 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
         }),
         serde_json::json!({
             "type": "policy.violation",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "data": {
                 "violation_type": "insufficient_evidence",
                 "required_spans": 1,
@@ -390,7 +484,7 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
     for i in 0..100 {
         let event = serde_json::json!({
             "type": "test.load",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "data": {"iteration": i}
         });
         telemetry_writer.log(&format!("load_test_{}", i), event)?;
@@ -441,7 +535,7 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
 async fn test_policy_violation_paths() -> Result<()> {
     println!("\n🛡️ Testing policy violation paths\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_name) = setup_test_env().await?;
 
     // Test 1: Evidence requirement violation
     println!("1. Testing evidence requirement violation...");
@@ -506,7 +600,7 @@ async fn test_policy_violation_paths() -> Result<()> {
 async fn test_end_to_end_workflow() -> Result<()> {
     println!("\n🔄 Testing end-to-end workflow\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, tenant_name) = setup_test_env().await?;
 
     // Step 1: Build plan
     println!("1. Building plan...");
@@ -518,7 +612,7 @@ async fn test_end_to_end_workflow() -> Result<()> {
         "--output",
         &output_path.to_string_lossy(),
         "--tenant-id",
-        "integration_test",
+        &tenant_name,
     ];
 
     let output = run_aosctl_command(args).await?;
@@ -536,7 +630,7 @@ async fn test_end_to_end_workflow() -> Result<()> {
     let args = &[
         "serve",
         "--tenant",
-        "integration_test",
+        &tenant_name,
         "--plan",
         &plan_id,
         "--dry-run",
@@ -565,12 +659,12 @@ async fn test_end_to_end_workflow() -> Result<()> {
     let workflow_events = vec![
         serde_json::json!({
             "type": "workflow.start",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "data": {"plan_id": plan_id, "workflow": "e2e_test"}
         }),
         serde_json::json!({
             "type": "plan.loaded",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "data": {"plan_id": plan_id, "manifest_hash": "test_hash"}
         }),
     ];
@@ -686,7 +780,7 @@ fn acceptance_test_complete_integration() {
 async fn test_telemetry_throughput() -> Result<()> {
     println!("\n⚡ Testing telemetry throughput\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, tenant_name) = setup_test_env().await?;
 
     let telemetry_writer = TelemetryWriter::new(
         &config.telemetry_dir,
@@ -700,7 +794,7 @@ async fn test_telemetry_throughput() -> Result<()> {
     for i in 0..1000 {
         let event = serde_json::json!({
             "type": "performance_test",
-            "tenant_id": "integration_test",
+            "tenant_id": tenant_name,
             "iteration": i,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "data": {
@@ -736,7 +830,7 @@ async fn test_telemetry_throughput() -> Result<()> {
 async fn test_error_handling_and_recovery() -> Result<()> {
     println!("\n🔧 Testing error handling and recovery\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, _tenant_name) = setup_test_env().await?;
 
     // Test 1: Database connection failure
     println!("1. Testing database connection failure...");
@@ -823,7 +917,7 @@ async fn test_error_handling_and_recovery() -> Result<()> {
 async fn test_concurrent_operations() -> Result<()> {
     println!("\n🔄 Testing concurrent operations\n");
 
-    let (config, _db) = setup_test_env().await?;
+    let (config, _db, tenant_name) = setup_test_env().await?;
 
     // Test concurrent plan builds
     let manifest_path = config.manifest_path.clone();
@@ -841,7 +935,7 @@ async fn test_concurrent_operations() -> Result<()> {
                     "--output",
                     &output_path.to_string_lossy(),
                     "--tenant-id",
-                    "integration_test",
+                    &tenant_name,
                 ];
 
                 run_aosctl_command(args).await
@@ -885,7 +979,7 @@ async fn test_concurrent_operations() -> Result<()> {
 async fn test_cleanup_and_resource_management() -> Result<()> {
     println!("\n🧹 Testing cleanup and resource management\n");
 
-    let (config, db) = setup_test_env().await?;
+    let (config, db, tenant_name) = setup_test_env().await?;
 
     // Create some test data
     let telemetry_writer = TelemetryWriter::new(&config.telemetry_dir, 10, 1024)?;
@@ -925,11 +1019,11 @@ async fn test_cleanup_and_resource_management() -> Result<()> {
 
     // Test database cleanup
     let tenants = db.list_tenants().await?;
-    let test_tenant = tenants.iter().find(|t| t.name == "integration_test");
+    let test_tenant = tenants.iter().find(|t| t.name == tenant_name);
     assert!(test_tenant.is_some(), "Test tenant should exist");
 
     // In a real scenario, we'd clean up the test tenant too
-    // db.delete_tenant("integration_test").await?;
+    // db.delete_tenant(&tenant_name).await?;
 
     println!("   ✓ Database cleanup verified");
 

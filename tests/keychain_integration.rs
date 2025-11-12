@@ -80,7 +80,7 @@ async fn test_key_rotation_integration() {
     let key_id = "rotation-integration-test";
 
     // Generate initial key
-    let initial_handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
 
     // Sign a message with initial key
     let message = b"Message before rotation";
@@ -259,15 +259,15 @@ async fn test_key_isolation() {
     let key_id = "isolation-test";
 
     // Generate key in provider1
-    let handle1 = provider1.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider1.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
 
     // Try to access from provider2 (should fail or be different)
-    let sign_result = provider2.sign(key_id, b"test").await;
+    let _ = provider2.sign(key_id, b"test").await;
     // This might succeed if both providers use the same backend, but that's OK
     // The important thing is that operations work correctly for each provider
 
     // Both providers should work independently
-    let handle2 = provider2.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider2.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
     let sig2 = provider2.sign(key_id, b"test").await.unwrap();
     assert!(!sig2.is_empty());
 
@@ -286,7 +286,7 @@ async fn test_backend_health_checking() {
 
     // Test that we can still perform operations after health check
     let key_id = "health-check-test";
-    let handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
     let signature = provider.sign(key_id, b"health check").await.unwrap();
     assert!(!signature.is_empty());
 
@@ -356,7 +356,7 @@ async fn test_cross_backend_rotation() {
     let key_id = "cross-backend-rotation";
 
     // Generate initial key
-    let initial_handle = provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
+    let _ = provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
 
     // Sign some data with initial key
     let test_data = b"data to encrypt before rotation";
@@ -470,11 +470,18 @@ mod macos_specific {
         let provider = adapteros_crypto::KeychainProvider::new(config).unwrap();
 
         // Verify we're using macOS backend
-        match provider.backend() {
-            adapteros_crypto::providers::keychain::KeychainBackend::MacOS => {
-                println!("✅ Using macOS Security Framework backend");
+        // On macOS, the backend should be MacOS unless password-fallback is explicitly enabled
+        #[cfg(target_os = "macos")]
+        {
+            let backend = provider.backend();
+            // On macOS, we expect the MacOS backend
+            // PasswordFallback is only possible if the password-fallback feature is enabled
+            // and ADAPTEROS_KEYCHAIN_FALLBACK environment variable is set
+            match backend {
+                adapteros_crypto::providers::keychain::KeychainBackend::MacOS => {
+                    println!("✅ Using macOS Security Framework backend");
+                }
             }
-            _ => panic!("Expected macOS backend on macOS platform"),
         }
 
         // Test that Secure Enclave signing works (may fall back to software)
@@ -503,7 +510,7 @@ mod linux_specific {
         let config = KeyProviderConfig::default();
         let provider = adapteros_crypto::KeychainProvider::new(config).unwrap();
 
-        match provider.backend {
+        match provider.backend() {
             adapteros_crypto::providers::keychain::KeychainBackend::SecretService => {
                 println!("✅ Linux test environment has secret service available");
             }

@@ -343,7 +343,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
           <CardTitle>Plans</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table className="border-collapse w-full">
+          <Table className="w-full">
             <TableHeader>
               <TableRow>
                 <TableHead className="p-4 border-b border-border w-12">
@@ -518,7 +518,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                   <SelectValue placeholder="Select first plan" />
                 </SelectTrigger>
                 <SelectContent>
-                  {plans.map((plan) => (
+                  {plans.filter(plan => plan.id && plan.id !== '').map((plan) => (
                     <SelectItem key={plan.id} value={plan.id}>
                       {plan.id} ({plan.cpid})
                     </SelectItem>
@@ -533,7 +533,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                   <SelectValue placeholder="Select second plan" />
                 </SelectTrigger>
                 <SelectContent>
-                  {plans.map((plan) => (
+                  {plans.filter(plan => plan.id && plan.id !== '').map((plan) => (
                     <SelectItem key={plan.id} value={plan.id}>
                       {plan.id} ({plan.cpid})
                     </SelectItem>

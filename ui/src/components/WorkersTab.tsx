@@ -45,7 +45,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   // Filters
   const [filterTenant, setFilterTenant] = useState<string>('');
   const [filterNode, setFilterNode] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for workers
   const fetchWorkersData = async () => {
@@ -98,7 +98,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     if (filterNode) {
       filtered = filtered.filter((w) => w.node_id.includes(filterNode));
     }
-    if (filterStatus) {
+    if (filterStatus && filterStatus !== 'all') {
       filtered = filtered.filter((w) => w.status === filterStatus);
     }
 
@@ -239,7 +239,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   <SelectItem value="starting">Starting</SelectItem>
                   <SelectItem value="ready">Ready</SelectItem>
                   <SelectItem value="busy">Busy</SelectItem>

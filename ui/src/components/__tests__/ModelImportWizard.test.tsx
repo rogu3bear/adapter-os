@@ -1,21 +1,22 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { vi } from 'vitest';
 import { ModelImportWizard } from '@/components/ModelImportWizard';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';
 
 // Mock dependencies
-jest.mock('@/api/client');
-jest.mock('sonner');
+vi.mock('@/api/client');
+vi.mock('sonner');
 
-const mockedApiClient = apiClient as jest.Mocked<typeof apiClient>;
+const mockedApiClient = apiClient as ReturnType<typeof vi.mocked<typeof apiClient>>;
 
 describe('ModelImportWizard', () => {
-  const onComplete = jest.fn();
-  const onCancel = jest.fn();
+  const onComplete = vi.fn();
+  const onCancel = vi.fn();
 
   beforeEach(() => {
     // Reset mocks before each test
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders the first step (Model Name) initially', () => {

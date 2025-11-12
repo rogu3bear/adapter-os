@@ -1,4 +1,4 @@
-use adapteros_server_api::model_runtime::{ModelRuntime, ModelKey, LoadModelSpec, ProgressEvent};
+use adapteros_server_api::model_runtime::ProgressEvent;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
