@@ -2,7 +2,7 @@
 
 ## Overview
 
-AdapterOS enforces 20 canonical policy packs across all system operations. Policy enforcement happens at multiple layers:
+AdapterOS enforces 22 canonical policy packs across all system operations. Policy enforcement happens at multiple layers:
 
 1. **Server Layer**: Pre-request validation before forwarding to workers
 2. **Worker Layer**: Pre-inference and post-inference validation
@@ -14,7 +14,7 @@ AdapterOS enforces 20 canonical policy packs across all system operations. Polic
 
 The `PolicyPackManager` is the central coordinator for all policy packs. It:
 
-- Maintains registry of all 20 policy pack validators
+- Maintains registry of all 22 policy pack validators
 - Manages policy pack configurations (enabled/disabled, enforcement levels)
 - Validates requests against all active policy packs
 - Implements the `PolicyEnforcer` trait for unified enforcement interface

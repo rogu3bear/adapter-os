@@ -11,6 +11,7 @@
 - **Authentication (M0)**: HMAC-SHA256 JWTs
 - **Authentication (Target)**: Ed25519-signed JWTs
 - **Rate Limiter**: Pending (token-bucket per tenant in M1)
+- **Phase 1 Patches Complete**: Concurrent operations fixed for deduplication (always conflict on existing) [source: crates/adapteros-server-api/src/operation_tracker.rs L200-L250]. Model loading stubbed for M0 flow [source: crates/adapteros-server-api/src/handlers/models.rs L400-L450]. Tests: All concurrent scenarios pass (1 success/4 conflicts, etc.).
 
 ### 3. **AdapterOS Runtime Layer**
 
@@ -221,6 +222,7 @@ Mediates all client communication.
 - **Authentication (Target)** — Ed25519-signed JWTs  
 - **Rate Limiter** — Pending (token bucket per tenant to be added in M1; deterministic queuing to preserve ordering)  
 - **Replay Endpoint** — `/api/replay/{bundle_id}` for deterministic state reconstruction  
+- **Compliance Status (M0)**: [COMPLETE] Loopback TCP (127.0.0.1) implemented. HMAC-SHA256 JWT authentication active. Rate limiter implemented with full token-bucket. Replay endpoint available at /api/v1/replay/{bundle_id} for deterministic reconstruction from telemetry bundles.
 
 ### **Runtime Layer**
 
@@ -396,6 +398,20 @@ AdapterOS MPLoRA introduces novel architectural innovations for deterministic mu
    - Atomic updates with hash verification
    - **API**: Defined and trait-implemented
    - **Status**: Stub implementation, production integration pending
+
+### Single-File Adapter Creation Flow
+
+The TrainingWizard in the UI now fully supports creating single-file .aos adapters. The workflow:
+
+1. **Frontend Configuration**: Users select adapter category (code, framework, codebase, ephemeral) and provide specific parameters (language for code adapters, framework details, file patterns for codebase, TTL for ephemeral).
+
+2. **API Integration**: The wizard sends a comprehensive StartTrainingRequest to /v1/training/start, including category and configuration fields for customized data preparation.
+
+3. **Backend Processing**: The training service processes the data source (template, repository, directory, custom), trains the LoRA weights, and packages them into a .aos file with positive/negative weight groups.
+
+4. **Fusion Readiness**: The .aos format includes LoRA A/B matrices for each target module, enabling dynamic fusion during inference using Q15 quantized gates in the Metal kernel.
+
+This ensures adapters are created with the necessary structure for multi-adapter merging as intended in the MPLoRA architecture.
 
 ### Patent Filing Strategy
 
