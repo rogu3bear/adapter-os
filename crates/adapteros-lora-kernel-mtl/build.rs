@@ -19,7 +19,8 @@ fn main() {
     // Create shaders directory if it doesn't exist
     std::fs::create_dir_all(shaders_dir).expect("Failed to create shaders directory");
 
-    let output = Command::new("xcrun")
+    // Compile to AIR
+    let compile_output = Command::new("xcrun")
         .args([
             "-sdk",
             "macosx",
@@ -31,15 +32,20 @@ fn main() {
             "-std=metal3.1",
         ])
         .current_dir(&kernel_src_dir)
-        .output()
-        .expect("Failed to compile Metal shaders");
+        .output();
 
-    if let Err(e) = output {
-        error!(error_msg = %String::from_utf8_lossy(&e.stderr), "Metal compilation failed");
+    if let Ok(output) = compile_output {
+        if !output.status.success() {
+            eprintln!("Metal compilation failed: {}", String::from_utf8_lossy(&output.stderr));
+            std::process::exit(1);
+        }
+    } else {
+        eprintln!("Failed to execute metal compiler");
+        std::process::exit(1);
     }
 
     // Link metallib
-    let output = Command::new("xcrun")
+    let link_output = Command::new("xcrun")
         .args([
             "-sdk",
             "macosx",
@@ -49,11 +55,16 @@ fn main() {
             "adapteros_kernels.metallib",
         ])
         .current_dir(&kernel_src_dir)
-        .output()
-        .expect("Failed to link metallib");
+        .output();
 
-    if let Err(e) = output {
-        error!(error_msg = %String::from_utf8_lossy(&e.stderr), "Metallib linking failed");
+    if let Ok(output) = link_output {
+        if !output.status.success() {
+            eprintln!("Metallib linking failed: {}", String::from_utf8_lossy(&output.stderr));
+            std::process::exit(1);
+        }
+    } else {
+        eprintln!("Failed to execute metallib linker");
+        std::process::exit(1);
     }
 
     // Compute BLAKE3 hash

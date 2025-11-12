@@ -46,6 +46,14 @@ use security::framework::OSStatusExt;
 #[cfg(target_os = "linux")]
 use secret_service::{SecretService, EncryptionType};
 
+// Add at top imports
+use core_foundation::base::{CFTypeRef, TCFType};
+use core_foundation::string::CFString;
+use core_foundation::data::CFData;
+use security_framework::os::macos::keychain::{SecItemAdd, SecItemCopyMatching, SecItemAttributeValue};
+use security_framework_sys::item::{kSecClass, kSecAttrAccount, kSecAttrService, kSecValueData, kSecReturnData, kCFBooleanTrue, kSecMatchLimit, kSecMatchLimitOne};
+use security_framework::os::macos::keychain::SecKeychainItem;
+
 /// Keychain provider implementation
 pub struct KeychainProvider {
     #[allow(dead_code)]
@@ -2253,17 +2261,17 @@ mod tests {
             .generate("debug-key", KeyAlgorithm::Ed25519)
             .await
             .unwrap();
-        println!("Generated handle: {:?}", handle);
+        info!(handle = ?handle, "Generated keychain handle");
 
         // Test signing - this should work if the key was stored
         let message = b"Hello, world!";
         match provider.sign("debug-key", message).await {
             Ok(signature) => {
-                println!("Signing successful, signature len: {}", signature.len());
+                info!(sig_len = signature.len(), "Signing successful");
                 assert!(!signature.is_empty());
             }
             Err(e) => {
-                println!("Signing failed: {:?}", e);
+                error!(error = ?e, "Signing failed");
                 panic!("Signing should work after key generation");
             }
         }
@@ -2464,54 +2472,43 @@ mod tests {
 }
 
 #[cfg(target_os = "macos")]
-pub async fn store_key_macos(tenant_id: &str, key_data: &[u8]) -> Result<(), AosError> {
-    let query = SecItemAttributeValue::new(
-        kSecClass as CFTypeRef,
-        CFString::from("genp"), // generic password
-    );
-    let account = CFString::from(tenant_id);
+pub async fn store_key_macos(tenant_id: &str, key_data: &[u8]) -> Result<()> {
     let service = CFString::from("adapteros_keys");
+    let account = CFString::from(tenant_id);
+    let class = kSecClass as CFTypeRef;
     let data = CFData::from_buffer(key_data);
 
-    let status = unsafe {
-        SecItemAdd(
-            query.as_concrete_type_ref(),
-            &[
-                (kSecAttrAccount, account.as_concrete_type_ref()),
-                (kSecAttrService, service.as_concrete_type_ref()),
-                (kSecValueData, data.as_concrete_type_ref()),
-            ].into(),
-        )
-    };
-    status.to_result().map_err(|e| AosError::Crypto(format!("Keychain store failed: {}", e)))?;
+    let mut query = SecItemAttributeValue::new(class);
+    query.add(kSecAttrService, service.as_concrete_type_ref());
+    query.add(kSecAttrAccount, account.as_concrete_type_ref());
+    query.add(kSecValueData, data.as_concrete_type_ref());
+
+    let status = SecItemAdd(&query, std::ptr::null_mut());
+    if status.is_err() {
+        return Err(AosError::Crypto("Failed to store key in keychain".to_string()));
+    }
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-pub async fn retrieve_key_macos(tenant_id: &str) -> Result<Vec<u8>, AosError> {
-    let query = SecItemAttributeValue::new(
-        kSecClass as CFTypeRef,
-        CFString::from("genp"),
-    );
-    let account = CFString::from(tenant_id);
+pub async fn retrieve_key_macos(tenant_id: &str) -> Result<Vec<u8>> {
     let service = CFString::from("adapteros_keys");
+    let account = CFString::from(tenant_id);
+    let class = kSecClass as CFTypeRef;
+
+    let mut query = SecItemAttributeValue::new(class);
+    query.add(kSecAttrService, service.as_concrete_type_ref());
+    query.add(kSecAttrAccount, account.as_concrete_type_ref());
+    query.add(kSecReturnData, kCFBooleanTrue as CFTypeRef);
+    query.add(kSecMatchLimit, kSecMatchLimitOne as CFTypeRef);
 
     let mut item: CFTypeRef = std::ptr::null();
-    let status = unsafe {
-        SecItemCopyMatching(
-            query.as_concrete_type_ref(),
-            &[
-                (kSecAttrAccount, account.as_concrete_type_ref()),
-                (kSecAttrService, service.as_concrete_type_ref()),
-                (kSecReturnData, kCFBooleanTrue),
-                (kSecMatchLimit, kSecMatchLimitOne),
-            ].into(),
-            &mut item,
-        )
-    };
-    let data = status.to_result()
-        .and_then(|_| CFData::wrap_under_get_rule(item).to_vec())
-        .map_err(|e| AosError::Crypto(format!("Keychain retrieve failed: {}", e)))?;
+    let status = SecItemCopyMatching(&query, &mut item);
+    if status.is_err() || item.is_null() {
+        return Err(AosError::Crypto("Key not found in keychain".to_string()));
+    }
+
+    let data = unsafe { CFData::wrap_under_get_rule(item) }.to_vec();
     Ok(data)
 }
 
