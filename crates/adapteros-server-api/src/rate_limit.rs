@@ -6,27 +6,25 @@
 use std::sync::Arc;
 use axum::{extract::{Request, State}, http::StatusCode, middleware::Next, response::Response};
 use crate::{auth::Claims, state::AppState, types::ErrorResponse};
-use tower_governor::{Governor, GovernorConfig, key_extractor::KeyExtractor};
+use tower_governor::{Governor, GovernorConfig};
 use futures::future::BoxFuture;
 use tower::Layer;
 use tower::ServiceBuilder;
 use tower::Service;
 
 #[derive(Clone)]
-struct TenantKeyExtractor {
-    state: Arc<AppState>,
-}
+struct TenantKeyExtractor;
 
-impl KeyExtractor for TenantKeyExtractor {
-    type Key = String;
+impl tower_governor::key_extractor::KeyExtractor for TenantKeyExtractor {
+    type Key = Option<String>;
     type Fut = BoxFuture<'static, Self::Key>;
+
     fn extract(&self, req: &Request<Body>) -> Self::Fut {
         Box::pin(async move {
-            if let Some(claims) = req.extensions().get::<Claims>() {
-                claims.tenant_id.clone()
-            } else {
-                "anonymous".to_string()
-            }
+            req.extensions()
+                .get::<Claims>()
+                .map(|claims| Some(claims.tenant_id.clone()))
+                .unwrap_or(Some("anonymous".to_string()))
         })
     }
 }
@@ -141,13 +139,13 @@ impl TokenBucket {
 /// Per-tenant rate limiters
 type TenantRateLimiters = Arc<Mutex<HashMap<String, TokenBucket>>>;
 
-pub fn per_tenant_rate_limit_middleware(state: Arc<AppState>) -> impl Layer< S > + Clone + Send + 'static where S: Service<Request<Body>, Response = Response> + Send + Clone + 'static, S::Future: Send + 'static {
+pub fn per_tenant_rate_limit_middleware(state: Arc<AppState>) -> impl Layer<S> + Clone + Send + 'static where S: Service<Request<Body>> + Send + Clone + 'static, S::Future: Send + 'static {
     let config = GovernorConfig::default()
         .per_second(100)
-        .burst_size(100)
-        .key_prefix("rate_limit");
-    let key_extractor = TenantKeyExtractor { state: state.clone() };
-    ServiceBuilder::new().layer(Governor::new(&config, key_extractor))
+        .burst_size(100);
+    let key_extractor = TenantKeyExtractor;
+    ServiceBuilder::new()
+        .layer(Governor::new(&config, key_extractor))
 }
 
 /// Clean up stale rate limiter buckets that haven't been accessed for more than max_age_ms

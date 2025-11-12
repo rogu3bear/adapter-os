@@ -8,7 +8,14 @@ pub mod operation_tracker;
 pub mod rate_limit;
 pub mod retry;
 pub mod routes;
-pub mod services;
+pub mod services {
+    pub mod auth;
+    pub mod replay;
+    pub mod error_handling;
+    pub mod db_pool;
+    pub mod alert_deduplication;
+    pub mod retry;
+}
 pub mod signing;
 pub mod state;
 pub mod types;

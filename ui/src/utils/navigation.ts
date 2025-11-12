@@ -36,12 +36,22 @@ export function generateNavigationGroups(userRole?: string): NavGroup[] {
     }
 
     const groupKey = route.navGroup;
-    const group = groupsMap.get(groupKey) || {
-      title: groupKey,
-      items: [],
-      roles: route.requiredRoles,
-      order: 0,
-    };
+    let group = groupsMap.get(groupKey);
+    if (!group) {
+      group = {
+        title: groupKey,
+        items: [],
+        roles: route.requiredRoles,
+        order: 0,
+      };
+      groupsMap.set(groupKey, group);
+    } else if (route.requiredRoles && route.requiredRoles.length > 0) {
+      if (!group.roles || group.roles.length === 0) {
+        group.roles = [...route.requiredRoles];
+      } else {
+        group.roles = [...new Set([...group.roles, ...route.requiredRoles])];
+      }
+    }
 
     // Add the route to the group
     group.items.push({

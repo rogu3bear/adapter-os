@@ -1,5 +1,5 @@
 // 【ui/src/components/RealtimeMetrics.tsx§1-25】 - Replace manual SSE+polling with standardized hook
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -43,10 +43,10 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   const MAX_HISTORY = 120; // Keep last 120 data points
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for real-time metrics
-  const fetchMetricsData = async () => {
+  const fetchMetricsData = useCallback(async () => {
     const data = await apiClient.getSystemMetrics();
     return data;
-  };
+  }, []);
 
   const {
     data: polledMetrics,

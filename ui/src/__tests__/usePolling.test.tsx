@@ -51,6 +51,10 @@ describe('usePolling Effect Dependency Churn', () => {
       expect(screen.getByTestId('loading')).toHaveTextContent('not-loading');
     });
 
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     const initialRenderCount = renderCount;
 
     // Change config frequently (this should not cause excessive re-renders)
