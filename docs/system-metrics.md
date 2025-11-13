@@ -2,7 +2,7 @@
 
 ## Overview
 
-AdapterOS includes comprehensive system resource monitoring that collects real-time metrics for CPU, memory, disk, network, and GPU utilization. The system integrates with existing telemetry, policy enforcement, and alerting mechanisms.
+AdapterOS includes comprehensive system resource monitoring that collects real-time metrics for CPU, memory, disk, network, and GPU utilization. The system supports both **SQLite and PostgreSQL backends** with automatic database selection, integrating with existing telemetry, policy enforcement, and alerting mechanisms.
 
 ## Architecture
 
@@ -77,11 +77,36 @@ In the control plane configuration (`configs/cp.toml`), adjust `metrics.system_m
 to control how frequently `system.metrics` events are emitted into the telemetry NDJSON pipeline.
 Set the value to `0` to disable the background emitter entirely.
 
+### Database Backend Configuration
+
+AdapterOS automatically detects the database backend:
+
+- **SQLite**: Used when `DATABASE_URL` is not set or points to a SQLite file/database
+- **PostgreSQL**: Used when `DATABASE_URL` starts with `postgresql://` or `postgres://`
+
+**Environment Variables:**
+```bash
+# SQLite (default)
+export DATABASE_URL="./var/aos.db"
+
+# PostgreSQL
+export DATABASE_URL="postgresql://user:password@localhost/adapteros"
+
+# PostgreSQL with SSL
+export DATABASE_URL="postgresql://user:password@host:5432/db?sslmode=require"
+```
+
+**Migration Behavior:**
+- Migrations run automatically on server startup
+- SQLite migrations use `migrations/` directory
+- PostgreSQL migrations use `migrations_postgres/` directory
+- Schema is identical across both backends
+
 ## API Endpoints
 
 ### GET /v1/metrics/system
 
-Returns current system metrics:
+Returns current system metrics and stores them for historical tracking:
 
 ```json
 {
@@ -102,6 +127,44 @@ Returns current system metrics:
   },
   "timestamp": 1640995200
 }
+```
+
+### GET /v1/metrics/system/history
+
+Returns historical system metrics with configurable time range and limit:
+
+**Parameters:**
+- `hours` (optional): Number of hours of history to retrieve (default: 24)
+- `limit` (optional): Maximum number of records to return (default: 1000)
+
+**Example:** `GET /v1/metrics/system/history?hours=48&limit=500`
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "timestamp": 1640995200,
+    "cpu_usage": 45.2,
+    "memory_usage": 62.8,
+    "disk_read_bytes": 1024000,
+    "disk_write_bytes": 512000,
+    "disk_usage_percent": 23.1,
+    "network_rx_bytes": 2048000,
+    "network_tx_bytes": 1536000,
+    "network_rx_packets": 1500,
+    "network_tx_packets": 1200,
+    "network_bandwidth_mbps": 1.2,
+    "gpu_utilization": 15.5,
+    "gpu_memory_used": 1048576,
+    "gpu_memory_total": 8589934592,
+    "uptime_seconds": 86400,
+    "process_count": 156,
+    "load_1min": 1.2,
+    "load_5min": 1.1,
+    "load_15min": 1.0
+  }
+]
 ```
 
 ### Telemetry NDJSON Sample (`metrics.system`)
@@ -159,6 +222,10 @@ aosctl metrics history
 
 # Show metrics history for specific time range
 aosctl metrics history --hours 48 --limit 200
+
+# Via API: Get historical metrics
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/v1/metrics/system/history?hours=24&limit=100"
 ```
 
 ### Export Data
@@ -291,10 +358,13 @@ When thresholds are exceeded:
 
 ## Database Schema
 
+AdapterOS supports both **SQLite and PostgreSQL** backends with automatic database selection. The schema is identical across both backends.
+
 ### system_metrics
 
 Stores historical system metrics:
 
+#### SQLite Schema
 ```sql
 CREATE TABLE system_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,10 +386,35 @@ CREATE TABLE system_metrics (
 );
 ```
 
+#### PostgreSQL Schema
+```sql
+CREATE TABLE system_metrics (
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
+    cpu_usage DOUBLE PRECISION NOT NULL,
+    memory_usage DOUBLE PRECISION NOT NULL,
+    disk_read_bytes BIGINT NOT NULL,
+    disk_write_bytes BIGINT NOT NULL,
+    network_rx_bytes BIGINT NOT NULL,
+    network_tx_bytes BIGINT NOT NULL,
+    gpu_utilization DOUBLE PRECISION,
+    gpu_memory_used BIGINT,
+    uptime_seconds BIGINT NOT NULL,
+    process_count INTEGER NOT NULL,
+    load_1min DOUBLE PRECISION NOT NULL,
+    load_5min DOUBLE PRECISION NOT NULL,
+    load_15min DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_system_metrics_timestamp ON system_metrics(timestamp);
+```
+
 ### threshold_violations
 
 Tracks policy threshold violations:
 
+#### SQLite Schema
 ```sql
 CREATE TABLE threshold_violations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -333,10 +428,28 @@ CREATE TABLE threshold_violations (
 );
 ```
 
+#### PostgreSQL Schema
+```sql
+CREATE TABLE threshold_violations (
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
+    metric_name TEXT NOT NULL,
+    current_value DOUBLE PRECISION NOT NULL,
+    threshold_value DOUBLE PRECISION NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+    resolved_at BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_threshold_violations_timestamp ON threshold_violations(timestamp);
+CREATE INDEX idx_threshold_violations_resolved ON threshold_violations(resolved_at) WHERE resolved_at IS NOT NULL;
+```
+
 ### system_health_checks
 
 Stores health check results:
 
+#### SQLite Schema
 ```sql
 CREATE TABLE system_health_checks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -349,6 +462,23 @@ CREATE TABLE system_health_checks (
     threshold REAL,
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
+```
+
+#### PostgreSQL Schema
+```sql
+CREATE TABLE system_health_checks (
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('healthy', 'warning', 'critical')),
+    check_name TEXT NOT NULL,
+    check_status TEXT NOT NULL CHECK (check_status IN ('healthy', 'warning', 'critical')),
+    message TEXT NOT NULL,
+    value DOUBLE PRECISION,
+    threshold DOUBLE PRECISION,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_health_checks_timestamp ON system_health_checks(timestamp);
 ```
 
 ## GPU Metrics
@@ -520,7 +650,8 @@ if monitor.get_health_status() == SystemHealthStatus::Critical {
 ```rust
 use adapteros_system_metrics::SystemMetricsDb;
 
-let db = SystemMetricsDb::new(pool);
+// Automatic backend detection - works with both SQLite and PostgreSQL
+let db = SystemMetricsDb::from_database(&database_connection);
 let metrics = db.get_metrics_history(24, Some(1000)).await?;
 
 // Export to external monitoring system

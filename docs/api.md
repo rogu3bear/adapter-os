@@ -432,6 +432,331 @@ The following demo credentials are available for testing:
         ]
       }
     },
+    "/v1/domain-adapters": {
+      "get": {
+        "tags": ["domain-adapters"],
+        "summary": "List all domain adapters",
+        "operationId": "list_domain_adapters",
+        "responses": {
+          "200": {
+            "description": "List of domain adapters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DomainAdapterResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      },
+      "post": {
+        "tags": ["domain-adapters"],
+        "summary": "Create a new domain adapter",
+        "operationId": "create_domain_adapter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDomainAdapterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Domain adapter created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainAdapterResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/domain-adapters/{adapter_id}": {
+      "get": {
+        "tags": ["domain-adapters"],
+        "summary": "Get domain adapter details",
+        "operationId": "get_domain_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Domain adapter details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainAdapterResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["domain-adapters"],
+        "summary": "Delete domain adapter",
+        "operationId": "delete_domain_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Domain adapter deleted"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/domain-adapters/{adapter_id}/load": {
+      "post": {
+        "tags": ["domain-adapters"],
+        "summary": "Load domain adapter into deterministic executor",
+        "operationId": "load_domain_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadDomainAdapterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Domain adapter loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainAdapterResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/domain-adapters/{adapter_id}/unload": {
+      "post": {
+        "tags": ["domain-adapters"],
+        "summary": "Unload domain adapter from memory",
+        "operationId": "unload_domain_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Domain adapter unloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainAdapterResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/domain-adapters/{adapter_id}/execute": {
+      "post": {
+        "tags": ["domain-adapters"],
+        "summary": "Execute domain adapter on input data",
+        "operationId": "execute_domain_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Domain-specific input data (varies by adapter type)"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Execution completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainAdapterExecutionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/domain-adapters/{adapter_id}/test": {
+      "post": {
+        "tags": ["domain-adapters"],
+        "summary": "Run determinism testing on domain adapter",
+        "operationId": "test_domain_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestDomainAdapterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Test completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDomainAdapterResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/domain-adapters/{adapter_id}/manifest": {
+      "get": {
+        "tags": ["domain-adapters"],
+        "summary": "Get domain adapter manifest",
+        "operationId": "get_domain_adapter_manifest",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Domain adapter ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Domain adapter manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainAdapterManifestResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
     "/v1/training/jobs": {
       "get": {
         "tags": ["training"],
@@ -603,6 +928,67 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SystemMetrics"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ]
+      }
+    },
+    "/v1/metrics/system/history": {
+      "get": {
+        "tags": ["metrics"],
+        "summary": "Get historical system metrics",
+        "operationId": "get_system_metrics_history",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 24,
+              "minimum": 1,
+              "maximum": 720
+            },
+            "description": "Number of hours of historical data to retrieve"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1000,
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "description": "Maximum number of records to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historical system metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SystemMetricsRecord"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -1163,6 +1549,133 @@ The following demo credentials are available for testing:
           }
         }
       },
+      "SystemMetricsRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unique record identifier"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp in seconds"
+          },
+          "cpu_usage": {
+            "type": "number",
+            "format": "float",
+            "description": "CPU usage percentage (0-100)"
+          },
+          "memory_usage": {
+            "type": "number",
+            "format": "float",
+            "description": "Memory usage percentage (0-100)"
+          },
+          "disk_read_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes read from disk"
+          },
+          "disk_write_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes written to disk"
+          },
+          "disk_usage_percent": {
+            "type": "number",
+            "format": "float",
+            "description": "Disk usage percentage"
+          },
+          "network_rx_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network bytes received"
+          },
+          "network_tx_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network bytes transmitted"
+          },
+          "network_rx_packets": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network packets received"
+          },
+          "network_tx_packets": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network packets transmitted"
+          },
+          "network_bandwidth_mbps": {
+            "type": "number",
+            "format": "float",
+            "description": "Network bandwidth in Mbps"
+          },
+          "gpu_utilization": {
+            "type": "number",
+            "format": "float",
+            "nullable": true,
+            "description": "GPU utilization percentage"
+          },
+          "gpu_memory_used": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "description": "GPU memory used in bytes"
+          },
+          "gpu_memory_total": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "description": "Total GPU memory in bytes"
+          },
+          "uptime_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "System uptime in seconds"
+          },
+          "process_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of running processes"
+          },
+          "load_1min": {
+            "type": "number",
+            "format": "float",
+            "description": "1-minute load average"
+          },
+          "load_5min": {
+            "type": "number",
+            "format": "float",
+            "description": "5-minute load average"
+          },
+          "load_15min": {
+            "type": "number",
+            "format": "float",
+            "description": "15-minute load average"
+          }
+        },
+        "required": [
+          "id",
+          "timestamp",
+          "cpu_usage",
+          "memory_usage",
+          "disk_read_bytes",
+          "disk_write_bytes",
+          "disk_usage_percent",
+          "network_rx_bytes",
+          "network_tx_bytes",
+          "network_rx_packets",
+          "network_tx_packets",
+          "network_bandwidth_mbps",
+          "uptime_seconds",
+          "process_count",
+          "load_1min",
+          "load_5min",
+          "load_15min"
+        ]
+      },
       "MemoryMetrics": {
         "type": "object",
         "properties": {
@@ -1234,6 +1747,283 @@ The following demo credentials are available for testing:
             "type": "string"
           }
         }
+      },
+      "DomainAdapterResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique domain adapter identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable adapter name"
+          },
+          "version": {
+            "type": "string",
+            "description": "Adapter version"
+          },
+          "description": {
+            "type": "string",
+            "description": "Adapter description"
+          },
+          "domain_type": {
+            "type": "string",
+            "enum": ["code", "vision", "text", "audio", "multimodal"],
+            "description": "Domain type this adapter processes"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["unloaded", "loaded", "error"],
+            "description": "Current adapter status"
+          },
+          "execution_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total execution count"
+          },
+          "last_execution": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Last execution timestamp"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp"
+          }
+        },
+        "required": ["id", "name", "version", "domain_type", "model", "status", "created_at", "updated_at"]
+      },
+      "CreateDomainAdapterRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable adapter name"
+          },
+          "version": {
+            "type": "string",
+            "description": "Adapter version"
+          },
+          "description": {
+            "type": "string",
+            "description": "Adapter description"
+          },
+          "domain_type": {
+            "type": "string",
+            "enum": ["code", "vision", "text", "audio", "multimodal"],
+            "description": "Domain type this adapter processes"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model identifier"
+          },
+          "input_format": {
+            "type": "string",
+            "description": "Expected input format"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format"
+          },
+          "config": {
+            "type": "object",
+            "description": "Domain-specific configuration"
+          }
+        },
+        "required": ["name", "domain_type", "model"]
+      },
+      "LoadDomainAdapterRequest": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "description": "Load-time configuration"
+          }
+        }
+      },
+      "DomainAdapterExecutionResponse": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "description": "Unique execution identifier"
+          },
+          "adapter_id": {
+            "type": "string",
+            "description": "Adapter that performed execution"
+          },
+          "input_hash": {
+            "type": "string",
+            "description": "BLAKE3 hash of input data"
+          },
+          "output_hash": {
+            "type": "string",
+            "description": "BLAKE3 hash of output data"
+          },
+          "epsilon": {
+            "type": "number",
+            "format": "float",
+            "description": "Numerical precision drift"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Execution time in milliseconds"
+          },
+          "trace_events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Execution trace events"
+          },
+          "executed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Execution timestamp"
+          }
+        },
+        "required": ["execution_id", "adapter_id", "input_hash", "output_hash", "epsilon", "execution_time_ms", "trace_events", "executed_at"]
+      },
+      "TestDomainAdapterRequest": {
+        "type": "object",
+        "properties": {
+          "input_data": {
+            "type": "string",
+            "description": "JSON input data as string"
+          },
+          "iterations": {
+            "type": "integer",
+            "default": 100,
+            "description": "Number of test iterations"
+          },
+          "expected_output": {
+            "type": "string",
+            "nullable": true,
+            "description": "Expected output for comparison"
+          }
+        },
+        "required": ["input_data"]
+      },
+      "TestDomainAdapterResponse": {
+        "type": "object",
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "description": "Unique test identifier"
+          },
+          "adapter_id": {
+            "type": "string",
+            "description": "Adapter that was tested"
+          },
+          "input_data": {
+            "type": "string",
+            "description": "Input data used for testing"
+          },
+          "actual_output": {
+            "type": "string",
+            "description": "Actual output from final execution"
+          },
+          "expected_output": {
+            "type": "string",
+            "nullable": true,
+            "description": "Expected output for comparison"
+          },
+          "epsilon": {
+            "type": "number",
+            "format": "float",
+            "nullable": true,
+            "description": "Maximum numerical drift detected"
+          },
+          "passed": {
+            "type": "boolean",
+            "description": "Whether determinism test passed (95%+ score)"
+          },
+          "iterations": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of test iterations performed"
+          },
+          "execution_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total test execution time"
+          },
+          "executed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Test completion timestamp"
+          }
+        },
+        "required": ["test_id", "adapter_id", "input_data", "actual_output", "passed", "iterations", "execution_time_ms", "executed_at"]
+      },
+      "DomainAdapterManifestResponse": {
+        "type": "object",
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "description": "Adapter identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Adapter name"
+          },
+          "version": {
+            "type": "string",
+            "description": "Adapter version"
+          },
+          "description": {
+            "type": "string",
+            "description": "Adapter description"
+          },
+          "domain_type": {
+            "type": "string",
+            "description": "Domain type"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model identifier"
+          },
+          "hash": {
+            "type": "string",
+            "description": "Adapter hash"
+          },
+          "input_format": {
+            "type": "string",
+            "description": "Input format specification"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format specification"
+          },
+          "config": {
+            "type": "object",
+            "description": "Adapter configuration"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp"
+          }
+        },
+        "required": ["adapter_id", "name", "version", "domain_type", "model", "hash", "created_at", "updated_at"]
       }
     }
   }
@@ -1540,6 +2330,43 @@ curl -H "Authorization: Bearer $TOKEN" \
 # }
 ```
 
+#### Get Historical System Metrics
+```bash
+# Get last 24 hours of metrics (default)
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/metrics/system/history"
+
+# Get last 48 hours, limited to 500 records
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/metrics/system/history?hours=48&limit=500"
+
+# Response: Array of historical metrics
+# [
+#   {
+#     "id": 1,
+#     "timestamp": 1640995200,
+#     "cpu_usage": 45.2,
+#     "memory_usage": 62.8,
+#     "disk_read_bytes": 1024000,
+#     "disk_write_bytes": 512000,
+#     "disk_usage_percent": 23.1,
+#     "network_rx_bytes": 2048000,
+#     "network_tx_bytes": 1536000,
+#     "network_rx_packets": 1500,
+#     "network_tx_packets": 1200,
+#     "network_bandwidth_mbps": 1.2,
+#     "gpu_utilization": 15.5,
+#     "gpu_memory_used": 1048576,
+#     "gpu_memory_total": 8589934592,
+#     "uptime_seconds": 86400,
+#     "process_count": 156,
+#     "load_1min": 1.2,
+#     "load_5min": 1.1,
+#     "load_15min": 1.0
+#   }
+# ]
+```
+
 #### Get Adapter Performance Metrics
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
@@ -1785,16 +2612,62 @@ curl -H "Authorization: Bearer <token>" \
   http://localhost:8080/api/v1/adapters
 ```
 
+### Domain Adapters
+
+#### Create a Code Analysis Adapter
+```bash
+curl -X POST http://localhost:8080/api/v1/domain-adapters \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Rust Code Analyzer",
+    "version": "1.0.0",
+    "domain_type": "code",
+    "model": "deterministic-code-analyzer",
+    "description": "Analyzes Rust code for patterns and quality",
+    "input_format": "rust_source",
+    "output_format": "analysis_json"
+  }'
+```
+
+#### Load and Execute Code Analysis
+```bash
+# Load adapter
+curl -X POST http://localhost:8080/api/v1/domain-adapters/{adapter_id}/load \
+  -H "Authorization: Bearer <token>"
+
+# Execute analysis
+curl -X POST http://localhost:8080/api/v1/domain-adapters/{adapter_id}/execute \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "fn hello() { println!(\"Hello!\"); }",
+    "language": "rust"
+  }'
+```
+
+#### Test Adapter Determinism
+```bash
+curl -X POST http://localhost:8080/api/v1/domain-adapters/{adapter_id}/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_data": "{\"code\":\"fn test(){}\",\"language\":\"rust\"}",
+    "iterations": 50
+  }'
+```
+
 ## API Endpoints Summary
 
 The API provides comprehensive endpoints for:
 
 - **Authentication** - Login and JWT token management
 - **Adapters** - Register, list, and manage adapters
+- **Domain Adapters** - Deterministic domain-specific processing (code, vision, text, audio, multimodal)
 - **Models** - Import and manage base models
 - **Training** - Training job management and monitoring
 - **Inference** - Chat completions with adapter selection
-- **Metrics** - System and adapter performance metrics
+- **Metrics** - System metrics, historical data, and adapter performance metrics
 - **Repositories** - Git repository management and scanning
 - **Health** - Health and readiness checks
 

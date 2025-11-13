@@ -50,66 +50,18 @@ interface AlertRule {
 }
 
 
-const DEFAULT_ALERT_RULES: AlertRule[] = [
-  {
-    id: 'rule-1',
-    name: 'High Memory Usage',
-    enabled: true,
-    metric: 'memory_usage_pct',
-    condition: 'gt',
-    threshold: 85,
-    duration_seconds: 300,
-    severity: 'high',
-    notification_channels: ['dashboard', 'log'],
-    description: 'Alert when memory usage exceeds 85% for 5 minutes'
-  },
-  {
-    id: 'rule-2',
-    name: 'High Latency',
-    enabled: true,
-    metric: 'latency_p95_ms',
-    condition: 'gt',
-    threshold: 24,
-    duration_seconds: 60,
-    severity: 'medium',
-    notification_channels: ['dashboard'],
-    description: 'Alert when P95 latency exceeds 24ms for 1 minute'
-  },
-  {
-    id: 'rule-3',
-    name: 'Low Tokens/Second',
-    enabled: true,
-    metric: 'tokens_per_second',
-    condition: 'lt',
-    threshold: 10,
-    duration_seconds: 120,
-    severity: 'medium',
-    notification_channels: ['dashboard'],
-    description: 'Alert when token throughput drops below 10/s'
-  },
-  {
-    id: 'rule-4',
-    name: 'Adapter Capacity',
-    enabled: true,
-    metric: 'adapter_count',
-    condition: 'gt',
-    threshold: 256,
-    duration_seconds: 0,
-    severity: 'high',
-    notification_channels: ['dashboard', 'log'],
-    description: 'Alert when adapter count exceeds capacity'
-  }
-];
+// Alert rules will be loaded from backend API
 
 export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const { selectedTenant } = useTenant();
   const effectiveTenant = tenantProp ?? selectedTenant;
-  const [alertRules, setAlertRules] = useState<AlertRule[]>(DEFAULT_ALERT_RULES);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingRules, setIsLoadingRules] = useState(false);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
@@ -189,6 +141,67 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
           }
         )
       );
+    }
+  }, [effectiveTenant]);
+
+  const loadAlertRules = useCallback(async () => {
+    setIsLoadingRules(true);
+    try {
+      // Load monitoring rules from backend
+      const rules = await apiClient.listMonitoringRules(effectiveTenant);
+
+      // Transform MonitoringRule to AlertRule
+      const transformedRules: AlertRule[] = rules.map(rule => ({
+        id: rule.id,
+        name: rule.name,
+        enabled: rule.is_active,
+        metric: rule.metric_name,
+        condition: rule.threshold_operator === 'gt' ? 'gt' : rule.threshold_operator === 'lt' ? 'lt' : 'eq',
+        threshold: rule.threshold_value,
+        duration_seconds: rule.evaluation_window_seconds,
+        severity: rule.severity as AlertRule['severity'],
+        notification_channels: ['dashboard'], // Default for now - could be derived from rule.notification_channels
+        description: `Monitor ${rule.metric_name} ${rule.threshold_operator} ${rule.threshold_value}`, // Generate description since MonitoringRule doesn't have one
+      }));
+
+      setAlertRules(transformedRules);
+      setErrorRecovery(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load alert rules';
+      logger.error('Failed to load alert rules', {
+        component: 'AlertsPage',
+        operation: 'loadAlertRules',
+        tenantId: effectiveTenant,
+      }, toError(error));
+      // Fallback to default rules if API fails
+      setAlertRules([
+        {
+          id: 'rule-1',
+          name: 'High Memory Usage',
+          enabled: true,
+          metric: 'memory_usage_pct',
+          condition: 'gt',
+          threshold: 85,
+          duration_seconds: 300,
+          severity: 'high',
+          notification_channels: ['dashboard', 'log'],
+          description: 'Alert when memory usage exceeds 85% for 5 minutes'
+        },
+        {
+          id: 'rule-2',
+          name: 'High Latency',
+          enabled: true,
+          metric: 'latency_p95_ms',
+          condition: 'gt',
+          threshold: 24,
+          duration_seconds: 60,
+          severity: 'medium',
+          notification_channels: ['dashboard'],
+          description: 'Alert when P95 latency exceeds 24ms for 1 minute'
+        },
+      ]);
+    } finally {
+      setIsLoadingRules(false);
     }
   }, [effectiveTenant]);
 
@@ -299,7 +312,8 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     
     // Initial load
     void loadAlerts();
-    
+    void loadAlertRules();
+
     // Connect to SSE stream
     connectSSE();
     
@@ -310,7 +324,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
         eventSource = null;
       }
     };
-  }, [effectiveTenant, loadAlerts]);
+  }, [effectiveTenant, loadAlerts, loadAlertRules]);
 
   // Update metrics and evaluate alert rules when polling data arrives
   useEffect(() => {
@@ -320,32 +334,88 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     evaluateAlertRules(metricsData);
   }, [metricsData, evaluateAlertRules]);
 
-  const handleToggleRule = (ruleId: string) => {
-    setAlertRules(prev =>
-      prev.map(rule =>
-        rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule
-      )
-    );
-    toast.success('Alert rule updated');
-  };
-
-  const handleDeleteRule = (ruleId: string) => {
-    setAlertRules(prev => prev.filter(rule => rule.id !== ruleId));
-    toast.success('Alert rule deleted');
-  };
-
-  const handleSaveRule = (rule: AlertRule) => {
-    if (isCreatingRule) {
-      setAlertRules(prev => [...prev, { ...rule, id: `rule-${Date.now()}` }]);
-      toast.success('Alert rule created');
-    } else {
+  const handleToggleRule = async (ruleId: string) => {
+    try {
+      // For now, just update local state since backend doesn't have update endpoint
+      // TODO: Implement backend endpoint for updating alert rules
       setAlertRules(prev =>
-        prev.map(r => (r.id === rule.id ? rule : r))
+        prev.map(rule =>
+          rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule
+        )
       );
       toast.success('Alert rule updated');
+    } catch (error) {
+      logger.error('Failed to toggle alert rule', {
+        component: 'AlertsPage',
+        operation: 'handleToggleRule',
+        ruleId,
+      }, toError(error));
+      toast.error('Failed to update alert rule');
     }
-    setEditingRule(null);
-    setIsCreatingRule(false);
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    try {
+      // For now, just update local state since backend doesn't have delete endpoint
+      // TODO: Implement backend endpoint for deleting alert rules
+      setAlertRules(prev => prev.filter(rule => rule.id !== ruleId));
+      toast.success('Alert rule deleted');
+    } catch (error) {
+      logger.error('Failed to delete alert rule', {
+        component: 'AlertsPage',
+        operation: 'handleDeleteRule',
+        ruleId,
+      }, toError(error));
+      toast.error('Failed to delete alert rule');
+    }
+  };
+
+  const handleSaveRule = async (rule: AlertRule) => {
+    try {
+      if (isCreatingRule) {
+        // Create new rule via API
+        const createRequest = {
+          tenant_id: effectiveTenant || 'default',
+          name: rule.name,
+          rule_type: 'threshold' as const,
+          metric_name: rule.metric,
+          threshold_value: rule.threshold,
+          threshold_operator: rule.condition,
+          severity: rule.severity,
+          evaluation_window_seconds: rule.duration_seconds,
+          cooldown_seconds: 60,
+          is_active: rule.enabled,
+          notification_channels: rule.notification_channels.reduce((acc, channel) => {
+            acc[channel] = {
+              type: channel as 'email' | 'webhook' | 'slack' | 'pagerduty',
+              enabled: true,
+            };
+            return acc;
+          }, {} as Record<string, any>),
+        };
+
+        await apiClient.createMonitoringRule(createRequest);
+        toast.success('Alert rule created');
+        // Reload rules from backend
+        await loadAlertRules();
+      } else {
+        // For now, just update local state since backend doesn't have update endpoint
+        // TODO: Implement backend endpoint for updating alert rules
+        setAlertRules(prev =>
+          prev.map(r => (r.id === rule.id ? rule : r))
+        );
+        toast.success('Alert rule updated');
+      }
+      setEditingRule(null);
+      setIsCreatingRule(false);
+    } catch (error) {
+      logger.error('Failed to save alert rule', {
+        component: 'AlertsPage',
+        operation: 'handleSaveRule',
+        isCreating: isCreatingRule,
+      }, toError(error));
+      toast.error('Failed to save alert rule');
+    }
   };
 
   const handleAcknowledgeAlert = (alertId: string) => {
@@ -576,6 +646,16 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
         {/* Alert Rules */}
         <TabsContent value="rules" className="space-y-4">
+          {isLoadingRules && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-center p-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  <span className="ml-2 text-muted-foreground">Loading alert rules...</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {(editingRule || isCreatingRule) && (
             <Card>
               <CardHeader>

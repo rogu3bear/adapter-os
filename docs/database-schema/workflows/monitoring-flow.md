@@ -114,60 +114,66 @@ sequenceDiagram
 
 #### `system_metrics`
 - **Purpose**: Real-time system performance data
+- **Backend Support**: SQLite and PostgreSQL with identical schema
 - **Key Fields**:
-  - `id` (PK) - Auto-increment
-  - `timestamp` - Unix timestamp
-  - `cpu_usage` - CPU usage percentage
-  - `memory_usage` - Memory usage percentage
-  - `disk_read_bytes`, `disk_write_bytes` - Disk I/O
-  - `network_rx_bytes`, `network_tx_bytes` - Network I/O
-  - `gpu_utilization` - GPU usage percentage
-  - `gpu_memory_used` - GPU memory (bytes)
-  - `uptime_seconds` - System uptime
+  - `id` (PK) - Auto-increment (SERIAL in PostgreSQL)
+  - `timestamp` - Unix timestamp (BIGINT in PostgreSQL)
+  - `cpu_usage` - CPU usage percentage (DOUBLE PRECISION in PostgreSQL)
+  - `memory_usage` - Memory usage percentage (DOUBLE PRECISION in PostgreSQL)
+  - `disk_read_bytes`, `disk_write_bytes` - Disk I/O (BIGINT in PostgreSQL)
+  - `network_rx_bytes`, `network_tx_bytes` - Network I/O (BIGINT in PostgreSQL)
+  - `gpu_utilization` - GPU usage percentage (DOUBLE PRECISION in PostgreSQL)
+  - `gpu_memory_used` - GPU memory (bytes) (BIGINT in PostgreSQL)
+  - `uptime_seconds` - System uptime (BIGINT in PostgreSQL)
   - `process_count` - Number of processes
-  - `load_1min`, `load_5min`, `load_15min` - Load averages
-  - `created_at` - Insert timestamp
+  - `load_1min`, `load_5min`, `load_15min` - Load averages (DOUBLE PRECISION in PostgreSQL)
+  - `created_at` - Insert timestamp (TIMESTAMP WITH TIME ZONE in PostgreSQL)
 - **Collection Frequency**: Every 10 seconds
 - **Retention**: Configurable (default: 7 days raw, aggregated indefinitely)
 
 #### `system_health_checks`
 - **Purpose**: Automated health status validation
+- **Backend Support**: SQLite and PostgreSQL with identical schema
 - **Key Fields**:
-  - `id` (PK), `timestamp`
+  - `id` (PK) - Auto-increment (SERIAL in PostgreSQL)
+  - `timestamp` - Unix timestamp (BIGINT in PostgreSQL)
   - `status` - healthy|warning|critical
   - `check_name` - Name of health check
   - `check_status` - Check result
   - `message` - Check result message
-  - `value` - Current value
-  - `threshold` - Threshold value
-  - `created_at`
+  - `value` - Current value (DOUBLE PRECISION in PostgreSQL)
+  - `threshold` - Threshold value (DOUBLE PRECISION in PostgreSQL)
+  - `created_at` - Insert timestamp (TIMESTAMP WITH TIME ZONE in PostgreSQL)
 - **Check Types**: CPU, memory, disk, network, GPU, process, database
 - **Check Frequency**: Every 30 seconds
 
 #### `threshold_violations`
 - **Purpose**: Performance threshold breach detection
+- **Backend Support**: SQLite and PostgreSQL with identical schema
 - **Key Fields**:
-  - `id` (PK), `timestamp`
+  - `id` (PK) - Auto-increment (SERIAL in PostgreSQL)
+  - `timestamp` - Unix timestamp (BIGINT in PostgreSQL)
   - `metric_name` - Which metric violated
-  - `current_value` - Current metric value
-  - `threshold_value` - Threshold that was exceeded
+  - `current_value` - Current metric value (DOUBLE PRECISION in PostgreSQL)
+  - `threshold_value` - Threshold that was exceeded (DOUBLE PRECISION in PostgreSQL)
   - `severity` - warning|critical
-  - `resolved_at` - Resolution timestamp (null if unresolved)
-  - `created_at`
+  - `resolved_at` - Resolution timestamp (null if unresolved) (BIGINT in PostgreSQL)
+  - `created_at` - Insert timestamp (TIMESTAMP WITH TIME ZONE in PostgreSQL)
 - **Severity Levels**: warning (80-90%), critical (>90%)
 
 #### `metrics_aggregations`
 - **Purpose**: Pre-computed time-series summaries
+- **Backend Support**: SQLite and PostgreSQL with identical schema
 - **Key Fields**:
-  - `id` (PK)
-  - `window_start`, `window_end` - Time window
+  - `id` (PK) - Auto-increment (SERIAL in PostgreSQL)
+  - `window_start`, `window_end` - Time window (BIGINT in PostgreSQL)
   - `window_type` - hour|day|week
-  - `avg_cpu_usage`, `max_cpu_usage`
-  - `avg_memory_usage`, `max_memory_usage`
-  - `total_disk_read`, `total_disk_write`
-  - `total_network_rx`, `total_network_tx`
+  - `avg_cpu_usage`, `max_cpu_usage` - CPU stats (DOUBLE PRECISION in PostgreSQL)
+  - `avg_memory_usage`, `max_memory_usage` - Memory stats (DOUBLE PRECISION in PostgreSQL)
+  - `total_disk_read`, `total_disk_write` - Disk I/O totals (BIGINT in PostgreSQL)
+  - `total_network_rx`, `total_network_tx` - Network I/O totals (BIGINT in PostgreSQL)
   - `sample_count` - Number of samples
-  - `created_at`
+  - `created_at` - Insert timestamp (TIMESTAMP WITH TIME ZONE in PostgreSQL)
 - **Aggregation Schedule**: Hourly, daily, weekly
 
 #### `incidents`

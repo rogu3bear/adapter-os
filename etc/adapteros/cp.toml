@@ -1,0 +1,198 @@
+# AdapterOS Control Plane Configuration
+
+[server]
+# Use 3300 for panel access
+port = 3300
+bind = "127.0.0.1"
+# Adapter loading options
+enable_mmap_adapters = true
+mmap_cache_size_mb = 512
+enable_hot_swap = true
+
+[db]
+path = "var/aos-cp.sqlite3"
+
+[security]
+# Set to false for development mode (allows running without root/PF rules)
+# MUST be true in production!
+require_pf_deny = false
+mtls_required = false
+jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+# 32-byte hex string for deterministic executor seeding
+global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# File size limits for security (OOM prevention)
+max_config_size_bytes = 1048576      # 1MB for config.json
+max_tokenizer_size_bytes = 10485760  # 10MB for tokenizer.json
+max_model_size_bytes = 10737418240   # 10GB for model weights
+security.jwt_signing_key_path = "~/adapteros-var/lib/adapteros/jwt_private.pem"
+security.jwt_public_key_pem_file = "~/adapteros-var/lib/adapteros/jwt_public.pem"
+
+[paths]
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+adapters_root = "adapters"
+plan_dir = "plan"
+
+[worker.safety]
+# Timeout configuration
+inference_timeout_secs = 30
+evidence_timeout_secs = 5
+router_timeout_ms = 100
+policy_timeout_ms = 50
+
+# Circuit breaker configuration
+circuit_breaker_threshold = 5
+circuit_breaker_timeout_secs = 60
+
+# Resource limits
+max_concurrent_requests = 10
+max_tokens_per_second = 40
+max_memory_per_request_mb = 50
+max_cpu_time_per_request_secs = 30
+max_requests_per_minute = 100
+
+# Health monitoring
+health_check_interval_secs = 30
+max_response_time_secs = 60
+max_memory_growth_mb = 100
+max_cpu_time_secs = 300
+max_consecutive_failures = 3
+
+# Deadlock detection
+deadlock_check_interval_secs = 5
+max_wait_time_secs = 30
+max_lock_depth = 10
+recovery_timeout_secs = 10
+
+[rate_limits]
+requests_per_minute = 1000
+burst_size = 100
+inference_per_minute = 50
+
+[metrics]
+enabled = true
+bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+server_enabled = true
+server_port = 9090
+
+# System metrics collection (recommended: enabled for observability)
+[metrics.system]
+enabled = true
+collection_interval_secs = 30
+sampling_rate = 0.05
+enable_gpu_metrics = true
+enable_disk_metrics = true
+enable_network_metrics = true
+retention_days = 30
+
+# Health thresholds (recommended: adjust based on workload)
+[metrics.thresholds]
+cpu_warning = 70.0
+cpu_critical = 90.0
+memory_warning = 80.0
+memory_critical = 95.0
+disk_warning = 85.0
+disk_critical = 95.0
+gpu_warning = 80.0
+gpu_critical = 95.0
+min_memory_headroom = 15.0
+
+# Alerting configuration (recommended: enabled for production)
+[metrics.alerting]
+enabled = true
+evaluation_interval_secs = 30
+max_concurrent_evaluations = 10
+default_cooldown_secs = 300
+escalation_check_interval_secs = 60
+enable_escalation = true
+enable_notifications = true
+
+# Anomaly detection (recommended: enabled for baseline monitoring)
+[metrics.anomaly]
+enabled = true
+scan_interval_secs = 300
+z_score_threshold = 3.0
+iqr_multiplier = 1.5
+rate_of_change_threshold = 2.0
+min_samples_for_baseline = 100
+baseline_window_days = 7
+confidence_threshold = 0.7
+enable_zscore = true
+enable_iqr = true
+enable_rate_of_change = true
+
+# Baseline calculation (recommended: enabled for performance tracking)
+[metrics.baseline]
+enabled = true
+calculation_interval_hours = 24
+historical_window_days = 30
+statistical_window_days = 7
+min_samples_for_calculation = 100
+auto_expire_days = 90
+enable_historical = true
+enable_statistical = true
+enable_manual = true
+percentile_levels = [0.5, 0.75, 0.9, 0.95, 0.99]
+confidence_level = 0.95
+
+# Metrics persistence (recommended: enabled for historical data)
+[metrics.persistence]
+enabled = true
+collection_interval_secs = 30
+retention_days = 30
+cleanup_interval_hours = 24
+batch_size = 100
+enable_inference_metrics = true
+enable_gpu_metrics = true
+enable_performance_metrics = true
+
+# Notification channels (recommended: configure for alerts)
+[metrics.notifications]
+enabled = true
+enable_email = true
+enable_slack = true
+enable_webhook = true
+enable_pagerduty = true
+retry_attempts = 3
+retry_delay_secs = 30
+timeout_secs = 30
+
+[alerting]
+enabled = true
+alert_dir = "var/alerts"
+max_alerts_per_file = 10000
+rotate_size_mb = 50
+
+# Optional: CAB Golden Gate (config-driven golden run verification during promotion)
+[cab.golden_gate]
+enabled = true
+baseline = "baseline-001"
+# one of: bitwise | epsilon-tolerant | statistical
+strictness = "epsilon-tolerant"
+skip_toolchain = false
+skip_signature = false
+verify_device = false
+# bundle_path = "var/bundles/cp-promote.ndjson" # optional explicit bundle
+
+[jwt]
+secret = "secure-dev-jwt-secret-32-chars-long-at-least-change-in-prod"
+rotation_enabled = true
+max_age = 3600
+
+[rbac]
+enabled = true
+default_role = "admin"
+
+# MLX Backend Configuration
+# MLX backend uses C++ FFI (no Python required)
+# Enable with: cargo build --features mlx-ffi-backend
+[mlx]
+# Enable MLX backend support (requires --features mlx-ffi-backend)
+enabled = false
+# Default model path (can be overridden by AOS_MLX_FFI_MODEL env var)
+model_path = "./models/qwen2.5-7b-mlx"
+# Default backend selection when both Metal and MLX are available
+# Options: "metal" (default, production) or "mlx" (development/experimentation)
+default_backend = "metal"
