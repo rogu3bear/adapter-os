@@ -90,7 +90,7 @@ extended-tests = []
 integration_tests = []
 
 [dependencies]
-tower-governor = "0.5"
+tower_governor = "0.5"
 # Re-export key crates for integration tests
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
@@ -115,7 +115,7 @@ hkdf = "0.12"
 sha2 = "0.10"
 aes-gcm = "0.10"
 rand = "0.8"
-rand_core = "0.9"
+rand_core = "0.6"
 
 # Schema & Validation
 schemars = "0.8"

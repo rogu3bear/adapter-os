@@ -35,6 +35,8 @@ use std::collections::HashMap;
 #[cfg(all(target_os = "linux", feature = "linux-keychain"))]
 use std::ffi::CString;
 use tracing::{debug, error, info, warn};
+use rand::{rngs::OsRng, Rng};
+use rand_core::RngCore;
 
 /// Keychain provider implementation
 pub struct KeychainProvider {
@@ -2196,6 +2198,7 @@ mod tests {
     #[tokio::test]
     async fn test_keychain_provider_basic() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Test key generation for signing
