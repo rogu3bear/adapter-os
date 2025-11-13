@@ -268,6 +268,6 @@ See [LICENSE-APACHE](../LICENSE-APACHE) and [LICENSE-MIT](../LICENSE-MIT) for de
 ---
 
 **Last Updated**: November 13, 2025  
-**AdapterOS Version**: v0.3-alpha  
+**AdapterOS Version**: alpha-v0.04-unstable  
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 

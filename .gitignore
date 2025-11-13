@@ -46,8 +46,14 @@ target/verify/
 *.pid
 *.sqlite
 *.sqlite3
+registry.db
 
 # Model files (too large for git)
+# Large downloaded binaries
+prometheus-*.tar.gz
+grafana-*.tar.gz
+prometheus-*/
+grafana-*/
 /models/
 *.safetensors
 *.bin
@@ -96,6 +102,7 @@ yarn-error.log*
 tmp/
 temp/
 *.tmp
+*.tmp.*
 
 # Xcode / SwiftUI Installer
 installer/build/
@@ -161,6 +168,10 @@ verify_*.sh
 # Backup files
 *.backup
 *.bak
+Cargo.toml.*.backup
+Cargo.toml.temp
+Cargo.toml.test
+temp_*.toml
 
 # Alpha development artifacts
 test-config-precedence/
@@ -177,6 +188,12 @@ test-config-precedence/
 # Generated documentation
 docs/_build/
 docs/.doctrees/
+
+# Generated files
+coverage.json
+freeze.json
+libintegration_tests.rlib
+openapi_new.json
 
 # macOS
 .DS_Store

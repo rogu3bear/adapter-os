@@ -98,7 +98,7 @@ cargo bench
 
 ### Alpha Release Considerations
 
-**Important**: AdapterOS is currently in alpha-v0.01-1. This means:
+**Important**: AdapterOS is currently in alpha-v0.04-unstable. This means:
 
 - **Breaking Changes**: May occur without notice
 - **API Stability**: Not guaranteed
@@ -278,7 +278,7 @@ What actually happens
 - OS: macOS 13.0+
 - Hardware: Apple Silicon (M1/M2/M3/M4)
 - Rust Version: 1.75+
-- AdapterOS Version: alpha-v0.01-1
+- AdapterOS Version: alpha-v0.04-unstable
 
 ## Additional Context
 Any other relevant information
@@ -316,7 +316,7 @@ For security vulnerabilities:
 
 ## Alpha Release Status
 
-### Current Status: alpha-v0.01-1
+### Current Status: alpha-v0.04-unstable
 
 #### What's Working
 - Core inference engine with policy enforcement

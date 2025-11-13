@@ -2,7 +2,7 @@
 
 **High-performance inference runtime with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.**
 
-AdapterOS (alpha-v0.01-1) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution, modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (alpha-v0.04-unstable) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution, modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
@@ -27,7 +27,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   AdapterOS Runtime                     │
-│                    (alpha-v0.01-1)                     │
+│                    (alpha-v0.04-unstable)                     │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
 │  ┌──────────────┐    ┌──────────────┐   ┌───────────┐ │
@@ -477,7 +477,7 @@ cargo clippy --workspace -- -D warnings
 
 ## 📊 Performance
 
-Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.01-1:
+Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.04-unstable:
 
 | Configuration | Tokens/sec | Latency (p95) | Memory | Determinism |
 |--------------|-----------|---------------|---------|-------------|
@@ -607,7 +607,7 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ### 🛠️ Alpha Release Features
 
-AdapterOS alpha-v0.01-1 includes:
+AdapterOS alpha-v0.04-unstable includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
@@ -723,7 +723,7 @@ Dual-licensed under Apache 2.0 or MIT at your option.
 
 ---
 
-**AdapterOS alpha-v0.01-1 - Built with ❤️ for Apple Silicon**
+**AdapterOS alpha-v0.04-unstable - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
 

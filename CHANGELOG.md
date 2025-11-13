@@ -69,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code Quality**: TypeScript strict mode, no `any` types, full error handling
 - **Security**: Admin/operator role checks, per-tenant operations, audit logging
 
-## [alpha-v0.01-1] - 2025-01-15
+## [alpha-v0.04-unstable] - 2025-01-15
 
 ### Added
 - **Naming Unification**: Complete rename from `mplora-*` to `adapteros-*` crates
@@ -83,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Architecture**: Updated to reflect policy enforcement and modular kernel design
-- **Documentation**: Complete README.md overhaul for alpha-v0.01-1
+- **Documentation**: Complete README.md overhaul for alpha-v0.04-unstable
 - **Performance**: Added determinism metrics to performance benchmarks
 - **Configuration**: Enhanced with schema validation and default value application
 
