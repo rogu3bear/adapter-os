@@ -871,4 +871,44 @@ For each patch:
 - File: ui/src/providers/CoreProviders.tsx
 - Description: Enhanced core providers for better state management and integration with new UI components.
 
+### Keychain Provider Integration
+【2025-11-13†crypto†keychain-full-integration】
+- Files: crates/adapteros-crypto/src/providers/keychain.rs (2454 lines), crates/adapteros-crypto/src/key_provider.rs
+- Description: Complete cross-platform keychain provider with macOS Security Framework, Linux Secret Service/kernel keyutils, and password fallback. Implements Ed25519 signing, AES-256-GCM encryption, key rotation with receipts, and SHA256 attestation. [source: crates/adapteros-crypto/src/providers/keychain.rs L1-L2454]
+
+### Keychain Store Methods
+【2025-11-13†crypto-extract†store_ed25519】
+- Location: crates/adapteros-crypto/src/providers/keychain.rs L774-L788, L1420-L1487, L1491-L1539
+- Description: Cross-platform Ed25519 private key storage with macOS CLI, Linux Secret Service, and kernel keyutils backends. Implements secure key persistence with base64 encoding and platform-specific storage APIs.
+
+### Keychain Retrieve Methods
+【2025-11-13†crypto-extract†retrieve_ed25519】
+- Location: crates/adapteros-crypto/src/providers/keychain.rs L792-L829, L1558-L1628, L1631-L1694
+- Description: Cross-platform Ed25519 private key retrieval with secure decoding and validation. Supports macOS Security Framework, Linux Secret Service D-Bus, and kernel keyutils syscalls.
+
+### Keychain Encryption Operations
+【2025-11-13†crypto-extract†seal_unseal】
+- Location: crates/adapteros-crypto/src/providers/keychain.rs L1994-L2062
+- Description: AES-256-GCM encryption/decryption for symmetric keys stored in platform keychains. Implements nonce generation, authenticated encryption, and secure key retrieval.
+
+### Keychain Rotation & Attestation
+【2025-11-13†crypto-extract†rotation_receipts】
+- Location: crates/adapteros-crypto/src/providers/keychain.rs L2087-L2143
+- Description: Cryptographic key rotation with signed receipts and SHA256 policy attestation. Provides audit trails for key lifecycle management across platforms.
+
+### Linux Backend Detection
+【2025-11-13†crypto-extract†linux_backend_detection】
+- Location: crates/adapteros-crypto/src/providers/keychain.rs L1330-L1370
+- Description: Sophisticated backend auto-detection for Linux environments, prioritizing Secret Service D-Bus over kernel keyutils with retry logic and health checks.
+
+### Password Fallback Keystore
+【2025-11-13†crypto-extract†password_fallback】
+- Location: crates/adapteros-crypto/src/providers/keychain.rs L225-L581
+- Description: Argon2id KDF-based encrypted keystore for CI/headless environments. Provides secure offline key storage with ChaCha20-Poly1305 encryption.
+
+### Keychain Provider Configuration
+【2025-11-13†crypto-extract†keychain_config】
+- Location: crates/adapteros-crypto/src/key_provider.rs L1-L50
+- Description: Configuration structures for keychain providers with service naming, algorithm selection, and platform-specific settings.
+
 **Last Updated:** 2025-11-13

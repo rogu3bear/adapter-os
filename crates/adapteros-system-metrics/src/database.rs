@@ -638,10 +638,9 @@ pub struct ThresholdViolationRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::AnyPool;
 
-    async fn create_test_pool() -> AnyPool {
-        AnyPool::connect("sqlite::memory:")
+    async fn create_test_pool() -> SqlitePool {
+        SqlitePool::connect("sqlite::memory:")
             .await
             .expect("Failed to create test pool")
     }
