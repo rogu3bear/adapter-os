@@ -42,7 +42,7 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 anyhow = "1.0"
 argon2 = "0.5"
 async-trait = "0.1"
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.8", features = ["macros", "multipart"] }
 base64 = "0.21"
 chrono = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }

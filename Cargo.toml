@@ -78,5 +78,5 @@ zstd = "0.13"
 tar = "0.4"
 uuid = { version = "1.6", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 utoipa = { version = "4.0", features = ["axum_extras"] }
