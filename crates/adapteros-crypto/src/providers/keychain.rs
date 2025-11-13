@@ -927,7 +927,7 @@ impl MacKeychain {
         }
     }
 
-    /// Store Ed25519 private key in macOS Keychain using native APIs
+    /// Store Ed25519 private key in macOS Keychain using secure CLI
     fn store_ed25519_private_key(
         &self,
         key_id: &str,
@@ -953,17 +953,10 @@ impl MacKeychain {
 
         // Validate inputs to prevent command injection
         if account.contains('\'') || account.contains('"') || account.contains('\\') {
-            return Err(AosError::Crypto(
-                "Invalid account name contains shell metacharacters".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid account name contains shell metacharacters".to_string()));
         }
-        if self.service_name.contains('\'')
-            || self.service_name.contains('"')
-            || self.service_name.contains('\\')
-        {
-            return Err(AosError::Crypto(
-                "Invalid service name contains shell metacharacters".to_string(),
-            ));
+        if self.service_name.contains('\'') || self.service_name.contains('"') || self.service_name.contains('\\') {
+            return Err(AosError::Crypto("Invalid service name contains shell metacharacters".to_string()));
         }
 
         // Use secure CLI approach with proper input validation
@@ -986,15 +979,9 @@ impl MacKeychain {
             let error_msg = if stderr.contains("permission") || stderr.contains("access") {
                 "[macOS Keychain] Retrieve operation failed: Access denied - Unlock Keychain Access or check permissions".to_string()
             } else if stderr.contains("could not be found") || stderr.contains("doesn't exist") {
-                format!(
-                    "[macOS Keychain] Retrieve operation failed: Key '{}' not found",
-                    key_id
-                )
+                format!("[macOS Keychain] Retrieve operation failed: Key '{}' not found", key_id)
             } else {
-                format!(
-                    "[macOS Keychain] Retrieve operation failed: {} - Check keychain accessibility",
-                    stderr
-                )
+                format!("[macOS Keychain] Retrieve operation failed: {} - Check keychain accessibility", stderr)
             };
             return Err(AosError::Crypto(error_msg));
         }
@@ -1009,8 +996,8 @@ impl MacKeychain {
 
         let key_data = base64::engine::general_purpose::STANDARD
             .decode(&key_data_b64)
-            .map_err(|e| {
-                error!(error = %e, key_id = %key_id, "Invalid base64 in keychain data");
+            .map_err(|_e| {
+                error!(key_id = %key_id, "Invalid base64 in keychain data");
                 AosError::Crypto("Invalid keychain data format".to_string())
             })?;
 
@@ -1029,7 +1016,7 @@ impl MacKeychain {
         Ok(signing_key)
     }
 
-    /// Store symmetric key in macOS Keychain using native APIs
+    /// Store symmetric key in macOS Keychain using secure CLI
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
         let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
