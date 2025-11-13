@@ -87,6 +87,12 @@ Welcome to the MPLoRA documentation. This directory contains comprehensive techn
 - [Router Features](code-intelligence/code-router-features.md) - Routing integration
 - [Evaluation](code-intelligence/code-evaluation.md) - Metrics and testing
 
+#### UI Component Hierarchy
+- **[UI Component Hierarchy](ui-component-hierarchy.md)** - React component structure and relationships
+
+#### Policy Engine Outline
+- **[Policy Engine Outline](policy-engine-outline.md)** - High-level policy enforcement architecture
+
 #### Metal Kernels
 - **[Metal Kernels](metal/phase4-metal-kernels.md)** - Custom Metal GPU kernels
   - Fused attention operations
@@ -249,7 +255,7 @@ See [LICENSE-APACHE](../LICENSE-APACHE) and [LICENSE-MIT](../LICENSE-MIT) for de
 
 ---
 
-**Last Updated**: October 2025  
+**Last Updated**: November 13, 2025  
 **MPLoRA Version**: Development  
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 

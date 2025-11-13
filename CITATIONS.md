@@ -843,3 +843,32 @@ For each patch:
 【2025-11-12†api_error†trace_id】
 - Files: crates/adapteros-api/src/lib.rs
 - Description: Added trace_id to ApiError, ErrorResponse, signals. UUID generation in From/handlers. Impact: Audit trails for errors across layers, telemetry correlation.
+
+## Recent Modifications (2025-11-13)
+
+### Service Supervisor Updates
+【2025-11-13†service_supervisor†multiple_files】
+- Files: crates/adapteros-service-supervisor/src/{auth.rs, error.rs, health.rs, metrics.rs, process.rs, server.rs, service.rs, supervisor.rs}
+- Description: Enhanced service management with improved authentication, error handling, health checks, metrics collection, process supervision, and server integration. Added structured logging and policy compliance for production deployments.
+
+### UI Layout Improvements
+【2025-11-13†ui_layout†RootLayout】
+- File: ui/src/layout/RootLayout.tsx
+- Description: Updated root layout for better navigation and component integration, reflecting recent UI enhancements.
+
+### Menu Bar App Enhancements
+【2025-11-13†menu_bar_app†multiple_files】
+- Files: menu-bar-app/{README.md, Sources/AdapterOSMenu/Models/StatusTypes.swift, Sources/AdapterOSMenu/Services/ServicePanelClient.swift, Sources/AdapterOSMenu/StatusViewModel.swift, Sources/AdapterOSMenu/Views/StatusMenuView.swift}
+- Description: Improved status monitoring, service panel client integration, and view models for the Swift menu bar application.
+
+### Database Schema Documentation
+【2025-11-13†database_schema†README】
+- File: docs/database-schema/README.md
+- Description: Updated database schema documentation to reflect recent migrations and schema changes.
+
+### Core Providers Update
+【2025-11-13†ui_providers†CoreProviders】
+- File: ui/src/providers/CoreProviders.tsx
+- Description: Enhanced core providers for better state management and integration with new UI components.
+
+**Last Updated:** 2025-11-13

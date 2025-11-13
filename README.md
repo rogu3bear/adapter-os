@@ -195,6 +195,7 @@ Note: If your policy requires open-book (evidence) serving, the server refuses t
 | `adapteros-plan` | Plan builder and loader |
 | `adapteros-chat` | Chat template processor (ChatML, etc.) |
 | `adapteros-rag` | Evidence retrieval with HNSW vector search |
+| `adapteros-service-supervisor` | Service management and health monitoring |
 
 ### Management
 
@@ -204,6 +205,7 @@ Note: If your policy requires open-book (evidence) serving, the server refuses t
 | `adapteros-server-api` | REST API handlers |
 | `adapteros-cli` | Command-line tool (`aosctl`) |
 | `adapteros-db` | SQLite database layer with migrations |
+| `adapteros-system-metrics` | System metrics collection and alerting |
 
 ### Infrastructure
 
@@ -511,7 +513,7 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ---
 
-## 🛠️ Alpha Release Features
+### 🛠️ Alpha Release Features
 
 AdapterOS alpha-v0.01-1 includes:
 
@@ -523,16 +525,19 @@ AdapterOS alpha-v0.01-1 includes:
 - ✅ **Database Schema**: Versioned migrations with rollback support
 - ✅ **Server API Refactor**: Rate limiting (100/min), RBAC enhancements for admin routes【@crates/adapteros-server-api/src/routes.rs §694】
 - ✅ **Integration Tests**: E2E flows for policy, routing, determinism, memory, tenants【@tests/integration_tests.rs §new tests】
+- ✅ **Service Supervisor**: Process management, health checks, and metrics integration in adapteros-service-supervisor
 
 ### In Progress
 - 🔄 **Server Compilation**: Fix async lifetime issues in adapteros-server
 - 🔄 **MLX Backend UI Integration**: Add MLX backend selection to web dashboard
 - 🔄 **Observability**: Prometheus hooks, threat detection【@README.md §431】
+- 🔄 **Menu Bar App Enhancements**: Updated status views and service panel client in Swift
 
 ### MVP Status
 - ✅ **Core Components**: Inference pipeline, router, CLI all functional
 - ✅ **Security**: Keychain implementations secure (no hardcoded keys)
 - ✅ **Testing**: Integration tests enabled, unit tests passing
+- ✅ **UI Updates**: Root layout improvements in React
 - ⚠️ **Server**: Compilation errors prevent full E2E testing
 - See [MVP Quick Start Guide](docs/MVP_QUICKSTART.md) for details
 
@@ -540,6 +545,7 @@ AdapterOS alpha-v0.01-1 includes:
 - 📋 **MLX Backend Default Build**: Consider including MLX in default build (currently opt-in)
 - 📋 **Observability Hardening**: Alerting, advanced detection【@crates/adapteros-telemetry/src/】
 - 📋 **Deployment Guides**: Multi-node, scaling【@docs/DEPLOYMENT.md】
+- 📋 **Database Schema Updates**: Reflect recent changes in docs/database-schema/README.md
 
 ### API Reference
 - **Rust API**: Run `cargo doc --no-deps --open`【@README.md §451】
@@ -628,3 +634,15 @@ Dual-licensed under Apache 2.0 or MIT at your option.
 **AdapterOS alpha-v0.01-1 - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
+
+## Boot
+./bootstrap.sh
+
+## Shutdown
+./shutdown.sh
+
+## Services
+launchctl list | grep adapteros
+
+## Simplify
+Native launchd + scripts for macOS.

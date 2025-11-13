@@ -1,6 +1,6 @@
 //! Metrics collection for the service supervisor
 
-use metrics::{counter, gauge, histogram};
+use metrics::histogram;
 use std::time::Instant;
 
 /// Initialize metrics

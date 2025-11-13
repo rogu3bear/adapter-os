@@ -218,7 +218,7 @@ Troubleshooting guide for operational issues:
 
 ## Document Status
 
-All database schema documentation complete as of 2025-10-09:
+All database schema documentation complete as of 2025-11-13:
 
 | Document | Status | Diagrams | Tables | Workflows |
 |----------|--------|----------|--------|-----------|
@@ -231,6 +231,9 @@ All database schema documentation complete as of 2025-10-09:
 | code-intelligence.md | ✅ | 1 flowchart | 4 | 1 |
 | performance-dashboard.md | ✅ | 1 graph | 7 | 1 |
 | incident-response.md | ✅ | 1 sequence | 6 | 1 |
+| Recent Schema Updates | 🔄 | - | Updated | Recent migrations and schema enhancements |
+
+**Note:** Recent modifications to the database schema include updates to support service supervisor integration and improved metrics collection. See git history for details.
 
 ## Contributing
 
@@ -244,5 +247,23 @@ When implementing or updating database schema documentation:
 See [VALIDATION.md](VALIDATION.md) for validation framework and [MAINTENANCE.md](MAINTENANCE.md) for maintenance procedures.
 
 ---
-
 **AdapterOS Database Schema**: Comprehensive, secure, and auditable database design supporting multi-tenant, ITAR-compliant operations with full cryptographic verification and observability.
+
+## Database Operations Outline
+
+### Schema Entities
+- **Adapters/Tenants**: Core isolation (tenant_id FK).
+- **Metrics/Telemetry**: Time-series (activity_events.rs).
+
+### Operations (src/)
+- **Domain Ops** (domain_adapters.rs): CRUD with ACLs.
+  - Distinguish: Queries (fetch_all) vs. Mutations (insert).
+- **Migrations**: 56 SQL files, Postgres compat (migrations_postgres/).
+
+### Access Pattern
+- Pool: `Db::pool()`.
+- Error: AosError::Database.
+
+[source: crates/adapteros-db/src/lib.rs L1-L50]
+[source: crates/adapteros-db/src/domain_adapters.rs L1-L100]
+[source: crates/adapteros-db/migrations/ L1-L10]
