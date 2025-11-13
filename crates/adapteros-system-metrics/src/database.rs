@@ -6,28 +6,62 @@
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
-use sqlx::{AnyPool, Row};
+use sqlx::{AnyPool, PgPool, Row, SqlitePool};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Database backend type
+#[derive(Clone)]
+pub enum MetricsBackend {
+    Sqlite(SqlitePool),
+    Postgres(PgPool),
+}
 
 /// Database operations for system metrics
 pub struct SystemMetricsDb {
-    pool: AnyPool,
+    backend: MetricsBackend,
 }
 
 // Migrations are available via embedded macro
-const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+const MIGRATIONS_SQLITE: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+const MIGRATIONS_POSTGRES: sqlx::migrate::Migrator = sqlx::migrate!("./migrations_postgres");
 
 impl SystemMetricsDb {
-    /// Create a new system metrics database
-    pub fn new(pool: AnyPool) -> Self {
-        Self { pool }
+    /// Create a new system metrics database with SQLite backend
+    pub fn new_sqlite(pool: SqlitePool) -> Self {
+        Self {
+            backend: MetricsBackend::Sqlite(pool),
+        }
+    }
+
+    /// Create a new system metrics database with PostgreSQL backend
+    pub fn new_postgres(pool: PgPool) -> Self {
+        Self {
+            backend: MetricsBackend::Postgres(pool),
+        }
+    }
+
+    /// Create from adapteros_db::Database (supports both backends)
+    pub fn from_database(db: &adapteros_db::Database) -> Self {
+        match db.backend() {
+            adapteros_db::DatabaseBackend::Sqlite(sqlite_db) => Self::new_sqlite(sqlite_db.pool().clone()),
+            adapteros_db::DatabaseBackend::Postgres(pg_db) => Self::new_postgres(pg_db.pool().clone()),
+        }
     }
 
     /// Run database migrations
     pub async fn run_migrations(&self) -> Result<()> {
-        MIGRATIONS.run(&self.pool).await.map_err(|e| {
-            AosError::Database(format!("Failed to run system metrics migrations: {}", e))
-        })?;
+        match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                MIGRATIONS_SQLITE.run(pool).await.map_err(|e| {
+                    AosError::Database(format!("Failed to run system metrics SQLite migrations: {}", e))
+                })?;
+            }
+            MetricsBackend::Postgres(pool) => {
+                MIGRATIONS_POSTGRES.run(pool).await.map_err(|e| {
+                    AosError::Database(format!("Failed to run system metrics PostgreSQL migrations: {}", e))
+                })?;
+            }
+        }
         Ok(())
     }
 
@@ -38,36 +72,69 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        let result = sqlx::query(
-            r#"
-            INSERT INTO system_metrics (
-                timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
-                uptime_seconds, process_count, load_1min, load_5min, load_15min
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(metrics.timestamp)
-        .bind(metrics.cpu_usage)
-        .bind(metrics.memory_usage)
-        .bind(metrics.disk_read_bytes)
-        .bind(metrics.disk_write_bytes)
-        .bind(metrics.network_rx_bytes)
-        .bind(metrics.network_tx_bytes)
-        .bind(metrics.gpu_utilization)
-        .bind(metrics.gpu_memory_used)
-        .bind(metrics.uptime_seconds)
-        .bind(metrics.process_count)
-        .bind(metrics.load_1min)
-        .bind(metrics.load_5min)
-        .bind(metrics.load_15min)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
+        match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                let result = sqlx::query(
+                    r#"
+                    INSERT INTO system_metrics (
+                        timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
+                        network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
+                        uptime_seconds, process_count, load_1min, load_5min, load_15min
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(metrics.timestamp)
+                .bind(metrics.cpu_usage)
+                .bind(metrics.memory_usage)
+                .bind(metrics.disk_read_bytes)
+                .bind(metrics.disk_write_bytes)
+                .bind(metrics.network_rx_bytes)
+                .bind(metrics.network_tx_bytes)
+                .bind(metrics.gpu_utilization)
+                .bind(metrics.gpu_memory_used)
+                .bind(metrics.uptime_seconds)
+                .bind(metrics.process_count)
+                .bind(metrics.load_1min)
+                .bind(metrics.load_5min)
+                .bind(metrics.load_15min)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
 
-        Ok(result
-            .last_insert_id()
-            .expect("Failed to get last insert ID"))
+                Ok(result.last_insert_id())
+            }
+            MetricsBackend::Postgres(pool) => {
+                let result = sqlx::query(
+                    r#"
+                    INSERT INTO system_metrics (
+                        timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
+                        network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
+                        uptime_seconds, process_count, load_1min, load_5min, load_15min
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING id
+                    "#,
+                )
+                .bind(metrics.timestamp)
+                .bind(metrics.cpu_usage)
+                .bind(metrics.memory_usage)
+                .bind(metrics.disk_read_bytes)
+                .bind(metrics.disk_write_bytes)
+                .bind(metrics.network_rx_bytes)
+                .bind(metrics.network_tx_bytes)
+                .bind(metrics.gpu_utilization)
+                .bind(metrics.gpu_memory_used)
+                .bind(metrics.uptime_seconds)
+                .bind(metrics.process_count)
+                .bind(metrics.load_1min)
+                .bind(metrics.load_5min)
+                .bind(metrics.load_15min)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
+
+                Ok(result.get::<i64, _>("id"))
+            }
+        }
     }
 
     /// Get system metrics history
@@ -85,22 +152,44 @@ impl SystemMetricsDb {
         let limit = limit.unwrap_or(1000);
         let limit_i64 = limit as i64;
 
-        let rows = sqlx::query(
-            r#"
-            SELECT id, timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                   disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
-                   network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
-                   gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
-            FROM system_metrics
-            WHERE timestamp >= ?
-            ORDER BY timestamp DESC
-            LIMIT ?
-            "#,
-        )
-        .bind(start_time)
-        .bind(limit_i64)
-        .fetch_all(&self.pool)
-        .await
+        let rows = match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    SELECT id, timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
+                           disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                           network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                           gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
+                    FROM system_metrics
+                    WHERE timestamp >= ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    "#,
+                )
+                .bind(start_time)
+                .bind(limit_i64)
+                .fetch_all(pool)
+                .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    SELECT id, timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
+                           disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                           network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                           gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
+                    FROM system_metrics
+                    WHERE timestamp >= $1
+                    ORDER BY timestamp DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(start_time)
+                .bind(limit_i64)
+                .fetch_all(pool)
+                .await
+            }
+        }
         .map_err(|e| AosError::Database(format!("Failed to get metrics history: {}", e)))?;
 
         let mut records = Vec::new();
@@ -178,39 +267,77 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        let result = sqlx::query(
-            r#"
-            INSERT INTO threshold_violations (
-                timestamp, metric_name, current_value, threshold_value, severity
-            ) VALUES (?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(timestamp)
-        .bind(metric_name)
-        .bind(current_value)
-        .bind(threshold_value)
-        .bind(severity)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
+        match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                let result = sqlx::query(
+                    r#"
+                    INSERT INTO threshold_violations (
+                        timestamp, metric_name, current_value, threshold_value, severity
+                    ) VALUES (?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(timestamp)
+                .bind(metric_name)
+                .bind(current_value)
+                .bind(threshold_value)
+                .bind(severity)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
 
-        Ok(result
-            .last_insert_id()
-            .expect("Failed to get last insert ID"))
+                Ok(result.last_insert_id())
+            }
+            MetricsBackend::Postgres(pool) => {
+                let result = sqlx::query(
+                    r#"
+                    INSERT INTO threshold_violations (
+                        timestamp, metric_name, current_value, threshold_value, severity
+                    ) VALUES ($1, $2, $3, $4, $5)
+                    RETURNING id
+                    "#,
+                )
+                .bind(timestamp)
+                .bind(metric_name)
+                .bind(current_value)
+                .bind(threshold_value)
+                .bind(severity)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
+
+                Ok(result.get::<i64, _>("id"))
+            }
+        }
     }
 
     /// Get unresolved threshold violations
     pub async fn get_unresolved_violations(&self) -> Result<Vec<ThresholdViolationRecord>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, timestamp, metric_name, current_value, threshold_value, severity, created_at
-            FROM threshold_violations
-            WHERE resolved_at IS NULL
-            ORDER BY timestamp DESC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await
+        let rows = match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    SELECT id, timestamp, metric_name, current_value, threshold_value, severity, created_at
+                    FROM threshold_violations
+                    WHERE resolved_at IS NULL
+                    ORDER BY timestamp DESC
+                    "#,
+                )
+                .fetch_all(pool)
+                .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    SELECT id, timestamp, metric_name, current_value, threshold_value, severity, created_at
+                    FROM threshold_violations
+                    WHERE resolved_at IS NULL
+                    ORDER BY timestamp DESC
+                    "#,
+                )
+                .fetch_all(pool)
+                .await
+            }
+        }
         .map_err(|e| AosError::Database(format!("Failed to get violations: {}", e)))?;
 
         let mut violations = Vec::new();
@@ -239,12 +366,23 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
-            .bind(timestamp)
-            .bind(violation_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
+        match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
+                    .bind(timestamp)
+                    .bind(violation_id)
+                    .execute(pool)
+                    .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query("UPDATE threshold_violations SET resolved_at = $1 WHERE id = $2")
+                    .bind(timestamp)
+                    .bind(violation_id)
+                    .execute(pool)
+                    .await
+            }
+        }
+        .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
 
         Ok(())
     }
@@ -256,20 +394,40 @@ impl SystemMetricsDb {
         window_end: i64,
         window_type: &str,
     ) -> Result<Option<MetricsAggregation>> {
-        let row = sqlx::query(
-            r#"
-            SELECT window_start, window_end, avg_cpu_usage, max_cpu_usage, avg_memory_usage,
-                   max_memory_usage, total_disk_read, total_disk_write, total_network_rx,
-                   total_network_tx, sample_count
-            FROM metrics_aggregations
-            WHERE window_start = ? AND window_end = ? AND window_type = ?
-            "#,
-        )
-        .bind(window_start)
-        .bind(window_end)
-        .bind(window_type)
-        .fetch_optional(&self.pool)
-        .await
+        let row = match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    SELECT window_start, window_end, avg_cpu_usage, max_cpu_usage, avg_memory_usage,
+                           max_memory_usage, total_disk_read, total_disk_write, total_network_rx,
+                           total_network_tx, sample_count
+                    FROM metrics_aggregations
+                    WHERE window_start = ? AND window_end = ? AND window_type = ?
+                    "#,
+                )
+                .bind(window_start)
+                .bind(window_end)
+                .bind(window_type)
+                .fetch_optional(pool)
+                .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    SELECT window_start, window_end, avg_cpu_usage, max_cpu_usage, avg_memory_usage,
+                           max_memory_usage, total_disk_read, total_disk_write, total_network_rx,
+                           total_network_tx, sample_count
+                    FROM metrics_aggregations
+                    WHERE window_start = $1 AND window_end = $2 AND window_type = $3
+                    "#,
+                )
+                .bind(window_start)
+                .bind(window_end)
+                .bind(window_type)
+                .fetch_optional(pool)
+                .await
+            }
+        }
         .map_err(|e| AosError::Database(format!("Failed to get aggregation: {}", e)))?;
 
         if let Some(row) = row {
@@ -305,29 +463,69 @@ impl SystemMetricsDb {
         let total_network_tx = aggregation.total_network_tx as i64;
         let sample_count = aggregation.sample_count as i64;
 
-        sqlx::query(
-            r#"
-            INSERT OR REPLACE INTO metrics_aggregations (
-                window_start, window_end, window_type, avg_cpu_usage, max_cpu_usage,
-                avg_memory_usage, max_memory_usage, total_disk_read, total_disk_write,
-                total_network_rx, total_network_tx, sample_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(window_start)
-        .bind(window_end)
-        .bind(window_type)
-        .bind(aggregation.avg_cpu_usage)
-        .bind(aggregation.max_cpu_usage)
-        .bind(aggregation.avg_memory_usage)
-        .bind(aggregation.max_memory_usage)
-        .bind(total_disk_read)
-        .bind(total_disk_write)
-        .bind(total_network_rx)
-        .bind(total_network_tx)
-        .bind(sample_count)
-        .execute(&self.pool)
-        .await
+        match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT OR REPLACE INTO metrics_aggregations (
+                        window_start, window_end, window_type, avg_cpu_usage, max_cpu_usage,
+                        avg_memory_usage, max_memory_usage, total_disk_read, total_disk_write,
+                        total_network_rx, total_network_tx, sample_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(window_start)
+                .bind(window_end)
+                .bind(window_type)
+                .bind(aggregation.avg_cpu_usage)
+                .bind(aggregation.max_cpu_usage)
+                .bind(aggregation.avg_memory_usage)
+                .bind(aggregation.max_memory_usage)
+                .bind(total_disk_read)
+                .bind(total_disk_write)
+                .bind(total_network_rx)
+                .bind(total_network_tx)
+                .bind(sample_count)
+                .execute(pool)
+                .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO metrics_aggregations (
+                        window_start, window_end, window_type, avg_cpu_usage, max_cpu_usage,
+                        avg_memory_usage, max_memory_usage, total_disk_read, total_disk_write,
+                        total_network_rx, total_network_tx, sample_count
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    ON CONFLICT (window_start, window_end, window_type)
+                    DO UPDATE SET
+                        avg_cpu_usage = EXCLUDED.avg_cpu_usage,
+                        max_cpu_usage = EXCLUDED.max_cpu_usage,
+                        avg_memory_usage = EXCLUDED.avg_memory_usage,
+                        max_memory_usage = EXCLUDED.max_memory_usage,
+                        total_disk_read = EXCLUDED.total_disk_read,
+                        total_disk_write = EXCLUDED.total_disk_write,
+                        total_network_rx = EXCLUDED.total_network_rx,
+                        total_network_tx = EXCLUDED.total_network_tx,
+                        sample_count = EXCLUDED.sample_count
+                    "#,
+                )
+                .bind(window_start)
+                .bind(window_end)
+                .bind(window_type)
+                .bind(aggregation.avg_cpu_usage)
+                .bind(aggregation.max_cpu_usage)
+                .bind(aggregation.avg_memory_usage)
+                .bind(aggregation.max_memory_usage)
+                .bind(total_disk_read)
+                .bind(total_disk_write)
+                .bind(total_network_rx)
+                .bind(total_network_tx)
+                .bind(sample_count)
+                .execute(pool)
+                .await
+            }
+        }
         .map_err(|e| AosError::Database(format!("Failed to store aggregation: {}", e)))?;
 
         Ok(())
@@ -335,12 +533,21 @@ impl SystemMetricsDb {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
-        let row =
-            sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
-                .bind(key)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
+        let row = match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
+                    .bind(key)
+                    .fetch_optional(pool)
+                    .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = $1")
+                    .bind(key)
+                    .fetch_optional(pool)
+                    .await
+            }
+        }
+        .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
 
         Ok(row.map(|r| r.get("config_value")))
     }
@@ -352,17 +559,36 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        sqlx::query(
-            r#"
-            INSERT OR REPLACE INTO system_metrics_config (config_key, config_value, updated_at)
-            VALUES (?, ?, ?)
-            "#,
-        )
-        .bind(key)
-        .bind(value)
-        .bind(timestamp)
-        .execute(&self.pool)
-        .await
+        match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT OR REPLACE INTO system_metrics_config (config_key, config_value, updated_at)
+                    VALUES (?, ?, ?)
+                    "#,
+                )
+                .bind(key)
+                .bind(value)
+                .bind(timestamp)
+                .execute(pool)
+                .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO system_metrics_config (config_key, config_value, updated_at)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (config_key)
+                    DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = EXCLUDED.updated_at
+                    "#,
+                )
+                .bind(key)
+                .bind(value)
+                .bind(timestamp)
+                .execute(pool)
+                .await
+            }
+        }
         .map_err(|e| AosError::Database(format!("Failed to set config: {}", e)))?;
 
         Ok(())
@@ -376,11 +602,21 @@ impl SystemMetricsDb {
             .as_secs() as i64
             - (retention_days as i64 * 24 * 3600);
 
-        let result = sqlx::query("DELETE FROM system_metrics WHERE timestamp < ?")
-            .bind(cutoff_time)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
+        let result = match &self.backend {
+            MetricsBackend::Sqlite(pool) => {
+                sqlx::query("DELETE FROM system_metrics WHERE timestamp < ?")
+                    .bind(cutoff_time)
+                    .execute(pool)
+                    .await
+            }
+            MetricsBackend::Postgres(pool) => {
+                sqlx::query("DELETE FROM system_metrics WHERE timestamp < $1")
+                    .bind(cutoff_time)
+                    .execute(pool)
+                    .await
+            }
+        }
+        .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
 
         Ok(result.rows_affected())
     }
@@ -413,7 +649,10 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_storage() {
         let pool = create_test_pool().await;
-        let db = SystemMetricsDb::new(pool);
+        let db = SystemMetricsDb::new_sqlite(pool);
+
+        // Run migrations first
+        db.run_migrations().await.expect("Failed to run migrations");
 
         let metrics = SystemMetricsRecord {
             id: None,
@@ -448,7 +687,10 @@ mod tests {
     #[tokio::test]
     async fn test_config_operations() {
         let pool = create_test_pool().await;
-        let db = SystemMetricsDb::new(pool);
+        let db = SystemMetricsDb::new_sqlite(pool);
+
+        // Run migrations first
+        db.run_migrations().await.expect("Failed to run migrations");
 
         db.set_config("test_key", "test_value")
             .await
@@ -458,5 +700,91 @@ mod tests {
             .await
             .expect("Failed to get config");
         assert_eq!(value, Some("test_value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_metrics_history_and_operations() {
+        let pool = create_test_pool().await;
+        let db = SystemMetricsDb::new_sqlite(pool);
+
+        // Run migrations first
+        db.run_migrations().await.expect("Failed to run migrations");
+
+        // Store multiple metrics records
+        let base_timestamp = 1234567890i64;
+        for i in 0..5 {
+            let metrics = SystemMetricsRecord {
+                id: None,
+                timestamp: base_timestamp + (i * 3600), // 1 hour apart
+                cpu_usage: 50.0 + (i as f64 * 5.0),
+                memory_usage: 60.0 + (i as f64 * 2.0),
+                disk_read_bytes: 1000 + (i as u64 * 500),
+                disk_write_bytes: 2000 + (i as u64 * 300),
+                disk_usage_percent: 75.0 + (i as f64),
+                network_rx_bytes: 3000 + (i as u64 * 100),
+                network_tx_bytes: 4000 + (i as u64 * 200),
+                network_rx_packets: 150 + (i as u64 * 10),
+                network_tx_packets: 200 + (i as u64 * 15),
+                network_bandwidth_mbps: 10.5 + (i as f64 * 0.5),
+                gpu_utilization: Some(70.0 + (i as f64 * 2.0)),
+                gpu_memory_used: Some(5000 + (i as u64 * 100)),
+                gpu_memory_total: Some(8192),
+                uptime_seconds: 3600 + (i as i64 * 600),
+                process_count: 100 + (i as i32 * 5),
+                load_1min: 1.5 + (i as f64 * 0.1),
+                load_5min: 1.2 + (i as f64 * 0.05),
+                load_15min: 1.0 + (i as f64 * 0.02),
+            };
+
+            let id = db.store_metrics(&metrics).await.expect("Failed to store metrics");
+            assert!(id > 0);
+        }
+
+        // Test retrieving history (should get all 5 records)
+        let history = db.get_metrics_history(24, Some(10)).await.expect("Failed to get history");
+        assert_eq!(history.len(), 5);
+
+        // Test threshold violations
+        let violation_id = db.store_threshold_violation("cpu", 95.0, 90.0, "high")
+            .await
+            .expect("Failed to store violation");
+        assert!(violation_id > 0);
+
+        let violations = db.get_unresolved_violations().await.expect("Failed to get violations");
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].metric_name, "cpu");
+
+        // Test resolving violation
+        db.resolve_violation(violation_id).await.expect("Failed to resolve violation");
+        let violations_after = db.get_unresolved_violations().await.expect("Failed to get violations after resolution");
+        assert_eq!(violations_after.len(), 0);
+
+        // Test aggregations
+        let aggregation = MetricsAggregation {
+            window_start: base_timestamp,
+            window_end: base_timestamp + 3600,
+            avg_cpu_usage: 52.5,
+            max_cpu_usage: 70.0,
+            avg_memory_usage: 62.0,
+            max_memory_usage: 68.0,
+            total_disk_read: 2500,
+            total_disk_write: 3500,
+            total_network_rx: 3500,
+            total_network_tx: 5000,
+            sample_count: 2,
+        };
+
+        db.store_metrics_aggregation(&aggregation, "hourly").await.expect("Failed to store aggregation");
+
+        let retrieved_agg = db.get_metrics_aggregation(base_timestamp, base_timestamp + 3600, "hourly")
+            .await
+            .expect("Failed to get aggregation");
+        assert!(retrieved_agg.is_some());
+        let agg = retrieved_agg.unwrap();
+        assert_eq!(agg.avg_cpu_usage, 52.5);
+
+        // Test cleanup
+        let deleted_count = db.cleanup_old_metrics(1).await.expect("Failed to cleanup metrics");
+        assert_eq!(deleted_count, 0); // No old metrics in this test
     }
 }

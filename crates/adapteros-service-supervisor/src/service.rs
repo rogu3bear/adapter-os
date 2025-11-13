@@ -151,7 +151,7 @@ impl ManagedService {
             // Try graceful shutdown first
             if let Some(pid) = child.id() {
                 let _ = tokio::process::Command::new("kill")
-                    .args(&["-TERM", &pid.to_string()])
+                    .args(["-TERM", &pid.to_string()])
                     .status()
                     .await;
             }
@@ -170,7 +170,7 @@ impl ManagedService {
                     // Timeout - force kill
                     if let Some(pid) = child.id() {
                         let _ = tokio::process::Command::new("kill")
-                            .args(&["-KILL", &pid.to_string()])
+                            .args(["-KILL", &pid.to_string()])
                             .status()
                             .await;
                     }

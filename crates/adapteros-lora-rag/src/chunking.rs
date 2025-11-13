@@ -214,6 +214,7 @@ impl CodeChunk {
     }
 
     /// Create new code chunk
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repo_id: String,
         file_path: String,

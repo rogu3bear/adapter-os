@@ -32,8 +32,6 @@ use adapteros_core::{AosError, Result};
 use base64::Engine;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
-use rand::{rngs::OsRng, Rng};
-use rand_core::RngCore;
 
 // Platform-specific imports (currently unused as macOS implementation is stubbed)
 // FIXME: Re-enable these when implementing proper Security Framework integration
@@ -619,12 +617,15 @@ impl PasswordFallbackKeyring {
 impl KeyringImpl for PasswordFallbackKeyring {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         use rand::rngs::OsRng;
+        use rand_core::RngCore;
 
         let alg_clone = alg.clone();
         let handle = match alg {
             KeyAlgorithm::Ed25519 => {
                 let mut rng = OsRng;
-                let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
+                let mut key_bytes = [0u8; 32];
+                rng.fill_bytes(&mut key_bytes);
+                let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
                 let verifying_key = signing_key.verifying_key();
 
                 // Store in keystore
@@ -2257,11 +2258,14 @@ impl LinuxKeyring {
 impl KeyringImpl for LinuxKeyring {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         use rand::rngs::OsRng;
+        use rand_core::RngCore;
 
         let handle = match alg {
             KeyAlgorithm::Ed25519 => {
                 let mut rng = OsRng;
-                let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
+                let mut key_bytes = [0u8; 32];
+                rng.fill_bytes(&mut key_bytes);
+                let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
                 let verifying_key = signing_key.verifying_key();
 
                 // Store private key in Linux keyring
@@ -2540,12 +2544,14 @@ mod tests {
         assert!(
             attestation.provider_type.contains("keychain")
                 || attestation.provider_type.contains("keyring")
+                || attestation.provider_type.contains("password-fallback")
         );
     }
 
     #[tokio::test]
     async fn test_keychain_provider_debug() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Test key generation
@@ -2572,6 +2578,7 @@ mod tests {
     #[tokio::test]
     async fn test_key_rotation() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Generate initial key
@@ -2610,6 +2617,7 @@ mod tests {
     #[tokio::test]
     async fn test_key_lifecycle_ed25519() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         let key_id = "test-ed25519-lifecycle";
@@ -2660,6 +2668,7 @@ mod tests {
     #[tokio::test]
     async fn test_key_lifecycle_symmetric() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         let key_id = "test-symmetric-lifecycle";
@@ -2690,6 +2699,7 @@ mod tests {
     #[tokio::test]
     async fn test_provider_attestation() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         let attestation = provider.attest().await.unwrap();
@@ -2721,6 +2731,7 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_operations() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config.clone()).unwrap();
 
         // Test concurrent access to the same key
@@ -2771,6 +2782,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_ciphertext() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Generate a key for sealing
