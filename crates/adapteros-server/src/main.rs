@@ -9,12 +9,13 @@ use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
 use adapteros_federation::FederationManager;
+use adapteros_lora_worker::signal::{Signal, SignalType};
 use adapteros_orchestrator::{CodeJobManager, FederationDaemonConfig, TrainingService};
 use adapteros_policy::PolicyPackManager;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
-use adapteros_server_api::{routes, AppState};
+use adapteros_server_api::{routes, signal_dispatcher::{SignalDispatcher, SignalConfig}, AppState};
 #[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
 #[cfg(feature = "telemetry")]
@@ -1069,6 +1070,13 @@ async fn main() -> Result<()> {
         global_seed,
     );
 
+    // Run system metrics database migrations
+    info!("Running system metrics database migrations");
+    if let Err(e) = state.run_system_metrics_migrations().await {
+        error!("Failed to run system metrics migrations: {}", e);
+        return Err(e);
+    }
+
     // Add metrics server to AppState if enabled
     if let Some(metrics_server) = metrics_server {
         state = state.with_metrics_server(metrics_server);
@@ -1610,6 +1618,44 @@ async fn main() -> Result<()> {
             }
         });
         info!("Training log cleanup task started (hourly, keeps 7 days)");
+    }
+
+    // Initialize robust signal dispatcher
+    {
+        let signal_config = SignalConfig {
+            auth_required: state.signal_config.auth_required,
+            channel_capacity: state.signal_config.channel_capacity,
+            retry_delay_secs: state.signal_config.retry_delay_secs,
+            max_retry_delay_secs: state.signal_config.max_retry_delay_secs,
+            circuit_breaker_threshold: state.signal_config.circuit_breaker_threshold,
+            circuit_breaker_reset_secs: state.signal_config.circuit_breaker_reset_secs,
+            connection_timeout_secs: state.signal_config.connection_timeout_secs,
+            multi_worker_enabled: state.signal_config.multi_worker_enabled,
+        };
+
+        let mut signal_dispatcher = SignalDispatcher::new(
+            signal_config,
+            state.discovery_signals_tx.clone(),
+            state.contact_signals_tx.clone(),
+            state.signal_public_key.clone(),
+            None, // TODO: Add telemetry writer
+        );
+
+        // Add workers to dispatcher
+        let workers = state.db.list_all_workers().await.unwrap_or_default();
+        for worker in workers {
+            signal_dispatcher.add_worker(
+                worker.id.to_string(),
+                std::path::PathBuf::from(&worker.uds_path),
+            ).await;
+        }
+
+        // Start the dispatcher
+        if let Err(e) = signal_dispatcher.start().await {
+            error!("Failed to start signal dispatcher: {}", e);
+        } else {
+            info!("Robust signal dispatcher started successfully");
+        }
     }
 
     // Build router with UI (after spawning background tasks)
