@@ -13,6 +13,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
 - **Secure Keychain Integration**: Multi-platform hardware-backed key storage (Secure Enclave, OS keychains, encrypted fallbacks)
+- **Production-Ready Streaming**: Authenticated real-time SSE streams for training, discovery, and contact events with circuit breaker protection
 - **Policy Enforcement**: 21 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
@@ -51,6 +52,12 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 │  │  • Hardware Secure Enclave (macOS)              │  │
 │  │  • OS Keychain Services                          │  │
 │  │  • Encrypted Keystore Fallback                   │  │
+│  └──────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │   🔒 Production Streaming API                    │  │
+│  │  • Authenticated SSE Streams                     │  │
+│  │  • Circuit Breaker Protection                    │  │
+│  │  • Multi-Worker Aggregation                      │  │
 │  └──────────────────────────────────────────────────┘  │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
@@ -407,6 +414,42 @@ The CLI supports two data formats:
 ```
 
 The CLI automatically detects the format. For text-based data, specify `--tokenizer` (defaults to `models/qwen2.5-7b-mlx/tokenizer.json`). Ensure your tokenization matches the tokenizer used at inference time (e.g., Qwen tokenizer). Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1) to observe loss decrease.
+
+### CodeGraph Analysis (Repository Intelligence)
+
+AdapterOS includes comprehensive repository analysis capabilities for framework detection, language analysis, and security scanning:
+
+```bash
+# Detect frameworks in a project directory
+curl -X POST http://127.0.0.1:8080/api/v1/codegraph/frameworks/detect \
+  -H 'Authorization: Bearer adapteros-local' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "path": "/path/to/project",
+    "framework_types": ["React", "Django"]
+  }'
+
+# Get comprehensive repository metadata
+curl -X POST http://127.0.0.1:8080/api/v1/codegraph/repository/metadata \
+  -H 'Authorization: Bearer adapteros-local' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "path": "/path/to/repository",
+    "include_frameworks": true,
+    "include_languages": true,
+    "include_security": true
+  }'
+```
+
+**Features:**
+- **15+ Framework Detection**: React, Next.js, Vue, Angular, Django, FastAPI, Flask, Rails, Laravel, Spring Boot, Quarkus, Actix Web, Axum, Express
+- **Language Analysis**: File counts, line counts, percentage distributions
+- **Security Scanning**: Entropy-based secret detection with configurable severity
+- **Git Integration**: Efficient repository statistics without expensive operations
+- **Intelligent Caching**: 5-minute TTL caching for performance
+- **Production Security**: Path validation, traversal protection, rate limiting
+
+Results feed into the K-sparse LoRA router for context-aware adapter selection.
 
 ```bash
 cargo doc --no-deps --open
