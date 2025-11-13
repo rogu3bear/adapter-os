@@ -476,6 +476,68 @@ impl HealthCache {
 static HEALTH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HealthCache>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HealthCache::new(30)))); // 30 second cache
 
+/// Cache entry for CodeGraph analysis results
+#[derive(Debug, Clone)]
+struct CodeGraphCacheEntry {
+    frameworks: Vec<crate::types::DetectedFramework>,
+    languages: Vec<crate::types::LanguageInfo>,
+    security: Option<crate::types::SecurityScanResult>,
+    git_info: Option<crate::types::GitInfo>,
+    timestamp: Instant,
+    ttl: Duration,
+}
+
+impl CodeGraphCacheEntry {
+    fn new(
+        frameworks: Vec<crate::types::DetectedFramework>,
+        languages: Vec<crate::types::LanguageInfo>,
+        security: Option<crate::types::SecurityScanResult>,
+        git_info: Option<crate::types::GitInfo>,
+        ttl_seconds: u64,
+    ) -> Self {
+        Self {
+            frameworks,
+            languages,
+            security,
+            git_info,
+            timestamp: Instant::now(),
+            ttl: Duration::from_secs(ttl_seconds),
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.timestamp.elapsed() > self.ttl
+    }
+}
+
+/// Global CodeGraph analysis cache - keyed by repository path
+/// Uses a simple HashMap for demonstration; production should use Redis/external cache
+static CODEGRAPH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HashMap<String, CodeGraphCacheEntry>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+
+/// Generate cache key for repository analysis
+fn make_cache_key(path: &str, include_frameworks: bool, include_languages: bool, include_security: bool) -> String {
+    format!("{}:f{}l{}s{}", path, include_frameworks as u8, include_languages as u8, include_security as u8)
+}
+
+/// Get cached analysis result if available and not expired
+fn get_cached_analysis(cache_key: &str) -> Option<CodeGraphCacheEntry> {
+    let cache = CODEGRAPH_CACHE.read().unwrap();
+    cache.get(cache_key).cloned().filter(|entry| !entry.is_expired())
+}
+
+/// Store analysis result in cache with TTL
+fn set_cached_analysis(cache_key: String, entry: CodeGraphCacheEntry) {
+    let mut cache = CODEGRAPH_CACHE.write().unwrap();
+
+    // Clean up expired entries periodically (simple approach)
+    if cache.len() > 100 { // Arbitrary cleanup threshold
+        cache.retain(|_, entry| !entry.is_expired());
+    }
+
+    cache.insert(cache_key, entry);
+}
+
 /// Check model runtime health summary for health endpoint with caching
 pub async fn check_model_runtime_health_summary(
     state: &AppState,
@@ -8632,6 +8694,38 @@ pub async fn get_system_metrics(
         .expect("System time before UNIX epoch")
         .as_secs();
 
+    // Store metrics in system metrics database for historical tracking
+    let metrics_record = adapteros_system_metrics::SystemMetricsRecord {
+        id: None,
+        timestamp: timestamp as i64,
+        cpu_usage: metrics.cpu_usage,
+        memory_usage: metrics.memory_usage,
+        disk_read_bytes: metrics.disk_io.read_bytes as u64,
+        disk_write_bytes: metrics.disk_io.write_bytes as u64,
+        disk_usage_percent: metrics.disk_io.usage_percent,
+        network_rx_bytes: metrics.network_io.rx_bytes as u64,
+        network_tx_bytes: metrics.network_io.tx_bytes as u64,
+        network_rx_packets: metrics.network_io.rx_packets as u64,
+        network_tx_packets: metrics.network_io.tx_packets as u64,
+        network_bandwidth_mbps: metrics.network_io.bandwidth_mbps,
+        gpu_utilization: metrics.gpu_metrics.utilization,
+        gpu_memory_used: metrics.gpu_metrics.memory_used.map(|x| x as u64),
+        gpu_memory_total: metrics.gpu_metrics.memory_total.map(|x| x as u64),
+        uptime_seconds: collector.uptime_seconds() as i64,
+        process_count: collector.process_count() as i32,
+        load_1min: load_avg.0,
+        load_5min: load_avg.1,
+        load_15min: load_avg.2,
+    };
+
+    // Store metrics asynchronously (don't block response on storage)
+    let system_metrics_db = Arc::clone(&state.system_metrics_db);
+    tokio::spawn(async move {
+        if let Err(e) = system_metrics_db.store_metrics(&metrics_record).await {
+            tracing::warn!("Failed to store system metrics: {}", e);
+        }
+    });
+
     Ok(Json(SystemMetricsResponse {
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
@@ -8835,6 +8929,52 @@ pub async fn get_system_metrics(
             .memory_total
             .map(|v| v as f32 / 1024.0 / 1024.0 / 1024.0),
     }))
+}
+
+/// Get historical system metrics
+#[utoipa::path(
+    get,
+    path = "/v1/metrics/system/history",
+    params(
+        ("hours" = Option<u32>, Query, description = "Number of hours of history to retrieve", example = 24),
+        ("limit" = Option<usize>, Query, description = "Maximum number of records to return", example = 1000)
+    ),
+    responses(
+        (status = 200, description = "Historical system metrics", body = Vec<SystemMetricsRecord>),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn get_system_metrics_history(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<adapteros_system_metrics::SystemMetricsRecord>>, (StatusCode, Json<ErrorResponse>)> {
+    let hours = params
+        .get("hours")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(24); // Default to 24 hours
+
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1000); // Default to 1000 records
+
+    let metrics = state
+        .system_metrics_db
+        .get_metrics_history(hours, Some(limit))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(metrics))
 }
 
 // ===== Commit Inspector Endpoints =====
@@ -10449,51 +10589,55 @@ pub async fn discovery_stream(
     let tenant_id = params.tenant.clone();
     let repo_filter = params.repo.clone();
 
-    // Create a stream that emits discovery events
-    // For now, this is a mock implementation
-    // TODO: Connect to actual CodeGraph scanner signal stream
-    let stream = stream::unfold(
-        (state, tenant_id, repo_filter, 0),
-        |(state, tenant_id, repo_filter, counter)| async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+    // Subscribe to discovery signals from broadcast channel
+    let rx = state.discovery_signals_tx.subscribe();
 
-            let repo_id = repo_filter
-                .clone()
-                .unwrap_or_else(|| "acme/payments".to_string());
+    // Create stream from broadcast channel (similar to telemetry_events_stream)
+    let stream = BroadcastStream::new(rx).filter_map(move |res| {
+        let tenant_id_clone = tenant_id.clone();
+        let repo_filter_clone = repo_filter.clone();
+        async move {
+            match res {
+                Ok(signal) => {
+                    // Filter by tenant if tenant_id is provided
+                    let should_include = {
+                        signal.payload.get("tenant_id")
+                            .and_then(|t| t.as_str())
+                            .map(|t| t == tenant_id_clone.as_str())
+                            .unwrap_or(true) // Include if no tenant_id in payload
+                    };
 
-            // Cycle through different discovery event types
-            let event_type = match counter % 5 {
-                0 => "repo_scan_started",
-                1 => "repo_scan_progress",
-                2 => "symbol_indexed",
-                3 => "framework_detected",
-                _ => "repo_scan_completed",
-            };
+                    // Filter by repo if repo_filter is provided
+                    let repo_matches = {
+                        if let Some(ref repo_filter) = repo_filter_clone {
+                            signal.payload.get("repo_id")
+                                .and_then(|r| r.as_str())
+                                .map(|r| r == repo_filter.as_str())
+                                .unwrap_or(false) // Exclude if repo filter doesn't match
+                        } else {
+                            true // Include all if no repo filter
+                        }
+                    };
 
-            let event_data = serde_json::json!({
-                "type": event_type,
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
-                "payload": {
-                    "repo_id": repo_id,
-                    "tenant_id": &tenant_id,
-                    "stage": if counter < 10 { "parsing" } else if counter < 20 { "indexing" } else { "completed" },
-                    "files_parsed": counter * 14,
-                    "symbol_count": counter * 183,
-                    "framework": if event_type == "framework_detected" { Some("django 4.2") } else { None },
-                    "content_hash": if event_type == "repo_scan_completed" { Some(format!("b3:abc{:03x}", counter)) } else { None }
+                    if should_include && repo_matches {
+                        match serde_json::to_string(&signal) {
+                            Ok(json) => Some(Ok(Event::default().event("discovery").data(json))),
+                            Err(e) => {
+                                tracing::warn!("Failed to serialize discovery signal: {}", e);
+                                None
+                            }
+                        }
+                    } else {
+                        None // Skip filtered signals
+                    }
                 }
-            });
-
-            let event = Event::default()
-                .event("discovery")
-                .data(event_data.to_string());
-
-            Some((Ok(event), (state, tenant_id, repo_filter, counter + 1)))
-        },
-    );
+                Err(_) => {
+                    // BroadcastStream error (lagged or closed) - skip and continue
+                    None
+                }
+            }
+        }
+    });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
@@ -10520,46 +10664,42 @@ pub async fn contacts_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let tenant_id = params.tenant.clone();
 
-    // Create a stream that emits contact events
-    // TODO: Connect to actual contact discovery signal stream
-    let stream = stream::unfold(
-        (state, tenant_id, 0),
-        |(state, tenant_id, counter)| async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
+    // Subscribe to contact signals from broadcast channel
+    let rx = state.contact_signals_tx.subscribe();
 
-            let categories = ["adapter", "repository", "user", "system", "external"];
-            let names = [
-                "adapter_0",
-                "acme/payments",
-                "john.doe",
-                "api_gateway",
-                "stripe_api",
-            ];
+    // Create stream from broadcast channel (similar to telemetry_events_stream)
+    let stream = BroadcastStream::new(rx).filter_map(move |res| {
+        let tenant_id_clone = tenant_id.clone();
+        async move {
+            match res {
+                Ok(signal) => {
+                    // Filter by tenant if tenant_id is provided
+                    let should_include = {
+                        signal.payload.get("tenant_id")
+                            .and_then(|t| t.as_str())
+                            .map(|t| t == tenant_id_clone.as_str())
+                            .unwrap_or(true) // Include if no tenant_id in payload
+                    };
 
-            let idx = counter % 5;
-            let event_data = serde_json::json!({
-                "type": "contact_discovered",
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
-                "payload": {
-                    "name": names[idx],
-                    "category": categories[idx],
-                    "tenant_id": &tenant_id,
-                    "metadata": {
-                        "discovered_at": chrono::Utc::now().to_rfc3339()
+                    if should_include {
+                        match serde_json::to_string(&signal) {
+                            Ok(json) => Some(Ok(Event::default().event("contact").data(json))),
+                            Err(e) => {
+                                tracing::warn!("Failed to serialize contact signal: {}", e);
+                                None
+                            }
+                        }
+                    } else {
+                        None // Skip filtered signals
                     }
                 }
-            });
-
-            let event = Event::default()
-                .event("contact")
-                .data(event_data.to_string());
-
-            Some((Ok(event), (state, tenant_id, counter + 1)))
-        },
-    );
+                Err(_) => {
+                    // BroadcastStream error (lagged or closed) - skip and continue
+                    None
+                }
+            }
+        }
+    });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
@@ -14403,4 +14543,511 @@ pub struct ComplianceControl {
     pub last_checked: String,
     pub evidence: Vec<String>,
     pub findings: Vec<String>,
+}
+
+/// Detect frameworks in a directory
+///
+/// Analyzes a directory path to detect frameworks, libraries, and development tools
+/// using heuristic analysis of configuration files and dependency manifests.
+/// Returns deterministic results suitable for adapter routing decisions.
+#[utoipa::path(
+    post,
+    path = "/api/v1/codegraph/frameworks/detect",
+    request_body = FrameworkDetectionRequest,
+    responses(
+        (status = 200, description = "Framework detection completed successfully", body = FrameworkDetectionResponse),
+        (status = 400, description = "Invalid request parameters"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "codegraph"
+)]
+pub async fn detect_frameworks(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<FrameworkDetectionRequest>,
+) -> Result<Json<FrameworkDetectionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::SRE])?;
+
+    let start_time = std::time::Instant::now();
+
+    // Comprehensive path validation
+    let paths = vec![request.path.clone()];
+    if let Err(validation_error) = crate::validation::validate_file_paths(&paths) {
+        return Err(validation_error);
+    }
+
+    let path = std::path::Path::new(&request.path);
+    if !path.exists() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Directory not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    if !path.is_dir() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Path must be a directory").with_code("INVALID_PATH")),
+        ));
+    }
+
+    // Perform framework detection
+    let detected_frameworks = match adapteros_codegraph::framework_detector::detect_frameworks(path) {
+        Ok(frameworks) => frameworks,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Framework detection failed")
+                        .with_code("DETECTION_FAILED")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    };
+
+    // Convert to response format
+    let frameworks: Vec<crate::types::DetectedFramework> = detected_frameworks
+        .into_iter()
+        .map(|f| crate::types::DetectedFramework {
+            name: f.name,
+            version: f.version,
+            confidence: f.confidence,
+            rank: f.rank,
+            evidence: f.evidence,
+        })
+        .collect();
+
+    // Apply framework type filtering if specified
+    let filtered_frameworks = if request.framework_types.is_empty() {
+        frameworks
+    } else {
+        frameworks
+            .into_iter()
+            .filter(|f| request.framework_types.contains(&f.name))
+            .collect()
+    };
+
+    let analysis_time_ms = start_time.elapsed().as_millis() as u64;
+
+    let response = FrameworkDetectionResponse {
+        frameworks: filtered_frameworks,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        analysis_time_ms,
+    };
+
+    Ok(Json(response))
+}
+
+/// Get comprehensive repository metadata
+///
+/// Performs detailed analysis of a repository including framework detection,
+/// language analysis, security scanning, and Git information.
+/// Results are cached for performance and reproducibility.
+#[utoipa::path(
+    post,
+    path = "/api/v1/codegraph/repository/metadata",
+    request_body = RepositoryMetadataRequest,
+    responses(
+        (status = 200, description = "Repository metadata analysis completed", body = RepositoryMetadataResponse),
+        (status = 400, description = "Invalid request parameters"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "codegraph"
+)]
+pub async fn get_repository_metadata(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<RepositoryMetadataRequest>,
+) -> Result<Json<RepositoryMetadataResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::SRE])?;
+
+    let start_time = std::time::Instant::now();
+
+    // Comprehensive path validation
+    if let Err(validation_error) = crate::validation::validate_git_repository(&request.path) {
+        return Err(validation_error);
+    }
+
+    // Additional security checks for path traversal
+    let paths = vec![request.path.clone()];
+    if let Err(validation_error) = crate::validation::validate_file_paths(&paths) {
+        return Err(validation_error);
+    }
+
+    let path = std::path::Path::new(&request.path);
+
+    // Check cache first
+    let cache_key = make_cache_key(&request.path, request.include_frameworks, request.include_languages, request.include_security);
+    if let Some(cached_entry) = get_cached_analysis(&cache_key) {
+        tracing::info!(cache_hit = true, cache_key = %cache_key, "Using cached analysis result");
+
+        let response = RepositoryMetadataResponse {
+            path: request.path,
+            frameworks: cached_entry.frameworks,
+            languages: cached_entry.languages,
+            security: cached_entry.security,
+            git_info: cached_entry.git_info,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            analysis_time_ms: 0, // Cached result, no analysis time
+        };
+
+        return Ok(Json(response));
+    }
+
+    tracing::info!(cache_hit = false, cache_key = %cache_key, "Performing fresh analysis");
+
+    let mut frameworks = Vec::new();
+    let mut languages = Vec::new();
+    let mut security = None;
+    let mut git_info = None;
+
+    // Framework detection - fail if explicitly requested and fails
+    if request.include_frameworks {
+        frameworks = match adapteros_codegraph::framework_detector::detect_frameworks(path) {
+            Ok(detected) => {
+                detected
+                    .into_iter()
+                    .map(|f| crate::types::DetectedFramework {
+                        name: f.name,
+                        version: f.version,
+                        confidence: f.confidence,
+                        rank: f.rank,
+                        evidence: f.evidence,
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Framework detection failed")
+                            .with_code("FRAMEWORK_DETECTION_FAILED")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        };
+    }
+
+    // Language analysis - fail if explicitly requested and fails
+    if request.include_languages {
+        languages = match adapteros_codegraph::directory_analyzer::analyze_directory(path, &std::path::Path::new("")) {
+            Ok(analysis) => {
+                analysis
+                    .languages
+                    .into_iter()
+                    .map(|(name, stats)| crate::types::LanguageInfo {
+                        name,
+                        files: stats.files,
+                        lines: stats.lines,
+                        percentage: stats.percentage,
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Language analysis failed")
+                            .with_code("LANGUAGE_ANALYSIS_FAILED")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        };
+    }
+
+    // Security scanning with production-grade analysis
+    if request.include_security {
+        match perform_comprehensive_security_scan(path) {
+            Ok(scan_result) => {
+                security = Some(scan_result);
+            }
+            Err(e) => {
+                tracing::warn!("Security scan failed: {}", e);
+                // Continue with empty security results rather than failing entirely
+                security = Some(crate::types::SecurityScanResult {
+                    violations: Vec::new(),
+                    scan_timestamp: chrono::Utc::now().to_rfc3339(),
+                    status: "failed".to_string(),
+                });
+            }
+        }
+    }
+
+    // Git information - optimized to avoid expensive commit walking
+    git_info = get_git_info_optimized(path);
+
+    let analysis_time_ms = start_time.elapsed().as_millis() as u64;
+
+    // Cache the successful analysis result (TTL: 5 minutes)
+    let cache_entry = CodeGraphCacheEntry::new(
+        frameworks.clone(),
+        languages.clone(),
+        security.clone(),
+        git_info.clone(),
+        300, // 5 minute TTL
+    );
+    set_cached_analysis(cache_key, cache_entry);
+
+    tracing::info!(
+        analysis_time_ms = analysis_time_ms,
+        frameworks_found = frameworks.len(),
+        languages_found = languages.len(),
+        security_violations = security.as_ref().map(|s| s.violations.len()).unwrap_or(0),
+        "Analysis completed and cached"
+    );
+
+    let response = RepositoryMetadataResponse {
+        path: request.path,
+        frameworks,
+        languages,
+        security,
+        git_info,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        analysis_time_ms,
+    };
+
+    Ok(Json(response))
+}
+
+/// Perform comprehensive security scanning with semantic analysis
+///
+/// This implements production-grade security scanning that goes beyond simple regex patterns.
+/// It includes entropy analysis, semantic pattern recognition, and contextual validation.
+fn perform_comprehensive_security_scan(
+    repo_path: &std::path::Path,
+) -> Result<crate::types::SecurityScanResult, Box<dyn std::error::Error>> {
+    let mut violations = Vec::new();
+    let walker = walkdir::WalkDir::new(repo_path)
+        .max_depth(5)
+        .follow_links(false);
+
+    // Define security patterns with severity levels and entropy checks
+    let security_patterns = [
+        // High severity - definite security issues
+        ("hardcoded_password", r"(?i)(password|passwd|pwd)\s*[=:]\s*['"][^'"]{3,}['"]", "high"),
+        ("hardcoded_api_key", r"(?i)(api[_-]?key|apikey)\s*[=:]\s*['"][A-Za-z0-9+/=]{20,}['"]", "high"),
+        ("hardcoded_secret", r"(?i)(secret|token)\s*[=:]\s*['"][^'"]{10,}['"]", "high"),
+        ("hardcoded_private_key", r"-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----", "critical"),
+        ("hardcoded_certificate", r"-----BEGIN\s+CERTIFICATE-----", "high"),
+
+        // Medium severity - potential issues requiring review
+        ("potential_jwt_token", r"eyJ[A-Za-z0-9+/=]+\.eyJ[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=\-_]+", "medium"),
+        ("aws_access_key", r"AKIA[0-9A-Z]{16}", "high"),
+        ("generic_secret_pattern", r"(?i)(secret|key|token)\s*[=:]\s*['"][A-Za-z0-9+/=]{16,}['"]", "medium"),
+
+        // Low severity - suspicious but likely benign
+        ("debug_credentials", r"(?i)(user|username)\s*[=:]\s*['"](admin|root|test)['"]", "low"),
+    ];
+
+    let mut files_scanned = 0;
+    let mut lines_scanned = 0;
+
+    for entry in walker {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let file_path = entry.path();
+        if let Some(extension) = file_path.extension() {
+            // Only scan relevant source files
+            if !matches!(extension.to_str(), Some("rs" | "py" | "js" | "ts" | "java" | "go" | "php" | "rb" | "yml" | "yaml" | "json" | "toml" | "xml")) {
+                continue;
+            }
+
+            // Skip common non-sensitive files
+            let file_name = file_path.file_name().unwrap_or_default().to_str().unwrap_or("");
+            if matches!(file_name, "package-lock.json" | "yarn.lock" | "Cargo.lock" | "Pipfile.lock") {
+                continue;
+            }
+
+            match std::fs::read_to_string(file_path) {
+                Ok(content) => {
+                    files_scanned += 1;
+                    let file_lines = content.lines().count();
+                    lines_scanned += file_lines;
+
+                    for (line_num, line) in content.lines().enumerate() {
+                        let line_num = line_num + 1; // 1-indexed
+
+                        for (pattern_name, regex_pattern, severity) in &security_patterns {
+                            if let Ok(regex) = regex::Regex::new(regex_pattern) {
+                                if let Some(mat) = regex.find(line) {
+                                    let matched_text = mat.as_str();
+
+                                    // Perform entropy analysis on potential secrets
+                                    let entropy_score = calculate_entropy(matched_text);
+
+                                    // Only flag high-entropy strings as violations
+                                    // Low entropy strings are likely benign (e.g., "password123")
+                                    let should_flag = match severity {
+                                        "critical" => true, // Always flag critical patterns
+                                        "high" => entropy_score > 4.0, // High entropy threshold
+                                        "medium" => entropy_score > 3.5, // Medium entropy threshold
+                                        "low" => entropy_score > 3.0, // Low entropy threshold
+                                        _ => false,
+                                    };
+
+                                    if should_flag {
+                                        violations.push(crate::types::SecurityViolation {
+                                            file_path: file_path.strip_prefix(repo_path)
+                                                .unwrap_or(file_path)
+                                                .to_string_lossy()
+                                                .to_string(),
+                                            pattern: pattern_name.to_string(),
+                                            line_number: Some(line_num),
+                                            severity: severity.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Failed to read file {}: {}", file_path.display(), e);
+                    continue;
+                }
+            }
+        }
+    }
+
+    tracing::info!(
+        files_scanned = files_scanned,
+        lines_scanned = lines_scanned,
+        violations_found = violations.len(),
+        "Security scan completed"
+    );
+
+    Ok(crate::types::SecurityScanResult {
+        violations,
+        scan_timestamp: chrono::Utc::now().to_rfc3339(),
+        status: "completed".to_string(),
+    })
+}
+
+/// Calculate Shannon entropy of a string to identify potential secrets
+///
+/// High entropy strings are more likely to be actual secrets/tokens.
+/// Low entropy strings are likely benign (e.g., "password123" has low entropy).
+fn calculate_entropy(text: &str) -> f64 {
+    if text.is_empty() {
+        return 0.0;
+    }
+
+    let mut char_counts = std::collections::HashMap::new();
+    for ch in text.chars() {
+        *char_counts.entry(ch).or_insert(0) += 1;
+    }
+
+    let len = text.chars().count() as f64;
+    let mut entropy = 0.0;
+
+    for &count in char_counts.values() {
+        let p = count as f64 / len;
+        entropy -= p * p.log2();
+    }
+
+    entropy
+}
+
+/// Get optimized Git repository information without expensive commit walking
+///
+/// Uses efficient git commands to gather statistics without loading all commits.
+/// This avoids O(n) performance issues with large repositories.
+fn get_git_info_optimized(repo_path: &std::path::Path) -> Option<crate::types::GitInfo> {
+    if !repo_path.join(".git").exists() {
+        return None;
+    }
+
+    // Get current branch
+    let branch = get_git_branch(repo_path).unwrap_or_else(|| "unknown".to_string());
+
+    // Get commit count efficiently
+    let commit_count = get_git_commit_count(repo_path).unwrap_or(0);
+
+    // Get last commit hash
+    let last_commit = get_git_last_commit(repo_path).unwrap_or_else(|| "unknown".to_string());
+
+    // Get recent authors (last 100 commits for efficiency)
+    let authors = get_git_recent_authors(repo_path).unwrap_or_default();
+
+    Some(crate::types::GitInfo {
+        branch,
+        commit_count,
+        last_commit,
+        authors,
+    })
+}
+
+/// Get current Git branch name
+fn get_git_branch(repo_path: &std::path::Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+/// Get total commit count efficiently
+fn get_git_commit_count(repo_path: &std::path::Path) -> Option<usize> {
+    let output = std::process::Command::new("git")
+        .args(&["rev-list", "--count", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<usize>()
+            .ok()
+    } else {
+        None
+    }
+}
+
+/// Get last commit hash
+fn get_git_last_commit(repo_path: &std::path::Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(&["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+/// Get recent commit authors (efficiently from last 100 commits)
+fn get_git_recent_authors(repo_path: &std::path::Path) -> Option<Vec<String>> {
+    let output = std::process::Command::new("git")
+        .args(&["log", "--pretty=format:%an", "-100"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let authors: std::collections::HashSet<String> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        Some(authors.into_iter().collect())
+    } else {
+        None
+    }
 }

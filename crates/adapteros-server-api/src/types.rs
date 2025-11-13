@@ -1119,6 +1119,127 @@ pub struct PromptFeatures {
     pub verb: String,
 }
 
+/// Framework detection request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FrameworkDetectionRequest {
+    /// Path to directory to analyze (relative to workspace or absolute)
+    pub path: String,
+    /// Optional filter for specific framework types
+    #[serde(default)]
+    pub framework_types: Vec<String>,
+}
+
+/// Framework detection response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FrameworkDetectionResponse {
+    /// List of detected frameworks
+    pub frameworks: Vec<DetectedFramework>,
+    /// Analysis timestamp
+    pub timestamp: String,
+    /// Total analysis time in milliseconds
+    pub analysis_time_ms: u64,
+}
+
+/// Detected framework information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DetectedFramework {
+    /// Framework display name (e.g. "React", "Django")
+    pub name: String,
+    /// Optional version extracted from dependency manifests
+    pub version: Option<String>,
+    /// Confidence score between 0.0 and 1.0
+    pub confidence: f32,
+    /// Routing rank for adapter selection
+    pub rank: u8,
+    /// Evidence collected during detection
+    pub evidence: Vec<String>,
+}
+
+/// Repository metadata request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RepositoryMetadataRequest {
+    /// Path to repository directory
+    pub path: String,
+    /// Include detailed framework analysis
+    #[serde(default)]
+    pub include_frameworks: bool,
+    /// Include language analysis
+    #[serde(default)]
+    pub include_languages: bool,
+    /// Include security scan results
+    #[serde(default)]
+    pub include_security: bool,
+}
+
+/// Repository metadata response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RepositoryMetadataResponse {
+    /// Repository path
+    pub path: String,
+    /// Framework detection results
+    pub frameworks: Vec<DetectedFramework>,
+    /// Language analysis results
+    pub languages: Vec<LanguageInfo>,
+    /// Security scan results
+    pub security: Option<SecurityScanResult>,
+    /// Git repository information
+    pub git_info: Option<GitInfo>,
+    /// Analysis timestamp
+    pub timestamp: String,
+    /// Total analysis time in milliseconds
+    pub analysis_time_ms: u64,
+}
+
+/// Language information from repository analysis
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct LanguageInfo {
+    /// Programming language name
+    pub name: String,
+    /// Number of files in this language
+    pub files: usize,
+    /// Total lines of code
+    pub lines: usize,
+    /// Percentage of total codebase
+    pub percentage: f32,
+}
+
+/// Security scan result
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SecurityScanResult {
+    /// Security violations found
+    pub violations: Vec<SecurityViolation>,
+    /// Scan timestamp
+    pub scan_timestamp: String,
+    /// Scan status
+    pub status: String,
+}
+
+/// Security violation details
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SecurityViolation {
+    /// File path where violation was found
+    pub file_path: String,
+    /// Security pattern that was violated
+    pub pattern: String,
+    /// Line number (if available)
+    pub line_number: Option<usize>,
+    /// Severity level
+    pub severity: String,
+}
+
+/// Git repository information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GitInfo {
+    /// Current branch name
+    pub branch: String,
+    /// Total commit count
+    pub commit_count: usize,
+    /// Last commit hash
+    pub last_commit: String,
+    /// List of authors
+    pub authors: Vec<String>,
+}
+
 /// Prompt orchestration metrics
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PromptOrchestrationMetrics {

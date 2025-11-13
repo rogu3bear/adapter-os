@@ -238,7 +238,7 @@ impl ServiceSupervisor {
             self.config
                 .services
                 .get(service.id())
-                .map(|config| -(config.startup_order as i32)) // Negative for reverse order
+                .map(|config| -config.startup_order) // Negative for reverse order
                 .unwrap_or(-999)
         });
 

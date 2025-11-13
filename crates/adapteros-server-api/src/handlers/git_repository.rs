@@ -701,66 +701,32 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>
 fn analyze_code_structure(
     repo_path: &StdPath,
 ) -> Result<(Vec<LanguageInfo>, Vec<FrameworkInfo>), Box<dyn std::error::Error>> {
-    let mut language_counts: HashMap<String, usize> = HashMap::new();
-    let mut framework_hints: HashMap<String, Vec<String>> = HashMap::new();
+    // Use the comprehensive framework detector from adapteros_codegraph
+    let detected_frameworks = adapteros_codegraph::framework_detector::detect_frameworks(repo_path)?;
 
-    for entry in WalkDir::new(repo_path)
+    // Convert to repository FrameworkInfo format
+    let frameworks: Vec<FrameworkInfo> = detected_frameworks
         .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        if let Some(extension) = entry.path().extension() {
-            if let Some(ext_str) = extension.to_str() {
-                let language = match ext_str {
-                    "rs" => "Rust",
-                    "py" => "Python",
-                    "js" => "JavaScript",
-                    "ts" => "TypeScript",
-                    "go" => "Go",
-                    "java" => "Java",
-                    "cpp" | "cc" | "cxx" => "C++",
-                    "c" => "C",
-                    _ => "Other",
-                };
-
-                *language_counts.entry(language.to_string()).or_insert(0) += 1;
-
-                // Detect frameworks
-                if ext_str == "py" && entry.path().to_string_lossy().contains("django") {
-                    framework_hints
-                        .entry("Django".to_string())
-                        .or_default()
-                        .push(entry.path().to_string_lossy().to_string());
-                } else if ext_str == "js" && entry.path().to_string_lossy().contains("react") {
-                    framework_hints
-                        .entry("React".to_string())
-                        .or_default()
-                        .push(entry.path().to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // Convert to LanguageInfo
-    let total_files: usize = language_counts.values().sum();
-    let languages: Vec<LanguageInfo> = language_counts
-        .into_iter()
-        .map(|(name, files)| LanguageInfo {
-            name,
-            files,
-            lines: files * 50, // Estimate
-            percentage: (files as f32 / total_files as f32) * 100.0,
+        .map(|f| FrameworkInfo {
+            name: f.name,
+            version: f.version,
+            confidence: f.confidence,
+            files: f.evidence, // Use evidence as file references
         })
         .collect();
 
-    // Convert to FrameworkInfo
-    let frameworks: Vec<FrameworkInfo> = framework_hints
+    // Use directory analyzer for language detection
+    let analysis = adapteros_codegraph::directory_analyzer::analyze_directory(repo_path, &std::path::Path::new(""))?;
+
+    // Convert to LanguageInfo format
+    let languages: Vec<LanguageInfo> = analysis
+        .languages
         .into_iter()
-        .map(|(name, files)| FrameworkInfo {
+        .map(|(name, stats)| LanguageInfo {
             name,
-            version: None,
-            confidence: 0.8, // High confidence for detected frameworks
-            files,
+            files: stats.files,
+            lines: stats.lines,
+            percentage: stats.percentage,
         })
         .collect();
 

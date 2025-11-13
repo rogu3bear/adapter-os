@@ -12,7 +12,7 @@ vi.mock('@/api/client', () => {
     getToken: vi.fn(() => null),
     setToken: vi.fn(),
     getCurrentUser: vi.fn().mockResolvedValue({ user_id: 'u1', email: 'u@test.dev', role: 'viewer' }),
-    listTenants: vi.fn().mockResolvedValue([]),
+    listTenants: vi.fn().mockResolvedValue([{ id: 't1', name: 'Test Tenant' }]),
     // Alerts API
     listAlerts: vi.fn().mockResolvedValue([
       { id: '1', severity: 'high', title: 'High latency', message: 'p95 = 30ms', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
