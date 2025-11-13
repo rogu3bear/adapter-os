@@ -50,7 +50,7 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 
 # OpenAPI
-utoipa = "4.2"
+utoipa = "5.4"
 rust-embed = "8.0"
 
 # Additional dependencies
