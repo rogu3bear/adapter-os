@@ -32,6 +32,8 @@ use adapteros_core::{AosError, Result};
 use base64::Engine;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
+use rand::{rngs::OsRng, Rng};
+use rand_core::RngCore;
 
 // Platform-specific imports (currently unused as macOS implementation is stubbed)
 // FIXME: Re-enable these when implementing proper Security Framework integration
@@ -2497,6 +2499,7 @@ mod tests {
     #[tokio::test]
     async fn test_keychain_provider_basic() {
         let config = KeyProviderConfig::default();
+        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Test key generation for signing

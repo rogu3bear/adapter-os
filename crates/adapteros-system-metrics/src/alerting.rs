@@ -1300,44 +1300,36 @@ impl AlertEvaluator {
 
     /// Get active adapters for a tenant
     async fn get_active_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterInfo>> {
-        #[derive(sqlx::FromRow)]
+        #[derive(sqlx::FromRow, Debug)]
         struct AdapterRow {
-            id: String,
-            name: String,
-            tier: String,
-            hash_b3: String,
-            active: i32,
-            // add other fields if needed
+            category: String,
+            last_accessed: chrono::DateTime<chrono::Utc>,
+        }
+
+        #[derive(Debug)]
+        pub struct AdapterInfo {
+            pub category: String,
+            pub last_accessed: chrono::DateTime<chrono::Utc>,
         }
 
         let rows = sqlx::query_as::<_, AdapterRow>(
-            "SELECT id, name, tier, hash_b3, active FROM adapters WHERE active = 1 AND tenant_id = $1"
+            "SELECT category, last_accessed FROM adapters WHERE active = true AND tenant_id = $1 ORDER BY last_accessed DESC"
         )
         .bind(tenant_id)
         .fetch_all(&self.db.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get adapters for tenant {}: {}", tenant_id, e)))?;
+        .await?;
 
-        let adapter_infos = rows
+        let adapters = rows
             .into_iter()
-            .filter_map(|row| {
-                if row.active == 1 {
-                    Some(AdapterInfo {
-                        id: row.id,
-                        name: row.name,
-                        tier: row.tier,
-                        hash_b3: row.hash_b3,
-                        // map other fields
-                    })
-                } else {
-                    None
-                }
+            .map(|row| AdapterInfo {
+                category: row.category,
+                last_accessed: row.last_accessed,
             })
             .collect();
 
-        info!(tenant_id = %tenant_id, count = adapter_infos.len(), "Retrieved active adapters for tenant");
+        info!(tenant_id = %tenant_id, count = adapters.len(), "Retrieved active adapters for tenant");
 
-        Ok(adapter_infos)
+        Ok(adapters)
     }
 
     /// Evict an adapter

@@ -1,15 +1,14 @@
 //! Service definitions and management
 
-use crate::config::{HealthCheckConfig, RestartPolicy, ServiceCategory, ServiceConfig};
+use crate::config::ServiceConfig;
 use crate::error::{Result, SupervisorError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 /// Runtime state of a service
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,7 +234,7 @@ impl ManagedService {
             }
             crate::config::HealthCheckType::Process => {
                 // Just check if the process is still running
-                if let Some(mut child) = self.process.write().await.as_mut() {
+                if let Some(child) = self.process.write().await.as_mut() {
                     match child.try_wait() {
                         Ok(Some(exit_status)) => {
                             warn!(

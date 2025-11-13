@@ -1,7 +1,7 @@
 # Agent Guidelines for AdapterOS
 
 **Purpose:** Guidelines for AI agents working on the AdapterOS codebase  
-**Last Updated:** 2025-11-07  
+**Last Updated:** 2025-11-13  
 **Status:** Active Guidelines
 
 ---
@@ -147,6 +147,7 @@ See [.cursor/rules/workspace.md](.cursor/rules/workspace.md) for detailed worksp
 | Rust Services | `crates/*/src/services/` | `alert_deduplication.rs` |
 | Test Utilities | `tests/common/` | `migration_setup.rs` |
 | Swift Utilities | `menu-bar-app/Sources/*/Utils/` | `StatusUtils.swift` |
+| Service Management | `crates/adapteros-service-supervisor/src/` | `health.rs`, `metrics.rs` |
 
 ---
 
@@ -209,6 +210,18 @@ if config.server.production_mode {
         ));
     }
 }
+```
+
+#### Service Management
+
+```rust
+use adapteros_service_supervisor::Supervisor;
+
+// Register and monitor services
+let supervisor = Supervisor::new();
+supervisor.register("adapter-server", health_fn).await?;
+let metrics = supervisor.metrics().await?;
+info!(services = metrics.len(), "Services monitored");
 ```
 
 ---

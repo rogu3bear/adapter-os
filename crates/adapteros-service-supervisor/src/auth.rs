@@ -6,7 +6,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// JWT claims for service supervisor authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]
