@@ -94,4 +94,7 @@ validate-openapi: ## Validate OpenAPI documentation
 dup: ## Scan repository for code duplication (reports under var/reports/jscpd)
 	bash scripts/run_jscpd.sh
 
+gc-telemetry:
+	@echo "Telemetry GC stub - implement as needed"
+
 .DEFAULT_GOAL := help

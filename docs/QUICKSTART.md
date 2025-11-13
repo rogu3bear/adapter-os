@@ -1,6 +1,8 @@
 # AdapterOS Quick Start Guide
 
-Get MPLoRA up and running in under 10 minutes. This guide covers both backend integration and web UI setup.
+Get AdapterOS up and running in under 10 minutes. This guide covers both backend integration and web UI setup, including recent enhancements for service supervision and improved monitoring.
+
+**Last Updated: November 13, 2025**
 
 ## Prerequisites
 
@@ -40,13 +42,14 @@ OPENAI_API_KEY=sk-your-api-key-here
 ### 2. Build the Project
 
 ```bash
-# Build all components
-cargo build --release
+# Build all components with recent features
+cargo build --release --features telemetry,rag-pgvector
 
 # Or build specific packages
 cargo build --release --package adapteros-lora-worker
 cargo build --release --package adapteros-server
 cargo build --release --package adapteros-cli
+cargo build --release --package adapteros-service-supervisor  # For service management
 ```
 
 ## Understanding the Database
@@ -84,15 +87,18 @@ The following sections show basic operations with the database.
   --rank 16
 ```
 
-### 5. Start Server
+### 5. Start Server with Service Supervisor
 
 ```bash
 # Build and serve a plan
 ./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
 ./target/release/aosctl serve --plan <plan-id>
 
-# Or use the integrated server
+# Start integrated server with supervisor
 ./target/release/adapteros-server --config configs/cp.toml
+
+# Monitor services via supervisor
+./target/release/adapteros-service-supervisor --config configs/cp.toml  # If separate
 ```
 
 ## Quick Start: Web UI

@@ -1,6 +1,5 @@
 //! Database integration for system metrics
 //!
-#![allow(unused_variables)]
 
 //! Provides database operations for storing and retrieving system metrics,
 //! health checks, and threshold violations.

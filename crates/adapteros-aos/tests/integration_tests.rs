@@ -2,6 +2,7 @@
 
 use adapteros_aos::{AosManager, MmapAdapterLoader};
 use std::path::PathBuf;
+use tracing::{info, warn, error};
 
 fn test_adapter_path() -> Option<PathBuf> {
     let adapters_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

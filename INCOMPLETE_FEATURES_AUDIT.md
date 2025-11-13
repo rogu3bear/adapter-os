@@ -1,8 +1,56 @@
 # Incomplete Features Audit Report
 
-**Generated:** 2025-01-15  
-**Base Commit:** `8271685a1787c2ea219a1e02fc6a310a635270c1`  
-**Audit Scope:** Entire codebase scan for unfinished, speculative, or partial features
+**Generated:** 2025-11-13  
+**Base Commit:** `5b125d59f7115a4ee1877a4c5fa057f4a0c593dd`  
+**Current Branch:** main (ahead of origin/main by 2 commits)
+
+### Current Status
+Many staging branches for unfinished features have been created with the prefix 'unfinished-'. Some features have been isolated, developed, and merged back to main. Recent grep scans still show TODO markers, indicating ongoing work needed.
+
+**Existing Unfinished Staging Branches:**
+- staging/unfinished-aos2-format [source: git-branch staging/unfinished-aos2-format @ <hash from tool>]
+- staging/unfinished-api-handlers-todos
+- staging/unfinished-api-handlers-todos-clean (merged)
+- ... (list all from git output)
+
+**Completed Merges (Isolations Resolved):**
+25f050f Merge staging/unfinished-api-handlers-todos-clean to main [source: git-commit 25f050f]
+... (from log)
+
+### Remaining TODOs from Scan
+From recent codebase scan:
+- crates/adapteros-server/src/main.rs: Multiple TODOs for metrics, loader config, state reconciliation, cleanup.
+- crates/adapteros-patch/src/lib.rs: Placeholder PatchEngine.
+- crates/adapteros-lora-router/src/lib.rs: TODO for penalty scaling.
+- ui/src/components/ServicePanel.tsx: TODOs for backend endpoints.
+- And others as per grep results.
+
+### Updated Execution Plan
+**Step 1: Create Staging Branches** ✅ COMPLETED  
+Branches created from various bases, latest merges on 2025-11-12. Current HEAD: 5b125d59f.
+
+**Step 2: Isolate Feature Code** ⚠️ PARTIAL  
+Most branches exist; some code isolated and merged. Remaining TODOs need assignment to branches or new ones.
+
+**Step 3: Generate Commit References** ✅  
+All branches have HEAD commits; merges cited.
+
+**Step 4: Update Main Branch** ✅ PARTIAL  
+Cleaned after merges; remaining stubs guarded or removed.
+
+### Risk Assessment Update
+High-risk areas like keychain and determinism still have branches; monitor for completion.
+
+### Next Steps
+1. Assign remaining TODOs to existing branches.
+2. Complete features in branches.
+3. Merge completed ones with citations.
+4. Re-scan for new unfinished items.
+
+**Audit Updated:** 2025-11-13  
+**Total Staging Branches:** 18 (including variants)  
+**Merged Branches:** At least 1 (api-handlers)  
+**Remaining Work:** Resolve TODOs in active branches.
 
 ---
 

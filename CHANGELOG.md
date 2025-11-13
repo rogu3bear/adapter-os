@@ -55,6 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript types updated with 5 new interfaces for model operations
 - Routes integrated with proper OpenAPI documentation
 
+### Recent Enhancements (2025-11-13)
+- **Service Supervisor Enhancements**: Improved authentication, error handling, health checks, metrics, process management, and server integration in adapteros-service-supervisor. Added structured logging and policy compliance.
+- **UI Root Layout Updates**: Enhanced navigation and component integration in RootLayout.tsx.
+- **Menu Bar App Improvements**: Updated status types, service panel client, status view model, and status menu view in Swift for better monitoring.
+- **Database Schema Documentation**: Refreshed README.md to reflect recent migrations and schema changes.
+- **Core Providers Update**: Enhanced state management in CoreProviders.tsx for UI improvements.
+
 ### Technical Details
 - **Pattern Compliance**: All code follows existing codebase patterns with verified citations
 - **Policy Compliance**: Adheres to Policy Pack #8 (Isolation) and #9 (Telemetry)

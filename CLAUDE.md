@@ -2,7 +2,7 @@
 
 **Purpose:** Developer-focused guide with code examples, architecture patterns, and coding standards.  
 **For contribution process:** See [CONTRIBUTING.md](CONTRIBUTING.md)  
-**Last Updated:** 2025-01-15
+**Last Updated:** 2025-11-13
 
 ---
 
@@ -550,6 +550,22 @@ let memory = MemoryManager::new(eviction_policy);
 memory.ensure_headroom().await?;
 ```
 
+### Service Supervisor
+
+**Location:** `crates/adapteros-service-supervisor/src/`
+
+```rust
+use adapteros_service_supervisor::{Supervisor, HealthCheck};
+
+// Service management with health monitoring
+let supervisor = Supervisor::new(config);
+supervisor.register_service("inference-engine", health_check_fn).await?;
+
+// Health checks and metrics integration
+let status = supervisor.check_health("inference-engine").await?;
+info!(service = "inference-engine", healthy = status.healthy, "Service status");
+```
+
 ---
 
 ## Citation Standards
@@ -630,4 +646,6 @@ cargo udeps
 ---
 
 **Remember:** When in doubt, check existing code patterns in `crates/` and follow established conventions.
+
+*Last updated: November 13, 2025*
 

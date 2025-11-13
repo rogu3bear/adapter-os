@@ -1,6 +1,5 @@
 //! Error types for the service supervisor
 
-use std::fmt;
 
 /// Result type alias for supervisor operations
 pub type Result<T> = std::result::Result<T, SupervisorError>;

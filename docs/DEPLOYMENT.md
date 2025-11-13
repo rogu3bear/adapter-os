@@ -576,6 +576,8 @@ spec:
           value: "postgresql://adapteros:password@postgres:5432/adapteros_prod"
         - name: RAG_EMBED_DIM
           value: "3584"
+        - name: AOS_ENABLE_SERVICE_SUPERVISOR
+          value: "true"  # Enable service supervisor
         resources:
           requests:
             memory: "16Gi"
@@ -844,6 +846,11 @@ warm_threshold_mins = 15
 - [ ] Queue depth < 1000 under normal load
 - [ ] Golden runs established for regression testing
 
+#### Recent Additions
+- [ ] Service Supervisor: Enabled for process management and health checks
+- [ ] UI Updates: Latest RootLayout and CoreProviders integrated
+- [ ] Monitoring: Enhanced with recent telemetry improvements
+
 ---
 
 ## References
@@ -898,7 +905,7 @@ cors_origins = [
 
 ---
 
-**Version:** 1.1  
-**Last Updated:** 2025-01-15  
+**Version:** 1.2  
+**Last Updated:** 2025-11-13  
 **Consolidated from:** DEPLOYMENT.md, DEPLOYMENT_AUTH.md, deployment-guide.md  
 **Maintained By:** AdapterOS Team

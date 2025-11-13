@@ -5,7 +5,6 @@ use crate::config::SupervisorConfig;
 use crate::error::{Result, SupervisorError};
 use crate::health::{HealthMonitor, HealthCheck, HealthResult};
 use crate::service::{ManagedService, ServiceStatus};
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -247,15 +246,13 @@ impl ServiceSupervisor {
     /// Shutdown the supervisor
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down service supervisor...");
-
-        // Stop all services
+        self.stop_essential_services().await?;
         let services = self.services.read().await;
         for (service_id, service) in services.iter() {
             if let Err(e) = service.stop().await {
                 error!("Failed to stop service {}: {}", service_id, e);
             }
         }
-
         info!("Service supervisor shutdown complete");
         Ok(())
     }

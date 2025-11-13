@@ -1,5 +1,7 @@
 #![allow(dead_code, unused_variables, unused_imports)]
 
+use crate::services::determinism_policy::{check, enforce_determinism_policy, seed_rng_hkdf, validate_backend_attestation};
+
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;

@@ -1,12 +1,12 @@
 //! HTTP server for the service supervisor
 
-use crate::auth::{AuthService, Claims};
-use crate::error::{Result, SupervisorError};
+use crate::auth::AuthService;
+use crate::error::Result;
 use crate::supervisor::ServiceSupervisor;
 use axum::{
-    extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Json},
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{get, post},
     Router,
 };
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info, warn};
+use tracing::info;
 
 /// Application state for the HTTP server
 #[derive(Clone)]

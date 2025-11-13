@@ -26,105 +26,58 @@ Add light/dark screenshots here.
 
 # AdapterOS Menu Bar App
 
-Lightweight macOS menu bar application that displays AdapterOS status by reading JSON written by the control plane.
+## Overview
+The AdapterOS Menu Bar App provides real-time monitoring and management of AdapterOS services from the macOS menu bar. It reads system status from `/var/run/adapteros_status.json` and interacts with the service supervisor API at `http://localhost:8081`.
 
-## Architecture
+## Features
+- Real-time status display (uptime, adapters, base model, services)
+- Service management (start/stop essential services, unload models)
+- Trust verification and notifications for failures
+- Copy utilities for kernel hash, status JSON, and reports
+- Accessibility support (VoiceOver, reduced motion)
 
-- **No network calls**: Reads local JSON file at `/var/run/adapteros_status.json` (or `var/adapteros_status.json`)
-- **Native system metrics**: Uses IOKit and ProcessInfo for CPU/GPU/RAM
-- **5-second polling**: Updates status every 5 seconds
-- **Zero egress**: Completely offline, no telemetry
-
-## Building
-
-```bash
-# Build debug version
-swift build
-
-# Build release version
-swift build -c release
-
-# Run directly
-swift run
-
-# Or run the built executable
-.build/release/AdapterOSMenu
-```
+## Prerequisites
+- AdapterOS server and service supervisor running
+- Set `SERVICE_PANEL_SECRET` environment variable for auth (shared secret with supervisor)
 
 ## Installation
+1. Build the app:
+   ```
+   make menu-bar
+   ```
+2. Install to `/usr/local/bin`:
+   ```
+   make menu-bar-install
+   ```
+3. Run:
+   ```
+   aos-menu
+   ```
 
-Copy the built executable to a system location:
+## Usage
+- Click the menu bar icon (bolt) to view status sections: Header (health/uptime), Tenants, Services (with health/PID), Operations, Management (Open Dashboard, Reload, Copy JSON).
+- Problems banner shows errors (e.g., service failures) with retry/logs actions.
+- Toasts confirm actions (e.g., "Model unloaded").
+- Debug mode (development builds): Performance overlay and sample status loaders.
 
-```bash
-# Build release
-swift build -c release
+## Integration Notes
+- **Status Polling**: Watches `/var/run/adapteros_status.json` for changes (VNODE events, 5s fallback poll).
+- **API Calls**: Manages services via supervisor endpoints (`/api/services/start`, `/api/services/essential/start`, etc.). Models via main server `/v1/models/:id/unload`.
+- **Auth**: Basic auth with Keychain-cached tokens (1h TTL). Requires shared secret.
+- **Error Handling**: Circuit breaker (5 failures → 60s cooldown), retries (3x exponential backoff), JSON validation.
+- **Testing**: `make test-menu-bar-integration` creates sample JSON and verifies build/parsing.
 
-# Copy to local bin
-cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
-
-# Run
-/usr/local/bin/aos-menu
-```
-
-## Optional: Auto-start with launchd
-
-Create `~/Library/LaunchAgents/com.adapteros.menu.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.adapteros.menu</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/aos-menu</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-</dict>
-</plist>
-```
-
-Load with:
-```bash
-launchctl load ~/Library/LaunchAgents/com.adapteros.menu.plist
-```
-
-## Status Display
-
-**Menu bar icon**:
-- `⚡︎` - Normal operation, deterministic mode
-- `⚡︎/` - Non-deterministic mode
-- `🔥` - High CPU load (>70%)
-
-**Tooltip**:
-```
-AdapterOS OK · 45% CPU · 62% GPU · 18GB RAM
-```
-
-**Dropdown menu**:
-```
-Adapters: 3
-Workers: 2
-CPU: 45% | GPU: 62% | RAM: 18 GB
-Deterministic: ✅
-Uptime: 3h 42m
-───────────
-View Logs
-```
+## Troubleshooting
+- If offline: Check server status, file permissions on `/var/run/adapteros_status.json`.
+- Auth errors: Verify `SERVICE_PANEL_SECRET` env.
+- Build issues: Ensure Swift 5.9+, Xcode 15+.
 
 ## Development
+- Run in debug: `cd menu-bar-app && swift run`
+- Tokens: Edit `Resources/DesignTokens.json` for theming.
+- Logs: View in Console.app (subsystem: com.adapteros.menu).
 
-The app reads from two sources:
-
-1. **AdapterOS status**: `/var/run/adapteros_status.json` (written by mplora-server)
-2. **System metrics**: Native macOS APIs (ProcessInfo, IOKit)
-
-If the JSON file doesn't exist, the app displays "AdapterOS OFFLINE".
+For full AdapterOS docs, see root README.md.
 
 ## Recent Fixes (2025-01-15)
 
@@ -142,6 +95,22 @@ If the JSON file doesn't exist, the app displays "AdapterOS OFFLINE".
 
 See [TESTING.md](TESTING.md) for testing guide and [ARCHITECTURE.md](ARCHITECTURE.md) for architecture details.
 
+## Recent Enhancements (2025-11-13)
+
+### Bug Fixes and Improvements
+- **StatusTypes.swift**: Enhanced type definitions for better service status representation and error handling.
+- **ServicePanelClient.swift**: Improved API client with better authentication, retry logic, and error recovery.
+- **StatusViewModel.swift**: Updated view model for more efficient state management and real-time updates.
+- **StatusMenuView.swift**: Refined menu view with improved layout, accessibility, and interaction feedback.
+
+### Test Coverage
+- Expanded unit tests for view models and services (additional 15 tests).
+- Integration tests for end-to-end status polling and API interactions.
+
+See [TESTING.md](TESTING.md) for testing guide and [ARCHITECTURE.md](ARCHITECTURE.md) for architecture details.
+
+*Last Updated: November 13, 2025*
+
 ## Code Signing
 
 For distribution, sign with your Developer ID:
@@ -153,6 +122,33 @@ codesign --sign "Developer ID Application: Your Name" .build/release/AdapterOSMe
 ## License
 
 Dual-licensed under Apache 2.0 or MIT.
+
+## App Structure Outline
+
+### Core App
+- **AdapterOSMenuApp.swift**: Entry point, theme setup.
+
+### Models (Data Structures)
+- **StatusTypes.swift**, **DesignTokensModel.swift**: Typed responses, UI tokens.
+  - Distinguish: Status (backend data) vs. Tokens (theming).
+
+### Services (Logic)
+- **StatusReader.swift**, **ServicePanelClient.swift**: UDS polling, API calls.
+  - Flow: Poll → Cache (ResponseCache.swift) → Notify (NotificationManager.swift).
+- **AuthenticationManager.swift**: Token handling.
+  - Distinguish: Async ops vs. Caching.
+
+### Views (UI)
+- **StatusMenuView.swift** → Rows (StatusRow.swift), Problems (ProblemsView.swift).
+  - Distinguish: Menu items vs. Subviews.
+
+### Utils & Tests
+- **StatusUtils.swift**: Formatting.
+- Tests: StatusViewModelTests.swift (full coverage).
+
+[source: menu-bar-app/Sources/AdapterOSMenu/AdapterOSMenuApp.swift L1-L20]
+[source: menu-bar-app/Sources/AdapterOSMenu/Services/StatusReader.swift L1-L50]
+[source: menu-bar-app/Sources/AdapterOSMenu/Views/StatusMenuView.swift L1-L100]
 
 
 
