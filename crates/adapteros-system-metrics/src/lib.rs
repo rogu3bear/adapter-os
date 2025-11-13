@@ -31,7 +31,7 @@ pub use collector::SystemMetricsCollector;
 pub use database::SystemMetricsDb;
 pub use monitor::{SystemMonitor, SystemMonitoringService};
 pub use policy::SystemMetricsPolicy;
-pub use types::{MetricsAggregation, MetricsConfig, ThresholdsConfig};
+pub use types::{MetricsAggregation, MetricsConfig, SystemMetricsRecord, ThresholdsConfig};
 // Re-export monitoring types for API compatibility
 pub use alerting::{AlertEvaluator, AlertingConfig};
 pub use anomaly::{AnomalyConfig, AnomalyDetector};

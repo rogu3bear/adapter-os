@@ -36,6 +36,7 @@ use adapteros_system_metrics::monitoring_types::{
     CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
 };
+use adapteros_system_metrics::SystemMetricsRecord;
 use axum::response::Response;
 use sqlx::Row;
 use tracing::{error, info, warn};
@@ -8940,7 +8941,7 @@ pub async fn get_system_metrics(
         ("limit" = Option<usize>, Query, description = "Maximum number of records to return", example = 1000)
     ),
     responses(
-        (status = 200, description = "Historical system metrics", body = Vec<SystemMetricsRecord>),
+        (status = 200, description = "Historical system metrics", body = Vec<adapteros_system_metrics::SystemMetricsRecord>),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -8948,7 +8949,7 @@ pub async fn get_system_metrics_history(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<adapteros_system_metrics::SystemMetricsRecord>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<SystemMetricsRecord>>, (StatusCode, Json<ErrorResponse>)> {
     let hours = params
         .get("hours")
         .and_then(|s| s.parse::<u32>().ok())

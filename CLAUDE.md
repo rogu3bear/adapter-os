@@ -548,6 +548,56 @@ let memory = MemoryManager::new(eviction_policy);
 memory.ensure_headroom().await?;
 ```
 
+### Keychain Provider (Cross-Platform Crypto Storage)
+
+**Location:** `crates/adapteros-crypto/src/providers/keychain.rs`
+
+```rust
+use adapteros_crypto::key_provider::{KeyAlgorithm, KeyProviderConfig};
+use adapteros_crypto::providers::KeychainProvider;
+
+// Initialize with platform-specific backend detection
+let config = KeyProviderConfig::default();
+let provider = KeychainProvider::new(config)?;
+
+// Generate Ed25519 signing key
+let handle = provider.generate("my-key", KeyAlgorithm::Ed25519).await?;
+
+// Sign data
+let signature = provider.sign("my-key", b"Hello, world!").await?;
+
+// Seal data with AES-256-GCM
+let ciphertext = provider.seal("my-key", b"Secret data").await?;
+
+// Unseal data
+let plaintext = provider.unseal("my-key", &ciphertext).await?;
+
+// Rotate key with cryptographic receipt
+let receipt = provider.rotate("my-key").await?;
+
+// Get provider attestation
+let attestation = provider.attest().await?;
+```
+
+#### Platform Support
+
+**macOS:** Security Framework with native keychain access
+**Linux:** Dual backend (Secret Service D-Bus + kernel keyutils)
+**Fallback:** Password-based keystore for CI/headless environments
+
+```bash
+# Enable fallback for testing
+ADAPTEROS_KEYCHAIN_FALLBACK=pass:mysecretpassword
+```
+
+#### Security Features
+
+- Hardware-backed keys when available (Secure Enclave on macOS)
+- Cryptographic key rotation with signed receipts
+- SHA256 policy attestation for audit trails
+- Memory zeroization and secure key handling
+- Cross-platform compatibility with backend auto-detection
+
 ### Service Supervisor
 
 **Location:** `crates/adapteros-service-supervisor/src/`
