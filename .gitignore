@@ -143,6 +143,8 @@ import_summary_stats.png
 *_EXECUTION_*.md
 *_COMPLETE*.md
 *_SUMMARY*.md
+# Keep branch reconciliation report (important documentation)
+!BRANCH_RECONCILIATION_REPORT.md
 *_REPORT*.md
 COMPILATION_FIX_SUMMARY.md
 DOCUMENTATION_CLEANUP_EXECUTION_REPORT.md

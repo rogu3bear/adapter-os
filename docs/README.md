@@ -1,6 +1,6 @@
-# MPLoRA Documentation
+# AdapterOS Documentation
 
-Welcome to the MPLoRA documentation. This directory contains comprehensive technical documentation for understanding, deploying, and extending the MPLoRA inference runtime.
+Welcome to the AdapterOS documentation. This directory contains comprehensive technical documentation for understanding, deploying, and extending the AdapterOS inference runtime.
 
 ## Quick Navigation
 
@@ -30,6 +30,12 @@ Welcome to the MPLoRA documentation. This directory contains comprehensive techn
   - API stack with all routes, handlers, and middleware
   - Worker architecture with UDS server and safety mechanisms
 
+- **[Branch Reconciliation Report](../BRANCH_RECONCILIATION_REPORT.md)** - Repository maintenance and verification
+  - Complete branch cleanup documentation
+  - Feature implementation verification
+  - Deterministic reconciliation process
+  - Exact source citations for all changes
+
 - **[Diagram Reference Guide](DIAGRAM_REFERENCE.md)** - Quick lookup and navigation
   - Diagram locations and quick links
   - Search by topic or role
@@ -43,6 +49,12 @@ Welcome to the MPLoRA documentation. This directory contains comprehensive techn
   - Router and adapter management
   - Memory management and eviction
   - Policy enforcement system
+
+- **[Branch Reconciliation Report](../BRANCH_RECONCILIATION_REPORT.md)** - Complete branch cleanup and feature verification
+  - Deterministic branch reconciliation process
+  - Feature completion verification
+  - Repository cleanup results
+  - Exact source citations
 
 - **[Control Plane](control-plane.md)** - Control plane architecture and APIs
   - Tenant management
@@ -115,14 +127,14 @@ Welcome to the MPLoRA documentation. This directory contains comprehensive techn
 ## Documentation by Audience
 
 ### For Developers
-Start here if you're building on MPLoRA or contributing to the codebase:
+Start here if you're building on AdapterOS or contributing to the codebase:
 1. [Quick Start Guide](QUICKSTART.md)
 2. [System Architecture](architecture.md)
 3. [Code Intelligence](code-intelligence/README.md)
 4. See `examples/` in project root
 
 ### For Operators
-Start here if you're deploying and managing MPLoRA:
+Start here if you're deploying and managing AdapterOS:
 1. [Quick Start Guide](QUICKSTART.md)
 2. [Control Plane](control-plane.md)
 3. [Runaway Prevention](runaway-prevention.md)
@@ -136,7 +148,7 @@ Start here if you're experimenting with models and adapters:
 4. [Metal Kernels](metal/phase4-metal-kernels.md)
 
 ### For Security Auditors
-Start here if you're evaluating MPLoRA for compliance:
+Start here if you're evaluating AdapterOS for compliance:
 1. [Runaway Prevention](runaway-prevention.md)
 2. [Code Graph Specification](codegraph-spec.md)
 3. [Code Intelligence Policies](code-intelligence/code-policies.md)
@@ -250,12 +262,12 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contri
 
 ## License
 
-MPLoRA is dual-licensed under Apache 2.0 or MIT at your option.
+AdapterOS is dual-licensed under Apache 2.0 or MIT at your option.
 See [LICENSE-APACHE](../LICENSE-APACHE) and [LICENSE-MIT](../LICENSE-MIT) for details.
 
 ---
 
 **Last Updated**: November 13, 2025  
-**MPLoRA Version**: Development  
+**AdapterOS Version**: v0.3-alpha  
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 
