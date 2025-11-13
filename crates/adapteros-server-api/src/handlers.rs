@@ -14550,6 +14550,15 @@ pub struct ComplianceControl {
 /// Analyzes a directory path to detect frameworks, libraries, and development tools
 /// using heuristic analysis of configuration files and dependency manifests.
 /// Returns deterministic results suitable for adapter routing decisions.
+///
+/// **Performance:** O(n) where n is the number of files in the directory (limited to 5 levels deep).
+/// Results are not cached - consider using repository metadata endpoint for cached analysis.
+///
+/// **Security:** Includes comprehensive path validation and traversal protection.
+/// Only Admin, Operator, and SRE roles are authorized to use this endpoint.
+///
+/// **Frameworks Detected:** React, Next.js, Vue, Angular, Express, Django, FastAPI, Flask,
+/// Rails, Laravel, Spring Boot, Quarkus, Actix Web, Axum, and more.
 #[utoipa::path(
     post,
     path = "/api/v1/codegraph/frameworks/detect",
@@ -14630,6 +14639,15 @@ pub async fn detect_frameworks(
 
     let analysis_time_ms = start_time.elapsed().as_millis() as u64;
 
+    tracing::info!(
+        operation = "framework_detection",
+        path = %request.path,
+        frameworks_found = filtered_frameworks.len(),
+        analysis_time_ms = analysis_time_ms,
+        cache_used = false,
+        "Framework detection completed"
+    );
+
     let response = FrameworkDetectionResponse {
         frameworks: filtered_frameworks,
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -14643,7 +14661,19 @@ pub async fn detect_frameworks(
 ///
 /// Performs detailed analysis of a repository including framework detection,
 /// language analysis, security scanning, and Git information.
-/// Results are cached for performance and reproducibility.
+/// Results are cached for 5 minutes to balance performance and freshness.
+///
+/// **Performance:** O(n) where n is the number of files (cached for 5 minutes).
+/// Supports selective analysis - only runs requested components (frameworks, languages, security).
+///
+/// **Security:** Includes comprehensive path validation, traversal protection, and entropy-based
+/// secret detection. Only Admin, Operator, and SRE roles are authorized.
+///
+/// **Components:**
+/// - **Frameworks:** 15+ framework types with confidence scores and routing ranks
+/// - **Languages:** File counts, line counts, and percentage distributions
+/// - **Security:** Entropy-based secret detection with severity levels
+/// - **Git Info:** Branch, commit count, recent authors (efficient, O(1) operations)
 #[utoipa::path(
     post,
     path = "/api/v1/codegraph/repository/metadata",
@@ -14680,7 +14710,16 @@ pub async fn get_repository_metadata(
     // Check cache first
     let cache_key = make_cache_key(&request.path, request.include_frameworks, request.include_languages, request.include_security);
     if let Some(cached_entry) = get_cached_analysis(&cache_key) {
-        tracing::info!(cache_hit = true, cache_key = %cache_key, "Using cached analysis result");
+        tracing::info!(
+            operation = "repository_metadata",
+            path = %request.path,
+            cache_hit = true,
+            cache_key = %cache_key,
+            include_frameworks = request.include_frameworks,
+            include_languages = request.include_languages,
+            include_security = request.include_security,
+            "Using cached repository metadata"
+        );
 
         let response = RepositoryMetadataResponse {
             path: request.path,
@@ -14695,7 +14734,16 @@ pub async fn get_repository_metadata(
         return Ok(Json(response));
     }
 
-    tracing::info!(cache_hit = false, cache_key = %cache_key, "Performing fresh analysis");
+    tracing::info!(
+        operation = "repository_metadata",
+        path = %request.path,
+        cache_hit = false,
+        cache_key = %cache_key,
+        include_frameworks = request.include_frameworks,
+        include_languages = request.include_languages,
+        include_security = request.include_security,
+        "Performing fresh repository metadata analysis"
+    );
 
     let mut frameworks = Vec::new();
     let mut languages = Vec::new();
@@ -14792,11 +14840,17 @@ pub async fn get_repository_metadata(
     set_cached_analysis(cache_key, cache_entry);
 
     tracing::info!(
+        operation = "repository_metadata",
+        path = %request.path,
         analysis_time_ms = analysis_time_ms,
         frameworks_found = frameworks.len(),
         languages_found = languages.len(),
         security_violations = security.as_ref().map(|s| s.violations.len()).unwrap_or(0),
-        "Analysis completed and cached"
+        cache_used = false,
+        include_frameworks = request.include_frameworks,
+        include_languages = request.include_languages,
+        include_security = request.include_security,
+        "Repository metadata analysis completed and cached"
     );
 
     let response = RepositoryMetadataResponse {
@@ -15049,5 +15103,139 @@ fn get_git_recent_authors(repo_path: &std::path::Path) -> Option<Vec<String>> {
         Some(authors.into_iter().collect())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_entropy() {
+        // Test empty string
+        assert_eq!(calculate_entropy(""), 0.0);
+
+        // Test uniform distribution (maximum entropy)
+        assert!((calculate_entropy("0123456789abcdef") - 4.0).abs() < 0.1);
+
+        // Test low entropy (repeating characters)
+        assert!(calculate_entropy("aaaaaaaa") < 1.0);
+
+        // Test high entropy (random-like)
+        let entropy = calculate_entropy("skdjfhskdjfhskdjfh");
+        assert!(entropy > 3.0 && entropy < 5.0);
+    }
+
+    #[test]
+    fn test_make_cache_key() {
+        let key1 = make_cache_key("/path/to/repo", true, true, true);
+        let key2 = make_cache_key("/path/to/repo", true, true, false);
+        let key3 = make_cache_key("/different/path", true, true, true);
+
+        assert_eq!(key1, "/path/to/repo:f1l1s1");
+        assert_eq!(key2, "/path/to/repo:f1l1s0");
+        assert_eq!(key3, "/different/path:f1l1s1");
+        assert_ne!(key1, key2);
+        assert_ne!(key1, key3);
+    }
+
+    #[test]
+    fn test_security_patterns() {
+        // Test hardcoded password detection
+        let test_content = r#"
+        const config = {
+            password: "secret123",
+            api_key: "sk-1234567890abcdef",
+            token: "ghp_abcd1234efgh5678"
+        };
+        "#;
+
+        let mut violations = Vec::new();
+
+        // Simulate the pattern matching logic
+        let patterns = [
+            ("hardcoded_password", r"(?i)(password|passwd|pwd)\s*[=:]\s*['\"][^'\"]{3,}['\"]", "high"),
+            ("hardcoded_api_key", r"(?i)(api[_-]?key|apikey)\s*[=:]\s*['\"][A-Za-z0-9+/=]{20,}['\"]", "high"),
+        ];
+
+        for (pattern_name, regex_pattern, severity) in &patterns {
+            if let Ok(regex) = regex::Regex::new(regex_pattern) {
+                for (line_num, line) in test_content.lines().enumerate() {
+                    if let Some(mat) = regex.find(line) {
+                        let matched_text = mat.as_str();
+                        let entropy_score = calculate_entropy(matched_text);
+
+                        let should_flag = match *severity {
+                            "high" => entropy_score > 4.0,
+                            _ => false,
+                        };
+
+                        if should_flag {
+                            violations.push(format!("{}: {}", pattern_name, matched_text));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Should detect the API key but not the low-entropy password
+        assert!(violations.iter().any(|v| v.contains("api_key")));
+        assert!(!violations.iter().any(|v| v.contains("password")));
+    }
+
+    #[test]
+    fn test_git_info_optimized_nonexistent_repo() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let result = get_git_info_optimized(temp_dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_git_info_optimized_with_repo() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Initialize a git repo
+        std::process::Command::new("git")
+            .args(&["init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to init git repo");
+
+        // Configure git
+        std::process::Command::new("git")
+            .args(&["config", "user.name", "Test User"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to configure git user");
+
+        std::process::Command::new("git")
+            .args(&["config", "user.email", "test@example.com"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to configure git email");
+
+        // Create and commit a file
+        std::fs::write(temp_dir.path().join("test.txt"), "Hello world").unwrap();
+
+        std::process::Command::new("git")
+            .args(&["add", "test.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to add file");
+
+        std::process::Command::new("git")
+            .args(&["commit", "-m", "Initial commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to commit");
+
+        let git_info = get_git_info_optimized(temp_dir.path());
+        assert!(git_info.is_some());
+
+        let info = git_info.unwrap();
+        assert_eq!(info.branch, "master");
+        assert_eq!(info.commit_count, 1);
+        assert!(info.authors.contains(&"Test User".to_string()));
+        assert!(!info.last_commit.is_empty());
     }
 }
