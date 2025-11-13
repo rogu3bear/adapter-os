@@ -67,6 +67,7 @@ pub struct MlxConfig {
     pub cache_eviction_policy: String,
 }
 
+
 fn default_max_model_size() -> u64 {
     10 * 1024 * 1024 * 1024 // 10GB
 }
@@ -79,6 +80,7 @@ fn default_max_tokenizer_size() -> u64 {
     1024 * 1024 * 1024 // 1GB
 }
 
+
 fn default_max_cached_models() -> usize {
     3
 }
@@ -89,6 +91,8 @@ use adapteros_lora_router::Router;
 use adapteros_orchestrator::CodeJobManager;
 use adapteros_orchestrator::TrainingService;
 use adapteros_policy::PolicyPackManager;
+use adapteros_lora_worker::signal::Signal;
+use crate::signal_dispatcher::SignalConfig;
 #[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
 #[cfg(feature = "telemetry")]
@@ -163,6 +167,9 @@ pub struct ApiConfig {
     /// MLX configuration
     #[serde(default)]
     pub mlx: Option<MlxConfig>,
+    /// Signal processing configuration
+    #[serde(default)]
+    pub signals: SignalConfig,
 }
 
 fn default_model_load_timeout_secs() -> u64 {
@@ -444,6 +451,8 @@ pub struct AppState {
     /// - Implementation: [source: crates/adapteros-system-metrics/src/alerting.rs L23-L32]
     /// - Alert broadcasting: [source: crates/adapteros-system-metrics/src/alerting.rs L444-L452]
     pub alert_evaluator: Arc<adapteros_system_metrics::alerting::AlertEvaluator>,
+    /// System metrics database for storing and retrieving metrics
+    pub system_metrics_db: Arc<adapteros_system_metrics::database::SystemMetricsDb>,
     /// Global deterministic seed for all RNG operations
     ///
     /// # Citations
@@ -456,6 +465,14 @@ pub struct AppState {
     pub telemetry_bundles_tx: broadcast::Sender<crate::types::TelemetryBundleResponse>,
     /// Broadcast channel for operation progress updates
     pub operation_progress_tx: broadcast::Sender<crate::types::OperationProgressEvent>,
+    /// Broadcast channel for discovery signals (repository scanning, symbol indexing, etc.)
+    pub discovery_signals_tx: broadcast::Sender<Signal>,
+    /// Broadcast channel for contact signals (contact discovery and interactions)
+    pub contact_signals_tx: broadcast::Sender<Signal>,
+    /// Signal processing configuration
+    pub signal_config: SignalConfig,
+    /// Public key for signal verification (Ed25519)
+    pub signal_public_key: Option<adapteros_crypto::signature::PublicKey>,
     /// Tracker for ongoing adapter operations
     ///
     /// # Citations
@@ -467,6 +484,12 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Run system metrics database migrations
+    pub async fn run_system_metrics_migrations(&self) -> Result<()> {
+        self.system_metrics_db.run_migrations().await?;
+        Ok(())
+    }
+
     pub fn new(
         db: db::Database,
         jwt_secret: Vec<u8>,
@@ -567,6 +590,13 @@ impl AppState {
         let (progress_tx, _progress_rx) =
             broadcast::channel::<crate::types::OperationProgressEvent>(256);
 
+        // Create broadcast channels for signals with configured capacity
+        let signal_channel_capacity = config.signals.channel_capacity;
+        let (discovery_signals_tx, _discovery_rx) =
+            broadcast::channel::<Signal>(signal_channel_capacity);
+        let (contact_signals_tx, _contact_rx) =
+            broadcast::channel::<Signal>(signal_channel_capacity);
+
         // Initialize operation tracker with progress broadcasting
         let operation_tracker = crate::operation_tracker::OperationTracker::new_with_progress(
             std::time::Duration::from_secs(300), // 5 minute timeout
@@ -637,8 +667,13 @@ impl AppState {
             telemetry_tx,
             alert_tx,
             alert_evaluator,
+            system_metrics_db: Arc::new(adapteros_system_metrics::database::SystemMetricsDb::from_database(&db)),
             telemetry_bundles_tx: bundles_tx,
             operation_progress_tx: progress_tx,
+            discovery_signals_tx,
+            contact_signals_tx,
+            signal_config: config.signals.clone(),
+            signal_public_key: None, // Will be set during startup if configured
             operation_tracker: Arc::new(operation_tracker),
             trace_buffer,
             global_seed,

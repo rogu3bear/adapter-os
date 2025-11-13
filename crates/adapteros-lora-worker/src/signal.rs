@@ -228,6 +228,11 @@ pub struct Signal {
     /// Links signal to telemetry bundle for audit
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+
+    /// Ed25519 signature for signal authenticity
+    /// Verifies signal integrity and origin
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 impl Signal {
@@ -278,6 +283,67 @@ impl Signal {
             self.priority,
             SignalPriority::High | SignalPriority::Critical
         )
+    }
+
+    /// Sign the signal with an Ed25519 keypair
+    ///
+    /// Creates a cryptographic signature to ensure signal authenticity and integrity.
+    /// The signature covers the signal type, timestamp, and payload.
+    pub fn sign(&mut self, keypair: &adapteros_crypto::signature::Keypair) -> Result<()> {
+        // Create canonical representation for signing
+        let canonical_data = self.canonical_representation();
+        let signature = keypair.sign(&canonical_data);
+        self.signature = Some(hex::encode(signature.to_bytes()));
+        Ok(())
+    }
+
+    /// Verify the signal signature against a public key
+    ///
+    /// Returns true if the signature is valid and the signal has not been tampered with.
+    pub fn verify_signature(&self, public_key: &adapteros_crypto::signature::PublicKey) -> Result<bool> {
+        match &self.signature {
+            Some(sig_hex) => {
+                let sig_bytes = hex::decode(sig_hex)
+                    .map_err(|e| adapteros_core::AosError::Crypto(format!("Invalid signature hex: {}", e)))?;
+
+                if sig_bytes.len() != 64 {
+                    return Ok(false);
+                }
+
+                let mut sig_array = [0u8; 64];
+                sig_array.copy_from_slice(&sig_bytes);
+
+                let signature = adapteros_crypto::signature::Signature::from_bytes(&sig_array)
+                    .map_err(|e| adapteros_core::AosError::Crypto(format!("Invalid signature: {}", e)))?;
+
+                let canonical_data = self.canonical_representation();
+                match public_key.verify(&canonical_data, &signature) {
+                    Ok(()) => Ok(true),
+                    Err(_) => Ok(false),
+                }
+            }
+            None => Ok(false), // No signature present
+        }
+    }
+
+    /// Get canonical representation for signing/verification
+    ///
+    /// Creates a deterministic byte representation of the signal that excludes
+    /// the signature field to prevent circular dependencies.
+    fn canonical_representation(&self) -> Vec<u8> {
+        use serde_json::json;
+
+        // Create a JSON representation excluding the signature
+        let canonical = json!({
+            "type": self.signal_type,
+            "timestamp": self.timestamp,
+            "payload": self.payload,
+            "priority": self.priority,
+            "trace_id": self.trace_id,
+        });
+
+        // Sort keys for deterministic serialization
+        serde_json::to_vec(&canonical).unwrap_or_default()
     }
 }
 
