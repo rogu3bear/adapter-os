@@ -231,6 +231,7 @@ Note: If your policy requires open-book (evidence) serving, the server refuses t
 **Database Migrations**
 - SQLite uses `migrations/` (default for local/dev; tests reference this path).
 - PostgreSQL uses `migrations_postgres/` (production/cluster deployments).
+- System metrics support both backends with automatic schema selection.
 - Set `DATABASE_URL=postgresql://...` to use the Postgres backend and apply PG migrations.
 
 ### RAG PgVector Backend (feature)
@@ -485,6 +486,54 @@ Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.01-1:
 | K=5, 10 adapters | 38 tok/s | 28ms | 18GB | ✓ |
 
 *Router overhead: ~8% at K=3, Policy enforcement: <1%*
+
+---
+
+## 🔄 Production Streaming API
+
+AdapterOS provides **enterprise-grade real-time streaming** with cryptographic authentication, circuit breaker protection, and multi-worker aggregation.
+
+### Streaming Endpoints
+
+| Endpoint | Purpose | Authentication | Real-time Source |
+|----------|---------|----------------|------------------|
+| `GET /v1/streams/training` | Training progress & metrics | JWT + tenant filter | `TrainingService` events |
+| `GET /v1/streams/discovery` | Repository scanning & analysis | JWT + tenant/repo filter | `DiscoverySignalBridge` |
+| `GET /v1/streams/contacts` | Contact discovery & interactions | JWT + tenant filter | `ContactDiscoveryHandler` |
+
+### Key Features
+
+- **🔐 Cryptographic Authentication**: Ed25519 signatures prevent signal tampering
+- **🛡️ Circuit Breaker Protection**: Automatic failure detection and recovery
+- **🔄 Multi-Worker Aggregation**: Load balancing across worker pools
+- **📊 Real-time Metrics**: Signal processing health monitoring
+- **🏢 Enterprise Reliability**: Exponential backoff, graceful shutdown, tenant isolation
+
+### Configuration
+
+```toml
+[signals]
+auth_required = true                    # Require authentication (production default)
+channel_capacity = 256                  # Broadcast buffer size
+retry_delay_secs = 5                    # Initial retry delay
+max_retry_delay_secs = 300              # Max backoff delay (5min)
+circuit_breaker_threshold = 5           # Failure threshold
+circuit_breaker_reset_secs = 60         # Recovery timeout
+connection_timeout_secs = 30            # UDS connection timeout
+multi_worker_enabled = true             # Worker pool aggregation
+```
+
+### Example Usage
+
+```bash
+# Stream training progress for tenant "acme"
+curl -H "Authorization: Bearer <jwt>" \
+     "http://localhost:8080/api/v1/streams/training?tenant=acme"
+
+# Stream repository discovery events
+curl -H "Authorization: Bearer <jwt>" \
+     "http://localhost:8080/api/v1/streams/discovery?tenant=acme&repo=github.com/acme/payments"
+```
 
 ---
 

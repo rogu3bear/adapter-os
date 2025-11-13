@@ -1,99 +1,170 @@
 # Signal Protocol Implementation
 
-**Status**: ✅ Complete  
-**Version**: 1.0.0  
-**Last Updated**: 2025-10-09  
+**Status**: 🔒 **PRODUCTION READY** - Cryptographically Authenticated Streaming
+**Version**: 2.0.0 (Authentication + Dispatcher)
+**Last Updated**: 2025-11-13
 **Specification Reference**: `docs/llm-interface-specification.md` §5.1
 
 ---
 
 ## Overview
 
-This document describes the complete implementation of the Signal Protocol for bidirectional LLM-runtime communication during inference, as specified in Section 5.1 of the LLM Interface Specification.
+This document describes the **production-ready implementation** of the Signal Protocol with cryptographic authentication, robust error handling, and enterprise-grade reliability. The system now provides authenticated, real-time streaming of discovery, contact, and training events with circuit breaker protection and multi-worker failover.
 
-## Architecture
+## Production Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Control Plane API                         │
-│                  (mplora-server-api)                        │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-                     │ HTTP over UDS
-                     │ with X-Signal-Stream header
-                     ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    UDS Server                                │
-│                 (uds_server.rs)                             │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  SSE Stream for Signals                               │  │
-│  │  event: signal                                        │  │
-│  │  data: {"type":"adapter.activate",...}                │  │
-│  └───────────────────────────────────────────────────────┘  │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-                     │ tokio::mpsc channel
-                     ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Worker                                    │
-│                  (lib.rs)                                    │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  Signal Dispatcher                                    │  │
-│  │  - AdapterRequestHandler                              │  │
-│  │  - EvidenceHandler                                    │  │
-│  │  - PolicyHandler                                      │  │
-│  │  - MemoryPressureHandler                              │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                                                               │
-│  Inference Loop → Emit Signals → SSE Stream → Client         │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Control Plane API                            │
+│                    (adapteros-server-api)                           │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  SSE Streaming Endpoints                                   │   │
+│  │  • GET /v1/streams/training   (real training events)      │   │
+│  │  • GET /v1/streams/discovery  (authenticated repo scan)    │   │
+│  │  • GET /v1/streams/contacts   (contact discovery)          │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────┬───────────────────────────────────────────┘
+                          │
+                          │ tokio::broadcast channels
+                          │ (authenticated + filtered)
+                          ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│                    🔒 Signal Dispatcher                             │
+│                 (signal_dispatcher.rs)                            │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Circuit Breaker Pattern                                   │   │
+│  │  • Exponential backoff (5s → 5min)                        │   │
+│  │  • Failure threshold: 5, Reset: 60s                       │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Multi-Worker Aggregation                                 │   │
+│  │  • Auto-discovery from database                           │   │
+│  │  • Per-worker health monitoring                           │   │
+│  │  • Failover resilience                                    │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Cryptographic Authentication                             │   │
+│  │  • Ed25519 signature verification                         │   │
+│  │  • Canonical representation signing                        │   │
+│  │  • Tamper detection and integrity                         │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────┬───────────────────────────────────────────┘
+                          │
+                          │ HTTP over UDS with authentication
+                          │ SSE streams from multiple workers
+                          ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Worker Pool                                  │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Signal Emitters                                          │   │
+│  │  • DiscoverySignalBridge (repo scanning)                 │   │
+│  │  • ContactDiscoveryHandler (contact events)              │   │
+│  │  • TrainingService (training progress)                   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Cryptographic Signing                                   │   │
+│  │  • Ed25519 keypair per worker                             │   │
+│  │  • Deterministic canonical signing                       │   │
+│  │  • Timestamp monotonicity                                 │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+
+Signal Flow: Worker → Sign → UDS Stream → Dispatcher → Authenticate → Broadcast → SSE Clients
 ```
 
-## Components
+## Production Components
 
-### 1. Core Signal Types (`signal.rs`)
+### 1. 🔐 Cryptographically Authenticated Signals (`signal.rs`)
 
-**Location**: `crates/mplora-worker/src/signal.rs`
+**Location**: `crates/adapteros-lora-worker/src/signal.rs`
+
+**Key Features**:
+- **Ed25519 Signature Support**: `signature` field for cryptographic authentication
+- **Canonical Representation**: Deterministic signing of signal content
+- **Tamper Detection**: Signature verification prevents signal modification
+- **Production Security**: Authentication required in production mode
 
 **Key Types**:
-- `SignalType`: Enum of all 17 signal types per Specification §5.1.1
-- `Signal`: Core signal structure with timestamp, payload, priority, trace_id
-- `SignalPriority`: Low, Normal, High, Critical
-- `SignalHandler`: Async trait for signal processing
-- `SignalDispatcher`: Routes signals to appropriate handlers
+- `SignalType`: Extended enum with discovery/contact/training signals
+- `Signal`: Core structure with cryptographic signature field
+- `SignalPriority`: Low, Normal, High, Critical priority levels
+- `SignalHandler`: Async trait for authenticated signal processing
 
 **Citation Coverage**:
-- ✅ §5.1.1 - Signal types complete
-- ✅ §5.1.2 - Signal interface and priorities
-- ✅ §5.1.2 - Signal handler trait
+- ✅ §5.1.1 - Signal types complete (extended for streaming)
+- ✅ §5.1.2 - Signal interface with authentication
+- ✅ **NEW**: Cryptographic integrity and non-repudiation
 
-### 2. Signal Handlers (`signal_handlers.rs`)
+### 2. 🛡️ Production-Ready Signal Dispatcher (`signal_dispatcher.rs`)
 
-**Location**: `crates/mplora-worker/src/signal_handlers.rs`
+**Location**: `crates/adapteros-server-api/src/signal_dispatcher.rs`
 
-**Implemented Handlers**:
+**Key Features**:
+- **Circuit Breaker Pattern**: Automatic failure detection and recovery
+- **Exponential Backoff**: 5s → 5min retry delays with jitter
+- **Multi-Worker Aggregation**: Load balancing across worker pool
+- **Cryptographic Authentication**: Ed25519 signature verification
+- **Graceful Shutdown**: Clean termination with resource cleanup
+- **Comprehensive Metrics**: Real-time monitoring and alerting
 
-| Handler | Signal Types | Purpose | Specification §|
-|---------|-------------|---------|----------------|
-| `AdapterRequestHandler` | `adapter.request` | Process adapter routing requests | §5.3.1 |
-| `AdapterActivationHandler` | `adapter.activate` | Log adapter activations | §5.3.2 |
-| `EvidenceHandler` | `evidence.cite`, `evidence.insufficient`, `evidence.required` | Track evidence retrieval | §5.4.1, §5.4.2 |
-| `PolicyHandler` | `refusal.intent`, `policy.violation`, `policy.check` | Handle policy decisions | §5.5.1 |
-| `MemoryPressureHandler` | `memory.pressure` | Respond to memory constraints | §8.2 |
+**Configuration Options**:
+```toml
+[signals]
+auth_required = true                    # Require authentication
+channel_capacity = 256                  # Broadcast buffer size
+retry_delay_secs = 5                    # Initial retry delay
+max_retry_delay_secs = 300              # Max backoff delay
+circuit_breaker_threshold = 5           # Failure threshold
+circuit_breaker_reset_secs = 60         # Recovery timeout
+connection_timeout_secs = 30            # UDS connection timeout
+multi_worker_enabled = true             # Worker pool aggregation
+```
 
-**Features**:
-- State tracking per inference session
-- Telemetry logging per Ruleset #9
-- Async processing with error handling
+**Metrics Provided**:
+- `total_signals_received`: Raw signal count
+- `total_signals_validated`: Authenticated signals
+- `total_signals_rejected`: Failed authentication
+- `worker_connections_active`: Active worker connections
+- `circuit_breakers_open`: Failed workers in circuit breaker
 
-### 3. UDS Server Integration (`uds_server.rs`)
+### 3. 🔄 Real Streaming Endpoints (No More Mocks!)
 
-**Location**: `crates/mplora-worker/src/uds_server.rs`
+**Location**: `crates/adapteros-server-api/src/handlers.rs`
 
-**Key Methods**:
-- `handle_inference_with_signals()`: Main signal streaming endpoint
-- SSE (Server-Sent Events) format for efficient streaming
-- Backward compatible with non-signal requests
+**Production Streaming Endpoints**:
+
+| Endpoint | Purpose | Authentication | Real Source |
+|----------|---------|----------------|-------------|
+| `GET /v1/streams/training` | Training progress/events | JWT + tenant filter | `TrainingService` events |
+| `GET /v1/streams/discovery` | Repository scanning | JWT + tenant/repo filter | `DiscoverySignalBridge` |
+| `GET /v1/streams/contacts` | Contact discovery | JWT + tenant filter | `ContactDiscoveryHandler` |
+
+**Key Features**:
+- **Real-time Events**: No more fake/mock data generation
+- **Tenant Isolation**: Events filtered by authenticated tenant
+- **Repository Filtering**: Discovery events filtered by repo ID
+- **SSE Format**: Server-Sent Events for efficient streaming
+- **Graceful Reconnection**: Automatic client reconnection handling
+
+### 4. 🚀 Signal Emitters (Production Sources)
+
+**Discovery Signals** (`DiscoverySignalBridge`):
+- `RepoScanStarted`: Repository analysis initiated
+- `RepoScanProgress`: Real-time scanning progress
+- `SymbolIndexed`: Code symbols discovered and indexed
+- `FrameworkDetected`: Framework/library identification
+- `TestMapUpdated`: Test coverage mapping updates
+- `RepoScanCompleted`: Final scan results with content hash
+
+**Contact Signals** (`ContactDiscoveryHandler`):
+- `ContactDiscovered`: New contacts found during inference
+- `ContactUpdated`: Contact metadata changes
+- `ContactInteraction`: Contact usage tracking
+
+**Training Signals** (`TrainingService`):
+- Real training progress events from orchestrator
+- Model performance metrics
+- Training completion notifications
 
 **Protocol**:
 ```http
