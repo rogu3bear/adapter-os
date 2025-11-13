@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
-import { useTheme, useAuth } from '@/providers/CoreProviders';
+import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import { Navigate } from 'react-router-dom';
 import { useIsMobile } from '@/components/ui/use-mobile';
@@ -48,7 +48,6 @@ import type { UserRole } from '@/api/types';
 
 function RootLayoutContent() {
   // All hooks must be called before any conditional returns
-  const { theme, toggleTheme } = useTheme();
   const { user, isLoading, logout } = useAuth();
   const { selectedTenant, setSelectedTenant, tenants } = useTenant();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -177,9 +176,6 @@ function RootLayoutContent() {
             )}
             <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
             <span className="text-muted-foreground hidden md:inline">{user.email}</span>
-            <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
-              {theme === 'dark' ? 'Light' : 'Dark'}
-            </Button>
             <Button variant="outline" size="sm" onClick={() => void logout()} className="hidden sm:inline-flex">Logout</Button>
           </div>
         </div>

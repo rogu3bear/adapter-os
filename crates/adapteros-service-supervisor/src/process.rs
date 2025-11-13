@@ -8,8 +8,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
-use tokio::time::{timeout, Duration};
-use tracing::{debug, error, info, warn};
+use tokio::time::Duration;
+use tracing::{info, warn};
 
 /// Process manager for handling service processes
 pub struct ProcessManager {

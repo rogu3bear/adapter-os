@@ -325,6 +325,8 @@ For security vulnerabilities:
 - Configuration system with precedence rules
 - Database schema with migrations
 - CLI tool with basic commands
+- Service supervisor for process management and health checks
+- Menu bar app with status monitoring
 
 #### Known Issues
 - Server API has structural issues requiring refactoring
@@ -337,6 +339,7 @@ For security vulnerabilities:
 - Complete test suite with policy enforcement
 - Full API reference and deployment guides
 - Performance optimization and calibration tools
+- UI enhancements for better user experience
 
 ### Development Priorities
 
@@ -351,6 +354,7 @@ For security vulnerabilities:
 2. Security hardening
 3. Monitoring and observability
 4. Deployment automation
+5. Menu bar app integration improvements
 
 #### Long Term (Next quarter)
 1. Enterprise features
@@ -391,4 +395,4 @@ You can choose either license for your contributions.
 
 **Thank you for contributing to AdapterOS!**
 
-*Last updated: January 15, 2025*
+*Last updated: November 13, 2025*

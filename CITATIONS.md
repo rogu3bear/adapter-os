@@ -821,3 +821,54 @@ For each patch:
 **Last Updated:** 2025-11-06  
 **Status:** Comprehensive patching plan ready for implementation  
 **Next Action:** Begin Phase 2B - Control Matrix Validation implementation
+
+# Citations for API Error Handling
+
+## Middleware Extraction
+【2025-11-12†api_error†middleware】
+- Files: crates/adapteros-api/src/middleware.rs, logger.rs, ratelimit.rs
+- Description: Extracted error catcher, panic recovery, extractor error, logger, rate limit layers to modular files from inline in lib.rs. Reduced duplication, enabled composition. Impact: 300+ lines consolidated, consistent error handling across UDS/TCP.
+
+## UDS Handler
+【2025-11-12†uds_handler†dispatch】
+- Files: crates/adapteros-api/src/uds.rs
+- Description: Extracted UDS connection handling from server stub to shared module. Added perms, shutdown. Impact: No duplication with server, UDS now full HTTP with middleware.
+
+## Error Variants Expansion
+【2025-11-12†api_error_variants†domain_specific】
+- Files: crates/adapteros-api/src/lib.rs
+- Description: Added domain variants (EgressViolation, DeterminismViolation, etc.), mapped from AosError. Updated IntoResponse with codes. Impact: Specific HTTP status for policy/infra errors, better client handling.
+
+## Trace ID Propagation
+【2025-11-12†api_error†trace_id】
+- Files: crates/adapteros-api/src/lib.rs
+- Description: Added trace_id to ApiError, ErrorResponse, signals. UUID generation in From/handlers. Impact: Audit trails for errors across layers, telemetry correlation.
+
+## Recent Modifications (2025-11-13)
+
+### Service Supervisor Updates
+【2025-11-13†service_supervisor†multiple_files】
+- Files: crates/adapteros-service-supervisor/src/{auth.rs, error.rs, health.rs, metrics.rs, process.rs, server.rs, service.rs, supervisor.rs}
+- Description: Enhanced service management with improved authentication, error handling, health checks, metrics collection, process supervision, and server integration. Added structured logging and policy compliance for production deployments.
+
+### UI Layout Improvements
+【2025-11-13†ui_layout†RootLayout】
+- File: ui/src/layout/RootLayout.tsx
+- Description: Updated root layout for better navigation and component integration, reflecting recent UI enhancements.
+
+### Menu Bar App Enhancements
+【2025-11-13†menu_bar_app†multiple_files】
+- Files: menu-bar-app/{README.md, Sources/AdapterOSMenu/Models/StatusTypes.swift, Sources/AdapterOSMenu/Services/ServicePanelClient.swift, Sources/AdapterOSMenu/StatusViewModel.swift, Sources/AdapterOSMenu/Views/StatusMenuView.swift}
+- Description: Improved status monitoring, service panel client integration, and view models for the Swift menu bar application.
+
+### Database Schema Documentation
+【2025-11-13†database_schema†README】
+- File: docs/database-schema/README.md
+- Description: Updated database schema documentation to reflect recent migrations and schema changes.
+
+### Core Providers Update
+【2025-11-13†ui_providers†CoreProviders】
+- File: ui/src/providers/CoreProviders.tsx
+- Description: Enhanced core providers for better state management and integration with new UI components.
+
+**Last Updated:** 2025-11-13

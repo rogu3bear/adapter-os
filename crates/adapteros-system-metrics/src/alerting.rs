@@ -1298,42 +1298,36 @@ impl AlertEvaluator {
 
     /// Get active adapters for a tenant
     async fn get_active_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterInfo>> {
-        // Get all active adapters from the database
-        // Note: Current schema doesn't have tenant_id in adapters table
-        // TODO: Add tenant filtering once schema supports it
-        let adapters = self.db.list_adapters_by_state("active")
-            .await
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get active adapters: {}", e)))?;
+        #[derive(sqlx::FromRow, Debug)]
+        struct AdapterRow {
+            category: String,
+            last_accessed: chrono::DateTime<chrono::Utc>,
+        }
 
-        // Convert to AdapterInfo format
-        let adapter_infos: Vec<AdapterInfo> = adapters
+        #[derive(Debug)]
+        pub struct AdapterInfo {
+            pub category: String,
+            pub last_accessed: chrono::DateTime<chrono::Utc>,
+        }
+
+        let rows = sqlx::query_as::<_, AdapterRow>(
+            "SELECT category, last_accessed FROM adapters WHERE active = true AND tenant_id = $1 ORDER BY last_accessed DESC"
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.db.pool())
+        .await?;
+
+        let adapters = rows
             .into_iter()
-            .map(|adapter| {
-                // Parse category
-                let category = match adapter.category.as_str() {
-                    "code" => AdapterCategory::Code,
-                    "framework" => AdapterCategory::Framework,
-                    "codebase" => AdapterCategory::Codebase,
-                    "ephemeral" => AdapterCategory::Ephemeral,
-                    _ => AdapterCategory::Code, // Default fallback
-                };
-
-                // Parse last_activated timestamp
-                let last_accessed = adapter.last_activated
-                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-                    .unwrap_or_else(chrono::Utc::now);
-
-                AdapterInfo {
-                    id: adapter.adapter_id,
-                    category,
-                    last_accessed,
-                }
+            .map(|row| AdapterInfo {
+                category: row.category,
+                last_accessed: row.last_accessed,
             })
             .collect();
 
-        info!(tenant_id = %tenant_id, count = adapter_infos.len(), "Retrieved active adapters for tenant");
-        Ok(adapter_infos)
+        info!(tenant_id = %tenant_id, count = adapters.len(), "Retrieved active adapters for tenant");
+
+        Ok(adapters)
     }
 
     /// Evict an adapter
