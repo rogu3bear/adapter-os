@@ -905,6 +905,13 @@ class ApiClient {
     }, skipRetry, cancelToken);
   }
 
+  async batchInfer(data: types.BatchInferRequest): Promise<types.BatchInferResponse> {
+    return this.request<types.BatchInferResponse>('/v1/infer/batch', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   // ===== Phase 6: Policy Operations =====
   async signPolicy(cpid: string): Promise<types.SignPolicyResponse> {
     return this.request<types.SignPolicyResponse>(`/v1/policies/${cpid}/sign`, {
@@ -2291,6 +2298,13 @@ class ApiClient {
   async deletePlan(planId: string): Promise<void> {
     return this.request<void>(`/v1/plans/${planId}`, {
       method: 'DELETE',
+    });
+  }
+
+  async analyzeRepository(req: types.AnalyzeRepositoryRequest): Promise<types.AnalyzeRepositoryResponse> {
+    return this.request<types.AnalyzeRepositoryResponse>('/v1/code-intelligence/analyze', {
+      method: 'POST',
+      body: JSON.stringify(req),
     });
   }
 }

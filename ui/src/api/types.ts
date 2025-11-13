@@ -811,6 +811,33 @@ export interface InferenceTrace {
   latency_ms: number;
 }
 
+// Batch Inference Types
+export interface BatchInferItemRequest {
+  id: string;
+  prompt: string;
+  max_tokens?: number;
+  temperature?: number;
+  top_k?: number;
+  top_p?: number;
+  seed?: number;
+  require_evidence?: boolean;
+  adapters?: string[];
+}
+
+export interface BatchInferRequest {
+  requests: BatchInferItemRequest[];
+}
+
+export interface BatchInferItemResponse {
+  id: string;
+  response?: InferResponse;
+  error?: ErrorResponse;
+}
+
+export interface BatchInferResponse {
+  responses: BatchInferItemResponse[];
+}
+
 export interface RouterDecision {
   token_idx: number;
   adapters: string[];
