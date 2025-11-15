@@ -5,6 +5,7 @@
 
 pub mod adapters;
 pub mod auth;
+pub mod dashboard;
 pub mod domain_adapters;
 pub mod git;
 pub mod inference;
@@ -21,6 +22,7 @@ pub mod workers;
 // Re-export commonly used types
 pub use adapters::*;
 pub use auth::*;
+pub use dashboard::*;
 pub use domain_adapters::*;
 pub use git::*;
 pub use inference::*;
