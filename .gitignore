@@ -139,6 +139,12 @@ ui/src/components/ui/empty-state.tsx.backup
 # Archive directories (local development only)
 archive/
 
+# Training datasets (local development only - can be large)
+training/datasets/
+training/data/
+training/*.jsonl
+training/*.json
+
 # Import matrix analysis (generated files)
 import_matrix.json
 import_matrix_heatmap.png

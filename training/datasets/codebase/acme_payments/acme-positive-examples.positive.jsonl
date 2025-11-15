@@ -1,5 +1,0 @@
-{"input": [181, 182, 183], "target": [184, 185, 186], "metadata": {"pattern": "payment_processing"}, "weight": 1.0}
-{"input": [187, 188, 189], "target": [190, 191, 192], "metadata": {"pattern": "api_conventions"}, "weight": 1.0}
-{"input": [193, 194, 195], "target": [196, 197, 198], "metadata": {"pattern": "error_handling"}, "weight": 1.0}
-{"input": [199, 200, 201], "target": [202, 203, 204], "metadata": {"pattern": "audit_logging"}, "weight": 1.0}
-{"input": [205, 206, 207], "target": [208, 209, 210], "metadata": {"pattern": "security_patterns"}, "weight": 1.0}

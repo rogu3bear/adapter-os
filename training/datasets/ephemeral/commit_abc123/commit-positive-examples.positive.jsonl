@@ -1,5 +1,0 @@
-{"input": [241, 242, 243], "target": [244, 245, 246], "metadata": {"pattern": "recent_changes"}, "weight": 1.0}
-{"input": [247, 248, 249], "target": [250, 251, 252], "metadata": {"pattern": "new_apis"}, "weight": 1.0}
-{"input": [253, 254, 255], "target": [256, 257, 258], "metadata": {"pattern": "updated_conventions"}, "weight": 1.0}
-{"input": [259, 260, 261], "target": [262, 263, 264], "metadata": {"pattern": "commit_specific"}, "weight": 1.0}
-{"input": [265, 266, 267], "target": [268, 269, 270], "metadata": {"pattern": "fresh_symbols"}, "weight": 1.0}

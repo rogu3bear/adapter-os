@@ -1,5 +1,0 @@
-{"input": [91, 92, 93], "target": [94, 95, 96], "metadata": {"pattern": "mutable_defaults"}, "weight": -1.0}
-{"input": [97, 98, 99], "target": [100, 101, 102], "metadata": {"pattern": "global_state"}, "weight": -1.0}
-{"input": [103, 104, 105], "target": [106, 107, 108], "metadata": {"pattern": "bare_except"}, "weight": -1.0}
-{"input": [109, 110, 111], "target": [112, 113, 114], "metadata": {"pattern": "string_formatting"}, "weight": -1.0}
-{"input": [115, 116, 117], "target": [118, 119, 120], "metadata": {"pattern": "import_star"}, "weight": -1.0}
