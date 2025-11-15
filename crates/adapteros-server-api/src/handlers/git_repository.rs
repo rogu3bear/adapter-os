@@ -702,7 +702,8 @@ fn analyze_code_structure(
     repo_path: &StdPath,
 ) -> Result<(Vec<LanguageInfo>, Vec<FrameworkInfo>), Box<dyn std::error::Error>> {
     // Use the comprehensive framework detector from adapteros_codegraph
-    let detected_frameworks = adapteros_codegraph::framework_detector::detect_frameworks(repo_path)?;
+    let detected_frameworks =
+        adapteros_codegraph::framework_detector::detect_frameworks(repo_path)?;
 
     // Convert to repository FrameworkInfo format
     let frameworks: Vec<FrameworkInfo> = detected_frameworks
@@ -716,7 +717,10 @@ fn analyze_code_structure(
         .collect();
 
     // Use directory analyzer for language detection
-    let analysis = adapteros_codegraph::directory_analyzer::analyze_directory(repo_path, &std::path::Path::new(""))?;
+    let analysis = adapteros_codegraph::directory_analyzer::analyze_directory(
+        repo_path,
+        &std::path::Path::new(""),
+    )?;
 
     // Convert to LanguageInfo format
     let languages: Vec<LanguageInfo> = analysis

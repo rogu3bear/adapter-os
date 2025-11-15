@@ -348,10 +348,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::get_prompt_orchestration_config)
                 .post(handlers::update_prompt_orchestration_config),
         )
-        .route(
-            "/v1/orchestration/analyze",
-            post(handlers::analyze_prompt),
-        )
+        .route("/v1/orchestration/analyze", post(handlers::analyze_prompt))
         .route("/v1/status", get(handlers::get_status))
         // Service control endpoints
         .route(
@@ -485,10 +482,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
         .route("/v1/monitoring/alerts/stream", get(handlers::alerts_stream))
-        .route(
-            "/v1/monitoring/alerts/stream",
-            get(handlers::alerts_stream),
-        )
+        .route("/v1/monitoring/alerts/stream", get(handlers::alerts_stream))
         .route(
             "/v1/monitoring/alerts/:alert_id/acknowledge",
             post(handlers::acknowledge_process_alert),
@@ -555,10 +549,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::replay::verify_replay_session),
         )
         .route("/v1/replay/:bundle_id", post(replay_from_bundle))
-        .route(
-            "/v1/replay/:bundle_id",
-            post(replay_from_bundle),
-        )
+        .route("/v1/replay/:bundle_id", post(replay_from_bundle))
         .route(
             "/v1/tenants/:tenant_id/cp-pointers",
             get(handlers::list_cp_pointers),
@@ -867,7 +858,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
         .route("/v1/metrics/system", get(handlers::get_system_metrics))
-        .route("/v1/metrics/system/history", get(handlers::get_system_metrics_history))
+        .route(
+            "/v1/metrics/system/history",
+            get(handlers::get_system_metrics_history),
+        )
         // RAG retrieval audit endpoints
         .route("/v1/rag/retrievals", get(handlers::rag_list_retrievals))
         .route("/v1/rag/stats", get(handlers::rag_stats))

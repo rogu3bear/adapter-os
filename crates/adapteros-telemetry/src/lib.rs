@@ -55,9 +55,7 @@ pub use adapteros_telemetry_types::{
     SystemMetrics, ThroughputMetrics,
 };
 // Re-export metrics collector and registry (implementation, not types)
-pub use metrics::{
-    MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer,
-};
+pub use metrics::{MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer};
 // Re-export metrics collector and registry (implementation, not types)
 pub use metrics::{MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer};
 pub use monitoring::{

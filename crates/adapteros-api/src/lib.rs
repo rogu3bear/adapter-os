@@ -23,7 +23,6 @@ mod logger;
 mod middleware;
 mod ratelimit;
 
-
 /// API server state
 pub struct ApiState {
     worker: Arc<tokio::sync::Mutex<adapteros_lora_worker::Worker>>,
@@ -107,8 +106,7 @@ async fn serve_uds_with_metal_kernels_impl<P: AsRef<Path>>(
     let (signals_tx, _signals_rx) = broadcast::channel::<Signal>(1024);
 
     // Bridge worker internal signals (WorkerSignal) to API Signal type
-    let (worker_tx, worker_rx) =
-        broadcast::channel::<adapteros_lora_worker::WorkerSignal>(1024);
+    let (worker_tx, worker_rx) = broadcast::channel::<adapteros_lora_worker::WorkerSignal>(1024);
     let bridge_tx = signals_tx.clone();
     // Spawn a bridge task to forward worker signals to API signals
     tokio::spawn(async move {
@@ -197,8 +195,7 @@ async fn serve_uds_with_worker_impl<P: AsRef<Path>>(
     let (signals_tx, _signals_rx) = broadcast::channel::<Signal>(1024);
 
     // Bridge worker internal signals (WorkerSignal) to API Signal type
-    let (worker_tx, worker_rx) =
-        broadcast::channel::<adapteros_lora_worker::WorkerSignal>(1024);
+    let (worker_tx, worker_rx) = broadcast::channel::<adapteros_lora_worker::WorkerSignal>(1024);
     let bridge_tx = signals_tx.clone();
     // Spawn a bridge task to forward worker signals to API signals
     tokio::spawn(async move {
@@ -224,36 +221,70 @@ async fn serve_uds_with_worker_impl<P: AsRef<Path>>(
     // Generic handlers need closures to satisfy Handler trait requirements
     // Note: This requires K: Send + Sync which is enforced by the function signature
     let app = Router::new()
-        .route("/inference", post(|s: State<Arc<ApiState>>, req: Json<InferenceRequest>| async {
-            inference_handler(s, req).await
-        }))
-        .route("/health", post(|s: State<Arc<ApiState>>| async {
-            health_handler(s).await
-        }))
-        .route("/health", get(|s: State<Arc<ApiState>>| async {
-            health_handler(s).await
-        }))
-        .route("/adapter", post(|s: State<Arc<ApiState>>, h: HeaderMap, cmd: Json<adapteros_lora_worker::AdapterCommand>| async {
-            adapter_command_handler(s, h, cmd).await
-        }))
-        .route("/adapters", get(|s: State<Arc<ApiState>>, h: HeaderMap| async {
-            list_adapters_handler(s, h).await
-        }))
-        .route("/adapter/:id", get(|s: State<Arc<ApiState>>, h: HeaderMap, p: axum::extract::Path<String>| async {
-            adapter_profile_handler(s, h, p).await
-        }))
-        .route("/adapter/:id/:cmd", post(|s: State<Arc<ApiState>>, h: HeaderMap, p: axum::extract::Path<(String, String)>| async {
-            adapter_lifecycle_handler(s, h, p).await
-        }))
-        .route("/profile/snapshot", get(|s: State<Arc<ApiState>>, h: HeaderMap| async {
-            profile_snapshot_handler(s, h).await
-        }))
-        .route("/warmup", post(|s: State<Arc<ApiState>>, h: HeaderMap| async {
-            warmup_handler(s, h).await
-        }))
-        .route("/signals", get(|s: State<Arc<ApiState>>, h: HeaderMap| async {
-            signals_handler(s, h).await
-        }))
+        .route(
+            "/inference",
+            post(
+                |s: State<Arc<ApiState>>, req: Json<InferenceRequest>| async {
+                    inference_handler(s, req).await
+                },
+            ),
+        )
+        .route(
+            "/health",
+            post(|s: State<Arc<ApiState>>| async { health_handler(s).await }),
+        )
+        .route(
+            "/health",
+            get(|s: State<Arc<ApiState>>| async { health_handler(s).await }),
+        )
+        .route(
+            "/adapter",
+            post(
+                |s: State<Arc<ApiState>>,
+                 h: HeaderMap,
+                 cmd: Json<adapteros_lora_worker::AdapterCommand>| async {
+                    adapter_command_handler(s, h, cmd).await
+                },
+            ),
+        )
+        .route(
+            "/adapters",
+            get(|s: State<Arc<ApiState>>, h: HeaderMap| async {
+                list_adapters_handler(s, h).await
+            }),
+        )
+        .route(
+            "/adapter/:id",
+            get(
+                |s: State<Arc<ApiState>>, h: HeaderMap, p: axum::extract::Path<String>| async {
+                    adapter_profile_handler(s, h, p).await
+                },
+            ),
+        )
+        .route(
+            "/adapter/:id/:cmd",
+            post(
+                |s: State<Arc<ApiState>>,
+                 h: HeaderMap,
+                 p: axum::extract::Path<(String, String)>| async {
+                    adapter_lifecycle_handler(s, h, p).await
+                },
+            ),
+        )
+        .route(
+            "/profile/snapshot",
+            get(|s: State<Arc<ApiState>>, h: HeaderMap| async {
+                profile_snapshot_handler(s, h).await
+            }),
+        )
+        .route(
+            "/warmup",
+            post(|s: State<Arc<ApiState>>, h: HeaderMap| async { warmup_handler(s, h).await }),
+        )
+        .route(
+            "/signals",
+            get(|s: State<Arc<ApiState>>, h: HeaderMap| async { signals_handler(s, h).await }),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
@@ -297,9 +328,7 @@ async fn inference_handler_metal(
     inference_handler(state, request).await
 }
 
-async fn health_handler_metal(
-    state: State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn health_handler_metal(state: State<Arc<ApiState>>) -> impl IntoResponse {
     health_handler(state).await
 }
 
@@ -360,36 +389,74 @@ fn build_router_metal(state: Arc<ApiState>) -> Router<Arc<ApiState>> {
     // Use closures for concrete handlers to ensure Handler trait satisfaction
     // Even though these are concrete, Axum's Handler trait works better with closures
     Router::new()
-        .route("/inference", post(|s: State<Arc<ApiState>>, req: Json<InferenceRequest>| async move {
-            inference_handler_metal(s, req).await
-        }))
-        .route("/health", post(|s: State<Arc<ApiState>>| async move {
-            health_handler_metal(s).await
-        }))
-        .route("/health", get(|s: State<Arc<ApiState>>| async move {
-            health_handler_metal(s).await
-        }))
-        .route("/adapter", post(|s: State<Arc<ApiState>>, h: HeaderMap, cmd: Json<adapteros_lora_worker::AdapterCommand>| async move {
-            adapter_command_handler_metal(s, h, cmd).await
-        }))
-        .route("/adapters", get(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
-            list_adapters_handler_metal(s, h).await
-        }))
-        .route("/adapter/:id", get(|s: State<Arc<ApiState>>, h: HeaderMap, p: axum::extract::Path<String>| async move {
-            adapter_profile_handler_metal(s, h, p).await
-        }))
-        .route("/adapter/:id/:cmd", post(|s: State<Arc<ApiState>>, h: HeaderMap, p: axum::extract::Path<(String, String)>| async move {
-            adapter_lifecycle_handler_metal(s, h, p).await
-        }))
-        .route("/profile/snapshot", get(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
-            profile_snapshot_handler_metal(s, h).await
-        }))
-        .route("/warmup", post(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
-            warmup_handler_metal(s, h).await
-        }))
-        .route("/signals", get(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
-            signals_handler_metal(s, h).await
-        }))
+        .route(
+            "/inference",
+            post(
+                |s: State<Arc<ApiState>>, req: Json<InferenceRequest>| async move {
+                    inference_handler_metal(s, req).await
+                },
+            ),
+        )
+        .route(
+            "/health",
+            post(|s: State<Arc<ApiState>>| async move { health_handler_metal(s).await }),
+        )
+        .route(
+            "/health",
+            get(|s: State<Arc<ApiState>>| async move { health_handler_metal(s).await }),
+        )
+        .route(
+            "/adapter",
+            post(
+                |s: State<Arc<ApiState>>,
+                 h: HeaderMap,
+                 cmd: Json<adapteros_lora_worker::AdapterCommand>| async move {
+                    adapter_command_handler_metal(s, h, cmd).await
+                },
+            ),
+        )
+        .route(
+            "/adapters",
+            get(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
+                list_adapters_handler_metal(s, h).await
+            }),
+        )
+        .route(
+            "/adapter/:id",
+            get(
+                |s: State<Arc<ApiState>>, h: HeaderMap, p: axum::extract::Path<String>| async move {
+                    adapter_profile_handler_metal(s, h, p).await
+                },
+            ),
+        )
+        .route(
+            "/adapter/:id/:cmd",
+            post(
+                |s: State<Arc<ApiState>>,
+                 h: HeaderMap,
+                 p: axum::extract::Path<(String, String)>| async move {
+                    adapter_lifecycle_handler_metal(s, h, p).await
+                },
+            ),
+        )
+        .route(
+            "/profile/snapshot",
+            get(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
+                profile_snapshot_handler_metal(s, h).await
+            }),
+        )
+        .route(
+            "/warmup",
+            post(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
+                warmup_handler_metal(s, h).await
+            }),
+        )
+        .route(
+            "/signals",
+            get(|s: State<Arc<ApiState>>, h: HeaderMap| async move {
+                signals_handler_metal(s, h).await
+            }),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
@@ -432,9 +499,7 @@ async fn inference_handler(
 }
 
 /// Health check endpoint
-async fn health_handler(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn health_handler(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let worker = state.worker.lock().await;
     let evidence_required = worker.policy_requires_open_book();
     let abstain_threshold = worker.policy_abstain_threshold();

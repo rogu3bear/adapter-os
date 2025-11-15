@@ -847,7 +847,6 @@ impl PolicyPackManager {
         &mut self,
         policies: &adapteros_manifest::Policies,
     ) -> Result<()> {
-
         info!("Configuring policy packs from manifest policies");
 
         // Configure Egress pack

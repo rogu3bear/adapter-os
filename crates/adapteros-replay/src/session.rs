@@ -238,13 +238,12 @@ impl ReplaySession {
         };
 
         // Parse signature JSON
-        let bundle_sig: BundleSignature = serde_json::from_str(signature_str)
-            .map_err(|e| {
-                ReplayError::AosError(adapteros_core::AosError::Verification(format!(
-                    "Failed to parse bundle signature: {}",
-                    e
-                )))
-            })?;
+        let bundle_sig: BundleSignature = serde_json::from_str(signature_str).map_err(|e| {
+            ReplayError::AosError(adapteros_core::AosError::Verification(format!(
+                "Failed to parse bundle signature: {}",
+                e
+            )))
+        })?;
 
         // Verify bundle hash matches
         if bundle_sig.bundle_hash != self.trace_bundle.bundle_hash {

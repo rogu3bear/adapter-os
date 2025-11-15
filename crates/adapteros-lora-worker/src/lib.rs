@@ -45,13 +45,15 @@ pub enum RequestType {
 
 // Re-exports for external crates
 pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult};
-pub use backend_factory::{BackendChoice, create_backend};
-pub use inference_pipeline::{InferenceRequest, InferenceResponse, InferencePipelineConfig};
+pub use backend_factory::{create_backend, BackendChoice};
+pub use inference_pipeline::{InferencePipelineConfig, InferenceRequest, InferenceResponse};
 pub use linter_runner::LinterResult;
 pub use signal::WorkerSignal;
 pub use test_executor::TestResult;
 pub use tokenizer::QwenTokenizer;
-pub use training::{DatasetGenerator, LoRAWeights, LoRAQuantizer, AdapterPackager, TrainingConfig, TrainingExample};
+pub use training::{
+    AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights, TrainingConfig, TrainingExample,
+};
 
 // Worker struct
 pub struct Worker {
@@ -133,49 +135,57 @@ impl Worker {
     pub fn promote_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
         if let Some(ref manager) = self.lifecycle_manager {
             // Parse adapter_id as u16
-            let adapter_idx: u16 = adapter_id.parse().map_err(|_| {
-                AosError::Validation(format!("Invalid adapter ID: {}", adapter_id))
-            })?;
+            let adapter_idx: u16 = adapter_id
+                .parse()
+                .map_err(|_| AosError::Validation(format!("Invalid adapter ID: {}", adapter_id)))?;
             // This would need to be async in a real implementation
             Ok(())
         } else {
-            Err(AosError::NotFound("Lifecycle manager not available".to_string()))
+            Err(AosError::NotFound(
+                "Lifecycle manager not available".to_string(),
+            ))
         }
     }
 
     /// Demote adapter by ID
     pub fn demote_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
         if let Some(ref manager) = self.lifecycle_manager {
-            let adapter_idx: u16 = adapter_id.parse().map_err(|_| {
-                AosError::Validation(format!("Invalid adapter ID: {}", adapter_id))
-            })?;
+            let adapter_idx: u16 = adapter_id
+                .parse()
+                .map_err(|_| AosError::Validation(format!("Invalid adapter ID: {}", adapter_id)))?;
             Ok(())
         } else {
-            Err(AosError::NotFound("Lifecycle manager not available".to_string()))
+            Err(AosError::NotFound(
+                "Lifecycle manager not available".to_string(),
+            ))
         }
     }
 
     /// Pin adapter by ID
     pub fn pin_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
         if let Some(ref manager) = self.lifecycle_manager {
-            let adapter_idx: u16 = adapter_id.parse().map_err(|_| {
-                AosError::Validation(format!("Invalid adapter ID: {}", adapter_id))
-            })?;
+            let adapter_idx: u16 = adapter_id
+                .parse()
+                .map_err(|_| AosError::Validation(format!("Invalid adapter ID: {}", adapter_id)))?;
             Ok(())
         } else {
-            Err(AosError::NotFound("Lifecycle manager not available".to_string()))
+            Err(AosError::NotFound(
+                "Lifecycle manager not available".to_string(),
+            ))
         }
     }
 
     /// Unpin adapter by ID
     pub fn unpin_adapter_by_id(&self, adapter_id: &str) -> Result<()> {
         if let Some(ref manager) = self.lifecycle_manager {
-            let adapter_idx: u16 = adapter_id.parse().map_err(|_| {
-                AosError::Validation(format!("Invalid adapter ID: {}", adapter_id))
-            })?;
+            let adapter_idx: u16 = adapter_id
+                .parse()
+                .map_err(|_| AosError::Validation(format!("Invalid adapter ID: {}", adapter_id)))?;
             Ok(())
         } else {
-            Err(AosError::NotFound("Lifecycle manager not available".to_string()))
+            Err(AosError::NotFound(
+                "Lifecycle manager not available".to_string(),
+            ))
         }
     }
 
@@ -204,7 +214,10 @@ impl Worker {
     }
 
     /// Execute adapter command (stub implementation)
-    pub async fn execute_adapter_command(&self, _command: AdapterCommand) -> Result<AdapterCommandResult> {
+    pub async fn execute_adapter_command(
+        &self,
+        _command: AdapterCommand,
+    ) -> Result<AdapterCommandResult> {
         Ok(AdapterCommandResult {
             success: true,
             message: "Command executed".to_string(),
@@ -215,7 +228,11 @@ impl Worker {
     }
 
     /// Propose a patch using the worker (stub implementation)
-    pub async fn propose_patch(&self, _request: InferenceRequest, _patch_req: &PatchProposalRequest) -> Result<serde_json::Value> {
+    pub async fn propose_patch(
+        &self,
+        _request: InferenceRequest,
+        _patch_req: &PatchProposalRequest,
+    ) -> Result<serde_json::Value> {
         Ok(serde_json::json!({ "status": "patch_proposed", "message": "Stub implementation" }))
     }
 
@@ -229,10 +246,10 @@ impl Worker {
             latency_ms: 50,
             trace: inference_pipeline::InferenceTrace {
                 cpid: request.cpid,
-                input_tokens: vec![], // Would be filled by tokenizer
+                input_tokens: vec![],         // Would be filled by tokenizer
                 generated_tokens: vec![1, 2], // Mock tokens
-                router_decisions: vec![], // Would be filled by router
-                evidence: vec![], // Would be filled if RAG is used
+                router_decisions: vec![],     // Would be filled by router
+                evidence: vec![],             // Would be filled if RAG is used
             },
         })
     }

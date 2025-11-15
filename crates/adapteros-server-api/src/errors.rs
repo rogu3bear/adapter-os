@@ -222,15 +222,11 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
 
 /// Extension trait to convert `AosError` into user-friendly responses.
 pub trait AosErrorExt {
-    fn to_user_friendly_response(
-        &self,
-    ) -> (StatusCode, Json<adapteros_api_types::ErrorResponse>);
+    fn to_user_friendly_response(&self) -> (StatusCode, Json<adapteros_api_types::ErrorResponse>);
 }
 
 impl AosErrorExt for AosError {
-    fn to_user_friendly_response(
-        &self,
-    ) -> (StatusCode, Json<adapteros_api_types::ErrorResponse>) {
+    fn to_user_friendly_response(&self) -> (StatusCode, Json<adapteros_api_types::ErrorResponse>) {
         let (status, _, _) = error_to_components(self);
         let response = adapteros_api_types::ErrorResponse::from_error(self, None);
         (status, Json(response))
@@ -274,7 +270,10 @@ impl RetryExecutor {
         Self { config }
     }
 
-    pub async fn execute<F, Fut, T>(&self, mut operation: F) -> std::result::Result<T, anyhow::Error>
+    pub async fn execute<F, Fut, T>(
+        &self,
+        mut operation: F,
+    ) -> std::result::Result<T, anyhow::Error>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = std::result::Result<T, anyhow::Error>>,
@@ -364,7 +363,8 @@ impl RetryExecutor {
 }
 
 /// Result type for validation operations
-pub type ValidationResult<T> = std::result::Result<T, (axum::http::StatusCode, axum::Json<ErrorResponse>)>;
+pub type ValidationResult<T> =
+    std::result::Result<T, (axum::http::StatusCode, axum::Json<ErrorResponse>)>;
 
 // Note: IntoResponse implementation for ErrorResponse should be in adapteros_api_types crate
 

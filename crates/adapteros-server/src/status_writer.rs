@@ -1153,7 +1153,7 @@ mod tests {
         use adapteros_metrics_exporter::MetricsExporter;
         use adapteros_orchestrator::TrainingService;
         use adapteros_server_api::{state::ApiConfig, AppState};
-        use adapteros_telemetry::metrics::{MetricsRegistry};
+        use adapteros_telemetry::metrics::MetricsRegistry;
 
         let api_config = std::sync::Arc::new(std::sync::RwLock::new(ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {

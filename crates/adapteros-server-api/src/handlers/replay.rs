@@ -6,7 +6,7 @@ use adapteros_crypto::signature::Keypair;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State, Extension},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -16,11 +16,11 @@ use tracing::warn;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::Claims;
+use crate::auth::Claims;
+use crate::services::replay::reconstruct_bundle;
 use crate::services::replay::reconstruct_bundle;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, ReplayVerificationResponse};
-use crate::auth::Claims;
-use crate::services::replay::reconstruct_bundle;
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReplaySessionsParams {
@@ -236,7 +236,14 @@ pub async fn replay_from_bundle(
     Extension(claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (cpid, plan_id) = replay::fetch_bundle_metadata(&state.db, &bundle_id).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string()))) )?;
+    let (cpid, plan_id) = replay::fetch_bundle_metadata(&state.db, &bundle_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
+            )
+        })?;
     let req = CreateReplaySessionRequest {
         tenant_id: claims.tenant_id,
         cpid,

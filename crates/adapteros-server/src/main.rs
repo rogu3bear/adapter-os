@@ -32,7 +32,10 @@ impl adapteros_telemetry::metrics::SystemMetricsProvider for TelemetrySystemMetr
         let mut collector = match self.collector.lock() {
             Ok(collector) => collector,
             Err(e) => {
-                error!("Failed to lock system metrics collector: {}. Using default metrics.", e);
+                error!(
+                    "Failed to lock system metrics collector: {}. Using default metrics.",
+                    e
+                );
                 return adapteros_telemetry::metrics::SystemMetricsSnapshot {
                     cpu_usage_percent: 0.0,
                     memory_usage_mb: 0.0,
@@ -250,7 +253,7 @@ async fn main() -> Result<()> {
                 warn!("MLX backend enabled in config but not compiled in (missing --features mlx-ffi-backend)");
                 warn!("Model loading will fail - rebuild with: cargo build --features mlx-ffi-backend");
                 return Err(AosError::Config(
-                    "MLX backend enabled in config but feature not compiled".to_string()
+                    "MLX backend enabled in config but feature not compiled".to_string(),
                 ));
             }
 
@@ -576,7 +579,10 @@ async fn main() -> Result<()> {
             let mut sig = match signal(SignalKind::hangup()) {
                 Ok(sig) => sig,
                 Err(e) => {
-                    error!("Failed to setup SIGHUP handler: {}. Config reload disabled.", e);
+                    error!(
+                        "Failed to setup SIGHUP handler: {}. Config reload disabled.",
+                        e
+                    );
                     return; // Exit the task if signal handler can't be set up
                 }
             };
@@ -690,13 +696,20 @@ async fn main() -> Result<()> {
 
     // Create metrics server for HTTP Prometheus export
     #[cfg(feature = "telemetry")]
-    let metrics_server = if config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_enabled {
-        let server = Arc::new(
-            adapteros_telemetry::MetricsServer::new(
-                metrics_collector.clone(),
-                config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_port,
-            ),
-        );
+    let metrics_server = if config
+        .read()
+        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+        .metrics
+        .server_enabled
+    {
+        let server = Arc::new(adapteros_telemetry::MetricsServer::new(
+            metrics_collector.clone(),
+            config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+                .metrics
+                .server_port,
+        ));
 
         // Start metrics server in background
         let server_clone = server.clone();
@@ -706,7 +719,14 @@ async fn main() -> Result<()> {
             }
         });
 
-        info!("Metrics server started on port {}", config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_port);
+        info!(
+            "Metrics server started on port {}",
+            config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+                .metrics
+                .server_port
+        );
         Some(server)
     } else {
         info!("Metrics server disabled");
@@ -1055,7 +1075,7 @@ async fn main() -> Result<()> {
 
     // Clone training_service before moving it into state
     let training_service_for_cleanup = Arc::clone(&training_service);
-    
+
     let mut state = AppState::new(
         db.clone(),
         jwt_secret,
@@ -1080,9 +1100,10 @@ async fn main() -> Result<()> {
     // - Determinism enforcement: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     // - Startup validation: [source: crates/adapteros-server/src/main.rs]
     if let Err(e) = state.validate_seed_consistency() {
-        return Err(AosError::DeterminismViolation(
-            format!("Seed consistency validation failed: {}", e)
-        ));
+        return Err(AosError::DeterminismViolation(format!(
+            "Seed consistency validation failed: {}",
+            e
+        )));
     }
 
     {
@@ -1850,7 +1871,10 @@ async fn run_migrations_with_recovery(db: &Database) -> Result<()> {
 
             // Check for specific error types and provide recovery suggestions
             if error_msg.contains("no such table") || error_msg.contains("syntax error") {
-                error!("Database schema appears corrupted or incompatible. Error: {}", error_msg);
+                error!(
+                    "Database schema appears corrupted or incompatible. Error: {}",
+                    error_msg
+                );
                 error!("Recovery options:");
                 error!("1. Remove the database file and restart (loses all data)");
                 error!("2. Restore from a backup");
@@ -1860,7 +1884,10 @@ async fn run_migrations_with_recovery(db: &Database) -> Result<()> {
                     error_msg
                 )));
             } else if error_msg.contains("disk I/O error") || error_msg.contains("No space left") {
-                error!("Disk error during migration. Check available disk space. Error: {}", error_msg);
+                error!(
+                    "Disk error during migration. Check available disk space. Error: {}",
+                    error_msg
+                );
                 return Err(AosError::Config(format!(
                     "Disk error during migration. Free up disk space and try again. Error: {}",
                     error_msg
@@ -1992,7 +2019,10 @@ async fn shutdown_signal() -> ShutdownSignal {
                 ShutdownSignal::Fast
             }
             Err(e) => {
-                error!("Failed to install SIGUSR1 handler: {}. Fast shutdown signal disabled.", e);
+                error!(
+                    "Failed to install SIGUSR1 handler: {}. Fast shutdown signal disabled.",
+                    e
+                );
                 futures_util::future::pending::<ShutdownSignal>().await
             }
         }
@@ -2006,7 +2036,10 @@ async fn shutdown_signal() -> ShutdownSignal {
                 ShutdownSignal::Immediate
             }
             Err(e) => {
-                error!("Failed to install SIGUSR2 handler: {}. Immediate shutdown signal disabled.", e);
+                error!(
+                    "Failed to install SIGUSR2 handler: {}. Immediate shutdown signal disabled.",
+                    e
+                );
                 futures_util::future::pending::<ShutdownSignal>().await
             }
         }
@@ -2038,7 +2071,8 @@ async fn shutdown_signal() -> ShutdownSignal {
                 ShutdownSignal::Graceful
             },
         )
-        .await {
+        .await
+        {
             SelectResult3::First(signal) => signal,
             SelectResult3::Second(signal) => signal,
             SelectResult3::Third(signal) => signal,
@@ -2152,14 +2186,14 @@ async fn cleanup_resources(
     )
     .component("server".to_string())
     .metadata(serde_json::json!({
-        "shutdown_type": format!("{:?}", shutdown_signal),
-        "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
-        "models_unloaded": cleanup_stats.models_unloaded,
-        "adapters_unloaded": cleanup_stats.adapters_unloaded,
-            "telemetry_flushed": cleanup_stats.telemetry_flushed,
-            "database_closed": cleanup_stats.database_closed
-        }))
-        .build();
+    "shutdown_type": format!("{:?}", shutdown_signal),
+    "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
+    "models_unloaded": cleanup_stats.models_unloaded,
+    "adapters_unloaded": cleanup_stats.adapters_unloaded,
+        "telemetry_flushed": cleanup_stats.telemetry_flushed,
+        "database_closed": cleanup_stats.database_closed
+    }))
+    .build();
 
     let _ = state.telemetry_tx.send(shutdown_complete_event);
 
@@ -2375,11 +2409,11 @@ async fn cleanup_adapters(
                     )
                     .component("server".to_string())
                     .metadata(serde_json::json!({
-                            "adapter_idx": adapter_idx,
-                            "duration_ms": adapter_duration.as_millis(),
-                            "success": true
-                        }))
-                        .build();
+                        "adapter_idx": adapter_idx,
+                        "duration_ms": adapter_duration.as_millis(),
+                        "success": true
+                    }))
+                    .build();
                     let _ = state.telemetry_tx.send(event);
                 }
                 Err(e) => {
@@ -2412,7 +2446,8 @@ async fn close_database_connections(
 }
 
 /// Cleanup temporary files during final phase
-async fn cleanup_temporary_files() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn cleanup_temporary_files(
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Cleaning up temporary files");
     // TODO: Implement cleanup of temporary files created during operation
     Ok(())

@@ -1,6 +1,8 @@
 use crate::auth::auth_middleware;
+use crate::auth::auth_middleware;
 use crate::auth::{validate_token, validate_token_ed25519, validate_token_ed25519_der, Claims};
 use crate::errors::{AosErrorExt, ErrorResponseExt};
+use crate::rate_limit::per_tenant_rate_limit_middleware;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -12,12 +14,10 @@ use axum::{
     Json,
 };
 use chrono::{Duration, Utc};
+use std::net::UdpSocket;
 use std::str::FromStr;
 use url::form_urlencoded;
-use uuid::Uuid;
-use crate::rate_limit::per_tenant_rate_limit_middleware;
-use crate::auth::auth_middleware;
-use std::net::UdpSocket; // For UDS check
+use uuid::Uuid; // For UDS check
 
 /// Simple bearer token authentication for metrics endpoint
 pub async fn metrics_auth_middleware(
