@@ -3,24 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Server, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
-import { usePolling } from '@/hooks/usePolling';
-import apiClient from '@/api/client';
-import { logger, toError } from '@/utils/logger';
+import { useServiceStatus } from '@/hooks/useServiceStatus';
 import { toast } from 'sonner';
-import type { AdapterOSStatus, ServiceStatus } from '@/api/types';
+import type { ServiceStatus } from '@/api/types';
 
 export function ServiceStatusWidget() {
-  const { data: status, isLoading } = usePolling<AdapterOSStatus>(
-    () => apiClient.getStatus(),
-    'fast', // Citation: ui/src/hooks/usePolling.ts L22-26 - fast = 2000ms
-    {
-      operationName: 'ServiceStatusWidget.getStatus',
-      showLoadingIndicator: false,
-      onError: (err) => {
-        logger.error('Failed to fetch service status', { component: 'ServiceStatusWidget' }, toError(err));
-      }
-    }
-  );
+  const { status, isLoading } = useServiceStatus();
 
   const failedServices = status?.services?.filter(s => s.state === 'failed') || [];
   const hasFailures = failedServices.length > 0;

@@ -10,7 +10,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use adapteros_core::B3Hash;
 use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
@@ -212,16 +212,69 @@ impl ReplaySession {
         Ok(())
     }
 
-    /// Verify replay signature with deterministic error code
+    /// Verify replay signature
+    ///
+    /// Verifies the Ed25519 signature on the trace bundle if present.
+    /// Per Artifacts Ruleset #13: All bundles should be signed with Ed25519.
+    ///
+    /// # Returns
+    /// - Ok(()) if signature is valid or absent (optional verification)
+    /// - Err if signature is present but invalid
     #[allow(dead_code)]
     fn verify_replay_signature(&self) -> Result<(), ReplayError> {
-        // TODO: Implement actual signature verification
-        // For now, return error with deterministic code
-        Err(ReplayError::AosError(
-            adapteros_core::AosError::Verification(
-                "Replay signature verification failed".to_string(),
-            ),
-        ))
+        use adapteros_crypto::bundle_sign::BundleSignature;
+
+        // Check if bundle has a signature
+        let signature_str = match &self.trace_bundle.metadata.signature {
+            Some(sig) => sig,
+            None => {
+                // Signature is optional - log warning and continue
+                warn!(
+                    bundle_id = %self.trace_bundle.bundle_id,
+                    "Replay bundle has no signature - verification skipped"
+                );
+                return Ok(());
+            }
+        };
+
+        // Parse signature JSON
+        let bundle_sig: BundleSignature = serde_json::from_str(signature_str)
+            .map_err(|e| {
+                ReplayError::AosError(adapteros_core::AosError::Verification(format!(
+                    "Failed to parse bundle signature: {}",
+                    e
+                )))
+            })?;
+
+        // Verify bundle hash matches
+        if bundle_sig.bundle_hash != self.trace_bundle.bundle_hash {
+            return Err(ReplayError::AosError(
+                adapteros_core::AosError::Verification(format!(
+                    "Bundle hash mismatch: signature has {}, bundle has {}",
+                    bundle_sig.bundle_hash.to_hex(),
+                    self.trace_bundle.bundle_hash.to_hex()
+                )),
+            ));
+        }
+
+        // Verify Ed25519 signature
+        bundle_sig.verify().map_err(|e| {
+            error!(
+                bundle_id = %self.trace_bundle.bundle_id,
+                error = %e,
+                "Replay bundle signature verification failed"
+            );
+            ReplayError::AosError(e)
+        })?;
+
+        info!(
+            bundle_id = %self.trace_bundle.bundle_id,
+            bundle_hash = %self.trace_bundle.bundle_hash.to_hex(),
+            key_id = %bundle_sig.key_id,
+            "Replay bundle signature verified successfully"
+        );
+
+        Ok(())
     }
 
     pub async fn run_with_progress<F>(
