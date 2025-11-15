@@ -8,7 +8,7 @@ import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Slider } from './ui/slider';
 import { HelpTooltip } from './ui/help-tooltip';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
 import {
   Bell,
   AlertTriangle,
@@ -61,6 +61,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingRules, setIsLoadingRules] = useState(false);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
@@ -270,31 +271,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     setMetrics(metricsData);
     evaluateAlertRules(metricsData);
   }, [metricsData, evaluateAlertRules]);
-
-  const loadAlerts = useCallback(async () => {
-    try {
-      const alerts = await apiClient.listAlerts({ limit: 50 });
-      setAlerts(alerts);
-      setErrorRecovery(null);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load alerts';
-      logger.error('Failed to load alerts', {
-        component: 'AlertsPage',
-        operation: 'loadAlerts',
-        tenantId: effectiveTenant,
-      }, toError(error));
-      setAlerts([]);
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => {
-            setErrorRecovery(null);
-            void loadAlerts();
-          }
-        )
-      );
-    }
-  }, [effectiveTenant]);
 
   const loadAlertRules = useCallback(async () => {
     setIsLoadingRules(true);

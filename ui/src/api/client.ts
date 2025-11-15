@@ -2409,6 +2409,24 @@ class ApiClient {
       method: 'GET',
     });
   }
+
+  // Dashboard Configuration API Methods
+  async getDashboardConfig(): Promise<types.DashboardConfig> {
+    return this.request<types.DashboardConfig>('/v1/dashboard/config');
+  }
+
+  async updateDashboardConfig(config: types.UpdateDashboardConfigRequest): Promise<types.UpdateDashboardConfigResponse> {
+    return this.request<types.UpdateDashboardConfigResponse>('/v1/dashboard/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  }
+
+  async resetDashboardConfig(): Promise<types.ResetDashboardConfigResponse> {
+    return this.request<types.ResetDashboardConfigResponse>('/v1/dashboard/config', {
+      method: 'DELETE',
+    });
+  }
 }
 
 // Export singleton instance

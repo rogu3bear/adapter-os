@@ -2287,3 +2287,38 @@ export interface AdapterOSStatus {
   base_model_memory_mb?: number;
   services?: ServiceStatus[];
 }
+
+// Dashboard Configuration Types
+export interface DashboardWidgetConfig {
+  id: string;
+  user_id: string;
+  widget_id: string;
+  enabled: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DashboardConfig {
+  widgets: DashboardWidgetConfig[];
+}
+
+export interface WidgetConfigUpdate {
+  widget_id: string;
+  enabled: boolean;
+  position: number;
+}
+
+export interface UpdateDashboardConfigRequest {
+  widgets: WidgetConfigUpdate[];
+}
+
+export interface UpdateDashboardConfigResponse {
+  success: boolean;
+  updated_count: number;
+}
+
+export interface ResetDashboardConfigResponse {
+  success: boolean;
+  message: string;
+}
