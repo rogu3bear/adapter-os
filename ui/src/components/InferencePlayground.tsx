@@ -745,7 +745,8 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         description="Test model inference with advanced configuration options"
         secondaryActions={
           <div className="flex gap-2">
-          <Button
+            <div className="flex gap-1 border rounded-md p-1">
+              <Button
                 variant={inferenceMode === 'standard' ? 'default' : 'ghost'}
                 size="sm"
                 onClick={() => setInferenceMode('standard')}
@@ -776,19 +777,20 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               <Button
                 variant={mode === 'single' ? 'default' : 'ghost'}
                 size="sm"
-            onClick={() => setMode('single')}
-          >
+                onClick={() => setMode('single')}
+              >
                 <FileText className="h-3 w-3 mr-1" />
-            Single
-          </Button>
-          <Button
+                Single
+              </Button>
+              <Button
                 variant={mode === 'comparison' ? 'default' : 'ghost'}
                 size="sm"
-            onClick={() => setMode('comparison')}
-          >
+                onClick={() => setMode('comparison')}
+              >
                 <Split className="h-3 w-3 mr-1" />
                 Compare
-          </Button>
+              </Button>
+            </div>
           </div>
         }
       />

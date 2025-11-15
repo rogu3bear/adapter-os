@@ -350,60 +350,42 @@ impl ANEAccelerator {
     }
 
     /// Execute model on ANE
-    pub fn execute(&mut self, session_id: &str, input_data: &[f32]) -> Result<Vec<f32>> {
-        let session = self
+    ///
+    /// # Errors
+    /// Returns error as ANE execution is not yet implemented.
+    /// This is a placeholder for future Apple Neural Engine integration.
+    pub fn execute(&mut self, session_id: &str, _input_data: &[f32]) -> Result<Vec<f32>> {
+        let _session = self
             .active_sessions
             .iter_mut()
             .find(|s| s.id == session_id)
             .ok_or_else(|| AosError::Kernel("ANE session not found".to_string()))?;
 
-        if !matches!(session.state, ANESessionState::Initialized) {
-            return Err(AosError::Kernel("ANE session not initialized".to_string()));
-        }
+        // ANE execution not implemented
+        // Real implementation would:
+        // 1. Convert input data to ANE format using CoreML
+        // 2. Execute compiled model on ANE hardware
+        // 3. Convert output back to standard format
+        // 4. Validate deterministic behavior
 
-        // Update session state
-        session.state = ANESessionState::Executing;
-
-        // Execute on ANE (placeholder implementation)
-        let start_time = std::time::Instant::now();
-
-        // Simulate ANE execution
-        let model_config = session.model_config.clone();
-        let output_data = Self::simulate_ane_execution_static(&model_config, input_data)?;
-
-        let execution_time = start_time.elapsed();
-
-        // Update performance metrics
-        self.performance_metrics.total_executions += 1;
-        self.performance_metrics.total_execution_time_us += execution_time.as_micros() as u64;
-        self.performance_metrics.avg_execution_time_us =
-            self.performance_metrics.total_execution_time_us as f32
-                / self.performance_metrics.total_executions as f32;
-
-        // Update session state
-        session.state = ANESessionState::Completed;
-
-        debug!(
-            "ANE execution completed: {}μs, {} outputs",
-            execution_time.as_micros(),
-            output_data.len()
-        );
-
-        Ok(output_data)
+        Err(AosError::Kernel(
+            "ANE execution not implemented - use Metal kernels instead".to_string(),
+        ))
     }
 
-    /// Simulate ANE execution (placeholder)
+    /// Simulate ANE execution (DEPRECATED - DO NOT USE)
+    ///
+    /// This function produces incorrect results and should never be called.
+    /// It was a placeholder that has been replaced with proper error handling.
+    #[deprecated(note = "ANE execution not implemented - produces incorrect results")]
+    #[allow(dead_code)]
     fn simulate_ane_execution_static(config: &ANEModelConfig, input: &[f32]) -> Result<Vec<f32>> {
-        // This is a placeholder implementation
-        // In a real implementation, you would:
-        // 1. Convert input data to ANE format
-        // 2. Execute on ANE hardware
-        // 3. Convert output back to standard format
-
+        // This placeholder implementation was generating fake data
+        // Real ANE integration requires CoreML and proper hardware acceleration
         let output_size = config.output_dimensions.iter().product::<usize>();
         let mut output = vec![0.0; output_size];
 
-        // Simple simulation: output = input * 0.5 (scaled)
+        // WARNING: This fake computation was producing incorrect results
         let scale_factor = 0.5;
         for (i, &input_val) in input.iter().enumerate() {
             if i < output.len() {

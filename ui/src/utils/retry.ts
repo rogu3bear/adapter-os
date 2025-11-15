@@ -179,7 +179,6 @@ async function showRetryNotification(operation: string, attempt: number, maxAtte
 
   logger.info('Showing retry notification to user', {
     component: 'retry',
-    operation: 'showRetryNotification',
     operation: operation,
     attempt,
     maxAttempts,

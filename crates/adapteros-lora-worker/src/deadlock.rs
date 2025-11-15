@@ -130,32 +130,39 @@ impl DeadlockDetector {
             *recovery = true;
         }
 
-        error!("Triggering deadlock recovery for lock {}", lock_id);
+        error!(
+            lock_id = %lock_id,
+            "Deadlock detected - automatic recovery not implemented"
+        );
 
-        // Increment deadlock count
+        // Increment deadlock count for metrics
         {
             let mut count = self.deadlock_count.lock().await;
             *count += 1;
         }
 
-        // In a real implementation, this would:
-        // 1. Force release the problematic lock
-        // 2. Restart the affected component
-        // 3. Log the incident for analysis
-
-        // For now, just log the event and simulate recovery
-        info!("Deadlock recovery triggered for lock {}", lock_id);
-
-        // Simulate recovery time
-        sleep(self.config.recovery_timeout).await;
-
-        // Mark recovery as complete
+        // Mark recovery as complete (detection succeeded, but recovery failed)
         {
             let mut recovery = self.recovery_in_progress.lock().await;
             *recovery = false;
         }
 
-        Ok(())
+        // Real deadlock recovery would require:
+        // 1. Force release the problematic lock (unsafe - requires FFI or OS APIs)
+        // 2. Restart the affected component (requires process management)
+        // 3. Validate system state after recovery
+        // 4. Log incident for analysis with full stack traces
+        //
+        // Without these capabilities, deadlocks must be prevented via:
+        // - Lock ordering protocols
+        // - Timeout-based lock acquisition
+        // - Avoiding nested locks
+
+        Err(adapteros_core::AosError::Kernel(format!(
+            "Deadlock detected on lock '{}' but automatic recovery is not implemented. \
+             Manual intervention required - restart the affected worker process.",
+            lock_id
+        )))
     }
 
     pub async fn record_lock_acquisition(&self, lock_id: String, thread_id: u64) {
