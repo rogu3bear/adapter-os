@@ -1,11 +1,6 @@
 import { useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { getBreadcrumbs } from '@/utils/navigation';
-
-export interface BreadcrumbItem {
-  label: string;
-  to?: string;
-}
+import { buildBreadcrumbChain, type BreadcrumbItem } from '@/utils/breadcrumbs';
 
 /**
  * Hook to generate breadcrumbs based on current route
@@ -15,6 +10,9 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
   const location = useLocation();
 
   return useMemo(() => {
-    return getBreadcrumbs(location.pathname);
+    return buildBreadcrumbChain(location.pathname);
   }, [location.pathname]);
 }
+
+// Re-export the type for convenience
+export type { BreadcrumbItem };
