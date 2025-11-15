@@ -30,12 +30,10 @@ use tokio::fs;
 use tokio_util::io::ReaderStream;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-// Change to correct crate
+use blake3;
+use crate::services::auth::{require_role, require_any_role};
+use crate::services::adapter_loader::AdapterLoader;
 use crate::errors::AosError;
-use crate::services::retry::exponential_backoff;
-use adapteros_server::services::adapter_loader::AdapterLoader;
-use axum::http::StatusCode;
-use axum::Json as AxumJson;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -120,15 +118,7 @@ pub async fn import_model(
 ) -> Result<Json<ImportModelResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require admin role for model import
     // Citation: CONTRIBUTING.md L132 - Security-sensitive code requires review
-    if claims.role != "admin" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin"]).map_err(|e| e)?;
 
     let tenant_id = &claims.tenant_id;
     let import_id = Uuid::new_v4().to_string();
@@ -188,40 +178,34 @@ pub async fn import_model(
     }
 
     // Compute hashes for files (synchronous read for small files; async for large in prod)
-    let weights_bytes = tokio::fs::read(&req.weights_path).await.map_err(|e| {
-        error!("Failed to read weights for hashing: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly(
-                "HASH_COMPUTE_ERROR",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let weights_bytes = tokio::fs::read(&req.weights_path).await
+        .map_err(|e| {
+            error!("Failed to read weights for hashing: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
+            )
+        })?;
     let weights_hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
 
-    let config_bytes = tokio::fs::read(&req.config_path).await.map_err(|e| {
-        error!("Failed to read config for hashing: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly(
-                "HASH_COMPUTE_ERROR",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let config_bytes = tokio::fs::read(&req.config_path).await
+        .map_err(|e| {
+            error!("Failed to read config for hashing: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
+            )
+        })?;
     let config_hash_b3 = blake3::hash(&config_bytes).to_hex().to_string();
 
-    let tokenizer_bytes = tokio::fs::read(&req.tokenizer_path).await.map_err(|e| {
-        error!("Failed to read tokenizer for hashing: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly(
-                "HASH_COMPUTE_ERROR",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let tokenizer_bytes = tokio::fs::read(&req.tokenizer_path).await
+        .map_err(|e| {
+            error!("Failed to read tokenizer for hashing: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
+            )
+        })?;
     let tokenizer_hash_b3 = blake3::hash(&tokenizer_bytes).to_hex().to_string();
 
     let tokenizer_config_hash_b3 = if let Some(tk_cfg_path) = &req.tokenizer_config_path {
@@ -260,70 +244,60 @@ pub async fn import_model(
         tokenizer_hash_b3,
         metadata_str
     )
-    .fetch_one(&state.db.pool()) // Assume state.db.pool
+    .fetch_one(state.db.pool())
     .await
     .map_err(|e| {
         error!("Failed to insert/update model record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
+            Json(ErrorResponse::new_user_friendly("DB_INSERT_ERROR", e.to_string())),
         )
     })?;
 
-    // Note: The import process should eventually:
-    // 1. Validate files and compute hashes
-    // 2. Register model in 'models' table using db.register_model()
-    // 3. Create base_model_status record with status 'unloaded' for the tenant
-    // 4. Update import status to 'completed'
-    //
-    // For now, we check if a model with this name already exists and ensure
-    // base_model_status record exists. This ensures models can be loaded even
-    // if import completion logic runs elsewhere.
-    let existing_model = sqlx::query!(
-        "SELECT id FROM models WHERE name = ? LIMIT 1",
-        req.model_name
+    // Create base_model_status if not exists
+    let status_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM base_model_status WHERE model_id = ? AND tenant_id = ?",
     )
-    .fetch_optional(state.db.pool())
+    .bind(&model_id_str)
+    .bind(tenant_id)
+    .fetch_one(state.db.pool())
     .await
-    .map_err(|e| {
-        warn!("Failed to check for existing model: {}", e);
-        // Don't fail import if this check fails
-    })
-    .ok()
-    .flatten();
+    .unwrap_or(0);
 
-    if let Some(model) = existing_model {
-        // Ensure base_model_status record exists for this tenant
-        let status_exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM base_model_status WHERE model_id = ? AND tenant_id = ?",
+    if status_exists == 0 {
+        sqlx::query!(
+            "INSERT INTO base_model_status (tenant_id, model_id, status, import_id) VALUES (?, ?, 'unloaded', ?)",
+            tenant_id,
+            model_id_str,
+            import_id
         )
-        .bind(&model.id)
-        .bind(tenant_id)
-        .fetch_one(state.db.pool())
+        .execute(state.db.pool())
         .await
         .map_err(|e| {
-            warn!("Failed to check base_model_status: {}", e);
+            warn!("Failed to create base_model_status: {}", e);
+            () // Warn only, non-fatal
         })
-        .unwrap_or(0);
-
-        if status_exists == 0 {
-            // Create base_model_status record
-            let _ = sqlx::query!(
-                    "INSERT INTO base_model_status (tenant_id, model_id, status, import_id) VALUES (?, ?, 'unloaded', ?)",
-                    tenant_id,
-                    model.id,
-                    import_id
-                )
-                .execute(state.db.pool())
-                .await
-                .map_err(|e| {
-                    warn!("Failed to create base_model_status record: {}", e);
-                });
-        }
+        .ok();
     }
 
-    // Emit telemetry event
-    // Citation: Policy Pack #9 (Telemetry)
+    // Update import to completed
+    let completed_at = chrono::Utc::now().to_rfc3339();
+    sqlx::query!(
+        "UPDATE base_model_imports SET status = 'completed', completed_at = ?, progress = 100 WHERE id = ?",
+        completed_at,
+        import_id
+    )
+    .execute(state.db.pool())
+    .await
+    .map_err(|e| {
+        error!("Failed to update import status: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly("DB_UPDATE_ERROR", e.to_string())),
+        )
+    })?;
+
+    // Emit telemetry
     info!(
         event = "model.import.completed",
         import_id = %import_id,
@@ -367,22 +341,13 @@ pub async fn load_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "operator or admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
 
     let tenant_id = &claims.tenant_id;
 
     // Check if model exists (fetch hash_b3)
     let model_check = sqlx::query!(
-        "SELECT bms.model_id, m.name as model_name FROM base_model_status bms
+        "SELECT bms.model_id, m.name as model_name, m.hash_b3 FROM base_model_status bms
          JOIN models m ON bms.model_id = m.id
          WHERE bms.model_id = ? AND bms.tenant_id = ?",
         model_id,
@@ -399,9 +364,7 @@ pub async fn load_model(
         )
     })?;
 
-    let model_name = if let Some(row) = model_check {
-        row.model_name
-    } else {
+    let Some(row) = model_check else {
         let technical_msg = format!("Model '{}' not found in database for tenant '{}'. Import the model first using POST /v1/models/import", model_id, tenant_id);
         return Err((
             StatusCode::NOT_FOUND,
@@ -411,6 +374,17 @@ pub async fn load_model(
             )),
         ));
     };
+
+    let model_name = row.model_name;
+    let hash_b3 = if row.hash_b3.is_empty() {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly("MISSING_HASH", "Model missing hash_b3 field")),
+        ));
+    } else {
+        &row.hash_b3
+    };
+    let model_path = format!("models/{}", hash_b3);
 
     // Start operation tracking
     state
@@ -423,16 +397,7 @@ pub async fn load_model(
             ),
         )
         .await
-        .map_err(|e| {
-            error!("Failed to start operation tracking: {:?}", e);
-            (
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new_user_friendly(
-                    "OPERATION_IN_PROGRESS",
-                    "Another operation is already in progress for this model",
-                )),
-            )
-        })?;
+        .map_err(|e| (StatusCode::CONFLICT, Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", e.to_string()))))?;
 
     // Update status to loading
     let now = chrono::Utc::now().to_rfc3339();
@@ -454,73 +419,23 @@ pub async fn load_model(
         )
     })?;
 
-    // Load model into runtime (if available)
-    let load_result = if let Some(rt) = &state.model_runtime {
-        #[cfg(feature = "mlx-ffi-backend")]
-        {
-            match std::env::var("AOS_MLX_FFI_MODEL") {
-                Ok(model_path) => {
-                    if !std::path::Path::new(&model_path).exists() {
-                        Err(format!(
-                            "AOS_MLX_FFI_MODEL path does not exist: {}. Verify the path is correct.",
-                            model_path
-                        ))
-                    } else {
-                        // Add retry logic for transient failures during model loading
-                        let mut attempts = 0;
-                        let max_attempts = 3;
-                        let base_delay = std::time::Duration::from_millis(500);
+    // Load model into runtime
+    let loader = AdapterLoader::new(&state.db);
+    let adapter = loader.load_from_path(&model_path).await.map_err(AosError::from)?;
 
-                        loop {
-                            attempts += 1;
-
-                            let mut guard = rt.lock().await;
-                            match guard.load_model(tenant_id, &model_id, &model_path) {
-                                Ok(()) => break Ok(()),
-                            Err(e) => {
-                                    if attempts >= max_attempts {
-                                        let technical_msg = format!("Model loading failed after {} attempts: {}", max_attempts, e);
-                                        break Err(technical_msg);
-                                    }
-
-                                    // Check if this is a retryable error
-                                    if e.contains("temporarily") || e.contains("timeout") || e.contains("busy") {
-                                        warn!("Model loading attempt {} failed, retrying in {:?}: {}", attempts, base_delay, e);
-                                        tokio::time::sleep(base_delay).await;
-                                        continue;
-                                    } else {
-                                        // Not a retryable error, fail immediately
-                                        break Err(e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(_) => Err(
-                    "AOS_MLX_FFI_MODEL environment variable not set. Set this to the path of your MLX model directory.".to_string()
-                ),
-            }
-        }
-        #[cfg(not(feature = "mlx-ffi-backend"))]
-        {
-            Err("mlx-ffi-backend feature not enabled. Rebuild with --features mlx-ffi-backend to enable model loading.".to_string())
-        }
+    let memory_mb = if adapter.is_ok() {
+        4096 // Simplified fallback for now
     } else {
-        Err(
-            "Model runtime not available. This should not happen - please report this error."
-                .to_string(),
-        )
+        0
     };
 
-    // Handle load result - only mark as loaded if successful
-    match load_result {
+    match adapter {
         Ok(()) => {
-            // Update to loaded state
+            // Success path: update loaded with memory_mb
             let loaded_at = chrono::Utc::now().to_rfc3339();
-            let memory_mb: i32 = 8192; // TODO: Get actual memory usage
+            // let memory_mb: i32 = 8192; // TODO: Get actual memory usage
 
-            sqlx::query!(
+            let update_result = sqlx::query!(
                                     "UPDATE base_model_status SET status = 'loaded', loaded_at = ?, memory_usage_mb = ?, updated_at = ? WHERE model_id = ? AND tenant_id = ?",
                                     loaded_at,
                                     memory_mb,
@@ -529,15 +444,23 @@ pub async fn load_model(
                                     tenant_id
                                 )
             .execute(state.db.pool())
-                                .await
-                                .map_err(|e| {
+                                .await;
+
+            if let Err(e) = update_result {
                 error!("Failed to update loaded status: {}", e);
-                let technical_msg = format!("{}", e);
-                (
+                let _ = state.operation_tracker.complete_operation(
+                    &model_id,
+                    tenant_id,
+                    crate::operation_tracker::OperationType::Model(
+                        crate::operation_tracker::ModelOperationType::Load,
+                    ),
+                    false,
+                ).await;
+                return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
-                )
-            })?;
+                    Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
+                ));
+            }
 
             // Complete operation tracking
             let _ = state
@@ -574,19 +497,28 @@ pub async fn load_model(
             }))
         }
         Err(e) => {
-            // Mark as error state
-            // Complete operation tracking with failure
-            let _ = state
-                .operation_tracker
-                .complete_operation(
-                    &model_id,
-                    tenant_id,
-                    crate::operation_tracker::OperationType::Model(
-                        crate::operation_tracker::ModelOperationType::Load,
-                    ),
-                    false,
-                )
-                .await;
+            // Error path: update error, complete op false, return Err((500, Json(...)))
+            let now = chrono::Utc::now().to_rfc3339();
+            let update_result = sqlx::query!(
+                "UPDATE base_model_status SET status = 'error', updated_at = ? WHERE model_id = ? AND tenant_id = ?",
+                now,
+                model_id,
+                tenant_id
+            )
+            .execute(state.db.pool())
+            .await;
+
+            if let Err(db_err) = update_result {
+                error!("Failed to update error status: {}", db_err);
+            }
+            let _ = state.operation_tracker.complete_operation(
+                &model_id,
+                tenant_id,
+                crate::operation_tracker::OperationType::Model(
+                    crate::operation_tracker::ModelOperationType::Load,
+                ),
+                false,
+            ).await;
 
             error!(
                 model_id = %model_id,
@@ -594,24 +526,6 @@ pub async fn load_model(
                 error = %e,
                 "Model load failed"
             );
-
-            let now = chrono::Utc::now().to_rfc3339();
-            sqlx::query!(
-                "UPDATE base_model_status SET status = 'error', updated_at = ? WHERE model_id = ? AND tenant_id = ?",
-                now,
-                model_id,
-                tenant_id
-            )
-            .execute(state.db.pool())
-            .await
-            .map_err(|db_err| {
-                error!("Failed to update error status: {}", db_err);
-                let technical_msg = format!("{}", db_err);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new_user_friendly("DB_ERROR", &technical_msg)),
-                )
-            })?;
 
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -640,15 +554,7 @@ pub async fn unload_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "operator or admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
 
     let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
@@ -792,16 +698,7 @@ pub async fn cancel_model_operation(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "operator or admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -931,16 +828,7 @@ pub async fn get_model_status(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "operator or admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -1004,16 +892,7 @@ pub async fn download_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelDownloadResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require admin role for downloads
-    if claims.role != "admin" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "admin role required",
-            )),
-        ));
-    }
+    let _ = require_role(&claims, "admin").map_err(|e| e)?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -1327,15 +1206,7 @@ pub async fn download_model_artifact(
     Extension(claims): Extension<Claims>,
     Path(token): Path<String>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    if claims.role != "admin" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin"]).map_err(|e| e)?;
 
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_nbf = false;
@@ -1778,15 +1649,7 @@ pub async fn model_runtime_health(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ModelRuntimeHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if claims.role != "admin" && claims.role != "operator" {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new_user_friendly(
-                "UNAUTHORIZED",
-                "operator or admin role required",
-            )),
-        ));
-    }
+    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
 
     let Some(rt) = &state.model_runtime else {
         return Ok(Json(ModelRuntimeHealthResponse {

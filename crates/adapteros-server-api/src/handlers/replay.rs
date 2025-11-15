@@ -6,7 +6,7 @@ use adapteros_crypto::signature::Keypair;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::Result;
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State, Extension},
     http::StatusCode,
     Json,
 };
@@ -19,6 +19,8 @@ use crate::auth::Claims;
 use crate::services::replay::reconstruct_bundle;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, ReplayVerificationResponse};
+use crate::auth::Claims;
+use crate::services::replay::reconstruct_bundle;
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListReplaySessionsParams {
@@ -78,12 +80,7 @@ pub async fn list_replay_sessions(
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
-            )
-        })?;
+        .map_err(db_error_to_response)?;
 
     let responses: Vec<ReplaySessionResponse> = sessions
         .into_iter()
@@ -116,12 +113,7 @@ pub async fn get_replay_session(
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
-            )
-        })?
+        .map_err(db_error_to_response)?
         .ok_or((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("replay session not found").with_code("NOT_FOUND")),
@@ -218,7 +210,14 @@ pub async fn create_replay_session(
         )
     })?;
 
-    Ok(Json(response))
+    let req = CreateReplaySessionRequest {
+        tenant_id: claims.tenant_id,
+        cpid,
+        plan_id,
+        telemetry_bundle_ids: vec![bundle_id],
+        snapshot_at: None,
+    };
+    create_replay_session(State(state), Json(req)).await
 }
 
 #[utoipa::path(
@@ -237,24 +236,7 @@ pub async fn replay_from_bundle(
     Extension(claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let row = sqlx::query("SELECT cpid, plan_id FROM telemetry_bundles WHERE id = ?")
-        .bind(&bundle_id)
-        .fetch_optional(&state.db.pool())
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
-            )
-        })?;
-
-    let response = session_to_response(session).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("serialization error").with_code("SERIALIZE_ERROR")),
-        )
-    })?;
-
+    let (cpid, plan_id) = replay::fetch_bundle_metadata(&state.db, &bundle_id).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string()))) )?;
     let req = CreateReplaySessionRequest {
         tenant_id: claims.tenant_id,
         cpid,

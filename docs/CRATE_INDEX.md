@@ -44,7 +44,7 @@
 | `adapteros-orchestrator` | Control Plane | Orchestration service for code jobs and training |
 | `adapteros-lora-plan` | Control Plane | Plan manager for CPID lifecycle management |
 | `adapteros-cdp` | Control Plane | Commit Delta Pack generation and processing |
-| `adapteros-crypto` | Shared | Cryptographic operations (Ed25519, BLAKE3, envelope encryption, keychain provider) |
+| `adapteros-crypto` | Shared | Cryptographic operations (Ed25519, BLAKE3, envelope encryption) |
 | `adapteros-config` | Shared | Deterministic configuration system with precedence enforcement |
 | `adapteros-manifest` | Shared | Plan manifest parsing and validation |
 | `adapteros-platform` | Shared | Cross-platform filesystem operations |
@@ -294,7 +294,7 @@ Orchestration, planning, and deployment management.
 Cross-cutting utilities and shared components used across layers.
 
 ### Cryptography & Security
-- **`adapteros-crypto`**: Cryptographic operations (Ed25519, BLAKE3, envelope encryption, cross-platform keychain provider)
+- **`adapteros-crypto`**: Cryptographic operations (Ed25519, BLAKE3, envelope encryption)
 - **`adapteros-secure-fs`**: Secure filesystem operations with cap-std integration
 - **`adapteros-federation`**: Cross-host federation signatures for telemetry bundles  
   - **README:** `crates/adapteros-federation/README.md`

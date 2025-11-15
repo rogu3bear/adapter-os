@@ -1,6 +1,6 @@
 # AdapterOS MVP Quick Start Guide
 
-**Status:** alpha-v0.04-unstable - MVP Ready (with known limitations)
+**Status:** v0.3-alpha - MVP Ready (with known limitations)
 
 This guide helps you get started with AdapterOS MVP functionality.
 

@@ -1,5 +1,5 @@
 // Authentication API Tests
-import { getApiBaseUrl, getTestCredentials, validateLoginResponse, validateErrorResponse } from '../../support/api-helpers';
+import { getApiBaseUrl, getTestCredentials, validateLoginResponse, validateErrorResponse } from '../support/api-helpers';
 
 describe('Authentication API', () => {
   const apiBase = getApiBaseUrl();

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckIcon, CircleIcon } from 'lucide-react';
+import { CheckIcon, CircleIcon } from "lucide-react@0.487.0";
 
 /**
  * Shared checkbox indicator wrapper for menu items

@@ -31,5 +31,5 @@ pub use adapteros_api_types::{
 pub use state::{AppState, CryptoState};
 pub use types::*;
 pub use uds_client::{UdsClient, UdsClientError};
-// pub use services::auth::{require_role, require_any_role};
-// pub use services::error_handling::{db_error_to_response, validation_error};
+pub use services::auth::{require_role, require_any_role};
+pub use services::error_handling::{db_error_to_response, validation_error};

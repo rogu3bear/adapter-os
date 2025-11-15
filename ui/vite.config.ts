@@ -66,7 +66,7 @@ export default defineConfig({
       open: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:8080',
+          target: 'http://localhost:3300',
           changeOrigin: true,
           secure: false,
           cookieDomainRewrite: 'localhost',

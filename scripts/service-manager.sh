@@ -348,6 +348,15 @@ start_all() {
 
 # Stop all services
 stop_all() {
+    local mode="${1:-graceful}"
+    
+    # Use graceful shutdown script if available
+    if [ -f "$SCRIPT_DIR/graceful-shutdown.sh" ]; then
+        "$SCRIPT_DIR/graceful-shutdown.sh" "$mode"
+        return $?
+    fi
+    
+    # Fallback to individual stop functions
     echo -e "${BLUE}Stopping all AdapterOS services...${NC}"
 
     ui_stop
@@ -364,11 +373,11 @@ usage() {
     echo "USAGE: $0 <command> [service]"
     echo ""
     echo "COMMANDS:"
-    echo "  start [all|backend|ui|menu-bar]    Start services"
-    echo "  stop [all|backend|ui|menu-bar]     Stop services"
-    echo "  restart [all|backend|ui|menu-bar]  Restart services"
-    echo "  status                               Show service status"
-    echo "  logs [backend|ui]                   Show service logs"
+    echo "  start [all|backend|ui|menu-bar]           Start services"
+    echo "  stop [all|backend|ui|menu-bar] [mode]    Stop services (mode: graceful|fast|immediate)"
+    echo "  restart [all|backend|ui|menu-bar]         Restart services"
+    echo "  status                                    Show service status"
+    echo "  logs [backend|ui]                         Show service logs"
     echo ""
     echo "SERVICES:"
     echo "  backend    AdapterOS API server (Port 3300)"
@@ -455,7 +464,7 @@ case "${1:-}" in
         ;;
     stop)
         case "${2:-all}" in
-            all) stop_all ;;
+            all) stop_all "${3:-graceful}" ;;
             backend) backend_stop ;;
             ui) ui_stop ;;
             menu-bar) menu_bar_stop ;;

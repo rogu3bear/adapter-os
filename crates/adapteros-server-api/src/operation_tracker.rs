@@ -18,6 +18,7 @@ use std::{
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use adapteros_core::AosError;
 
 #[cfg(feature = "metrics")]
 use adapteros_metrics_exporter::MetricsCollector;
@@ -173,7 +174,7 @@ impl OperationTracker {
         model_id: &str,
         tenant_id: &str,
         operation_type: ModelOperationType,
-    ) -> Result<(), OperationConflict> {
+    ) -> Result<(), AosError> {
         self.start_operation(model_id, tenant_id, OperationType::Model(operation_type))
             .await
     }
@@ -184,7 +185,7 @@ impl OperationTracker {
         adapter_id: &str,
         tenant_id: &str,
         operation_type: AdapterOperationType,
-    ) -> Result<(), OperationConflict> {
+    ) -> Result<(), AosError> {
         self.start_operation(
             adapter_id,
             tenant_id,
@@ -199,7 +200,7 @@ impl OperationTracker {
         resource_id: &str,
         tenant_id: &str,
         operation_type: OperationType,
-    ) -> Result<(), OperationConflict> {
+    ) -> Result<(), AosError> {
         let key = (resource_id.to_string(), tenant_id.to_string());
         let operations_lock = self.get_operations_write();
         let mut operations = operations_lock.write().await;
@@ -209,25 +210,17 @@ impl OperationTracker {
 
         // Check if operation already exists
         if let Some(existing) = operations.get(&key) {
-            // Allow same operation type if it's a retry (same operation)
-            if existing.operation_type == operation_type {
-                debug!(
-                    resource_id = %resource_id,
-                    tenant_id = %tenant_id,
-                    operation = ?operation_type,
-                    "Allowing retry of same operation type"
-                );
-                return Ok(());
-            } else {
-                return Err(OperationConflict {
-                    model_id: resource_id.to_string(), // Using model_id field for compatibility
-                    tenant_id: tenant_id.to_string(),
-                    conflicting_operation: existing.operation_type, // This needs to be updated too
-                    remaining_time: self
-                        .default_timeout
-                        .saturating_sub(existing.started_at.elapsed()),
-                });
-            }
+            warn!(
+                resource_id = %resource_id,
+                tenant_id = %tenant_id,
+                conflicting_operation = ?existing.operation_type,
+                remaining_time_secs = %self.default_timeout.saturating_sub(existing.started_at.elapsed()).as_secs(),
+                "Operation conflict detected"
+            );
+            return Err(AosError::Validation(format!(
+                "Operation conflict: existing {:?} for resource {}, tenant {}",
+                existing.operation_type, resource_id, tenant_id
+            )));
         }
 
         // Start new operation
@@ -761,15 +754,15 @@ mod tests {
             .await;
         assert!(conflict.is_err());
 
-        // Try to start same operation again - should allow (for retries)
-        tracker
+        // Try to start same operation again - should conflict
+        let conflict = tracker
             .start_operation(
                 "model1",
                 "tenant1",
                 OperationType::Model(ModelOperationType::Load),
             )
-            .await
-            .unwrap();
+            .await;
+        assert!(conflict.is_err());
 
         // Complete operation
         tracker

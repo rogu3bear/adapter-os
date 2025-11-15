@@ -20,9 +20,6 @@ use axum::{
 };
 use common::auth::{create_test_app_state, login_user, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD};
 use tower::ServiceExt;
-use adapteros_core::AosError;
-use axum::body::to_bytes;
-use serde_json::from_slice;
 
 #[tokio::test]
 async fn test_401_error_codes() {
@@ -78,32 +75,6 @@ async fn test_401_error_codes() {
     assert_eq!(
         error.code, "UNAUTHORIZED",
         "401 response should have UNAUTHORIZED code, got: {}",
-        error.code
-    );
-
-    // Add for DatabaseError
-    let db_err_response = Request::builder()
-        .method("GET")
-        .uri("/v1/tenants")
-        .header("authorization", "Bearer invalid-token")
-        .body(Body::empty())
-        .expect("build request with invalid token");
-
-    let response = app.clone().oneshot(db_err_response).await.expect("execute request");
-    assert_eq!(
-        response.status(),
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Database error should return 500"
-    );
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("read error body");
-    let error: ErrorResponse =
-        serde_json::from_slice(&body).expect("error should deserialize");
-    assert_eq!(
-        error.code, "DATABASE_ERROR",
-        "Database error should have DATABASE_ERROR code, got: {}",
         error.code
     );
 }

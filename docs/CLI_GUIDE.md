@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)  
 **Last Updated**: 2025-01-15  
-**Version**: alpha-v0.04-unstable
+**Version**: v0.3-alpha
 
 ---
 
