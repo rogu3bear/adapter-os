@@ -125,10 +125,6 @@ use utoipa_swagger_ui::SwaggerUi;
         // handlers::tutorials::unmark_tutorial_completed,
         // handlers::tutorials::mark_tutorial_dismissed,
         // handlers::tutorials::unmark_tutorial_dismissed,
-        handlers::replay::replay_from_bundle,
-        // CodeGraph handlers
-        detect_frameworks,
-        get_repository_metadata,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -233,16 +229,6 @@ use utoipa_swagger_ui::SwaggerUi;
         // handlers::tutorials::TutorialResponse,
         // handlers::tutorials::TutorialStep,
         // handlers::tutorials::TutorialStatusResponse,
-        // CodeGraph schemas
-        crate::types::FrameworkDetectionRequest,
-        crate::types::FrameworkDetectionResponse,
-        crate::types::DetectedFramework,
-        crate::types::RepositoryMetadataRequest,
-        crate::types::RepositoryMetadataResponse,
-        crate::types::LanguageInfo,
-        crate::types::SecurityScanResult,
-        crate::types::SecurityViolation,
-        crate::types::GitInfo,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -399,6 +385,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/plans/:plan_id/details",
             get(handlers::get_plan_details),
         )
+        .route("/v1/plans/:plan_id", delete(handlers::delete_plan))
         .route("/v1/plans/:plan_id/rebuild", post(handlers::rebuild_plan))
         .route("/v1/plans/compare", post(handlers::compare_plans))
         .route("/v1/plans/:plan_id/pin", post(handlers::pin_plan_alias))
@@ -447,6 +434,10 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
         .route("/v1/monitoring/alerts/stream", get(handlers::alerts_stream))
+        .route(
+            "/v1/monitoring/alerts/stream",
+            get(handlers::alerts_stream),
+        )
         .route(
             "/v1/monitoring/alerts/:alert_id/acknowledge",
             post(handlers::acknowledge_process_alert),
@@ -579,14 +570,15 @@ pub fn build(state: AppState) -> Router {
             get(handlers::get_adapter_health),
         )
         // Adapter category policy routes
-        .route(
-            "/v1/adapters/category-policies",
-            get(handlers::get_category_policies),
-        )
-        .route(
-            "/v1/adapters/category-policies/:category",
-            get(handlers::get_category_policy).put(handlers::update_category_policy),
-        )
+        // TODO: Fix Claims type trait bounds for axum handlers
+        // .route(
+        //     "/v1/adapters/category-policies",
+        //     get(handlers::get_category_policies),
+        // )
+        // .route(
+        //     "/v1/adapters/category-policies/:category",
+        //     get(handlers::get_category_policy).put(handlers::update_category_policy),
+        // )
         // Memory management routes
         .route("/v1/memory/usage", get(handlers::get_memory_usage))
         .route(
@@ -758,13 +750,19 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/tutorials", get(handlers::tutorials::list_tutorials))
         .route(
             "/v1/tutorials/:id/complete",
-            post(handlers::tutorials::mark_tutorial_completed)
-                .delete(handlers::tutorials::unmark_tutorial_completed),
+            post(handlers::tutorials::mark_tutorial_completed),
+        )
+        .route(
+            "/v1/tutorials/:id/complete",
+            delete(handlers::tutorials::unmark_tutorial_completed),
         )
         .route(
             "/v1/tutorials/:id/dismiss",
-            post(handlers::tutorials::mark_tutorial_dismissed)
-                .delete(handlers::tutorials::unmark_tutorial_dismissed),
+            post(handlers::tutorials::mark_tutorial_dismissed),
+        )
+        .route(
+            "/v1/tutorials/:id/dismiss",
+            delete(handlers::tutorials::unmark_tutorial_dismissed),
         )
         // Activity routes
         .route(
@@ -956,15 +954,6 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/telemetry/logs", post(handlers::submit_client_logs))
         .route("/v1/audits/export", get(handlers::export_audit_logs))
-        // CodeGraph endpoints
-        .route(
-            "/v1/codegraph/frameworks/detect",
-            post(handlers::detect_frameworks),
-        )
-        .route(
-            "/v1/codegraph/repository/metadata",
-            post(handlers::get_repository_metadata),
-        )
         // Log file endpoints
         .route("/v1/logs/files", get(handlers::list_log_files))
         .route(
@@ -995,10 +984,19 @@ pub fn build(state: AppState) -> Router {
             state.clone(),
             auth_middleware,
         ))
-        .layer(per_tenant_rate_limit_middleware(state.clone()));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            per_tenant_rate_limit_middleware,
+        ));
 
     // Configure CORS for development
     let cors = CorsLayer::permissive(); // Allow all origins in dev mode
+
+    // Apply auth middleware to protected routes
+    let protected_routes = protected_routes.layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth_middleware,
+    ));
 
     // Combine routes
     Router::new()

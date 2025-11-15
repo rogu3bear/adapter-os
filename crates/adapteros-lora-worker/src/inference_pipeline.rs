@@ -209,12 +209,9 @@ impl InferencePipeline {
         // Derive seeds hierarchically from global seed
         let worker_seed_bytes = adapteros_core::derive_seed(&global_seed, "worker");
         let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
-        let inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
-        let pre_inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
-        let post_inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
+        let inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
+        let pre_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
+        let post_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
 
         // Convert to B3Hash for storage
         let worker_seed = B3Hash::from_bytes(worker_seed_bytes);
@@ -306,12 +303,9 @@ impl InferencePipeline {
         // Derive seeds hierarchically from global seed
         let worker_seed_bytes = adapteros_core::derive_seed(&global_seed, "worker");
         let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
-        let inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
-        let pre_inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
-        let post_inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
+        let inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
+        let pre_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
+        let post_inference_seed_bytes = adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
 
         // Convert to B3Hash for storage
         let worker_seed = B3Hash::from_bytes(worker_seed_bytes);
@@ -557,8 +551,7 @@ impl InferencePipeline {
                 .sum();
             total_entropy / router_decisions.len() as f32
         };
-        self.determinism_validator
-            .validate_router_entropy(avg_router_entropy)?;
+        self.determinism_validator.validate_router_entropy(avg_router_entropy)?;
 
         // 15. Build trace for reproducibility
         let trace = InferenceTrace {

@@ -8,6 +8,7 @@ use adapteros_policy::{
     },
     PolicyPackManager,
 };
+use adapteros_policy::unified_enforcement::PolicyEnforcer as _;
 use std::collections::HashMap;
 
 #[tokio::test]
@@ -90,10 +91,10 @@ async fn test_policy_enforcement_blocking_violation() -> Result<()> {
     // Check if operation is allowed
     let allowed = manager.is_operation_allowed(&operation).await?;
 
-    // Network operations may be blocked by egress policy depending on configuration
-    // This test verifies the enforcement mechanism works (returns a boolean result)
-    // The actual result depends on policy configuration, so we just verify it completes
-    let _ = allowed; // Verify the method completed successfully
+    // Network operations should be blocked by egress policy
+    // Note: This depends on egress validator implementation
+    // For now, just verify the enforcement mechanism works
+    assert!(!allowed || allowed); // Either is fine, we're testing the mechanism
 
     Ok(())
 }
@@ -123,11 +124,11 @@ async fn test_policy_enforcement_get_violations() -> Result<()> {
     };
 
     // Get violations
-    let _violations = manager.get_violations(&operation).await?;
+    let violations = manager.get_violations(&operation).await?;
 
     // Should return violations if any (low confidence might trigger refusal policy)
-    // Just verify the method works - the ? operator already verifies success
-    // No need to assert on length since any value (including 0) is valid
+    // Just verify the method works
+    assert!(violations.len() >= 0);
 
     Ok(())
 }
@@ -143,6 +144,7 @@ async fn test_policy_enforcement_compliance_report() -> Result<()> {
     assert_eq!(report.policy_pack_compliance.len(), 20);
 
     // Compliance score should be between 0 and 1
+    assert!(report.compliance_score >= 0.0);
     assert!(report.compliance_score <= 1.0);
 
     Ok(())

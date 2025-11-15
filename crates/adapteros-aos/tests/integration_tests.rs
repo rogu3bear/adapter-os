@@ -2,7 +2,6 @@
 
 use adapteros_aos::{AosManager, MmapAdapterLoader};
 use std::path::PathBuf;
-use tracing::{info, warn, error};
 
 fn test_adapter_path() -> Option<PathBuf> {
     let adapters_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -24,7 +23,7 @@ fn test_adapter_path() -> Option<PathBuf> {
 #[tokio::test]
 async fn test_load_adapter() {
     let Some(adapter_path) = test_adapter_path() else {
-        warn!("No .aos files found, skipping test");
+        eprintln!("No .aos files found, skipping test");
         return;
     };
 
@@ -33,13 +32,13 @@ async fn test_load_adapter() {
 
     match result {
         Ok(adapter) => {
-            info!(adapter_id = %adapter.adapter_id(), "Loaded adapter");
-            info!(version = %adapter.version(), "Adapter version");
-            info!(size_bytes = adapter.size_bytes(), "Adapter size");
+            println!("Loaded: {}", adapter.adapter_id());
+            println!("Version: {}", adapter.version());
+            println!("Size: {} bytes", adapter.size_bytes());
             assert!(!adapter.adapter_id().is_empty());
         }
         Err(e) => {
-            error!(error = %e, "Failed to load adapter");
+            eprintln!("Failed to load: {}", e);
         }
     }
 }
@@ -47,7 +46,7 @@ async fn test_load_adapter() {
 #[tokio::test]
 async fn test_manager_with_cache() {
     let Some(adapter_path) = test_adapter_path() else {
-        warn!("No .aos files found, skipping test");
+        eprintln!("No .aos files found, skipping test");
         return;
     };
 
@@ -72,7 +71,7 @@ async fn test_manager_with_cache() {
 #[tokio::test]
 async fn test_hot_swap() {
     let Some(adapter_path) = test_adapter_path() else {
-        warn!("No .aos files found, skipping test");
+        eprintln!("No .aos files found, skipping test");
         return;
     };
 

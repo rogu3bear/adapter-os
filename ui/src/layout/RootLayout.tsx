@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
-import { useAuth } from '@/providers/CoreProviders';
+import { useTheme, useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import { Navigate } from 'react-router-dom';
 import { useIsMobile } from '@/components/ui/use-mobile';
@@ -45,10 +45,10 @@ import {
   HelpCircle
 } from 'lucide-react';
 import type { UserRole } from '@/api/types';
-import { cn, FROST_OVERLAY } from '@/components/ui/utils';
 
 function RootLayoutContent() {
   // All hooks must be called before any conditional returns
+  const { theme, toggleTheme } = useTheme();
   const { user, isLoading, logout } = useAuth();
   const { selectedTenant, setSelectedTenant, tenants } = useTenant();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -184,6 +184,72 @@ function RootLayoutContent() {
 
       {/* Overlay for mobile */}
       {isSidebarOpen && <div className={cn("fixed inset-0 z-40", FROST_OVERLAY, "md:hidden")} onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />}
+
+      {/* Body with sidebar and content */}
+      <div className="flex min-h-[calc(100vh-4rem)]">
+        {/* Sidebar - fixed overlay on mobile, static flex item on desktop */}
+        <aside className={`fixed top-0 bottom-0 left-0 z-50 w-64 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform md:relative md:translate-x-0 md:z-auto md:w-64 md:flex-shrink-0 overflow-y-auto bg-background border-r`}>
+          <div className="p-4 space-y-1">
+            <Button className="md:hidden mb-4 w-full justify-start" variant="ghost" onClick={() => setIsSidebarOpen(false)} aria-label="Close menu">
+              <X className="h-5 w-5 mr-2" />
+              Close Menu
+            </Button>
+            
+            {isMobile ? (
+              <MobileNavigation 
+                groups={navigationGroups.filter(group => shouldShowNavGroup(group, user?.role))}
+                onNavigate={(path) => {
+                  navigate(path);
+                  setIsSidebarOpen(false);
+                }}
+                userRole={user?.role}
+              />
+            ) : (
+              navigationGroups.filter(group => shouldShowNavGroup(group, user?.role)).map((group) => {
+                const isCollapsed = collapsedGroups[group.title];
+                return (
+                  <div key={group.title} className="mb-4">
+                    <button
+                      onClick={() => toggleGroup(group.title)}
+                      className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                    >
+                      <span>{group.title}</span>
+                      {isCollapsed ? (
+                        <ChevronRight className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                    </button>
+                    
+                    {!isCollapsed && (
+                      <div className="mt-1 space-y-1">
+                        {group.items.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = location.pathname === item.to;
+                          return (
+                            <Button
+                              key={item.to}
+                              variant={isActive ? 'default' : 'ghost'}
+                              className="w-full justify-start"
+                              onClick={() => {
+                                navigate(item.to);
+                                setIsSidebarOpen(false);
+                              }}
+                              aria-current={isActive ? 'page' : undefined}
+                            >
+                              <Icon className="h-4 w-4 mr-2" />
+                              {item.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
 
       {/* Body with sidebar and content */}
       <div className="flex min-h-[calc(100vh-4rem)]">

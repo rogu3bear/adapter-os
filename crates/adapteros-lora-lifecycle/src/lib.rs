@@ -1429,10 +1429,7 @@ mod tests {
             record.state = AdapterState::Cold;
             record.memory_bytes = 50 * 1024 * 1024;
         }
-        assert!(
-            manager.is_loaded(0).await,
-            "Adapter should report as loaded"
-        );
+        assert!(manager.is_loaded(0).await, "Adapter should report as loaded");
 
         // Simulate divergence: loader unloaded but state still warm.
         {

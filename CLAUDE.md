@@ -2,7 +2,7 @@
 
 **Purpose:** Developer-focused guide with code examples, architecture patterns, and coding standards.  
 **For contribution process:** See [CONTRIBUTING.md](CONTRIBUTING.md)  
-**Last Updated:** 2025-11-13
+**Last Updated:** 2025-01-15
 
 ---
 
@@ -144,10 +144,28 @@ AosError::Network("reason")                 // Network errors
 ### Use `tracing` (Not `println!`)
 
 ```rust
-// ✅ GOOD: Structured logging in tests (from aos/tests/integration_tests.rs L35)
-info!(adapter_id = %adapter.adapter_id(), "Loaded adapter");
+use tracing::{info, warn, error, debug, trace};
+
+// ✅ GOOD: Structured logging with tracing
+pub async fn process_request(&self, req: Request) -> Result<Response> {
+    info!(request_id = %req.id, "Processing request");
+    
+    let result = self.handle(req).await?;
+    
+    info!(
+        request_id = %req.id,
+        duration_ms = ?result.duration,
+        "Request processed successfully"
+    );
+    
+    Ok(result)
+}
+
+// ❌ BAD: Using println! for logging
+pub fn log_event(&self, event: &str) {
+    println!("Event: {}", event); // DON'T DO THIS
+}
 ```
-[source: crates/adapteros-aos/tests/integration_tests.rs L35]
 
 ### Log Levels
 
@@ -173,22 +191,6 @@ info!(
 
 // Fields can be queried in log aggregation systems
 ```
-
-### Structured logging in policy tests
-
-```rust
-// ✅ GOOD: Structured logging in policy tests (from policy/tests/integration_tests.rs L897)
-info!(violations_len = result.violations.len(), "Found violations");
-```
-[source: crates/adapteros-policy/tests/integration_tests.rs L897]
-
-### Structured logging in crypto keychain
-
-```rust
-// ✅ GOOD: Structured logging in crypto keychain (from crypto/providers/keychain.rs L2252)
-info!(sig_len = signature.len(), "Signing successful");
-```
-[source: crates/adapteros-crypto/src/providers/keychain.rs L2252]
 
 ---
 
@@ -548,72 +550,6 @@ let memory = MemoryManager::new(eviction_policy);
 memory.ensure_headroom().await?;
 ```
 
-### Keychain Provider (Cross-Platform Crypto Storage)
-
-**Location:** `crates/adapteros-crypto/src/providers/keychain.rs`
-
-```rust
-use adapteros_crypto::key_provider::{KeyAlgorithm, KeyProviderConfig};
-use adapteros_crypto::providers::KeychainProvider;
-
-// Initialize with platform-specific backend detection
-let config = KeyProviderConfig::default();
-let provider = KeychainProvider::new(config)?;
-
-// Generate Ed25519 signing key
-let handle = provider.generate("my-key", KeyAlgorithm::Ed25519).await?;
-
-// Sign data
-let signature = provider.sign("my-key", b"Hello, world!").await?;
-
-// Seal data with AES-256-GCM
-let ciphertext = provider.seal("my-key", b"Secret data").await?;
-
-// Unseal data
-let plaintext = provider.unseal("my-key", &ciphertext).await?;
-
-// Rotate key with cryptographic receipt
-let receipt = provider.rotate("my-key").await?;
-
-// Get provider attestation
-let attestation = provider.attest().await?;
-```
-
-#### Platform Support
-
-**macOS:** Security Framework with native keychain access
-**Linux:** Dual backend (Secret Service D-Bus + kernel keyutils)
-**Fallback:** Password-based keystore for CI/headless environments
-
-```bash
-# Enable fallback for testing
-ADAPTEROS_KEYCHAIN_FALLBACK=pass:mysecretpassword
-```
-
-#### Security Features
-
-- Hardware-backed keys when available (Secure Enclave on macOS)
-- Cryptographic key rotation with signed receipts
-- SHA256 policy attestation for audit trails
-- Memory zeroization and secure key handling
-- Cross-platform compatibility with backend auto-detection
-
-### Service Supervisor
-
-**Location:** `crates/adapteros-service-supervisor/src/`
-
-```rust
-use adapteros_service_supervisor::{Supervisor, HealthCheck};
-
-// Service management with health monitoring
-let supervisor = Supervisor::new(config);
-supervisor.register_service("inference-engine", health_check_fn).await?;
-
-// Health checks and metrics integration
-let status = supervisor.check_health("inference-engine").await?;
-info!(service = "inference-engine", healthy = status.healthy, "Service status");
-```
-
 ---
 
 ## Citation Standards
@@ -694,6 +630,4 @@ cargo udeps
 ---
 
 **Remember:** When in doubt, check existing code patterns in `crates/` and follow established conventions.
-
-*Last updated: November 13, 2025*
 

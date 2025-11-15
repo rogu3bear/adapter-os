@@ -20,8 +20,8 @@ export const pageHints: Record<string, ProgressiveHint[]> = {
   inference: [
     {
       id: 'inference-workflow',
-      title: 'Welcome to Inference!',
-      content: 'Try your first inference with the default settings. The router will automatically select the best adapters for your prompt.',
+      title: 'Inference Playground',
+      content: 'Select an adapter (or use the base model), enter your prompt, and adjust parameters. Use comparison mode to test multiple configurations side-by-side.',
       trigger: 'first-visit',
       placement: 'top'
     },
@@ -31,54 +31,6 @@ export const pageHints: Record<string, ProgressiveHint[]> = {
       content: 'Train an adapter first, or run inference with the base model only. Check the Adapters page to see available adapters.',
       trigger: 'empty-state',
       placement: 'top'
-    },
-    {
-      id: 'auto-select-adapter',
-      title: 'Smart Adapter Selection',
-      content: '🤖 "Auto-select" uses the router to automatically choose optimal adapters based on your prompt content. This usually gives the best results!',
-      condition: () => true, // Always show when adapters are available
-      placement: 'bottom-left',
-      trigger: 'user-action'
-    },
-    {
-      id: 'streaming-mode',
-      title: 'Real-time Streaming',
-      content: 'Enable streaming mode to see tokens appear in real-time as they\'re generated. Perfect for longer responses and interactive experiences.',
-      condition: () => true,
-      placement: 'top-right',
-      trigger: 'user-action'
-    },
-    {
-      id: 'comparison-mode-intro',
-      title: 'A/B Testing Made Easy',
-      content: 'Use comparison mode to test different adapters, temperatures, or parameters side-by-side. See performance metrics and choose the best configuration.',
-      condition: () => true,
-      placement: 'top-center',
-      trigger: 'user-action'
-    },
-    {
-      id: 'batch-inference',
-      title: 'Process Multiple Prompts',
-      content: 'Batch mode lets you process multiple prompts simultaneously with shared configuration. Great for evaluating responses across different inputs.',
-      condition: () => true,
-      placement: 'bottom-right',
-      trigger: 'user-action'
-    },
-    {
-      id: 'advanced-parameters',
-      title: 'Fine-tune Generation',
-      content: 'Temperature controls creativity (0.1-0.3 for focused, 0.7-1.0 for creative). Top-k and Top-p help control response diversity.',
-      condition: () => true,
-      placement: 'bottom-left',
-      trigger: 'user-action'
-    },
-    {
-      id: 'session-history',
-      title: 'Learn from History',
-      content: 'Your previous inferences are saved locally. Click on any session to reload the prompt and continue iterating.',
-      condition: () => true,
-      placement: 'bottom-center',
-      trigger: 'delayed'
     }
   ],
   policies: [

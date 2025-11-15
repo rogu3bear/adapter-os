@@ -1,6 +1,6 @@
 //! Metrics collection for the service supervisor
 
-use metrics::histogram;
+use metrics::{counter, gauge, histogram};
 use std::time::Instant;
 
 /// Initialize metrics
@@ -50,12 +50,7 @@ pub fn record_health_check(_service_id: &str, _success: bool) {
 }
 
 /// Record HTTP request
-pub fn record_http_request(
-    _method: &str,
-    _path: &str,
-    _status: u16,
-    _duration: std::time::Duration,
-) {
+pub fn record_http_request(_method: &str, _path: &str, _status: u16, _duration: std::time::Duration) {
     // Simplified metrics for now
 }
 
@@ -89,7 +84,7 @@ impl Timer {
     }
 
     pub fn finish_with_histogram(self, name: &'static str) {
-        let _duration = self.start.elapsed().as_secs_f64();
+        let duration = self.start.elapsed().as_secs_f64();
         // Simplified - just record without labels for now
         let _histogram = histogram!(name);
         // histogram.record(duration);

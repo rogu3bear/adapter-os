@@ -1,12 +1,12 @@
 //! HTTP server for the service supervisor
 
-use crate::auth::AuthService;
-use crate::error::Result;
+use crate::auth::{AuthService, Claims};
+use crate::error::{Result, SupervisorError};
 use crate::supervisor::ServiceSupervisor;
 use axum::{
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    extract::{Path, Query, State},
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Json},
     routing::{get, post},
     Router,
 };
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
-use tracing::info;
+use tracing::{error, info, warn};
 
 /// Application state for the HTTP server
 #[derive(Clone)]
@@ -46,16 +46,13 @@ impl SupervisorServer {
             .route("/api/services/start", post(start_service_handler))
             .route("/api/services/stop", post(stop_service_handler))
             .route("/api/services/restart", post(restart_service_handler))
-            .route(
-                "/api/services/essential/start",
-                post(start_essential_handler),
-            )
+            .route("/api/services/essential/start", post(start_essential_handler))
             .route("/api/services/essential/stop", post(stop_essential_handler))
-            .route(
-                "/api/services/:service_id/logs",
-                get(get_service_logs_handler),
+            .route("/api/services/:service_id/logs", get(get_service_logs_handler))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(CorsLayer::permissive())
             )
-            .layer(ServiceBuilder::new().layer(CorsLayer::permissive()))
             .with_state(state);
 
         Self {
@@ -78,16 +75,14 @@ impl SupervisorServer {
 }
 
 /// Health check endpoint
-async fn health_handler(State(state): State<AppState>) -> axum::response::Response {
+async fn health_handler(
+    State(state): State<AppState>,
+) -> axum::response::Response {
     match state.supervisor.get_health_status().await {
         Ok(health) => axum::Json(health).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -116,13 +111,9 @@ async fn get_service_handler(
 ) -> axum::response::Response {
     match state.supervisor.get_service(&service_id).await {
         Ok(service) => axum::Json(service).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -149,16 +140,11 @@ async fn start_service_handler(
             axum::Json(StartResponse {
                 success: true,
                 message,
-            })
-            .into_response()
+            }).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -184,16 +170,11 @@ async fn stop_service_handler(
             axum::Json(StopResponse {
                 success: true,
                 message,
-            })
-            .into_response()
+            }).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -219,16 +200,11 @@ async fn restart_service_handler(
             axum::Json(RestartResponse {
                 success: true,
                 message,
-            })
-            .into_response()
+            }).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -247,16 +223,11 @@ async fn start_essential_handler(
             axum::Json(EssentialResponse {
                 success: true,
                 results,
-            })
-            .into_response()
+            }).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -275,16 +246,11 @@ async fn stop_essential_handler(
             axum::Json(EssentialResponse {
                 success: true,
                 results,
-            })
-            .into_response()
+            }).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
     }
 }
 
@@ -305,8 +271,7 @@ async fn get_service_logs_handler(
     axum::Json(LogsResponse {
         service_id,
         logs: vec!["Logs not yet implemented".to_string()],
-    })
-    .into_response()
+    }).into_response()
 }
 
 // Authentication functions removed for simplified implementation

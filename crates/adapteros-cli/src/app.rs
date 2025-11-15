@@ -1840,7 +1840,7 @@ fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, 
     // First, try to get user-friendly message from error code registry
     if let Some(code) = error_code {
         if let Some(error_info) = find_by_code(code) {
-            error!(error_info = %error_info, "CLI error");
+            eprintln!("{}", error_info);
             return;
         }
     }
@@ -1867,11 +1867,11 @@ fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, 
         format!("An unexpected error occurred. Event ID: {}", event_id)
     };
 
-    error!(user_msg = %user_friendly_msg, "CLI user error");
+    eprintln!("❌ {}", user_friendly_msg);
 
     // Show the original error in verbose mode or for debugging
     if std::env::var("AOS_DEBUG").is_ok() || std::env::var("RUST_BACKTRACE").is_ok() {
-        error!(technical_details = %error_msg, "CLI technical details");
+        eprintln!("Technical details: {}", error_msg);
     }
 }
 

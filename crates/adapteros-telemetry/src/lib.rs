@@ -55,6 +55,10 @@ pub use adapteros_telemetry_types::{
     SystemMetrics, ThroughputMetrics,
 };
 // Re-export metrics collector and registry (implementation, not types)
+pub use metrics::{
+    MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer,
+};
+// Re-export metrics collector and registry (implementation, not types)
 pub use metrics::{MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer};
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
@@ -136,7 +140,7 @@ impl TelemetryWriter {
                 max_bytes,
                 bundle_state_clone,
             ) {
-                error!(error = %e, "Telemetry writer error");
+                eprintln!("Telemetry writer error: {}", e);
             }
         });
 

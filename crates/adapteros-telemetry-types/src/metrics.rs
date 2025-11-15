@@ -106,3 +106,4 @@ pub struct MetricDataPoint {
     pub timestamp_ms: u64,
     pub value: f64,
 }
+

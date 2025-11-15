@@ -387,22 +387,3 @@ The AdapterOS UI has a solid foundation but **lacks integration of service failu
 
 This will ensure users can see service failures immediately when they open the dashboard, matching the visibility we achieved in the menu bar app.
 
-## UX Contrast and Border Improvements
-
-**Date:** 2025-11-12  
-**Changes:** Batch fixes for visual separation and readability
-
-### Files Edited:
-- `ui/src/components/InferencePlayground.tsx`: Added border to response pre elements
-- `ui/src/components/Plans.tsx`: Removed border-collapse from tables for individual cell borders
-- `ui/src/components/ProcessDebugger.tsx`: Wrapped tables in bordered divs for consistent styling
-- `ui/src/components/ReplayPanel.tsx`: Added borders to code elements in accordion
-
-### Improvements:
-- Enhanced table separation with individual cell borders
-- Added subtle borders to code/pre blocks for better content distinction
-- Ensured consistent shadcn/ui border patterns across components
-- Improved overall visual hierarchy and readability
-
-**Status:** Complete - All major UI components now have proper contrast and borders for clear part distinction.
-

@@ -1,6 +1,5 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
-import './matchers'; // Initialize custom matchers
 
 // TextEncoder/TextDecoder polyfills
 try {
@@ -52,23 +51,6 @@ class MemoryStorage implements Storage {
 
 if (!(globalThis as any).localStorage) (globalThis as any).localStorage = new MemoryStorage();
 if (!(globalThis as any).sessionStorage) (globalThis as any).sessionStorage = new MemoryStorage();
-
-// matchMedia mock for ThemeProvider system theme detection
-const mockMatchMedia = vi.fn().mockImplementation((query: string) => ({
-  matches: query.includes('prefers-color-scheme'),
-  media: query,
-  onchange: null,
-  addListener: vi.fn(),
-  removeListener: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
-}));
-
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: mockMatchMedia,
-});
 
 // ResizeObserver stub
 if (!(globalThis as any).ResizeObserver) {

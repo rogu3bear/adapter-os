@@ -2,20 +2,17 @@ mod assets;
 
 use adapteros_core::AosError;
 use adapteros_core::Result;
-use adapteros_crypto::ed25519::Keypair;
 use adapteros_crypto::Keypair;
 use adapteros_db::Database;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
-use adapteros_federation::FederationManager;
-use adapteros_lora_worker::signal::{Signal, SignalType};
-use adapteros_orchestrator::{CodeJobManager, FederationDaemonConfig, TrainingService};
+use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use adapteros_policy::PolicyPackManager;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
-use adapteros_server_api::{routes, signal_dispatcher::{SignalDispatcher, SignalConfig}, AppState};
+use adapteros_server_api::{routes, AppState};
 #[cfg(feature = "telemetry")]
 use adapteros_system_metrics::SystemMetricsCollector;
 #[cfg(feature = "telemetry")]
@@ -35,10 +32,7 @@ impl adapteros_telemetry::metrics::SystemMetricsProvider for TelemetrySystemMetr
         let mut collector = match self.collector.lock() {
             Ok(collector) => collector,
             Err(e) => {
-                error!(
-                    "Failed to lock system metrics collector: {}. Using default metrics.",
-                    e
-                );
+                error!("Failed to lock system metrics collector: {}. Using default metrics.", e);
                 return adapteros_telemetry::metrics::SystemMetricsSnapshot {
                     cpu_usage_percent: 0.0,
                     memory_usage_mb: 0.0,
@@ -256,7 +250,7 @@ async fn main() -> Result<()> {
                 warn!("MLX backend enabled in config but not compiled in (missing --features mlx-ffi-backend)");
                 warn!("Model loading will fail - rebuild with: cargo build --features mlx-ffi-backend");
                 return Err(AosError::Config(
-                    "MLX backend enabled in config but feature not compiled".to_string(),
+                    "MLX backend enabled in config but feature not compiled".to_string()
                 ));
             }
 
@@ -582,10 +576,7 @@ async fn main() -> Result<()> {
             let mut sig = match signal(SignalKind::hangup()) {
                 Ok(sig) => sig,
                 Err(e) => {
-                    error!(
-                        "Failed to setup SIGHUP handler: {}. Config reload disabled.",
-                        e
-                    );
+                    error!("Failed to setup SIGHUP handler: {}. Config reload disabled.", e);
                     return; // Exit the task if signal handler can't be set up
                 }
             };
@@ -699,20 +690,13 @@ async fn main() -> Result<()> {
 
     // Create metrics server for HTTP Prometheus export
     #[cfg(feature = "telemetry")]
-    let metrics_server = if config
-        .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-        .metrics
-        .server_enabled
-    {
-        let server = Arc::new(adapteros_telemetry::MetricsServer::new(
-            metrics_collector.clone(),
-            config
-                .read()
-                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-                .metrics
-                .server_port,
-        ));
+    let metrics_server = if config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_enabled {
+        let server = Arc::new(
+            adapteros_telemetry::MetricsServer::new(
+                metrics_collector.clone(),
+                config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_port,
+            ),
+        );
 
         // Start metrics server in background
         let server_clone = server.clone();
@@ -722,14 +706,7 @@ async fn main() -> Result<()> {
             }
         });
 
-        info!(
-            "Metrics server started on port {}",
-            config
-                .read()
-                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-                .metrics
-                .server_port
-        );
+        info!("Metrics server started on port {}", config.read().map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?.metrics.server_port);
         Some(server)
     } else {
         info!("Metrics server disabled");
@@ -944,30 +921,51 @@ async fn main() -> Result<()> {
         info!("Rate limiter cleanup loop scheduled (24h interval)");
     }
 
-    // Initialize federation daemon
-    info!("Initializing federation daemon");
-
-    let keypair = Keypair::generate();
-    let federation_manager = Arc::new(FederationManager::new(Arc::clone(&db), keypair));
-
-    let federation_config = FederationDaemonConfig::default();
-
-    let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
-        federation_manager,
-        Arc::clone(&policy_watcher),
-        Arc::clone(&telemetry),
-        Arc::clone(&db),
-        federation_config,
-    ));
-
-    let _federation_handle = federation_daemon.start();
-    info!(
-        "Federation daemon started ({}s interval)",
-        federation_config.interval_secs
-    );
-
-    // Set in AppState
-    app_state.federation_daemon = Some(federation_daemon);
+    // TODO: Start Federation Daemon once dependencies are fixed
+    // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
+    // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
+    //
+    // Once fixed, uncomment this block:
+    // {
+    //     info!("Initializing federation daemon");
+    //
+    //     // Reuse telemetry and policy_watcher from above (would need to move out of scope)
+    //     // Create federation manager
+    //     // Note: FederationManager needs Db, so extract from Database wrapper
+    //     use adapteros_db::DatabaseBackend;
+    //     let db_for_federation = match db.backend() {
+    //         DatabaseBackend::Sqlite(db_inner) => db_inner.clone(),
+    //         DatabaseBackend::Postgres(_) => {
+    //             return Err(AosError::Config(
+    //                 "Federation daemon requires SQLite backend".to_string()
+    //             ).into());
+    //         }
+    //     };
+    //     let federation_keypair = adapteros_crypto::Keypair::generate();
+    //     let federation_manager = Arc::new(
+    //         adapteros_federation::FederationManager::new(db_for_federation, federation_keypair)?
+    //     );
+    //
+    //     // Create federation daemon config (5 minute interval per spec)
+    //     let federation_config = adapteros_orchestrator::FederationDaemonConfig {
+    //         interval_secs: 300, // 5 minutes
+    //         max_hosts_per_sweep: 10,
+    //         enable_quarantine: true,
+    //     };
+    //
+    //     // Create and start daemon
+    //     // FederationDaemon now expects Arc<Database>
+    //     let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
+    //         federation_manager,
+    //         policy_watcher.clone(),
+    //         telemetry.clone(),
+    //         Arc::new(db.clone()),
+    //         federation_config,
+    //     ));
+    //
+    //     let _federation_handle = federation_daemon.start();
+    //     info!("Federation daemon started (300s interval)");
+    // }
 
     // Create metrics exporter
     let metrics_exporter = {
@@ -1057,7 +1055,7 @@ async fn main() -> Result<()> {
 
     // Clone training_service before moving it into state
     let training_service_for_cleanup = Arc::clone(&training_service);
-
+    
     let mut state = AppState::new(
         db.clone(),
         jwt_secret,
@@ -1069,13 +1067,6 @@ async fn main() -> Result<()> {
         Some(telemetry_tx),
         global_seed,
     );
-
-    // Run system metrics database migrations
-    info!("Running system metrics database migrations");
-    if let Err(e) = state.run_system_metrics_migrations().await {
-        error!("Failed to run system metrics migrations: {}", e);
-        return Err(e);
-    }
 
     // Add metrics server to AppState if enabled
     if let Some(metrics_server) = metrics_server {
@@ -1089,10 +1080,9 @@ async fn main() -> Result<()> {
     // - Determinism enforcement: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     // - Startup validation: [source: crates/adapteros-server/src/main.rs]
     if let Err(e) = state.validate_seed_consistency() {
-        return Err(AosError::DeterminismViolation(format!(
-            "Seed consistency validation failed: {}",
-            e
-        )));
+        return Err(AosError::DeterminismViolation(
+            format!("Seed consistency validation failed: {}", e)
+        ));
     }
 
     {
@@ -1620,44 +1610,6 @@ async fn main() -> Result<()> {
         info!("Training log cleanup task started (hourly, keeps 7 days)");
     }
 
-    // Initialize robust signal dispatcher
-    {
-        let signal_config = SignalConfig {
-            auth_required: state.signal_config.auth_required,
-            channel_capacity: state.signal_config.channel_capacity,
-            retry_delay_secs: state.signal_config.retry_delay_secs,
-            max_retry_delay_secs: state.signal_config.max_retry_delay_secs,
-            circuit_breaker_threshold: state.signal_config.circuit_breaker_threshold,
-            circuit_breaker_reset_secs: state.signal_config.circuit_breaker_reset_secs,
-            connection_timeout_secs: state.signal_config.connection_timeout_secs,
-            multi_worker_enabled: state.signal_config.multi_worker_enabled,
-        };
-
-        let mut signal_dispatcher = SignalDispatcher::new(
-            signal_config,
-            state.discovery_signals_tx.clone(),
-            state.contact_signals_tx.clone(),
-            state.signal_public_key.clone(),
-            None, // TODO: Add telemetry writer
-        );
-
-        // Add workers to dispatcher
-        let workers = state.db.list_all_workers().await.unwrap_or_default();
-        for worker in workers {
-            signal_dispatcher.add_worker(
-                worker.id.to_string(),
-                std::path::PathBuf::from(&worker.uds_path),
-            ).await;
-        }
-
-        // Start the dispatcher
-        if let Err(e) = signal_dispatcher.start().await {
-            error!("Failed to start signal dispatcher: {}", e);
-        } else {
-            info!("Robust signal dispatcher started successfully");
-        }
-    }
-
     // Build router with UI (after spawning background tasks)
     // Clone state before moving it into routes
     let state_for_cleanup = state.clone();
@@ -1898,10 +1850,7 @@ async fn run_migrations_with_recovery(db: &Database) -> Result<()> {
 
             // Check for specific error types and provide recovery suggestions
             if error_msg.contains("no such table") || error_msg.contains("syntax error") {
-                error!(
-                    "Database schema appears corrupted or incompatible. Error: {}",
-                    error_msg
-                );
+                error!("Database schema appears corrupted or incompatible. Error: {}", error_msg);
                 error!("Recovery options:");
                 error!("1. Remove the database file and restart (loses all data)");
                 error!("2. Restore from a backup");
@@ -1911,10 +1860,7 @@ async fn run_migrations_with_recovery(db: &Database) -> Result<()> {
                     error_msg
                 )));
             } else if error_msg.contains("disk I/O error") || error_msg.contains("No space left") {
-                error!(
-                    "Disk error during migration. Check available disk space. Error: {}",
-                    error_msg
-                );
+                error!("Disk error during migration. Check available disk space. Error: {}", error_msg);
                 return Err(AosError::Config(format!(
                     "Disk error during migration. Free up disk space and try again. Error: {}",
                     error_msg
@@ -2046,10 +1992,7 @@ async fn shutdown_signal() -> ShutdownSignal {
                 ShutdownSignal::Fast
             }
             Err(e) => {
-                error!(
-                    "Failed to install SIGUSR1 handler: {}. Fast shutdown signal disabled.",
-                    e
-                );
+                error!("Failed to install SIGUSR1 handler: {}. Fast shutdown signal disabled.", e);
                 futures_util::future::pending::<ShutdownSignal>().await
             }
         }
@@ -2063,10 +2006,7 @@ async fn shutdown_signal() -> ShutdownSignal {
                 ShutdownSignal::Immediate
             }
             Err(e) => {
-                error!(
-                    "Failed to install SIGUSR2 handler: {}. Immediate shutdown signal disabled.",
-                    e
-                );
+                error!("Failed to install SIGUSR2 handler: {}. Immediate shutdown signal disabled.", e);
                 futures_util::future::pending::<ShutdownSignal>().await
             }
         }
@@ -2098,8 +2038,7 @@ async fn shutdown_signal() -> ShutdownSignal {
                 ShutdownSignal::Graceful
             },
         )
-        .await
-        {
+        .await {
             SelectResult3::First(signal) => signal,
             SelectResult3::Second(signal) => signal,
             SelectResult3::Third(signal) => signal,
@@ -2213,14 +2152,14 @@ async fn cleanup_resources(
     )
     .component("server".to_string())
     .metadata(serde_json::json!({
-    "shutdown_type": format!("{:?}", shutdown_signal),
-    "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
-    "models_unloaded": cleanup_stats.models_unloaded,
-    "adapters_unloaded": cleanup_stats.adapters_unloaded,
-        "telemetry_flushed": cleanup_stats.telemetry_flushed,
-        "database_closed": cleanup_stats.database_closed
-    }))
-    .build();
+        "shutdown_type": format!("{:?}", shutdown_signal),
+        "total_duration_ms": cleanup_stats.shutdown_duration.as_millis(),
+        "models_unloaded": cleanup_stats.models_unloaded,
+        "adapters_unloaded": cleanup_stats.adapters_unloaded,
+            "telemetry_flushed": cleanup_stats.telemetry_flushed,
+            "database_closed": cleanup_stats.database_closed
+        }))
+        .build();
 
     let _ = state.telemetry_tx.send(shutdown_complete_event);
 
@@ -2436,11 +2375,11 @@ async fn cleanup_adapters(
                     )
                     .component("server".to_string())
                     .metadata(serde_json::json!({
-                        "adapter_idx": adapter_idx,
-                        "duration_ms": adapter_duration.as_millis(),
-                        "success": true
-                    }))
-                    .build();
+                            "adapter_idx": adapter_idx,
+                            "duration_ms": adapter_duration.as_millis(),
+                            "success": true
+                        }))
+                        .build();
                     let _ = state.telemetry_tx.send(event);
                 }
                 Err(e) => {
@@ -2473,8 +2412,7 @@ async fn close_database_connections(
 }
 
 /// Cleanup temporary files during final phase
-async fn cleanup_temporary_files(
-) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn cleanup_temporary_files() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Cleaning up temporary files");
     // TODO: Implement cleanup of temporary files created during operation
     Ok(())

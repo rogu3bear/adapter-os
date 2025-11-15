@@ -30,93 +30,11 @@ use crate::key_provider::{
 };
 use adapteros_core::{AosError, Result};
 use base64::Engine;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::collections::HashMap;
+#[cfg(all(target_os = "linux", feature = "linux-keychain"))]
+use std::ffi::CString;
 use tracing::{debug, error, info, warn};
-
-// Platform-specific imports (currently unused as macOS implementation is stubbed)
-// FIXME: Re-enable these when implementing proper Security Framework integration
-// #[cfg(target_os = "macos")]
-// use {
-//     core_foundation::base::{CFType, CFTypeRef, TCFType},
-//     core_foundation::data::CFData,
-//     core_foundation::dictionary::CFMutableDictionary,
-//     core_foundation::string::CFString,
-//     ring::rand::SystemRandom,
-//     ring::signature::{Ed25519KeyPair, Signature},
-//     security_framework_sys::base::errSecSuccess,
-//     security_framework_sys::item::{
-//         kSecAttrAccount, kSecAttrService, kSecClass, kSecClassGenericPassword, kSecMatchLimit,
-//         kSecReturnData, kSecValueData,
-//     },
-//     security_framework_sys::keychain_item::{SecItemAdd, SecItemCopyMatching},
-// };
-
-// FIXME: macOS Security Framework FFI has type errors - needs proper implementation
-// Temporarily stubbed to allow compilation. See issue #XXX
-// Original implementation attempted at lines 52-133 had FFI mismatches with
-// core_foundation and security_framework_sys APIs
-
-// macOS stubs (FIXME: implement proper Security Framework integration)
-#[cfg(target_os = "macos")]
-pub async fn store_key(_service: &str, _account: &str, _data: &[u8]) -> Result<()> {
-    warn!("macOS keychain not yet implemented - using stub");
-    Err(AosError::Crypto(
-        "macOS keychain implementation incomplete".to_string(),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-pub async fn retrieve_key(_service: &str, _account: &str) -> Result<Vec<u8>> {
-    warn!("macOS keychain not yet implemented - using stub");
-    Err(AosError::Crypto(
-        "macOS keychain implementation incomplete".to_string(),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-pub async fn generate_key(_key_id: &str) -> Result<Vec<u8>> {
-    warn!("macOS keychain not yet implemented - using stub");
-    Err(AosError::Crypto(
-        "macOS keychain implementation incomplete".to_string(),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-pub async fn sign(_key_id: &str, _message: &[u8]) -> Result<Vec<u8>> {
-    warn!("macOS keychain not yet implemented - using stub");
-    Err(AosError::Crypto(
-        "macOS keychain implementation incomplete".to_string(),
-    ))
-}
-
-// Linux stubs
-#[cfg(not(target_os = "macos"))]
-pub async fn store_key(_service: &str, _account: &str, _data: &[u8]) -> Result<()> {
-    Err(AosError::Crypto(
-        "Linux keychain not implemented".to_string(),
-    ))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub async fn retrieve_key(_service: &str, _account: &str) -> Result<Vec<u8>> {
-    Err(AosError::Crypto(
-        "Linux keychain not implemented".to_string(),
-    ))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub async fn generate_key(_key_id: &str) -> Result<Vec<u8>> {
-    Err(AosError::Crypto(
-        "Linux keychain not implemented".to_string(),
-    ))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub async fn sign(_key_id: &str, _message: &[u8]) -> Result<Vec<u8>> {
-    Err(AosError::Crypto(
-        "Linux keychain not implemented".to_string(),
-    ))
-}
 
 /// Keychain provider implementation
 pub struct KeychainProvider {
@@ -147,10 +65,7 @@ impl KeychainProvider {
         if let Ok(fallback_env) = std::env::var("ADAPTEROS_KEYCHAIN_FALLBACK") {
             if let Some(password) = Self::parse_fallback_env(&fallback_env) {
                 warn!("Using password-based key storage fallback - this is not secure for production use!");
-                let keyring = Box::new(PasswordFallbackKeyring::new(
-                    service_name.clone(),
-                    password,
-                )?);
+                let keyring = Box::new(PasswordFallbackKeyring::new(service_name.clone(), password)?);
                 return Ok(Self {
                     service_name,
                     config,
@@ -164,10 +79,7 @@ impl KeychainProvider {
         let (keyring, backend) = {
             #[cfg(target_os = "macos")]
             {
-                (
-                    Box::new(MacKeychain::new(service_name.clone())),
-                    KeychainBackend::MacOS,
-                )
+                (Box::new(MacKeychain::new(service_name.clone())), KeychainBackend::MacOS)
             }
             #[cfg(target_os = "linux")]
             {
@@ -227,9 +139,7 @@ impl KeychainProvider {
         // For Linux backends, update our backend field if it changed
         #[cfg(target_os = "linux")]
         {
-            if let Some(linux_keyring) =
-                (&*self.keyring as &dyn std::any::Any).downcast_ref::<LinuxKeyring>()
-            {
+            if let Some(linux_keyring) = (&*self.keyring as &dyn std::any::Any).downcast_ref::<LinuxKeyring>() {
                 self.backend = match linux_keyring.backend {
                     LinuxKeyringBackend::SecretService => KeychainBackend::SecretService,
                     LinuxKeyringBackend::KernelKeyring => KeychainBackend::KernelKeyring,
@@ -339,8 +249,7 @@ impl PasswordFallbackKeyring {
             })?,
         );
 
-        argon2
-            .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut master_key)
+        argon2.hash_password_into(password.as_bytes(), salt.as_bytes(), &mut master_key)
             .map_err(|e| {
                 error!(error = %e, "Failed to derive master key from password");
                 AosError::Crypto("Failed to derive encryption key".to_string())
@@ -348,9 +257,7 @@ impl PasswordFallbackKeyring {
 
         // Determine keystore path
         let keystore_path = if let Ok(data_dir) = std::env::var("XDG_DATA_HOME") {
-            PathBuf::from(data_dir)
-                .join("adapteros")
-                .join("keystore.json.enc")
+            PathBuf::from(data_dir).join("adapteros").join("keystore.json.enc")
         } else {
             PathBuf::from("./.adapteros-keys.enc")
         };
@@ -387,8 +294,7 @@ impl PasswordFallbackKeyring {
                 AosError::Io(format!("Failed to read keystore: {}", e))
             })?;
 
-            if ciphertext.len() < 12 + 16 {
-                // nonce + tag
+            if ciphertext.len() < 12 + 16 { // nonce + tag
                 return Err(AosError::Crypto("Invalid keystore file format".to_string()));
             }
 
@@ -413,10 +319,7 @@ impl PasswordFallbackKeyring {
 
             let keystore: serde_json::Value = serde_json::from_slice(&plaintext).map_err(|e| {
                 error!(error = %e, "Failed to parse keystore JSON");
-                AosError::Crypto(
-                    "[Password Fallback] Parse operation failed: Corrupted keystore format"
-                        .to_string(),
-                )
+                AosError::Crypto("[Password Fallback] Parse operation failed: Corrupted keystore format".to_string())
             })?;
 
             Ok(keystore)
@@ -424,9 +327,7 @@ impl PasswordFallbackKeyring {
 
         #[cfg(not(feature = "password-fallback"))]
         {
-            Err(AosError::Crypto(
-                "Password fallback not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Password fallback not compiled in".to_string()))
         }
     }
 
@@ -447,19 +348,18 @@ impl PasswordFallbackKeyring {
             rand::thread_rng().fill_bytes(&mut nonce_bytes);
 
             // Encrypt with AES-256-GCM
-            let cipher = Aes256Gcm::new_from_slice(&self.master_key).map_err(|e| {
-                error!(error = %e, "Failed to create AES cipher");
-                AosError::Crypto("Failed to initialize encryption".to_string())
-            })?;
+            let cipher = Aes256Gcm::new_from_slice(&self.master_key)
+                .map_err(|e| {
+                    error!(error = %e, "Failed to create AES cipher");
+                    AosError::Crypto("Failed to initialize encryption".to_string())
+                })?;
 
             let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
             let mut ciphertext = json_data;
-            cipher
-                .encrypt_in_place(nonce, &[], &mut ciphertext)
-                .map_err(|e| {
-                    error!(error = %e, "Failed to encrypt keystore");
-                    AosError::Crypto("Failed to encrypt keystore".to_string())
-                })?;
+            cipher.encrypt_in_place(nonce, &[], &mut ciphertext).map_err(|e| {
+                error!(error = %e, "Failed to encrypt keystore");
+                AosError::Crypto("Failed to encrypt keystore".to_string())
+            })?;
 
             // Prepend nonce
             let mut encrypted_data = nonce_bytes.to_vec();
@@ -476,9 +376,7 @@ impl PasswordFallbackKeyring {
 
         #[cfg(not(feature = "password-fallback"))]
         {
-            Err(AosError::Crypto(
-                "Password fallback not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Password fallback not compiled in".to_string()))
         }
     }
 
@@ -495,8 +393,7 @@ impl PasswordFallbackKeyring {
         if let Some(keys_obj) = keystore.get("keys").and_then(|k| k.as_object()) {
             if let Some(key_obj) = keys_obj.get(key_id) {
                 // Parse existing key
-                let algorithm_str = key_obj
-                    .get("algorithm")
+                let algorithm_str = key_obj.get("algorithm")
                     .and_then(|a| a.as_str())
                     .ok_or_else(|| AosError::Crypto("Invalid keystore key format".to_string()))?;
 
@@ -504,27 +401,17 @@ impl PasswordFallbackKeyring {
                     "ed25519" => KeyAlgorithm::Ed25519,
                     "aes256gcm" => KeyAlgorithm::Aes256Gcm,
                     "chacha20poly1305" => KeyAlgorithm::ChaCha20Poly1305,
-                    _ => {
-                        return Err(AosError::Crypto(format!(
-                            "Unknown algorithm: {}",
-                            algorithm_str
-                        )))
-                    }
+                    _ => return Err(AosError::Crypto(format!("Unknown algorithm: {}", algorithm_str))),
                 };
 
-                let public_key =
-                    if let Some(pk_b64) = key_obj.get("public_key_b64").and_then(|p| p.as_str()) {
-                        Some(
-                            base64::engine::general_purpose::STANDARD
-                                .decode(pk_b64)
-                                .map_err(|e| {
-                                    error!(error = %e, "Invalid base64 public key in keystore");
-                                    AosError::Crypto("Invalid keystore public key".to_string())
-                                })?,
-                        )
-                    } else {
-                        None
-                    };
+                let public_key = if let Some(pk_b64) = key_obj.get("public_key_b64").and_then(|p| p.as_str()) {
+                    Some(base64::engine::general_purpose::STANDARD.decode(pk_b64).map_err(|e| {
+                        error!(error = %e, "Invalid base64 public key in keystore");
+                        AosError::Crypto("Invalid keystore public key".to_string())
+                    })?)
+                } else {
+                    None
+                };
 
                 let handle = KeyHandle::with_public_key(
                     format!("{}:{}", self.service_name, key_id),
@@ -544,46 +431,27 @@ impl PasswordFallbackKeyring {
     }
 
     /// Store key in keystore
-    fn store_key_in_keystore(
-        &self,
-        key_id: &str,
-        alg: &KeyAlgorithm,
-        private_key_b64: &str,
-        public_key_b64: Option<&str>,
-    ) -> Result<()> {
+    fn store_key_in_keystore(&self, key_id: &str, alg: &KeyAlgorithm, private_key_b64: &str, public_key_b64: Option<&str>) -> Result<()> {
         let mut keystore = self.load_keystore()?;
-        let keys_obj = keystore
-            .get_mut("keys")
+        let keys_obj = keystore.get_mut("keys")
             .and_then(|k| k.as_object_mut())
             .ok_or_else(|| AosError::Crypto("Invalid keystore structure".to_string()))?;
 
         let mut key_obj = serde_json::Map::new();
-        key_obj.insert(
-            "algorithm".to_string(),
-            serde_json::Value::String(alg.to_string()),
-        );
-        key_obj.insert(
-            "private_key_b64".to_string(),
-            serde_json::Value::String(private_key_b64.to_string()),
-        );
+        key_obj.insert("algorithm".to_string(), serde_json::Value::String(alg.to_string()));
+        key_obj.insert("private_key_b64".to_string(), serde_json::Value::String(private_key_b64.to_string()));
 
         if let Some(pk) = public_key_b64 {
-            key_obj.insert(
-                "public_key_b64".to_string(),
-                serde_json::Value::String(pk.to_string()),
-            );
+            key_obj.insert("public_key_b64".to_string(), serde_json::Value::String(pk.to_string()));
         }
 
-        key_obj.insert(
-            "created_at".to_string(),
-            serde_json::Value::String(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    .to_string(),
-            ),
-        );
+        key_obj.insert("created_at".to_string(), serde_json::Value::String(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .to_string()
+        ));
 
         keys_obj.insert(key_id.to_string(), serde_json::Value::Object(key_obj));
 
@@ -593,18 +461,15 @@ impl PasswordFallbackKeyring {
     /// Load private key from keystore
     fn load_private_key_from_keystore(&self, key_id: &str) -> Result<String> {
         let keystore = self.load_keystore()?;
-        let keys_obj = keystore
-            .get("keys")
+        let keys_obj = keystore.get("keys")
             .and_then(|k| k.as_object())
             .ok_or_else(|| AosError::Crypto("Invalid keystore structure".to_string()))?;
 
-        let key_obj = keys_obj
-            .get(key_id)
+        let key_obj = keys_obj.get(key_id)
             .and_then(|k| k.as_object())
             .ok_or_else(|| AosError::NotFound(format!("Key '{}' not found in keystore", key_id)))?;
 
-        let private_key_b64 = key_obj
-            .get("private_key_b64")
+        let private_key_b64 = key_obj.get("private_key_b64")
             .and_then(|p| p.as_str())
             .ok_or_else(|| AosError::Crypto("Invalid keystore key format".to_string()))?;
 
@@ -617,22 +482,17 @@ impl PasswordFallbackKeyring {
 impl KeyringImpl for PasswordFallbackKeyring {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         use rand::rngs::OsRng;
-        use rand_core::RngCore;
 
         let alg_clone = alg.clone();
         let handle = match alg {
             KeyAlgorithm::Ed25519 => {
                 let mut rng = OsRng;
-                let mut key_bytes = [0u8; 32];
-                rng.fill_bytes(&mut key_bytes);
-                let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
+                let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
                 let verifying_key = signing_key.verifying_key();
 
                 // Store in keystore
-                let private_key_b64 =
-                    base64::engine::general_purpose::STANDARD.encode(signing_key.to_bytes());
-                let public_key_b64 =
-                    base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes());
+                let private_key_b64 = base64::engine::general_purpose::STANDARD.encode(signing_key.to_bytes());
+                let public_key_b64 = base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes());
                 self.store_key_in_keystore(key_id, &alg, &private_key_b64, Some(&public_key_b64))?;
 
                 KeyHandle::with_public_key(
@@ -655,10 +515,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
         };
 
         // Cache in memory
-        self.keys
-            .lock()
-            .unwrap()
-            .insert(key_id.to_string(), handle.clone());
+        self.keys.lock().unwrap().insert(key_id.to_string(), handle.clone());
 
         info!(key_id = %key_id, algorithm = ?alg_clone, "Generated key and stored in password fallback keystore");
         Ok(handle)
@@ -666,17 +523,13 @@ impl KeyringImpl for PasswordFallbackKeyring {
 
     async fn sign(&self, key_id: &str, msg: &[u8]) -> Result<Vec<u8>> {
         let private_key_b64 = self.load_private_key_from_keystore(key_id)?;
-        let key_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&private_key_b64)
-            .map_err(|e| {
-                error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
-                AosError::Crypto("Invalid stored key format".to_string())
-            })?;
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
+            error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
+            AosError::Crypto("Invalid stored key format".to_string())
+        })?;
 
         if key_bytes.len() != 32 {
-            return Err(AosError::Crypto(
-                "Invalid key length from keystore".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid key length from keystore".to_string()));
         }
 
         let mut key_array = [0u8; 32];
@@ -692,17 +545,13 @@ impl KeyringImpl for PasswordFallbackKeyring {
 
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         let private_key_b64 = self.load_private_key_from_keystore(key_id)?;
-        let key_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&private_key_b64)
-            .map_err(|e| {
-                error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
-                AosError::Crypto("Invalid stored key format".to_string())
-            })?;
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
+            error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
+            AosError::Crypto("Invalid stored key format".to_string())
+        })?;
 
         if key_bytes.len() != 32 {
-            return Err(AosError::Crypto(
-                "Invalid key length from keystore".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid key length from keystore".to_string()));
         }
 
         // Use AES-GCM for encryption
@@ -738,17 +587,13 @@ impl KeyringImpl for PasswordFallbackKeyring {
         }
 
         let private_key_b64 = self.load_private_key_from_keystore(key_id)?;
-        let key_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&private_key_b64)
-            .map_err(|e| {
-                error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
-                AosError::Crypto("Invalid stored key format".to_string())
-            })?;
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
+            error!(error = %e, key_id = %key_id, "Invalid base64 in stored key");
+            AosError::Crypto("Invalid stored key format".to_string())
+        })?;
 
         if key_bytes.len() != 32 {
-            return Err(AosError::Crypto(
-                "Invalid key length from keystore".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid key length from keystore".to_string()));
         }
 
         // Use AES-GCM for decryption
@@ -782,24 +627,18 @@ impl KeyringImpl for PasswordFallbackKeyring {
             Ok(key) => key,
             Err(_) => {
                 // Create signing key if it doesn't exist
-                let _handle = self
-                    .generate_key(signing_key_id, KeyAlgorithm::Ed25519)
-                    .await?;
+                let _handle = self.generate_key(signing_key_id, KeyAlgorithm::Ed25519).await?;
                 self.load_private_key_from_keystore(signing_key_id)?
             }
         };
 
-        let key_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&private_key_b64)
-            .map_err(|e| {
-                error!(error = %e, "Invalid base64 in receipt signing key");
-                AosError::Crypto("Invalid receipt signing key format".to_string())
-            })?;
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(&private_key_b64).map_err(|e| {
+            error!(error = %e, "Invalid base64 in receipt signing key");
+            AosError::Crypto("Invalid receipt signing key format".to_string())
+        })?;
 
         if key_bytes.len() != 32 {
-            return Err(AosError::Crypto(
-                "Invalid receipt signing key length".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid receipt signing key length".to_string()));
         }
 
         let mut key_array = [0u8; 32];
@@ -829,7 +668,10 @@ impl KeyringImpl for PasswordFallbackKeyring {
         // Create receipt data to sign
         let receipt_data = format!(
             "rotation:{}:{}:{}:{}",
-            key_id, previous_handle.provider_id, new_handle.provider_id, timestamp
+            key_id,
+            previous_handle.provider_id,
+            new_handle.provider_id,
+            timestamp
         );
 
         // Sign the receipt
@@ -866,7 +708,8 @@ impl KeyringImpl for PasswordFallbackKeyring {
         // Create attestation data to sign
         let attestation_data = format!(
             "attestation:password-fallback:{}:{}",
-            policy_hash, timestamp
+            policy_hash,
+            timestamp
         );
 
         // Sign the attestation
@@ -888,7 +731,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
         let test_key_id = "__health_check_test__";
 
         match self.load_private_key_from_keystore(test_key_id) {
-            Ok(_) => Ok(()),                      // Key exists (unexpected but OK)
+            Ok(_) => Ok(()), // Key exists (unexpected but OK)
             Err(AosError::NotFound(_)) => Ok(()), // Key doesn't exist (expected)
             Err(e) => {
                 warn!(error = %e, "Password fallback keystore health check failed");
@@ -927,7 +770,7 @@ impl MacKeychain {
         }
     }
 
-    /// Store Ed25519 private key in macOS Keychain using secure CLI
+    /// Store Ed25519 private key in macOS Keychain using native APIs
     fn store_ed25519_private_key(
         &self,
         key_id: &str,
@@ -994,12 +837,10 @@ impl MacKeychain {
             .trim()
             .to_string();
 
-        let key_data = base64::engine::general_purpose::STANDARD
-            .decode(&key_data_b64)
-            .map_err(|_e| {
-                error!(key_id = %key_id, "Invalid base64 in keychain data");
-                AosError::Crypto("Invalid keychain data format".to_string())
-            })?;
+        let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
+            error!(error = %e, key_id = %key_id, "Invalid base64 in keychain data");
+            AosError::Crypto("Invalid keychain data format".to_string())
+        })?;
 
         if key_data.len() != 32 {
             error!(key_id = %key_id, len = key_data.len(), "Invalid key length from keychain");
@@ -1016,7 +857,7 @@ impl MacKeychain {
         Ok(signing_key)
     }
 
-    /// Store symmetric key in macOS Keychain using secure CLI
+    /// Store symmetric key in macOS Keychain using native APIs
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
         let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
@@ -1037,17 +878,10 @@ impl MacKeychain {
 
         // Validate inputs to prevent command injection
         if account.contains('\'') || account.contains('"') || account.contains('\\') {
-            return Err(AosError::Crypto(
-                "Invalid account name contains shell metacharacters".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid account name contains shell metacharacters".to_string()));
         }
-        if self.service_name.contains('\'')
-            || self.service_name.contains('"')
-            || self.service_name.contains('\\')
-        {
-            return Err(AosError::Crypto(
-                "Invalid service name contains shell metacharacters".to_string(),
-            ));
+        if self.service_name.contains('\'') || self.service_name.contains('"') || self.service_name.contains('\\') {
+            return Err(AosError::Crypto("Invalid service name contains shell metacharacters".to_string()));
         }
 
         // Use secure CLI approach with proper input validation
@@ -1070,10 +904,7 @@ impl MacKeychain {
             let error_msg = if stderr.contains("permission") || stderr.contains("access") {
                 "[macOS Keychain] Symmetric retrieve operation failed: Access denied - Unlock Keychain Access or check permissions".to_string()
             } else if stderr.contains("could not be found") || stderr.contains("doesn't exist") {
-                format!(
-                    "[macOS Keychain] Symmetric retrieve operation failed: Key '{}' not found",
-                    key_id
-                )
+                format!("[macOS Keychain] Symmetric retrieve operation failed: Key '{}' not found", key_id)
             } else {
                 format!("[macOS Keychain] Symmetric retrieve operation failed: {} - Check keychain accessibility", stderr)
             };
@@ -1088,12 +919,10 @@ impl MacKeychain {
             .trim()
             .to_string();
 
-        let key_data = base64::engine::general_purpose::STANDARD
-            .decode(&key_data_b64)
-            .map_err(|e| {
-                error!(error = %e, key_id = %key_id, "Invalid base64 in symmetric keychain data");
-                AosError::Crypto("Invalid symmetric keychain data format".to_string())
-            })?;
+        let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
+            error!(error = %e, key_id = %key_id, "Invalid base64 in symmetric keychain data");
+            AosError::Crypto("Invalid symmetric keychain data format".to_string())
+        })?;
 
         info!(key_id = %key_id, "Retrieved symmetric key from macOS Keychain via secure CLI");
         Ok(key_data)
@@ -1105,17 +934,10 @@ impl MacKeychain {
 
         // Validate inputs to prevent command injection
         if account.contains('\'') || account.contains('"') || account.contains('\\') {
-            return Err(AosError::Crypto(
-                "Invalid account name contains shell metacharacters".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid account name contains shell metacharacters".to_string()));
         }
-        if self.service_name.contains('\'')
-            || self.service_name.contains('"')
-            || self.service_name.contains('\\')
-        {
-            return Err(AosError::Crypto(
-                "Invalid service name contains shell metacharacters".to_string(),
-            ));
+        if self.service_name.contains('\'') || self.service_name.contains('"') || self.service_name.contains('\\') {
+            return Err(AosError::Crypto("Invalid service name contains shell metacharacters".to_string()));
         }
 
         let result = Command::new("security")
@@ -1153,22 +975,13 @@ impl MacKeychain {
 
         // Validate inputs to prevent command injection
         if account.contains('\'') || account.contains('"') || account.contains('\\') {
-            return Err(AosError::Crypto(
-                "Invalid account name contains shell metacharacters".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid account name contains shell metacharacters".to_string()));
         }
-        if self.service_name.contains('\'')
-            || self.service_name.contains('"')
-            || self.service_name.contains('\\')
-        {
-            return Err(AosError::Crypto(
-                "Invalid service name contains shell metacharacters".to_string(),
-            ));
+        if self.service_name.contains('\'') || self.service_name.contains('"') || self.service_name.contains('\\') {
+            return Err(AosError::Crypto("Invalid service name contains shell metacharacters".to_string()));
         }
         if label.contains('\'') || label.contains('"') || label.contains('\\') {
-            return Err(AosError::Crypto(
-                "Invalid label contains shell metacharacters".to_string(),
-            ));
+            return Err(AosError::Crypto("Invalid label contains shell metacharacters".to_string()));
         }
 
         // Use base64 encoding to safely pass binary data via stdin
@@ -1198,10 +1011,7 @@ impl MacKeychain {
             } else if stderr.contains("permission") || stderr.contains("access") {
                 "[macOS Keychain] Store operation failed: Access denied - Unlock Keychain Access or check permissions".to_string()
             } else {
-                format!(
-                    "[macOS Keychain] Store operation failed: {} - Check keychain accessibility",
-                    stderr
-                )
+                format!("[macOS Keychain] Store operation failed: {} - Check keychain accessibility", stderr)
             };
             return Err(AosError::Crypto(error_msg));
         }
@@ -1218,11 +1028,9 @@ impl KeyringImpl for MacKeychain {
         match &alg {
             KeyAlgorithm::Ed25519 => {
                 use rand::rngs::OsRng;
-                use rand::RngCore;
 
-                let mut seed = [0u8; 32];
-                OsRng.fill_bytes(&mut seed);
-                let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+                let mut rng = OsRng;
+                let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
                 let verifying_key = signing_key.verifying_key();
 
                 // Store private key in macOS Keychain
@@ -1339,7 +1147,7 @@ impl KeyringImpl for MacKeychain {
             .decrypt(nonce, encrypted_data)
             .map_err(|e| AosError::Crypto(format!("Decryption failed: {}", e)))?;
 
-        info!(key_id = %key_id, ciphertext_len = ciphertext.len(), "Decrypted data using macOS Keychain");
+        info!(key_id = %key_id, ciphertext_len = ciphertext.len(), "Decrypted data (macOS Keychain integration pending)");
         Ok(plaintext)
     }
 
@@ -1353,9 +1161,7 @@ impl KeyringImpl for MacKeychain {
             Ok(key) => key,
             Err(_) => {
                 // Create signing key if it doesn't exist
-                let _handle = self
-                    .generate_key(signing_key_id, KeyAlgorithm::Ed25519)
-                    .await?;
+                let _handle = self.generate_key(signing_key_id, KeyAlgorithm::Ed25519).await?;
                 self.retrieve_ed25519_private_key(signing_key_id)?
             }
         };
@@ -1405,7 +1211,10 @@ impl KeyringImpl for MacKeychain {
         // Create receipt data to sign
         let receipt_data = format!(
             "rotation:{}:{}:{}:{}",
-            key_id, previous_handle.provider_id, new_handle.provider_id, timestamp
+            key_id,
+            previous_handle.provider_id,
+            new_handle.provider_id,
+            timestamp
         );
 
         // Sign the receipt using the provider's signing key
@@ -1442,7 +1251,9 @@ impl KeyringImpl for MacKeychain {
         // Create attestation data to sign
         let attestation_data = format!(
             "attestation:{}:{}:{}",
-            "macos-keychain", policy_hash, timestamp
+            "macos-keychain",
+            policy_hash,
+            timestamp
         );
 
         // Sign the attestation
@@ -1466,7 +1277,7 @@ impl KeyringImpl for MacKeychain {
 
         // Try a simple operation to test health
         match self.retrieve_ed25519_private_key(test_key_id) {
-            Ok(_) => Ok(()),                      // Key exists (unexpected but OK)
+            Ok(_) => Ok(()), // Key exists (unexpected but OK)
             Err(AosError::NotFound(_)) => Ok(()), // Key doesn't exist (expected)
             Err(e) => {
                 warn!(error = %e, "macOS keychain health check failed");
@@ -1522,30 +1333,25 @@ impl LinuxKeyring {
         {
             // Try secret-service first with retries (desktop environments)
             for attempt in 1..=3 {
-                match secret_service::blocking::SecretService::connect(
-                    secret_service::EncryptionType::Dh,
-                ) {
-                    Ok(ss) => match ss.get_default_collection() {
-                        Ok(_) => {
-                            info!(
-                                "Using secret-service backend (D-Bus available, attempt {})",
-                                attempt
-                            );
-                            return LinuxKeyringBackend::SecretService;
-                        }
-                        Err(e) => {
-                            if attempt == 3 {
-                                warn!(error = %e, "Secret service connected but no default collection available after 3 attempts");
+                match secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh) {
+                    Ok(ss) => {
+                        match ss.get_default_collection() {
+                            Ok(_) => {
+                                info!("Using secret-service backend (D-Bus available, attempt {})", attempt);
+                                return LinuxKeyringBackend::SecretService;
+                            }
+                            Err(e) => {
+                                if attempt == 3 {
+                                    warn!(error = %e, "Secret service connected but no default collection available after 3 attempts");
+                                }
                             }
                         }
-                    },
+                    }
                     Err(e) => {
                         if attempt == 3 {
                             info!(error = %e, "Secret service not available after 3 attempts, trying kernel keyring fallback");
                         } else {
-                            std::thread::sleep(std::time::Duration::from_millis(
-                                100 * attempt as u64,
-                            ));
+                            std::thread::sleep(std::time::Duration::from_millis(100 * attempt as u64));
                         }
                     }
                 }
@@ -1570,9 +1376,7 @@ impl LinuxKeyring {
                 #[cfg(feature = "linux-keychain")]
                 {
                     // Test if secret service is still available
-                    match secret_service::blocking::SecretService::connect(
-                        secret_service::EncryptionType::Dh,
-                    ) {
+                    match secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh) {
                         Ok(ss) => {
                             if let Err(e) = ss.get_default_collection() {
                                 warn!(error = %e, "Secret service backend became unhealthy, switching to kernel keyring");
@@ -1598,16 +1402,10 @@ impl LinuxKeyring {
                     // Test if kernel keyring is still available
                     use nix::unistd::getuid;
                     unsafe {
-                        if libc::keyctl_get_persistent(
-                            getuid().as_raw() as u32,
-                            libc::KEY_SPEC_USER_KEYRING as i32,
-                        ) == -1
-                        {
+                        if libc::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING as i32) == -1 {
                             let errno = std::io::Error::last_os_error();
                             error!(error = %errno, "Kernel keyring backend became unhealthy");
-                            return Err(AosError::Crypto(
-                                "Kernel keyring backend is no longer available".to_string(),
-                            ));
+                            return Err(AosError::Crypto("Kernel keyring backend is no longer available".to_string()));
                         }
                     }
                 }
@@ -1627,12 +1425,8 @@ impl LinuxKeyring {
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<()> {
         match self.backend {
-            LinuxKeyringBackend::SecretService => {
-                self.store_ed25519_private_key_secret_service(key_id, signing_key)
-            }
-            LinuxKeyringBackend::KernelKeyring => {
-                self.store_ed25519_private_key_keyutils(key_id, signing_key)
-            }
+            LinuxKeyringBackend::SecretService => self.store_ed25519_private_key_secret_service(key_id, signing_key),
+            LinuxKeyringBackend::KernelKeyring => self.store_ed25519_private_key_keyutils(key_id, signing_key),
         }
     }
 
@@ -1671,18 +1465,16 @@ impl LinuxKeyring {
             let label = format!("AdapterOS Ed25519 Key: {}", key_id);
 
             // Store the secret
-            collection
-                .create_item(
-                    &label,
-                    attributes,
-                    key_data_b64.as_bytes(),
-                    true, // replace existing
-                    "text/plain",
-                )
-                .map_err(|e| {
-                    error!(error = %e, key_id = %key_id, "Failed to store key in secret service");
-                    AosError::Crypto("Failed to store key in Linux keyring".to_string())
-                })?;
+            collection.create_item(
+                &label,
+                attributes,
+                key_data_b64.as_bytes(),
+                true, // replace existing
+                "text/plain"
+            ).map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to store key in secret service");
+                AosError::Crypto("Failed to store key in Linux keyring".to_string())
+            })?;
 
             info!(key_id = %key_id, "Stored Ed25519 key in Linux secret service");
             Ok(())
@@ -1691,9 +1483,7 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
@@ -1717,10 +1507,7 @@ impl LinuxKeyring {
 
             // Get persistent keyring for the user
             let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
+                libc::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING as i32)
             };
 
             if keyring_id == -1 {
@@ -1745,9 +1532,7 @@ impl LinuxKeyring {
             if result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Failed to add key to kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to store key in kernel keyring".to_string(),
-                ));
+                return Err(AosError::Crypto("Failed to store key in kernel keyring".to_string()));
             }
 
             info!(key_id = %key_id, keyring_id = keyring_id, "Stored Ed25519 key in kernel keyring");
@@ -1757,29 +1542,20 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
     /// Retrieve Ed25519 private key from Linux keyring
     fn retrieve_ed25519_private_key(&self, key_id: &str) -> Result<ed25519_dalek::SigningKey> {
         match self.backend {
-            LinuxKeyringBackend::SecretService => {
-                self.retrieve_ed25519_private_key_secret_service(key_id)
-            }
-            LinuxKeyringBackend::KernelKeyring => {
-                self.retrieve_ed25519_private_key_keyutils(key_id)
-            }
+            LinuxKeyringBackend::SecretService => self.retrieve_ed25519_private_key_secret_service(key_id),
+            LinuxKeyringBackend::KernelKeyring => self.retrieve_ed25519_private_key_keyutils(key_id),
         }
     }
 
     /// Retrieve Ed25519 private key using secret-service
-    fn retrieve_ed25519_private_key_secret_service(
-        &self,
-        key_id: &str,
-    ) -> Result<ed25519_dalek::SigningKey> {
+    fn retrieve_ed25519_private_key_secret_service(&self, key_id: &str) -> Result<ed25519_dalek::SigningKey> {
         #[cfg(feature = "linux-keychain")]
         {
             use secret_service::blocking::SecretService;
@@ -1809,10 +1585,7 @@ impl LinuxKeyring {
 
             if search_items.is_empty() {
                 error!(key_id = %key_id, "Key not found in Linux keyring");
-                return Err(AosError::NotFound(format!(
-                    "Key '{}' not found in Linux keyring",
-                    key_id
-                )));
+                return Err(AosError::NotFound(format!("Key '{}' not found in Linux keyring", key_id)));
             }
 
             // Get the secret from the first matching item
@@ -1827,12 +1600,10 @@ impl LinuxKeyring {
                 AosError::Crypto("Invalid keyring data encoding".to_string())
             })?;
 
-            let key_data = base64::engine::general_purpose::STANDARD
-                .decode(&key_data_b64)
-                .map_err(|e| {
-                    error!(error = %e, key_id = %key_id, "Invalid base64 in keyring data");
-                    AosError::Crypto("Invalid keyring data format".to_string())
-                })?;
+            let key_data = base64::engine::general_purpose::STANDARD.decode(&key_data_b64).map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Invalid base64 in keyring data");
+                AosError::Crypto("Invalid keyring data format".to_string())
+            })?;
 
             if key_data.len() != 32 {
                 error!(key_id = %key_id, len = key_data.len(), "Invalid key length from keyring");
@@ -1852,17 +1623,12 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
     /// Retrieve Ed25519 private key using kernel keyring (keyutils)
-    fn retrieve_ed25519_private_key_keyutils(
-        &self,
-        key_id: &str,
-    ) -> Result<ed25519_dalek::SigningKey> {
+    fn retrieve_ed25519_private_key_keyutils(&self, key_id: &str) -> Result<ed25519_dalek::SigningKey> {
         #[cfg(feature = "linux-keychain")]
         {
             use nix::unistd::getuid;
@@ -1876,10 +1642,7 @@ impl LinuxKeyring {
 
             // Get persistent keyring for the user
             let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
+                libc::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING as i32)
             };
 
             if keyring_id == -1 {
@@ -1892,46 +1655,30 @@ impl LinuxKeyring {
 
             // Search for the key in the keyring
             let key_id_result = unsafe {
-                libc::keyctl_search(
-                    keyring_id,
-                    b"user\0".as_ptr() as *const libc::c_char,
-                    desc_c.as_ptr(),
-                    0,
-                )
+                libc::keyctl_search(keyring_id, b"user\0".as_ptr() as *const libc::c_char, desc_c.as_ptr(), 0)
             };
 
             if key_id_result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Key not found in kernel keyring");
-                return Err(AosError::NotFound(format!(
-                    "Key '{}' not found in kernel keyring",
-                    key_id
-                )));
+                return Err(AosError::NotFound(format!("Key '{}' not found in kernel keyring", key_id)));
             }
 
             // Read the key data
             let mut buffer = [0u8; 32];
             let read_result = unsafe {
-                libc::keyctl_read(
-                    key_id_result,
-                    buffer.as_mut_ptr() as *mut libc::c_void,
-                    buffer.len(),
-                )
+                libc::keyctl_read(key_id_result, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
             };
 
             if read_result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Failed to read key from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to read key from kernel keyring".to_string(),
-                ));
+                return Err(AosError::Crypto("Failed to read key from kernel keyring".to_string()));
             }
 
             if read_result != 32 {
                 error!(key_id = %key_id, expected = 32, actual = read_result, "Invalid key length from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Invalid key length from kernel keyring".to_string(),
-                ));
+                return Err(AosError::Crypto("Invalid key length from kernel keyring".to_string()));
             }
 
             let signing_key = ed25519_dalek::SigningKey::from_bytes(&buffer);
@@ -1942,21 +1689,15 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
     /// Store symmetric key in Linux keyring
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
         match self.backend {
-            LinuxKeyringBackend::SecretService => {
-                self.store_symmetric_key_secret_service(key_id, key_data)
-            }
-            LinuxKeyringBackend::KernelKeyring => {
-                self.store_symmetric_key_keyutils(key_id, key_data)
-            }
+            LinuxKeyringBackend::SecretService => self.store_symmetric_key_secret_service(key_id, key_data),
+            LinuxKeyringBackend::KernelKeyring => self.store_symmetric_key_keyutils(key_id, key_data),
         }
     }
 
@@ -2008,9 +1749,7 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
@@ -2028,10 +1767,7 @@ impl LinuxKeyring {
 
             // Get persistent keyring for the user
             let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
+                libc::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING as i32)
             };
 
             if keyring_id == -1 {
@@ -2056,9 +1792,7 @@ impl LinuxKeyring {
             if result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Failed to add symmetric key to kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to store symmetric key in kernel keyring".to_string(),
-                ));
+                return Err(AosError::Crypto("Failed to store symmetric key in kernel keyring".to_string()));
             }
 
             info!(key_id = %key_id, keyring_id = keyring_id, "Stored symmetric key in kernel keyring");
@@ -2068,18 +1802,14 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
     /// Retrieve symmetric key from Linux keyring
     fn retrieve_symmetric_key(&self, key_id: &str) -> Result<Vec<u8>> {
         match self.backend {
-            LinuxKeyringBackend::SecretService => {
-                self.retrieve_symmetric_key_secret_service(key_id)
-            }
+            LinuxKeyringBackend::SecretService => self.retrieve_symmetric_key_secret_service(key_id),
             LinuxKeyringBackend::KernelKeyring => self.retrieve_symmetric_key_keyutils(key_id),
         }
     }
@@ -2115,10 +1845,7 @@ impl LinuxKeyring {
 
             if search_items.is_empty() {
                 error!(key_id = %key_id, "Symmetric key not found in Linux keyring");
-                return Err(AosError::NotFound(format!(
-                    "Symmetric key '{}' not found in Linux keyring",
-                    key_id
-                )));
+                return Err(AosError::NotFound(format!("Symmetric key '{}' not found in Linux keyring", key_id)));
             }
 
             // Get the secret from the first matching item
@@ -2145,9 +1872,7 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 
@@ -2165,10 +1890,7 @@ impl LinuxKeyring {
 
             // Get persistent keyring for the user
             let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
+                libc::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING as i32)
             };
 
             if keyring_id == -1 {
@@ -2181,49 +1903,35 @@ impl LinuxKeyring {
 
             // Search for the key in the keyring
             let key_id_result = unsafe {
-                libc::keyctl_search(
-                    keyring_id,
-                    b"user\0".as_ptr() as *const libc::c_char,
-                    desc_c.as_ptr(),
-                    0,
-                )
+                libc::keyctl_search(keyring_id, b"user\0".as_ptr() as *const libc::c_char, desc_c.as_ptr(), 0)
             };
 
             if key_id_result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Symmetric key not found in kernel keyring");
-                return Err(AosError::NotFound(format!(
-                    "Symmetric key '{}' not found in kernel keyring",
-                    key_id
-                )));
+                return Err(AosError::NotFound(format!("Symmetric key '{}' not found in kernel keyring", key_id)));
             }
 
             // Read the key data - first get the size
-            let size_result = unsafe { libc::keyctl_read(key_id_result, std::ptr::null_mut(), 0) };
+            let size_result = unsafe {
+                libc::keyctl_read(key_id_result, std::ptr::null_mut(), 0)
+            };
 
             if size_result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Failed to get key size from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to read key size from kernel keyring".to_string(),
-                ));
+                return Err(AosError::Crypto("Failed to read key size from kernel keyring".to_string()));
             }
 
             let mut buffer = vec![0u8; size_result as usize];
             let read_result = unsafe {
-                libc::keyctl_read(
-                    key_id_result,
-                    buffer.as_mut_ptr() as *mut libc::c_void,
-                    buffer.len(),
-                )
+                libc::keyctl_read(key_id_result, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len())
             };
 
             if read_result == -1 {
                 let errno = std::io::Error::last_os_error();
                 error!(error = %errno, key_id = %key_id, "Failed to read symmetric key from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to read symmetric key from kernel keyring".to_string(),
-                ));
+                return Err(AosError::Crypto("Failed to read symmetric key from kernel keyring".to_string()));
             }
 
             info!(key_id = %key_id, "Retrieved symmetric key from kernel keyring");
@@ -2233,9 +1941,7 @@ impl LinuxKeyring {
         #[cfg(not(feature = "linux-keychain"))]
         {
             error!("Linux keychain feature not enabled");
-            Err(AosError::Crypto(
-                "Linux keychain support not compiled in".to_string(),
-            ))
+            Err(AosError::Crypto("Linux keychain support not compiled in".to_string()))
         }
     }
 }
@@ -2245,14 +1951,11 @@ impl LinuxKeyring {
 impl KeyringImpl for LinuxKeyring {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         use rand::rngs::OsRng;
-        use rand_core::RngCore;
 
         let handle = match alg {
             KeyAlgorithm::Ed25519 => {
                 let mut rng = OsRng;
-                let mut key_bytes = [0u8; 32];
-                rng.fill_bytes(&mut key_bytes);
-                let signing_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
+                let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
                 let verifying_key = signing_key.verifying_key();
 
                 // Store private key in Linux keyring
@@ -2368,9 +2071,7 @@ impl KeyringImpl for LinuxKeyring {
             Ok(key) => key,
             Err(_) => {
                 // Create signing key if it doesn't exist
-                let _handle = self
-                    .generate_key(signing_key_id, KeyAlgorithm::Ed25519)
-                    .await?;
+                let _handle = self.generate_key(signing_key_id, KeyAlgorithm::Ed25519).await?;
                 self.retrieve_ed25519_private_key(signing_key_id)?
             }
         };
@@ -2420,7 +2121,10 @@ impl KeyringImpl for LinuxKeyring {
         // Create receipt data to sign
         let receipt_data = format!(
             "rotation:{}:{}:{}:{}",
-            key_id, previous_handle.provider_id, new_handle.provider_id, timestamp
+            key_id,
+            previous_handle.provider_id,
+            new_handle.provider_id,
+            timestamp
         );
 
         // Sign the receipt using the provider's signing key
@@ -2464,7 +2168,9 @@ impl KeyringImpl for LinuxKeyring {
         // Create attestation data to sign
         let attestation_data = format!(
             "attestation:{}:{}:{}",
-            provider_type, policy_hash, timestamp
+            provider_type,
+            policy_hash,
+            timestamp
         );
 
         // Sign the attestation
@@ -2490,7 +2196,6 @@ mod tests {
     #[tokio::test]
     async fn test_keychain_provider_basic() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Test key generation for signing
@@ -2520,25 +2225,17 @@ mod tests {
         let ciphertext = provider.seal(encryption_key_id, plaintext).await.unwrap();
         assert!(!ciphertext.is_empty());
 
-        let decrypted = provider
-            .unseal(encryption_key_id, &ciphertext)
-            .await
-            .unwrap();
+        let decrypted = provider.unseal(encryption_key_id, &ciphertext).await.unwrap();
         assert_eq!(decrypted, plaintext);
 
         // Test attestation
         let attestation = provider.attest().await.unwrap();
-        assert!(
-            attestation.provider_type.contains("keychain")
-                || attestation.provider_type.contains("keyring")
-                || attestation.provider_type.contains("password-fallback")
-        );
+        assert!(attestation.provider_type.contains("keychain") || attestation.provider_type.contains("keyring"));
     }
 
     #[tokio::test]
     async fn test_keychain_provider_debug() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Test key generation
@@ -2546,17 +2243,17 @@ mod tests {
             .generate("debug-key", KeyAlgorithm::Ed25519)
             .await
             .unwrap();
-        info!(handle = ?handle, "Generated keychain handle");
+        println!("Generated handle: {:?}", handle);
 
         // Test signing - this should work if the key was stored
         let message = b"Hello, world!";
         match provider.sign("debug-key", message).await {
             Ok(signature) => {
-                info!(sig_len = signature.len(), "Signing successful");
+                println!("Signing successful, signature len: {}", signature.len());
                 assert!(!signature.is_empty());
             }
             Err(e) => {
-                error!(error = ?e, "Signing failed");
+                println!("Signing failed: {:?}", e);
                 panic!("Signing should work after key generation");
             }
         }
@@ -2565,7 +2262,6 @@ mod tests {
     #[tokio::test]
     async fn test_key_rotation() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Generate initial key
@@ -2604,16 +2300,12 @@ mod tests {
     #[tokio::test]
     async fn test_key_lifecycle_ed25519() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         let key_id = "test-ed25519-lifecycle";
 
         // Generate key
-        let handle = provider
-            .generate(key_id, KeyAlgorithm::Ed25519)
-            .await
-            .unwrap();
+        let handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
         assert_eq!(handle.algorithm, KeyAlgorithm::Ed25519);
         assert!(handle.provider_id.contains(key_id));
         assert!(handle.public_key.is_some());
@@ -2626,15 +2318,8 @@ mod tests {
         // Verify signature using public key
         use ed25519_dalek::{Verifier, VerifyingKey};
         let public_key = VerifyingKey::from_bytes(
-            handle
-                .public_key
-                .as_ref()
-                .unwrap()
-                .as_slice()
-                .try_into()
-                .unwrap(),
-        )
-        .unwrap();
+            handle.public_key.as_ref().unwrap().as_slice().try_into().unwrap()
+        ).unwrap();
         let signature_bytes: [u8; 64] = signature.as_slice().try_into().unwrap();
         let signature = ed25519_dalek::Signature::from(signature_bytes);
         assert!(public_key.verify(message, &signature).is_ok());
@@ -2646,8 +2331,7 @@ mod tests {
         // Verify new signature still works
         let new_signature_bytes = provider.sign(key_id, message).await.unwrap();
         assert!(!new_signature_bytes.is_empty());
-        let new_signature_bytes_array: [u8; 64] =
-            new_signature_bytes.as_slice().try_into().unwrap();
+        let new_signature_bytes_array: [u8; 64] = new_signature_bytes.as_slice().try_into().unwrap();
         let new_signature = ed25519_dalek::Signature::from(new_signature_bytes_array);
         assert_ne!(signature, new_signature); // Should be different after rotation
     }
@@ -2655,16 +2339,12 @@ mod tests {
     #[tokio::test]
     async fn test_key_lifecycle_symmetric() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         let key_id = "test-symmetric-lifecycle";
 
         // Generate key
-        let handle = provider
-            .generate(key_id, KeyAlgorithm::Aes256Gcm)
-            .await
-            .unwrap();
+        let handle = provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
         assert_eq!(handle.algorithm, KeyAlgorithm::Aes256Gcm);
         assert!(handle.provider_id.contains(key_id));
         assert!(handle.public_key.is_none()); // Symmetric keys don't have public keys
@@ -2686,7 +2366,6 @@ mod tests {
     #[tokio::test]
     async fn test_provider_attestation() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         let attestation = provider.attest().await.unwrap();
@@ -2701,51 +2380,39 @@ mod tests {
             #[cfg(target_os = "macos")]
             KeychainBackend::MacOS => assert!(attestation.provider_type.contains("macos")),
             #[cfg(target_os = "linux")]
-            KeychainBackend::SecretService => {
-                assert!(attestation.provider_type.contains("secret-service"))
-            }
+            KeychainBackend::SecretService => assert!(attestation.provider_type.contains("secret-service")),
             #[cfg(target_os = "linux")]
-            KeychainBackend::KernelKeyring => {
-                assert!(attestation.provider_type.contains("kernel-keyring"))
-            }
+            KeychainBackend::KernelKeyring => assert!(attestation.provider_type.contains("kernel-keyring")),
             #[cfg(feature = "password-fallback")]
-            KeychainBackend::PasswordFallback => {
-                assert!(attestation.provider_type.contains("password-fallback"))
-            }
+            KeychainBackend::PasswordFallback => assert!(attestation.provider_type.contains("password-fallback")),
         }
     }
 
     #[tokio::test]
     async fn test_concurrent_operations() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config.clone()).unwrap();
 
         // Test concurrent access to the same key
         let key_id = "test-concurrent";
         let provider_arc = std::sync::Arc::new(provider);
 
-        let tasks: Vec<_> = (0..5)
-            .map(|i| {
-                let provider = provider_arc.clone();
-                let message = format!("Message {}", i);
-                tokio::spawn(async move {
-                    // Generate key (idempotent)
-                    let _handle = provider
-                        .generate(key_id, KeyAlgorithm::Ed25519)
-                        .await
-                        .unwrap();
+        let tasks: Vec<_> = (0..5).map(|i| {
+            let provider = provider_arc.clone();
+            let message = format!("Message {}", i);
+            tokio::spawn(async move {
+                // Generate key (idempotent)
+                let _handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
 
-                    // Sign message
-                    let signature = provider.sign(key_id, message.as_bytes()).await.unwrap();
+                // Sign message
+                let signature = provider.sign(key_id, message.as_bytes()).await.unwrap();
 
-                    // Verify signature is not empty
-                    assert!(!signature.is_empty());
+                // Verify signature is not empty
+                assert!(!signature.is_empty());
 
-                    signature
-                })
+                signature
             })
-            .collect();
+        }).collect();
 
         // Wait for all tasks to complete
         let results = futures::future::join_all(tasks).await;
@@ -2769,15 +2436,11 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_ciphertext() {
         let config = KeyProviderConfig::default();
-        std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testfallback123");
         let provider = KeychainProvider::new(config).unwrap();
 
         // Generate a key for sealing
         let key_id = "test-invalid-ciphertext";
-        provider
-            .generate(key_id, KeyAlgorithm::Aes256Gcm)
-            .await
-            .unwrap();
+        provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
 
         // Test with ciphertext too short
         let result = provider.unseal(key_id, b"short").await;
@@ -2788,56 +2451,4 @@ mod tests {
         let result = provider.unseal(key_id, &[0u8; 32]).await;
         assert!(result.is_err());
     }
-}
-
-#[cfg(target_os = "macos")]
-pub async fn store_key_macos(tenant_id: &str, key_data: &[u8]) -> Result<()> {
-    store_key("adapteros_keys", tenant_id, key_data).await
-}
-
-#[cfg(target_os = "macos")]
-pub async fn retrieve_key_macos(tenant_id: &str) -> Result<Vec<u8>> {
-    retrieve_key("adapteros_keys", tenant_id).await
-}
-
-#[cfg(target_os = "linux")]
-pub async fn store_key_linux(tenant_id: &str, key_data: &[u8]) -> Result<(), AosError> {
-    let ss = SecretService::connect(EncryptionType::Plain)
-        .await
-        .map_err(|e| AosError::Crypto(format!("SecretService connect failed: {}", e)))?;
-    let collection = ss
-        .get_default_collection()
-        .await
-        .map_err(|e| AosError::Crypto(format!("Get default collection failed: {}", e)))?;
-    collection
-        .create_item(
-            tenant_id,
-            &[("application", "adapteros")],
-            key_data,
-            true,
-            "text/plain".to_string(),
-        )
-        .await
-        .map_err(|e| AosError::Crypto(format!("Store key failed: {}", e)))?;
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-pub async fn retrieve_key_linux(tenant_id: &str) -> Result<Vec<u8>, AosError> {
-    let ss = SecretService::connect(EncryptionType::Plain)
-        .await
-        .map_err(|e| AosError::Crypto(format!("SecretService connect failed: {}", e)))?;
-    let collection = ss
-        .get_default_collection()
-        .await
-        .map_err(|e| AosError::Crypto(format!("Get default collection failed: {}", e)))?;
-    let item = collection
-        .get_item_by_alias(tenant_id)
-        .await
-        .map_err(|e| AosError::Crypto(format!("Get item failed: {}", e)))?;
-    let secret = item
-        .get_secret()
-        .await
-        .map_err(|e| AosError::Crypto(format!("Get secret failed: {}", e)))?;
-    Ok(secret)
 }

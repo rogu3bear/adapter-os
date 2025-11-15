@@ -200,16 +200,14 @@ pub fn validate_tokenizer_config_json(content: &str) -> Result<()> {
     if let Some(model) = config.get("model") {
         if let Some(model_type) = model.get("type") {
             if let Some(type_str) = model_type.as_str() {
-                let valid_types = [
-                    "BPE",
+                let valid_types = ["BPE",
                     "WordPiece",
                     "Unigram",
                     "BBPE",
                     "GPT2",
                     "Llama",
                     "Qwen2",
-                    "T5",
-                ];
+                    "T5"];
                 if !valid_types.contains(&type_str) {
                     return Err(AosError::Validation(format!(
                         "tokenizer.json contains unknown model type: {}",

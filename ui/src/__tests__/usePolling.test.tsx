@@ -51,10 +51,6 @@ describe('usePolling Effect Dependency Churn', () => {
       expect(screen.getByTestId('loading')).toHaveTextContent('not-loading');
     });
 
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-    });
-
     const initialRenderCount = renderCount;
 
     // Change config frequently (this should not cause excessive re-renders)
@@ -84,21 +80,16 @@ describe('usePolling Effect Dependency Churn', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    // Flush promises
-    await act(async () => {
-      await Promise.resolve();
-    });
-
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledTimes(2); // Initial + 1 poll
     });
 
-    // Should not have excessive re-renders (allow some for state updates, increased threshold for ref updates)
+    // Should not have excessive re-renders (allow some for state updates)
     const finalRenderCount = renderCount;
     const rendersAfterConfigChanges = finalRenderCount - initialRenderCount;
 
     // With proper memoization, config changes should not cause many re-renders
-    expect(rendersAfterConfigChanges).toBeLessThan(15); // Relaxed from 10 to account for multiple config changes and state
+    expect(rendersAfterConfigChanges).toBeLessThan(10);
   });
 
   it('should handle fetchFn changes without breaking polling', async () => {
@@ -122,10 +113,6 @@ describe('usePolling Effect Dependency Churn', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-
     await waitFor(() => {
       expect(mockFetch2).toHaveBeenCalledTimes(1);
     });
@@ -133,10 +120,6 @@ describe('usePolling Effect Dependency Churn', () => {
     // Should still be polling correctly
     act(() => {
       vi.advanceTimersByTime(3000);
-    });
-
-    await act(async () => {
-      await Promise.resolve();
     });
 
     await waitFor(() => {
@@ -186,17 +169,10 @@ describe('usePolling Effect Dependency Churn', () => {
       vi.advanceTimersByTime(1000);
     });
 
-    // Flush promises and timers
-    await act(async () => {
-      await Promise.resolve();
-      vi.runOnlyPendingTimers();
-    });
-
     // Give time for any overlapping intervals to fire
     await new Promise(resolve => setTimeout(resolve, 10));
 
     // Should have exactly 2 fetches: initial + 1 poll (not more due to overlapping intervals)
-    // Adjusted expectation to <=2 if no overlap, but allow for 3 if minor timing issue
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });

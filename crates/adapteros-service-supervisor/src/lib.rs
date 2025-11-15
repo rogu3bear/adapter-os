@@ -25,7 +25,7 @@ pub mod supervisor;
 
 pub use auth::{AuthService, Claims};
 pub use config::SupervisorConfig;
-pub use error::{Result, SupervisorError};
+pub use error::{SupervisorError, Result};
 pub use health::HealthMonitor;
 pub use metrics::init_metrics;
 pub use server::SupervisorServer;

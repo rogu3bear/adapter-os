@@ -107,15 +107,15 @@ export function AdvancedFilter({
           <div key={config.id} className="space-y-2">
             <Label htmlFor={config.id}>{config.label}</Label>
             <Select
-              value={(value as string) || 'all'}
-              onValueChange={(val) => updateFilter(config.id, val === 'all' ? undefined : val)}
+              value={(value as string) || ''}
+              onValueChange={(val) => updateFilter(config.id, val || undefined)}
             >
               <SelectTrigger id={config.id}>
                 <SelectValue placeholder={config.placeholder || `Select ${config.label.toLowerCase()}...`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                {config.options?.filter(opt => opt.value !== '').map((opt) => (
+                <SelectItem value="">All</SelectItem>
+                {config.options?.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -142,7 +142,7 @@ export function AdvancedFilter({
                 <SelectValue placeholder={config.placeholder || `Add ${config.label.toLowerCase()}...`} />
               </SelectTrigger>
               <SelectContent>
-                {config.options?.filter(opt => opt.value !== '' && !multiValues.includes(opt.value)).map((opt) => (
+                {config.options?.filter(opt => !multiValues.includes(opt.value)).map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>

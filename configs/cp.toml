@@ -24,8 +24,6 @@ global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 max_config_size_bytes = 1048576      # 1MB for config.json
 max_tokenizer_size_bytes = 10485760  # 10MB for tokenizer.json
 max_model_size_bytes = 10737418240   # 10GB for model weights
-security.jwt_signing_key_path = "~/adapteros-var/lib/adapteros/jwt_private.pem"
-security.jwt_public_key_pem_file = "~/adapteros-var/lib/adapteros/jwt_public.pem"
 
 [paths]
 artifacts_root = "var/artifacts"

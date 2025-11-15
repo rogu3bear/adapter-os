@@ -1,16 +1,15 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { vi } from 'vitest';
 import { GitIntegrationPage } from '@/components/GitIntegrationPage';
 import apiClient from '@/api/client';
 
 // Mock dependencies
-vi.mock('@/api/client');
+jest.mock('@/api/client');
 
-const mockedApiClient = apiClient as ReturnType<typeof vi.mocked<typeof apiClient>>;
+const mockedApiClient = apiClient as jest.Mocked<typeof apiClient>;
 
 describe('GitIntegrationPage', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   describe('Repository URL formatting', () => {

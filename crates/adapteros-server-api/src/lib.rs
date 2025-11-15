@@ -8,6 +8,7 @@ pub mod operation_tracker;
 pub mod rate_limit;
 pub mod retry;
 pub mod routes;
+pub mod services;
 pub mod signing;
 pub mod state;
 pub mod types;
@@ -16,20 +17,14 @@ pub mod validation;
 
 // Selective imports from adapteros_api_types to avoid conflicts with local types
 pub use adapteros_api_types::{
-    // Metrics types
-    AdapterHealthResponse,
-    AdapterMetricsResponse,
     // Domain adapter types
-    CreateDomainAdapterRequest,
-    DomainAdapterExecutionResponse,
-    DomainAdapterManifestResponse,
-    DomainAdapterResponse,
-    LoadDomainAdapterRequest,
-    QualityMetricsResponse,
+    CreateDomainAdapterRequest, DomainAdapterResponse, DomainAdapterExecutionResponse,
+    DomainAdapterManifestResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
+    TestDomainAdapterResponse,
+    // Metrics types
+    AdapterHealthResponse, QualityMetricsResponse, AdapterMetricsResponse,
     // Training types (only those not defined locally)
     StartTrainingRequest,
-    TestDomainAdapterRequest,
-    TestDomainAdapterResponse,
 };
 
 // Direct imports (not re-exported to avoid conflicts)

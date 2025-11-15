@@ -141,22 +141,6 @@ pub async fn migrate(&self) -> Result<()> {
 **Red Flag:** Explicitly incomplete functionality  
 **Correct Approach:** Complete or remove migration code
 
-### ❌ Using `println!` for Logging
-```rust
-// ❌ BAD: println! for logging
-pub fn log_event(&self, event: &str) {
-    println!("Event: {}", event);
-}
-
-// ✅ GOOD: Use tracing with structure (updated example from lora-kernel-mtl/lib.rs L329)
-pub fn select_device() -> Result<Device> {
-    // ...
-    info!(gpu_idx = idx, device_name = %device.name(), "Selected GPU");
-    // ...
-}
-```
-[source: crates/adapteros-lora-kernel-mtl/src/lib.rs L329]
-
 ---
 
 ## Red Flags Checklist

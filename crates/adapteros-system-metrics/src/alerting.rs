@@ -462,9 +462,7 @@ impl AlertEvaluator {
             // Citation: [source: crates/adapteros-server-api/src/handlers.rs L4598-L4603] - Alert update broadcasting pattern
             if let Some(alert_tx) = &self.alert_tx {
                 // Fetch the created alert to broadcast
-                if let Ok(Some(created_alert)) =
-                    ProcessAlert::get_by_id(self.db.pool(), &alert_id).await
-                {
+                if let Ok(Some(created_alert)) = ProcessAlert::get_by_id(self.db.pool(), &alert_id).await {
                     let alert_response = created_alert.into();
                     let _ = alert_tx.send(alert_response);
                 }
@@ -1300,47 +1298,50 @@ impl AlertEvaluator {
 
     /// Get active adapters for a tenant
     async fn get_active_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterInfo>> {
-        #[derive(sqlx::FromRow, Debug)]
-        struct AdapterRow {
-            category: String,
-            last_accessed: chrono::DateTime<chrono::Utc>,
-        }
+        // Get all active adapters from the database
+        // Note: Current schema doesn't have tenant_id in adapters table
+        // TODO: Add tenant filtering once schema supports it
+        let adapters = self.db.list_adapters_by_state("active")
+            .await
+            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get active adapters: {}", e)))?;
 
-        #[derive(Debug)]
-        pub struct AdapterInfo {
-            pub category: String,
-            pub last_accessed: chrono::DateTime<chrono::Utc>,
-        }
-
-        let rows = sqlx::query_as::<_, AdapterRow>(
-            "SELECT category, last_accessed FROM adapters WHERE active = true AND tenant_id = $1 ORDER BY last_accessed DESC"
-        )
-        .bind(tenant_id)
-        .fetch_all(&self.db.pool())
-        .await?;
-
-        let adapters = rows
+        // Convert to AdapterInfo format
+        let adapter_infos: Vec<AdapterInfo> = adapters
             .into_iter()
-            .map(|row| AdapterInfo {
-                category: row.category,
-                last_accessed: row.last_accessed,
+            .map(|adapter| {
+                // Parse category
+                let category = match adapter.category.as_str() {
+                    "code" => AdapterCategory::Code,
+                    "framework" => AdapterCategory::Framework,
+                    "codebase" => AdapterCategory::Codebase,
+                    "ephemeral" => AdapterCategory::Ephemeral,
+                    _ => AdapterCategory::Code, // Default fallback
+                };
+
+                // Parse last_activated timestamp
+                let last_accessed = adapter.last_activated
+                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(chrono::Utc::now);
+
+                AdapterInfo {
+                    id: adapter.adapter_id,
+                    category,
+                    last_accessed,
+                }
             })
             .collect();
 
-        info!(tenant_id = %tenant_id, count = adapters.len(), "Retrieved active adapters for tenant");
-
-        Ok(adapters)
+        info!(tenant_id = %tenant_id, count = adapter_infos.len(), "Retrieved active adapters for tenant");
+        Ok(adapter_infos)
     }
 
     /// Evict an adapter
     async fn evict_adapter(&self, adapter_id: &str, tenant_id: &str) -> Result<()> {
         // Update adapter state to evicted
-        self.db
-            .update_adapter_state(adapter_id, "evicted", "Memory pressure eviction")
+        self.db.update_adapter_state(adapter_id, "evicted", "Memory pressure eviction")
             .await
-            .map_err(|e| {
-                adapteros_core::AosError::Database(format!("Failed to evict adapter: {}", e))
-            })?;
+            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to evict adapter: {}", e)))?;
 
         // Log eviction to telemetry
         if let Err(e) = self.telemetry_writer.log(
@@ -1595,10 +1596,7 @@ impl AlertEvaluator {
         // Check if control matrix cross-links resolve to existing evidence (Compliance Ruleset #16)
         if let Some(ref policy_engine) = self.policy_engine {
             // Get compliance policy configuration
-            if let Some(compliance_config) = policy_engine
-                .pack_manager()
-                .get_config(&adapteros_policy::PolicyPackId::Compliance)
-            {
+            if let Some(compliance_config) = policy_engine.pack_manager().get_config(&adapteros_policy::PolicyPackId::Compliance) {
                 // Extract compliance-specific configuration
                 let compliance_data = &compliance_config.config;
                 if let Some(compliance_obj) = compliance_data.get("compliance") {
@@ -1612,13 +1610,10 @@ impl AlertEvaluator {
                                     // Validate required evidence fields
                                     let evidence_file = control_obj.get("evidence_file");
                                     let evidence_hash = control_obj.get("evidence_hash");
-                                    let verification_status =
-                                        control_obj.get("verification_status");
+                                    let verification_status = control_obj.get("verification_status");
 
                                     // Check evidence file exists
-                                    if let Some(evidence_path) =
-                                        evidence_file.and_then(|v| v.as_str())
-                                    {
+                                    if let Some(evidence_path) = evidence_file.and_then(|v| v.as_str()) {
                                         if !std::path::Path::new(evidence_path).exists() {
                                             tracing::warn!(
                                                 tenant_id = %tenant_id,
@@ -1648,9 +1643,7 @@ impl AlertEvaluator {
                                     }
 
                                     // Check verification status
-                                    if let Some(status) =
-                                        verification_status.and_then(|v| v.as_str())
-                                    {
+                                    if let Some(status) = verification_status.and_then(|v| v.as_str()) {
                                         if status == "failed" || status == "expired" {
                                             tracing::warn!(
                                                 tenant_id = %tenant_id,
@@ -1871,13 +1864,10 @@ impl AlertEvaluator {
             })?;
 
         // Filter by time window (created_at within last hour)
-        let recent_proposals: Vec<_> = patch_proposals
-            .into_iter()
+        let recent_proposals: Vec<_> = patch_proposals.into_iter()
             .filter(|proposal| {
                 // Parse created_at timestamp and check if it's within the window
-                if let Ok(proposal_time) =
-                    chrono::DateTime::parse_from_rfc3339(&proposal.created_at)
-                {
+                if let Ok(proposal_time) = chrono::DateTime::parse_from_rfc3339(&proposal.created_at) {
                     let proposal_time_utc = proposal_time.with_timezone(&chrono::Utc);
                     proposal_time_utc >= start_time && proposal_time_utc <= end_time
                 } else {
@@ -1889,8 +1879,7 @@ impl AlertEvaluator {
         let total_validations = recent_proposals.len();
 
         // Count successful validations based on status
-        let successful_validations = recent_proposals
-            .iter()
+        let successful_validations = recent_proposals.iter()
             .filter(|proposal| {
                 // Consider "completed" or "applied" as successful validations
                 proposal.status == "completed" || proposal.status == "applied"
@@ -1910,13 +1899,9 @@ impl AlertEvaluator {
 
         for proposal in &recent_proposals {
             // Try to parse validation_result_json for timing data
-            if let Ok(validation_result) =
-                serde_json::from_str::<serde_json::Value>(&proposal.validation_result_json)
-            {
-                if let Some(validation_time) = validation_result
-                    .get("validation_time_ms")
-                    .and_then(|v| v.as_f64())
-                {
+            if let Ok(validation_result) = serde_json::from_str::<serde_json::Value>(&proposal.validation_result_json) {
+                if let Some(validation_time) = validation_result.get("validation_time_ms")
+                    .and_then(|v| v.as_f64()) {
                     total_validation_time += validation_time;
                     timed_validations += 1;
                 }

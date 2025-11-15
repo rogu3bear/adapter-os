@@ -343,7 +343,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
           <CardTitle>Plans</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table className="w-full">
+          <Table className="border-collapse w-full">
             <TableHeader>
               <TableRow>
                 <TableHead className="p-4 border-b border-border w-12">

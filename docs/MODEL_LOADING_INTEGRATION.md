@@ -509,11 +509,3 @@ This implementation adheres to the following policy packs:
 **Implementation Date:** October 15, 2025  
 **Author:** Claude (Anthropic)  
 **Status:** ✅ Core implementation complete, ready for testing
-
-Model loading and import are fully implemented.
-
-Import: After file existence validation, reads contents asynchronously, computes BLAKE3 hashes for weights (hash_b3), config (config_hash_b3), tokenizer (tokenizer_hash_b3), optional tokenizer_config. Inserts into models table (UPSERT on name), creates base_model_status 'unloaded', updates import to 'completed' with progress 100. Uses blake3::hash(&bytes).to_hex() pattern.
-
-Load: Queries hash_b3, builds path "models/{hash_b3}", estimates memory_mb from file len / 1MB * 1.2 (20% overhead), calls runtime.load_model(tenant_id, model_id, path, estimated_mb). On success, updates status 'loaded' with dynamic memory_mb from metadata. Errors map to 'error' status.
-
-Runtime: MLXFFIModel::load via mlx-ffi for actual GPU/CPU loading. Lazy caching supported but explicit load preferred. Verified with cargo check.

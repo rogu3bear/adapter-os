@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Health check result
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -43,10 +43,7 @@ impl HealthMonitor {
     /// Register a health check
     pub async fn register_check(&self, id: String, check: Box<dyn HealthCheck>) {
         self.checks.write().await.insert(id.clone(), check);
-        self.statuses
-            .write()
-            .await
-            .insert(id, HealthResult::Unknown);
+        self.statuses.write().await.insert(id, HealthResult::Unknown);
     }
 
     /// Remove a health check
@@ -116,8 +113,7 @@ impl HealthMonitor {
             return HealthResult::Unknown;
         }
 
-        let unhealthy_count = statuses
-            .values()
+        let unhealthy_count = statuses.values()
             .filter(|result| matches!(result, HealthResult::Unhealthy(_)))
             .count();
 
@@ -144,8 +140,7 @@ impl HealthResponse {
         let statuses = monitor.get_all_statuses().await;
         let system_health = monitor.system_health().await;
 
-        let services = statuses
-            .into_iter()
+        let services = statuses.into_iter()
             .map(|(id, result)| {
                 let status_str = match &result {
                     HealthResult::Healthy => "healthy".to_string(),

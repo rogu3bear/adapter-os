@@ -78,7 +78,12 @@ pub async fn list_replay_sessions(
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
         .await
-        .map_err(db_error_to_response)?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            )
+        })?;
 
     let responses: Vec<ReplaySessionResponse> = sessions
         .into_iter()
@@ -111,7 +116,12 @@ pub async fn get_replay_session(
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(db_error_to_response)?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
+            )
+        })?
         .ok_or((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("replay session not found").with_code("NOT_FOUND")),
@@ -234,17 +244,16 @@ pub async fn replay_from_bundle(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
+                Json(ErrorResponse::new("database error").with_code("DB_ERROR")),
             )
         })?;
 
-    let (cpid, plan_id) = if let Some(row) = row {
-        let cpid: String = row.get("cpid");
-        let plan_id: String = row.get("plan_id");
-        (cpid, plan_id)
-    } else {
-        ("default".to_string(), "default".to_string())
-    };
+    let response = session_to_response(session).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("serialization error").with_code("SERIALIZE_ERROR")),
+        )
+    })?;
 
     let req = CreateReplaySessionRequest {
         tenant_id: claims.tenant_id,

@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { apiClient } from '../api/client';
 import type { Tenant } from '../api/types';
 import { logger, toError } from '../utils/logger';
-import { BookmarkProvider } from '../contexts/BookmarkContext';
 
 // Tenant Context
 interface TenantContextValue {
@@ -122,11 +121,9 @@ function TenantProvider({ children }: { children: ReactNode }) {
 // Feature Providers Component
 export function FeatureProviders({ children }: { children: ReactNode }) {
   return (
-    <BookmarkProvider>
-      <TenantProvider>
-        {children}
-      </TenantProvider>
-    </BookmarkProvider>
+    <TenantProvider>
+      {children}
+    </TenantProvider>
   );
 }
 

@@ -11,10 +11,12 @@
 
 use crate::{types::*, AdapterOSClient};
 use adapteros_api_types::{
-    telemetry::TelemetryBundleResponse, AdapterResponse, BuildPlanRequest, CreateTenantRequest,
-    HealthResponse, InferRequest, InferResponse, LoginRequest, LoginResponse, NodeResponse,
+    telemetry::TelemetryBundleResponse,
+    AdapterResponse, BuildPlanRequest, CreateTenantRequest, HealthResponse,
+    InferRequest, InferResponse, LoginRequest, LoginResponse, NodeResponse,
     PlanResponse, RegisterAdapterRequest, RegisterNodeRequest, SpawnWorkerRequest,
-    StartTrainingRequest, SystemMetricsResponse, TenantResponse, UserInfoResponse, WorkerResponse,
+    StartTrainingRequest, SystemMetricsResponse, TenantResponse, UserInfoResponse,
+    WorkerResponse
 };
 use anyhow::Result;
 use futures_util::stream::BoxStream;
@@ -657,15 +659,16 @@ impl AdapterOSClient for UdsClient {
         })
     }
 
-    async fn login(&self, _req: LoginRequest) -> Result<LoginResponse> {
+    async fn login(
+        &self,
+        _req: LoginRequest,
+    ) -> Result<LoginResponse> {
         Err(anyhow::anyhow!(
             "UDS client does not implement authentication"
         ))
     }
 
-    async fn logout(&self) -> Result<()> {
-        Ok(())
-    }
+    async fn logout(&self) -> Result<()> { Ok(()) }
 
     async fn me(&self) -> Result<UserInfoResponse> {
         Err(anyhow::anyhow!(
@@ -674,7 +677,10 @@ impl AdapterOSClient for UdsClient {
     }
 
     // Extended Auth Methods
-    async fn refresh_token(&self, _token: &str) -> Result<String> {
+    async fn refresh_token(
+        &self,
+        _token: &str,
+    ) -> Result<String> {
         Err(anyhow::anyhow!(
             "UDS client does not implement token refresh"
         ))
@@ -683,26 +689,30 @@ impl AdapterOSClient for UdsClient {
     async fn list_sessions(
         &self,
         _token: &str,
-    ) -> Result<Vec<adapteros_api_types::auth::SessionInfo>> {
+    ) -> Result<Vec<adapteros_api_types::auth::SessionInfo>>
+    {
         Err(anyhow::anyhow!(
             "UDS client does not implement session listing"
         ))
     }
 
-    async fn revoke_session(&self, _token: &str, _session_id: &str) -> Result<String> {
+    async fn revoke_session(
+        &self,
+        _token: &str,
+        _session_id: &str,
+    ) -> Result<String> {
         Err(anyhow::anyhow!(
             "UDS client does not implement session revocation"
         ))
     }
 
-    async fn logout_all(&self, _token: &str) -> Result<String> {
-        Err(anyhow::anyhow!("UDS client does not implement logout all"))
-    }
+    async fn logout_all(&self, _token: &str) -> Result<String> { Err(anyhow::anyhow!("UDS client does not implement logout all")) }
 
     async fn rotate_token(
         &self,
         _token: &str,
-    ) -> Result<adapteros_api_types::auth::RotateTokenResponse> {
+    ) -> Result<adapteros_api_types::auth::RotateTokenResponse>
+    {
         Err(anyhow::anyhow!(
             "UDS client does not implement token rotation"
         ))
@@ -711,7 +721,8 @@ impl AdapterOSClient for UdsClient {
     async fn get_token_metadata(
         &self,
         _token: &str,
-    ) -> Result<adapteros_api_types::auth::TokenMetadata> {
+    ) -> Result<adapteros_api_types::auth::TokenMetadata>
+    {
         Err(anyhow::anyhow!(
             "UDS client does not implement token metadata"
         ))
@@ -721,7 +732,8 @@ impl AdapterOSClient for UdsClient {
         &self,
         _token: &str,
         _req: adapteros_api_types::auth::UpdateProfileRequest,
-    ) -> Result<adapteros_api_types::auth::ProfileResponse> {
+    ) -> Result<adapteros_api_types::auth::ProfileResponse>
+    {
         Err(anyhow::anyhow!(
             "UDS client does not implement profile updates"
         ))
@@ -730,62 +742,80 @@ impl AdapterOSClient for UdsClient {
     async fn get_auth_config(
         &self,
         _token: &str,
-    ) -> Result<adapteros_api_types::auth::AuthConfigResponse> {
-        Err(anyhow::anyhow!("UDS client does not implement auth config"))
-    }
+    ) -> Result<adapteros_api_types::auth::AuthConfigResponse>
+    { Err(anyhow::anyhow!("UDS client does not implement auth config")) }
 
     async fn update_auth_config(
         &self,
         _token: &str,
         _req: adapteros_api_types::auth::UpdateAuthConfigRequest,
-    ) -> Result<adapteros_api_types::auth::AuthConfigResponse> {
+    ) -> Result<adapteros_api_types::auth::AuthConfigResponse>
+    {
         Err(anyhow::anyhow!(
             "UDS client does not implement auth config updates"
         ))
     }
 
-    async fn get_user_info(&self, _token: &str) -> Result<UserInfoResponse> {
-        Err(anyhow::anyhow!("UDS client does not implement user info"))
-    }
+    async fn get_user_info(
+        &self,
+        _token: &str,
+    ) -> Result<UserInfoResponse> { Err(anyhow::anyhow!("UDS client does not implement user info")) }
 
     // Tenants
-    async fn list_tenants(&self) -> Result<Vec<TenantResponse>> {
-        Ok(Vec::new())
-    }
+    async fn list_tenants(
+        &self,
+    ) -> Result<Vec<TenantResponse>> { Ok(Vec::new()) }
 
-    async fn create_tenant(&self, _req: CreateTenantRequest) -> Result<TenantResponse> {
+    async fn create_tenant(
+        &self,
+        _req: CreateTenantRequest,
+    ) -> Result<TenantResponse> {
         Err(anyhow::anyhow!(
             "UDS client does not manage control-plane tenants"
         ))
     }
 
     // Adapters
-    async fn list_adapters(&self) -> Result<Vec<AdapterResponse>> {
+    async fn list_adapters(
+        &self,
+    ) -> Result<Vec<AdapterResponse>> {
         Err(anyhow::anyhow!(
             "UDS client does not expose structured adapter listings"
         ))
     }
 
-    async fn register_adapter(&self, _req: RegisterAdapterRequest) -> Result<AdapterResponse> {
+    async fn register_adapter(
+        &self,
+        _req: RegisterAdapterRequest,
+    ) -> Result<AdapterResponse> {
         Err(anyhow::anyhow!(
             "UDS client does not register adapters with control plane"
         ))
     }
 
-    async fn evict_adapter(&self, _adapter_id: &str) -> Result<()> {
+    async fn evict_adapter(
+        &self,
+        _adapter_id: &str,
+    ) -> Result<()> {
         Err(anyhow::anyhow!(
             "UDS client does not manage adapter eviction via control plane"
         ))
     }
 
-    async fn pin_adapter(&self, _adapter_id: &str, _pinned: bool) -> Result<()> {
+    async fn pin_adapter(
+        &self,
+        _adapter_id: &str,
+        _pinned: bool,
+    ) -> Result<()> {
         Err(anyhow::anyhow!(
             "UDS client does not manage adapter pinning via control plane"
         ))
     }
 
     // Memory Management
-    async fn get_memory_usage(&self) -> Result<MemoryUsageResponse> {
+    async fn get_memory_usage(
+        &self,
+    ) -> Result<MemoryUsageResponse> {
         Err(anyhow::anyhow!(
             "UDS client does not expose control-plane memory usage"
         ))
@@ -795,25 +825,22 @@ impl AdapterOSClient for UdsClient {
     async fn start_adapter_training(
         &self,
         _req: StartTrainingRequest,
-    ) -> Result<TrainingSessionResponse> {
-        Err(anyhow::anyhow!("Training via UDS client is unsupported"))
-    }
+    ) -> Result<TrainingSessionResponse> { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
 
-    async fn get_training_session(&self, _session_id: &str) -> Result<TrainingSessionResponse> {
-        Err(anyhow::anyhow!("Training via UDS client is unsupported"))
-    }
+    async fn get_training_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<TrainingSessionResponse> { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
 
-    async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>> {
-        Err(anyhow::anyhow!("Training via UDS client is unsupported"))
-    }
+    async fn list_training_sessions(
+        &self,
+    ) -> Result<Vec<TrainingSessionResponse>> { Err(anyhow::anyhow!("Training via UDS client is unsupported")) }
 
     // Telemetry
     async fn get_telemetry_events(
         &self,
         _filters: TelemetryFilters,
-    ) -> Result<Vec<TelemetryEvent>> {
-        Err(anyhow::anyhow!("Telemetry via UDS client is unsupported"))
-    }
+    ) -> Result<Vec<TelemetryEvent>> { Err(anyhow::anyhow!("Telemetry via UDS client is unsupported")) }
 
     // Nodes
     async fn list_nodes(&self) -> Result<Vec<NodeResponse>> {
@@ -822,79 +849,114 @@ impl AdapterOSClient for UdsClient {
         ))
     }
 
-    async fn register_node(&self, _req: RegisterNodeRequest) -> Result<NodeResponse> {
+    async fn register_node(
+        &self,
+        _req: RegisterNodeRequest,
+    ) -> Result<NodeResponse> {
         Err(anyhow::anyhow!(
             "Node registration via UDS client is unsupported"
         ))
     }
 
     // Plans
-    async fn list_plans(&self, _tenant_id: Option<String>) -> Result<Vec<PlanResponse>> {
+    async fn list_plans(
+        &self,
+        _tenant_id: Option<String>,
+    ) -> Result<Vec<PlanResponse>> {
         Err(anyhow::anyhow!(
             "Plan management via UDS client is unsupported"
         ))
     }
 
-    async fn build_plan(&self, _req: BuildPlanRequest) -> Result<JobResponse> {
+    async fn build_plan(
+        &self,
+        _req: BuildPlanRequest,
+    ) -> Result<JobResponse> {
         Err(anyhow::anyhow!(
             "Plan building via UDS client is unsupported"
         ))
     }
 
     // Workers
-    async fn list_workers(&self, _tenant_id: Option<String>) -> Result<Vec<WorkerResponse>> {
+    async fn list_workers(
+        &self,
+        _tenant_id: Option<String>,
+    ) -> Result<Vec<WorkerResponse>> {
         Err(anyhow::anyhow!(
             "Worker management via UDS client is unsupported"
         ))
     }
 
-    async fn spawn_worker(&self, _req: SpawnWorkerRequest) -> Result<()> {
+    async fn spawn_worker(
+        &self,
+        _req: SpawnWorkerRequest,
+    ) -> Result<()> {
         Err(anyhow::anyhow!(
             "Worker spawning via UDS client is unsupported"
         ))
     }
 
     // CP Operations
-    async fn promote_cp(&self, _req: PromoteCPRequest) -> Result<PromotionResponse> {
+    async fn promote_cp(
+        &self,
+        _req: PromoteCPRequest,
+    ) -> Result<PromotionResponse> {
         Err(anyhow::anyhow!(
             "Control-plane promotion via UDS client is unsupported"
         ))
     }
 
-    async fn promotion_gates(&self, _cpid: String) -> Result<PromotionGatesResponse> {
+    async fn promotion_gates(
+        &self,
+        _cpid: String,
+    ) -> Result<PromotionGatesResponse> {
         Err(anyhow::anyhow!(
             "Control-plane promotion via UDS client is unsupported"
         ))
     }
 
-    async fn rollback_cp(&self, _req: RollbackCPRequest) -> Result<RollbackResponse> {
+    async fn rollback_cp(
+        &self,
+        _req: RollbackCPRequest,
+    ) -> Result<RollbackResponse> {
         Err(anyhow::anyhow!(
             "Control-plane rollback via UDS client is unsupported"
         ))
     }
 
     // Jobs
-    async fn list_jobs(&self, _tenant_id: Option<String>) -> Result<Vec<JobResponse>> {
+    async fn list_jobs(
+        &self,
+        _tenant_id: Option<String>,
+    ) -> Result<Vec<JobResponse>> {
         Err(anyhow::anyhow!(
             "Job management via UDS client is unsupported"
         ))
     }
 
     // Models
-    async fn import_model(&self, _req: ImportModelRequest) -> Result<()> {
+    async fn import_model(
+        &self,
+        _req: ImportModelRequest,
+    ) -> Result<()> {
         Err(anyhow::anyhow!(
             "Model import via UDS client is unsupported"
         ))
     }
 
     // Policies
-    async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>> {
+    async fn list_policies(
+        &self,
+    ) -> Result<Vec<PolicyPackResponse>> {
         Err(anyhow::anyhow!(
             "Policy management via UDS client is unsupported"
         ))
     }
 
-    async fn get_policy(&self, _cpid: String) -> Result<PolicyPackResponse> {
+    async fn get_policy(
+        &self,
+        _cpid: String,
+    ) -> Result<PolicyPackResponse> {
         Err(anyhow::anyhow!(
             "Policy management via UDS client is unsupported"
         ))
@@ -909,27 +971,38 @@ impl AdapterOSClient for UdsClient {
         ))
     }
 
-    async fn apply_policy(&self, _req: ApplyPolicyRequest) -> Result<PolicyPackResponse> {
+    async fn apply_policy(
+        &self,
+        _req: ApplyPolicyRequest,
+    ) -> Result<PolicyPackResponse> {
         Err(anyhow::anyhow!(
             "Policy management via UDS client is unsupported"
         ))
     }
 
     // Telemetry Bundles
-    async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>> {
+    async fn list_telemetry_bundles(
+        &self,
+    ) -> Result<Vec<TelemetryBundleResponse>> {
         Err(anyhow::anyhow!(
             "Telemetry bundles via UDS client are unsupported"
         ))
     }
 
     // Code Intelligence
-    async fn register_repo(&self, _req: RegisterRepoRequest) -> Result<RepoResponse> {
+    async fn register_repo(
+        &self,
+        _req: RegisterRepoRequest,
+    ) -> Result<RepoResponse> {
         Err(anyhow::anyhow!(
             "Code intelligence via UDS client is unsupported"
         ))
     }
 
-    async fn scan_repo(&self, _req: ScanRepoRequest) -> Result<JobResponse> {
+    async fn scan_repo(
+        &self,
+        _req: ScanRepoRequest,
+    ) -> Result<JobResponse> {
         Err(anyhow::anyhow!(
             "Code intelligence via UDS client is unsupported"
         ))
@@ -941,19 +1014,27 @@ impl AdapterOSClient for UdsClient {
         ))
     }
 
-    async fn list_adapters_by_tenant(&self, _tenant_id: String) -> Result<ListAdaptersResponse> {
+    async fn list_adapters_by_tenant(
+        &self,
+        _tenant_id: String,
+    ) -> Result<ListAdaptersResponse> {
         Err(anyhow::anyhow!(
             "Code intelligence via UDS client is unsupported"
         ))
     }
 
-    async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>> {
+    async fn get_adapter_activations(
+        &self,
+    ) -> Result<Vec<ActivationData>> {
         Err(anyhow::anyhow!(
             "Code intelligence via UDS client is unsupported"
         ))
     }
 
-    async fn create_commit_delta(&self, _req: CommitDeltaRequest) -> Result<CommitDeltaResponse> {
+    async fn create_commit_delta(
+        &self,
+        _req: CommitDeltaRequest,
+    ) -> Result<CommitDeltaResponse> {
         Err(anyhow::anyhow!(
             "Code intelligence via UDS client is unsupported"
         ))
@@ -979,63 +1060,85 @@ impl AdapterOSClient for UdsClient {
         ))
     }
 
-    async fn score_adapters(&self, _req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse> {
+    async fn score_adapters(
+        &self,
+        _req: ScoreAdaptersRequest,
+    ) -> Result<ScoreAdaptersResponse> {
         Err(anyhow::anyhow!(
             "Routing inspector via UDS client is unsupported"
         ))
     }
 
     // Patch Lab
-    async fn propose_patch(&self, _req: ProposePatchRequest) -> Result<ProposePatchResponse> {
-        Err(anyhow::anyhow!("Patch lab via UDS client is unsupported"))
-    }
+    async fn propose_patch(
+        &self,
+        _req: ProposePatchRequest,
+    ) -> Result<ProposePatchResponse> { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
 
-    async fn validate_patch(&self, _req: ValidatePatchRequest) -> Result<ValidatePatchResponse> {
-        Err(anyhow::anyhow!("Patch lab via UDS client is unsupported"))
-    }
+    async fn validate_patch(
+        &self,
+        _req: ValidatePatchRequest,
+    ) -> Result<ValidatePatchResponse> { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
 
-    async fn apply_patch(&self, _req: ApplyPatchRequest) -> Result<ApplyPatchResponse> {
-        Err(anyhow::anyhow!("Patch lab via UDS client is unsupported"))
-    }
+    async fn apply_patch(
+        &self,
+        _req: ApplyPatchRequest,
+    ) -> Result<ApplyPatchResponse> { Err(anyhow::anyhow!("Patch lab via UDS client is unsupported")) }
 
     // Code Policy
-    async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        Err(anyhow::anyhow!("Code policy via UDS client is unsupported"))
-    }
+    async fn get_code_policy(
+        &self,
+    ) -> Result<GetCodePolicyResponse> { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
 
-    async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
-        Err(anyhow::anyhow!("Code policy via UDS client is unsupported"))
-    }
+    async fn update_code_policy(
+        &self,
+        _req: UpdateCodePolicyRequest,
+    ) -> Result<()> { Err(anyhow::anyhow!("Code policy via UDS client is unsupported")) }
 
     // Metrics Dashboard
-    async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
+    async fn get_code_metrics(
+        &self,
+        _req: CodeMetricsRequest,
+    ) -> Result<CodeMetricsResponse> {
         Err(anyhow::anyhow!(
             "Metrics dashboard via UDS client is unsupported"
         ))
     }
 
-    async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
+    async fn compare_metrics(
+        &self,
+        _req: CompareMetricsRequest,
+    ) -> Result<CompareMetricsResponse> {
         Err(anyhow::anyhow!(
             "Metrics dashboard via UDS client is unsupported"
         ))
     }
 
     // Inference
-    async fn infer(&self, _req: InferRequest) -> Result<InferResponse> {
+    async fn infer(
+        &self,
+        _req: InferRequest,
+    ) -> Result<InferResponse> {
         Err(anyhow::anyhow!(
             "Inference via UDS client should use inference_with_signals"
         ))
     }
 
     // System Metrics
-    async fn get_system_metrics(&self) -> Result<SystemMetricsResponse> {
+    async fn get_system_metrics(
+        &self,
+    ) -> Result<SystemMetricsResponse> {
         Err(anyhow::anyhow!(
             "System metrics via UDS client is unsupported"
         ))
     }
 
     // Journeys
-    async fn get_journey(&self, _journey_type: String, _id: String) -> Result<serde_json::Value> {
+    async fn get_journey(
+        &self,
+        _journey_type: String,
+        _id: String,
+    ) -> Result<serde_json::Value> {
         Err(anyhow::anyhow!(
             "Journey endpoints via UDS client is unsupported"
         ))

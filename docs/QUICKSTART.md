@@ -49,7 +49,6 @@ cargo build --release --features telemetry,rag-pgvector
 cargo build --release --package adapteros-lora-worker
 cargo build --release --package adapteros-server
 cargo build --release --package adapteros-cli
-cargo build --release --package adapteros-service-supervisor  # For service management
 ```
 
 ## Understanding the Database
@@ -94,11 +93,8 @@ The following sections show basic operations with the database.
 ./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
 ./target/release/aosctl serve --plan <plan-id>
 
-# Start integrated server with supervisor
+# Or use the integrated server
 ./target/release/adapteros-server --config configs/cp.toml
-
-# Monitor services via supervisor
-./target/release/adapteros-service-supervisor --config configs/cp.toml  # If separate
 ```
 
 ## Quick Start: Web UI

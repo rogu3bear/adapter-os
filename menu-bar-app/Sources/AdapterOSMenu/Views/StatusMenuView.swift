@@ -19,6 +19,9 @@ protocol StatusMenuPresenting: ObservableObject {
     func openLogs()
     func unloadModel() async
     func incrementRequestCount()
+    func loadSampleOKStatus() async
+    func loadSampleDegradedStatus() async
+    func simulateMissingFile() async
 }
 
 @MainActor
@@ -47,13 +50,13 @@ struct StatusMenuView<ViewModel: StatusMenuPresenting>: View {
             Toggle("Performance Overlay", isOn: performanceOverlayBinding)
                 .toggleStyle(.switch)
             Button("Load Sample OK JSON") {
-                Task { (viewModel as? StatusViewModel)?.loadSampleOKStatus() }
+                Task { await viewModel.loadSampleOKStatus() }
             }
             Button("Load Sample Degraded JSON") {
-                Task { (viewModel as? StatusViewModel)?.loadSampleDegradedStatus() }
+                Task { await viewModel.loadSampleDegradedStatus() }
             }
             Button("Simulate Missing File") {
-                Task { (viewModel as? StatusViewModel)?.simulateMissingFile() }
+                Task { await viewModel.simulateMissingFile() }
             }
         }
     }

@@ -13,7 +13,6 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
 - **Secure Keychain Integration**: Multi-platform hardware-backed key storage (Secure Enclave, OS keychains, encrypted fallbacks)
-- **Production-Ready Streaming**: Authenticated real-time SSE streams for training, discovery, and contact events with circuit breaker protection
 - **Policy Enforcement**: 21 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
@@ -52,12 +51,6 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 │  │  • Hardware Secure Enclave (macOS)              │  │
 │  │  • OS Keychain Services                          │  │
 │  │  • Encrypted Keystore Fallback                   │  │
-│  └──────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │   🔒 Production Streaming API                    │  │
-│  │  • Authenticated SSE Streams                     │  │
-│  │  • Circuit Breaker Protection                    │  │
-│  │  • Multi-Worker Aggregation                      │  │
 │  └──────────────────────────────────────────────────┘  │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
@@ -416,42 +409,6 @@ The CLI supports two data formats:
 
 The CLI automatically detects the format. For text-based data, specify `--tokenizer` (defaults to `models/qwen2.5-7b-mlx/tokenizer.json`). Ensure your tokenization matches the tokenizer used at inference time (e.g., Qwen tokenizer). Smoke test by encoding/decoding a few snippets and running a tiny training (N=2, epochs=1) to observe loss decrease.
 
-### CodeGraph Analysis (Repository Intelligence)
-
-AdapterOS includes comprehensive repository analysis capabilities for framework detection, language analysis, and security scanning:
-
-```bash
-# Detect frameworks in a project directory
-curl -X POST http://127.0.0.1:8080/api/v1/codegraph/frameworks/detect \
-  -H 'Authorization: Bearer adapteros-local' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "path": "/path/to/project",
-    "framework_types": ["React", "Django"]
-  }'
-
-# Get comprehensive repository metadata
-curl -X POST http://127.0.0.1:8080/api/v1/codegraph/repository/metadata \
-  -H 'Authorization: Bearer adapteros-local' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "path": "/path/to/repository",
-    "include_frameworks": true,
-    "include_languages": true,
-    "include_security": true
-  }'
-```
-
-**Features:**
-- **15+ Framework Detection**: React, Next.js, Vue, Angular, Django, FastAPI, Flask, Rails, Laravel, Spring Boot, Quarkus, Actix Web, Axum, Express
-- **Language Analysis**: File counts, line counts, percentage distributions
-- **Security Scanning**: Entropy-based secret detection with configurable severity
-- **Git Integration**: Efficient repository statistics without expensive operations
-- **Intelligent Caching**: 5-minute TTL caching for performance
-- **Production Security**: Path validation, traversal protection, rate limiting
-
-Results feed into the K-sparse LoRA router for context-aware adapter selection.
-
 ```bash
 cargo doc --no-deps --open
 ```
@@ -486,54 +443,6 @@ Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.04-unstable:
 | K=5, 10 adapters | 38 tok/s | 28ms | 18GB | ✓ |
 
 *Router overhead: ~8% at K=3, Policy enforcement: <1%*
-
----
-
-## 🔄 Production Streaming API
-
-AdapterOS provides **enterprise-grade real-time streaming** with cryptographic authentication, circuit breaker protection, and multi-worker aggregation.
-
-### Streaming Endpoints
-
-| Endpoint | Purpose | Authentication | Real-time Source |
-|----------|---------|----------------|------------------|
-| `GET /v1/streams/training` | Training progress & metrics | JWT + tenant filter | `TrainingService` events |
-| `GET /v1/streams/discovery` | Repository scanning & analysis | JWT + tenant/repo filter | `DiscoverySignalBridge` |
-| `GET /v1/streams/contacts` | Contact discovery & interactions | JWT + tenant filter | `ContactDiscoveryHandler` |
-
-### Key Features
-
-- **🔐 Cryptographic Authentication**: Ed25519 signatures prevent signal tampering
-- **🛡️ Circuit Breaker Protection**: Automatic failure detection and recovery
-- **🔄 Multi-Worker Aggregation**: Load balancing across worker pools
-- **📊 Real-time Metrics**: Signal processing health monitoring
-- **🏢 Enterprise Reliability**: Exponential backoff, graceful shutdown, tenant isolation
-
-### Configuration
-
-```toml
-[signals]
-auth_required = true                    # Require authentication (production default)
-channel_capacity = 256                  # Broadcast buffer size
-retry_delay_secs = 5                    # Initial retry delay
-max_retry_delay_secs = 300              # Max backoff delay (5min)
-circuit_breaker_threshold = 5           # Failure threshold
-circuit_breaker_reset_secs = 60         # Recovery timeout
-connection_timeout_secs = 30            # UDS connection timeout
-multi_worker_enabled = true             # Worker pool aggregation
-```
-
-### Example Usage
-
-```bash
-# Stream training progress for tenant "acme"
-curl -H "Authorization: Bearer <jwt>" \
-     "http://localhost:8080/api/v1/streams/training?tenant=acme"
-
-# Stream repository discovery events
-curl -H "Authorization: Bearer <jwt>" \
-     "http://localhost:8080/api/v1/streams/discovery?tenant=acme&repo=github.com/acme/payments"
-```
 
 ---
 
@@ -630,6 +539,13 @@ AdapterOS alpha-v0.04-unstable includes:
 - ✅ **Security**: Keychain implementations secure (no hardcoded keys)
 - ✅ **Testing**: Integration tests enabled, unit tests passing
 - ✅ **UI Updates**: Root layout improvements in React
+- ⚠️ **Server**: Compilation errors prevent full E2E testing
+- See [MVP Quick Start Guide](docs/MVP_QUICKSTART.md) for details
+
+### MVP Status
+- ✅ **Core Components**: Inference pipeline, router, CLI all functional
+- ✅ **Security**: Keychain implementations secure (no hardcoded keys)
+- ✅ **Testing**: Integration tests enabled, unit tests passing
 - ⚠️ **Server**: Compilation errors prevent full E2E testing
 - See [MVP Quick Start Guide](docs/MVP_QUICKSTART.md) for details
 

@@ -3,7 +3,7 @@
 **Date:** 2025-01-15  
 **Auditor:** AI Documentation Expert  
 **Scope:** 50 questions covering structure, clarity, completeness, usability, and accuracy  
-**Note:** This audit was performed on alpha-v0.04-unstable. Current version is alpha-v0.04-unstable.
+**Note:** This audit was performed on alpha-v0.01-1. Current version is v0.3-alpha.
 
 ---
 
@@ -462,7 +462,7 @@
 **Answer: NO** ❌
 
 - **Missing:** No migration guides found
-- **Issue:** Version was "alpha-v0.04-unstable" (now alpha-v0.04-unstable) but no migration docs
+- **Issue:** Version was "alpha-v0.01-1" (now v0.3-alpha) but no migration docs
 - **Partial:** Some breaking changes mentioned in `CONTRIBUTING.md`
 
 **Evidence:**
@@ -740,13 +740,13 @@
 
 **Evidence:**
 - No test suite for documentation examples found
-- Examples reference "alpha-v0.04-unstable" version
+- Examples reference "alpha-v0.01-1" version
 
 **Recommendation:** Create automated tests for documentation examples
 
 ---
 
-### 42. Is version information clearly marked (e.g., "alpha-v0.04-unstable") in all relevant docs?
+### 42. Is version information clearly marked (e.g., "alpha-v0.01-1") in all relevant docs?
 
 **Answer: PARTIALLY** ✅/❌
 
@@ -757,7 +757,7 @@
   - Inconsistent version format
 
 **Evidence:**
-- `README.md` line 5: "alpha-v0.04-unstable" ✅
+- `README.md` line 5: "alpha-v0.01-1" ✅
 - `docs/README.md` line 253: "MPLoRA Version: Development" ❌
 - `docs/TROUBLESHOOTING.md` line 1158: "Version: 1.0" (different format)
 
@@ -838,13 +838,13 @@
 **Answer: YES** ❌
 
 - **Issues Found:**
-  - Version inconsistency: Was "alpha-v0.04-unstable" vs "Development" vs "1.0" (now standardized to alpha-v0.04-unstable)
+  - Version inconsistency: Was "alpha-v0.01-1" vs "Development" vs "1.0" (now standardized to v0.3-alpha)
   - Policy count: Said "20" but listed "22" policies (now corrected to 22)
   - Name inconsistency: "AdapterOS" vs "MPLoRA" (now standardized with naming conventions)
 
 **Evidence (from audit time):**
-- `README.md`: Was "alpha-v0.04-unstable" (now alpha-v0.04-unstable)
-- `docs/README.md`: Was "Development" (now alpha-v0.04-unstable)
+- `README.md`: Was "alpha-v0.01-1" (now v0.3-alpha)
+- `docs/README.md`: Was "Development" (now v0.3-alpha)
 - `docs/POLICIES.md` line 3: "22 canonical policy packs" but title said "20" (now corrected)
 
 **Recommendation:** Fix contradictions, establish single source of truth

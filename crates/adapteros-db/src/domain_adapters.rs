@@ -3,8 +3,7 @@ use adapteros_api_types::{
     DomainAdapterExecutionResponse, DomainAdapterManifestResponse, DomainAdapterResponse,
     EpsilonStatsResponse, TestDomainAdapterResponse,
 };
-use adapteros_core::{AosError, Result};
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -233,18 +232,6 @@ impl From<DomainAdapterTestRecord> for TestDomainAdapterResponse {
     }
 }
 
-#[derive(Debug)]
-pub struct DomainAdapterTestParams {
-    pub adapter_id: String,
-    pub input_data: String,
-    pub actual_output: String,
-    pub expected_output: Option<String>,
-    pub epsilon: Option<f64>,
-    pub passed: bool,
-    pub iterations: u32,
-    pub execution_time_ms: u64,
-}
-
 impl Db {
     /// Create a new domain adapter
     pub async fn create_domain_adapter(&self, params: DomainAdapterCreateParams) -> Result<String> {
@@ -407,30 +394,39 @@ impl Db {
         Ok(records.into_iter().map(Into::into).collect())
     }
 
+    /// Record domain adapter test
     pub async fn record_domain_adapter_test(
         &self,
-        params: DomainAdapterTestParams,
+        adapter_id: &str,
+        input_data: &str,
+        actual_output: &str,
+        expected_output: Option<&str>,
+        epsilon: Option<f64>,
+        passed: bool,
+        iterations: u32,
+        execution_time_ms: u64,
     ) -> Result<String> {
         let test_id = Uuid::now_v7().to_string();
+        let now = Utc::now().to_rfc3339();
+
         sqlx::query(
-            r#"
-            INSERT INTO domain_adapter_tests (id, adapter_id, input_data, actual_output, expected_output, epsilon, passed, iterations, execution_time_ms, tested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
+            "INSERT INTO domain_adapter_tests (
+                test_id, adapter_id, input_data, actual_output, expected_output,
+                epsilon, passed, iterations, execution_time_ms, executed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&test_id)
-        .bind(&params.adapter_id)
-        .bind(&params.input_data)
-        .bind(&params.actual_output)
-        .bind(&params.expected_output)
-        .bind(&params.epsilon)
-        .bind(params.passed)
-        .bind(params.iterations as i32)
-        .bind(params.execution_time_ms as i64)
-        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(adapter_id)
+        .bind(input_data)
+        .bind(actual_output)
+        .bind(expected_output)
+        .bind(epsilon)
+        .bind(passed)
+        .bind(iterations as i32)
+        .bind(execution_time_ms as i64)
+        .bind(&now)
         .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to record domain adapter test: {}", e)))?;
+        .await?;
 
         Ok(test_id)
     }

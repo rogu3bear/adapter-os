@@ -13,8 +13,6 @@
 - **Rate Limiter**: Pending (token-bucket per tenant in M1)
 - **Phase 1 Patches Complete**: Concurrent operations fixed for deduplication (always conflict on existing) [source: crates/adapteros-server-api/src/operation_tracker.rs L200-L250]. Model loading stubbed for M0 flow [source: crates/adapteros-server-api/src/handlers/models.rs L400-L450]. Tests: All concurrent scenarios pass (1 success/4 conflicts, etc.).
 
-**M0 Compliance**: [COMPLETE] Loopback TCP [source: crates/adapteros-server/src/main.rs L100-L150]. HMAC JWT [source: crates/adapteros-server-api/src/auth.rs L50-L100]. Rate Limiter [source: crates/adapteros-server-api/src/rate_limit.rs L1-L150]. Replay [source: crates/adapteros-server-api/src/handlers/replay.rs L1-L400].
-
 ### 3. **AdapterOS Runtime Layer**
 
 #### **Core Services**

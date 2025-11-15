@@ -1,7 +1,7 @@
 import Foundation
 
 /// Status of a managed service
-public struct ServiceStatus: Codable {
+struct ServiceStatus: Codable {
     let id: String                    // Service identifier
     let name: String                  // Human-readable service name
     let state: String                 // "stopped" | "starting" | "running" | "stopping" | "failed" | "restarting"
@@ -15,7 +15,7 @@ public struct ServiceStatus: Codable {
 /// AdapterOS status model decoded from /var/run/adapteros_status.json
 /// Unknown keys are ignored by default Decodable behavior.
 /// Optional fields allow for backward compatibility with older JSON formats.
-public struct AdapterOSStatus: Codable {
+struct AdapterOSStatus: Codable {
     let schema_version: String?   // Schema version for compatibility (optional for legacy)
     let status: String            // "ok" | "degraded" | "error"
     let uptime_secs: UInt64

@@ -315,112 +315,110 @@ class StatusViewModel: ObservableObject {
 
     // MARK: - Debug Test Injections
 
-#if DEBUG
-public func loadSampleOKStatus() async {
-    // Create a sample status manually since no static samples exist
-    let sampleStatus = AdapterOSStatus(
-        schema_version: "1.0",
-        status: "ok",
-        uptime_secs: 3600,
-        adapters_loaded: 3,
-        deterministic: true,
-        kernel_hash: "abcdef123456",
-        telemetry_mode: "full",
-        worker_count: 4,
-        base_model_loaded: true,
-        base_model_id: "llama-2-7b",
-        base_model_name: "Llama-2-7B",
-        base_model_status: "loaded",
-        base_model_memory_mb: 14336,
-        services: [
-            ServiceStatus(
-                id: "api-server",
-                name: "API Server",
-                state: "running",
-                pid: 12345,
-                port: 8080,
-                health_status: "healthy",
-                restart_count: 0,
-                last_error: nil
-            ),
-            ServiceStatus(
-                id: "worker-pool",
-                name: "Worker Pool",
-                state: "running",
-                pid: nil,
-                port: nil,
-                health_status: "healthy",
-                restart_count: 0,
-                last_error: nil
-            )
-        ]
-    )
-    status = sampleStatus
-    lastError = nil
-    isOffline = false
-    lastUpdate = Date()
-    appStatus = AppStatusViewState(status: sampleStatus, metrics: metrics, lastUpdated: lastUpdate)
-    addStatusSnapshot(sampleStatus)
-    commandToast = CommandToast(message: "Loaded sample OK status", kind: .info)
-}
+    func loadSampleOKStatus() async {
+        // Create a sample status manually since no static samples exist
+        let sampleStatus = AdapterOSStatus(
+            schema_version: "1.0",
+            status: "ok",
+            uptime_secs: 3600,
+            adapters_loaded: 3,
+            deterministic: true,
+            kernel_hash: "abcdef123456",
+            telemetry_mode: "full",
+            worker_count: 4,
+            base_model_loaded: true,
+            base_model_id: "llama-2-7b",
+            base_model_name: "Llama-2-7B",
+            base_model_status: "loaded",
+            base_model_memory_mb: 14336,
+            services: [
+                ServiceStatus(
+                    id: "api-server",
+                    name: "API Server",
+                    state: "running",
+                    pid: 12345,
+                    port: 8080,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                ),
+                ServiceStatus(
+                    id: "worker-pool",
+                    name: "Worker Pool",
+                    state: "running",
+                    pid: nil,
+                    port: nil,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                )
+            ]
+        )
+        status = sampleStatus
+        lastError = nil
+        isOffline = false
+        lastUpdate = Date()
+        appStatus = AppStatusViewState(status: sampleStatus, metrics: metrics, lastUpdated: lastUpdate)
+        addStatusSnapshot(sampleStatus)
+        commandToast = CommandToast(message: "Loaded sample OK status", kind: .info)
+    }
 
-public func loadSampleDegradedStatus() async {
-    // Create a sample degraded status
-    let sampleStatus = AdapterOSStatus(
-        schema_version: "1.0",
-        status: "degraded",
-        uptime_secs: 1800,
-        adapters_loaded: 2,
-        deterministic: true,
-        kernel_hash: "def456789012",
-        telemetry_mode: "minimal",
-        worker_count: 3,
-        base_model_loaded: true,
-        base_model_id: "llama-2-7b",
-        base_model_name: "Llama-2-7B",
-        base_model_status: "loaded",
-        base_model_memory_mb: 14336,
-        services: [
-            ServiceStatus(
-                id: "api-server",
-                name: "API Server",
-                state: "running",
-                pid: 12345,
-                port: 8080,
-                health_status: "healthy",
-                restart_count: 0,
-                last_error: nil
-            ),
-            ServiceStatus(
-                id: "worker-pool",
-                name: "Worker Pool",
-                state: "failed",
-                pid: nil,
-                port: nil,
-                health_status: "unhealthy",
-                restart_count: 2,
-                last_error: "Connection timeout"
-            )
-        ]
-    )
-    status = sampleStatus
-    lastError = nil
-    isOffline = false
-    lastUpdate = Date()
-    appStatus = AppStatusViewState(status: sampleStatus, metrics: metrics, lastUpdated: lastUpdate)
-    addStatusSnapshot(sampleStatus)
-    commandToast = CommandToast(message: "Loaded sample degraded status", kind: .info)
-}
+    func loadSampleDegradedStatus() async {
+        // Create a sample degraded status
+        let sampleStatus = AdapterOSStatus(
+            schema_version: "1.0",
+            status: "degraded",
+            uptime_secs: 1800,
+            adapters_loaded: 2,
+            deterministic: true,
+            kernel_hash: "def456789012",
+            telemetry_mode: "minimal",
+            worker_count: 3,
+            base_model_loaded: true,
+            base_model_id: "llama-2-7b",
+            base_model_name: "Llama-2-7B",
+            base_model_status: "loaded",
+            base_model_memory_mb: 14336,
+            services: [
+                ServiceStatus(
+                    id: "api-server",
+                    name: "API Server",
+                    state: "running",
+                    pid: 12345,
+                    port: 8080,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                ),
+                ServiceStatus(
+                    id: "worker-pool",
+                    name: "Worker Pool",
+                    state: "failed",
+                    pid: nil,
+                    port: nil,
+                    health_status: "unhealthy",
+                    restart_count: 2,
+                    last_error: "Connection timeout"
+                )
+            ]
+        )
+        status = sampleStatus
+        lastError = nil
+        isOffline = false
+        lastUpdate = Date()
+        appStatus = AppStatusViewState(status: sampleStatus, metrics: metrics, lastUpdated: lastUpdate)
+        addStatusSnapshot(sampleStatus)
+        commandToast = CommandToast(message: "Loaded sample degraded status", kind: .info)
+    }
 
-public func simulateMissingFile() async {
-    lastError = StatusReadError.fileMissing
-    isOffline = true
-    status = nil
-    appStatus = nil
-    trustState = .pending
-    commandToast = CommandToast(message: "Simulated missing file", kind: .error)
-}
-#endif
+    func simulateMissingFile() async {
+        lastError = StatusReadError.fileMissing
+        isOffline = true
+        status = nil
+        appStatus = nil
+        trustState = .pending
+        commandToast = CommandToast(message: "Simulated missing file", kind: .error)
+    }
 
     // MARK: - VNODE watcher
     private func setupWatcher() {
@@ -575,27 +573,79 @@ private extension StatusViewModel {
             notificationManager.notifyTrustIssue(reason)
         }
     }
-}
 
-func clearAllCaches() {
-    // Clear response cache
-    ResponseCache.shared.clearCache()
+    // MARK: - Debug Methods
 
-    // Clear any other cached data
-    // Note: Status snapshots are kept for debugging
+    func injectTestStatus() {
+        // Create a test status for debugging
+        let testStatus = AdapterOSStatus(
+            schema_version: "1.0",
+            status: "ok",
+            uptime_secs: 3600, // 1 hour
+            adapters_loaded: 5,
+            deterministic: true,
+            kernel_hash: "abc123def456",
+            telemetry_mode: "enabled",
+            worker_count: 3,
+            base_model_loaded: true,
+            base_model_id: "test-model",
+            base_model_name: "Test Model",
+            base_model_status: "loaded",
+            base_model_memory_mb: 1024,
+            services: [
+                ServiceStatus(
+                    id: "web-api",
+                    name: "Web API",
+                    state: "running",
+                    pid: 1234,
+                    port: 8080,
+                    health_status: "healthy",
+                    restart_count: 0,
+                    last_error: nil
+                ),
+                ServiceStatus(
+                    id: "database",
+                    name: "Database",
+                    state: "running",
+                    pid: 5678,
+                    port: 5432,
+                    health_status: "healthy",
+                    restart_count: 1,
+                    last_error: nil
+                )
+            ]
+        )
 
-    Logger.shared.info("Cleared all application caches")
-}
+        // Inject the test status
+        let metadata = (hash: Data("test".utf8), snippet: "test status")
+        let _ = reader.injectValidStatusForTesting(testStatus, metadata: metadata)
 
-func showPerformanceMetrics() {
-    let metrics = self.metricsCollector.collect()
-    let memoryMB = Double(metrics.memoryUsedGB)
-    let cpuPercent = metrics.cpuUsage
+        // Refresh to pick up the injected status
+        Task { @MainActor in
+            await refresh()
+        }
+    }
 
-    Logger.shared.info("Performance Metrics", context: [
-        "cpu_usage": cpuPercent,
-        "memory_used_gb": memoryMB,
-        "memory_total_gb": metrics.memoryTotalGB
-    ])
+    func clearAllCaches() {
+        // Clear response cache
+        ResponseCache.shared.clearCache()
+
+        // Clear any other cached data
+        // Note: Status snapshots are kept for debugging
+
+        logger.info("Cleared all application caches")
+    }
+
+    func showPerformanceMetrics() {
+        let metrics = metricsCollector.collect()
+        let memoryMB = Double(metrics.memoryUsedGB)
+        let cpuPercent = metrics.cpuUsage
+
+        logger.info("Performance Metrics", context: [
+            "cpu_usage": cpuPercent,
+            "memory_used_gb": memoryMB,
+            "memory_total_gb": metrics.memoryTotalGB
+        ])
+    }
 }
 

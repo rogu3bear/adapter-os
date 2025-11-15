@@ -77,31 +77,6 @@ In the control plane configuration (`configs/cp.toml`), adjust `metrics.system_m
 to control how frequently `system.metrics` events are emitted into the telemetry NDJSON pipeline.
 Set the value to `0` to disable the background emitter entirely.
 
-### Database Backend Configuration
-
-AdapterOS automatically detects the database backend:
-
-- **SQLite**: Used when `DATABASE_URL` is not set or points to a SQLite file/database
-- **PostgreSQL**: Used when `DATABASE_URL` starts with `postgresql://` or `postgres://`
-
-**Environment Variables:**
-```bash
-# SQLite (default)
-export DATABASE_URL="./var/aos.db"
-
-# PostgreSQL
-export DATABASE_URL="postgresql://user:password@localhost/adapteros"
-
-# PostgreSQL with SSL
-export DATABASE_URL="postgresql://user:password@host:5432/db?sslmode=require"
-```
-
-**Migration Behavior:**
-- Migrations run automatically on server startup
-- SQLite migrations use `migrations/` directory
-- PostgreSQL migrations use `migrations_postgres/` directory
-- Schema is identical across both backends
-
 ## API Endpoints
 
 ### GET /v1/metrics/system
@@ -127,44 +102,6 @@ Returns current system metrics and stores them for historical tracking:
   },
   "timestamp": 1640995200
 }
-```
-
-### GET /v1/metrics/system/history
-
-Returns historical system metrics with configurable time range and limit:
-
-**Parameters:**
-- `hours` (optional): Number of hours of history to retrieve (default: 24)
-- `limit` (optional): Maximum number of records to return (default: 1000)
-
-**Example:** `GET /v1/metrics/system/history?hours=48&limit=500`
-
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "timestamp": 1640995200,
-    "cpu_usage": 45.2,
-    "memory_usage": 62.8,
-    "disk_read_bytes": 1024000,
-    "disk_write_bytes": 512000,
-    "disk_usage_percent": 23.1,
-    "network_rx_bytes": 2048000,
-    "network_tx_bytes": 1536000,
-    "network_rx_packets": 1500,
-    "network_tx_packets": 1200,
-    "network_bandwidth_mbps": 1.2,
-    "gpu_utilization": 15.5,
-    "gpu_memory_used": 1048576,
-    "gpu_memory_total": 8589934592,
-    "uptime_seconds": 86400,
-    "process_count": 156,
-    "load_1min": 1.2,
-    "load_5min": 1.1,
-    "load_15min": 1.0
-  }
-]
 ```
 
 ### Telemetry NDJSON Sample (`metrics.system`)

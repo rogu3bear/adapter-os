@@ -2,8 +2,69 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 
 import { AppVM } from '../services/AppVM';
 import { OpVM } from '../services/OpVM';
+import type { StatusOperationRecord, StatusV2 } from '../api/status';
 import { computeStatusDigest } from '../api/status';
-import { buildStatus, buildOperation, createDeferred, waitForCondition } from '../test/utils';
+
+function buildStatus(overrides: Partial<StatusV2> = {}): StatusV2 {
+  const tenants = (overrides.tenants ?? [
+    {
+      tenantId: 'tenant-1',
+      displayName: 'Tenant One',
+      isolationLevel: 'strict',
+      permissions: ['role:viewer'],
+    },
+  ]).map(tenant => ({ ...tenant, permissions: [...tenant.permissions] }));
+
+  const operations = (overrides.operations ?? []).map(op => ({ ...op }));
+
+  return {
+    schema: 'status.v2',
+    version: 2,
+    issuedAt: overrides.issuedAt ?? new Date().toISOString(),
+    expiresAt: overrides.expiresAt,
+    nonce: overrides.nonce ?? `nonce-${Math.random().toString(36).slice(2)}`,
+    tenants,
+    operations,
+    metadata: overrides.metadata,
+    signature: {
+      algorithm: overrides.signature?.algorithm ?? 'digest-sha256',
+      value: overrides.signature?.value ?? '',
+      keyId: overrides.signature?.keyId ?? 'test-key',
+      issuedAt: overrides.signature?.issuedAt ?? new Date().toISOString(),
+    },
+  } satisfies StatusV2;
+}
+
+function buildOperation(opId: string, overrides: Partial<StatusOperationRecord> = {}): StatusOperationRecord {
+  const now = new Date().toISOString();
+  return {
+    opId,
+    tenantId: 'tenant-1',
+    command: 'deploy',
+    state: 'pending',
+    retries: 0,
+    lastUpdated: now,
+    ...overrides,
+  };
+}
+
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>(res => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+async function waitForCondition(predicate: () => boolean, maxAttempts = 25): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error('Condition not satisfied within attempts');
+}
 
 afterEach(() => {
   vi.useRealTimers();

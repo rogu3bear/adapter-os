@@ -30,10 +30,9 @@ tracing = { workspace = true }
 zeroize = { workspace = true }
 hex = "0.4"
 base64 = "0.22"
-security-framework = { workspace = true }
+security-framework = "2.11"
 security-framework-sys = "2.11"
-ring = "0.17.8"
-core-foundation-sys = "0.8.1"  # Fixed name and version
+
 # Linux keychain dependencies (optional)
 secret-service = { version = "3.0", optional = true }
 keyutils = { version = "0.4", optional = true }
@@ -45,9 +44,6 @@ chacha20poly1305 = { version = "0.10", optional = true }
 
 # Required dependencies
 libc = "0.2"
-
-# [dependencies] - add keychain deps
-core-foundation = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

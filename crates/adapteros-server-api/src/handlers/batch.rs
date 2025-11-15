@@ -1,9 +1,10 @@
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::{
-    BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse,
-    WorkerInferRequest,
+    BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse, WorkerInferRequest,
 };
+use adapteros_api_types::InferenceTrace;
+use adapteros_api_types::InferResponse;
 use crate::uds_client::{UdsClient, UdsClientError};
 use adapteros_api_types::InferResponse;
 use adapteros_api_types::InferenceTrace;

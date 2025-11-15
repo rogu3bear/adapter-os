@@ -9,8 +9,7 @@ import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
+import { logger } from '../utils/logger';
 import {
   Brain,
   Zap,
@@ -140,30 +139,33 @@ export default function PromptOrchestrationPanel() {
 
   // Load configuration
   const loadConfig = useCallback(async () => {
-    // Placeholder: Prompt orchestration config under development
-    // TODO: Implement backend endpoint /v1/orchestration/config
-    logger.info('Prompt orchestration config load requested (placeholder)', {
-      component: 'PromptOrchestrationPanel',
-    });
-    // Keep current state or load defaults
-    // setConfig(defaultConfig); // if needed
+    try {
+      const response = await fetch('/api/prompt-orchestration/config');
+      if (response.ok) {
+        const data = await response.json();
+        setConfig(data);
+      }
+    } catch (error) {
+      logger.error('Failed to load orchestration config', { component: 'PromptOrchestrationPanel' }, error instanceof Error ? error : new Error(String(error)));
+    }
   }, []);
 
   // Save configuration
   const saveConfig = async () => {
     setIsLoading(true);
     try {
-      // Placeholder: Config save under development
-      logger.warn('Prompt orchestration config save requested but not implemented', {
-        component: 'PromptOrchestrationPanel',
-        config: config,
+      const response = await fetch('/api/prompt-orchestration/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
       });
-      // TODO: Implement apiClient.saveOrchestrationConfig(config)
+
+      if (response.ok) {
+        // Show success message
+        logger.info('Configuration saved successfully', { component: 'PromptOrchestrationPanel' });
+      }
     } catch (error) {
-      logger.error('Error in saveConfig placeholder', {
-        component: 'PromptOrchestrationPanel',
-        error: toError(error),
-      });
+      logger.error('Failed to save orchestration config', { component: 'PromptOrchestrationPanel' }, error instanceof Error ? error : new Error(String(error)));
     }
     setIsLoading(false);
   };
@@ -174,32 +176,18 @@ export default function PromptOrchestrationPanel() {
 
     setIsLoading(true);
     try {
-      // Placeholder: Analysis under development
-      logger.warn('Prompt analysis requested but not implemented', {
-        component: 'PromptOrchestrationPanel',
-        prompt: testPrompt,
+      const response = await fetch('/api/prompt-orchestration/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: testPrompt })
       });
-      // Simulate result or set error
-      setTestResult({
-        prompt: testPrompt,
-        complexityScore: 0.5, // placeholder
-        recommendedStrategy: 'mixed' as const,
-        analysisTimeMs: 0,
-        features: {
-          language: 'unknown',
-          frameworks: [],
-          symbols: 0,
-          tokens: 0,
-          verb: 'unknown',
-        },
-        timestamp: new Date().toISOString(),
-      });
-      // TODO: Implement apiClient.analyzePrompt({ prompt: testPrompt })
+
+      if (response.ok) {
+        const result = await response.json();
+        setTestResult(result);
+      }
     } catch (error) {
-      logger.error('Error in testPromptAnalysis placeholder', {
-        component: 'PromptOrchestrationPanel',
-        error: toError(error),
-      });
+      logger.error('Failed to analyze prompt', { component: 'PromptOrchestrationPanel' }, error instanceof Error ? error : new Error(String(error)));
     }
     setIsLoading(false);
   };
@@ -499,7 +487,7 @@ export default function PromptOrchestrationPanel() {
               <Separator />
 
               <div className="flex justify-end">
-                <Button onClick={saveConfig} disabled={true} title="Configuration save under development">
+                <Button onClick={saveConfig} disabled={isLoading}>
                   {isLoading ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -538,7 +526,7 @@ export default function PromptOrchestrationPanel() {
                 />
               </div>
 
-              <Button onClick={testPromptAnalysis} disabled={true || !testPrompt.trim()} title="Prompt analysis under development">
+              <Button onClick={testPromptAnalysis} disabled={isLoading || !testPrompt.trim()}>
                 <PlayCircle className="w-4 h-4 mr-2" />
                 {isLoading ? 'Analyzing...' : 'Analyze Prompt'}
               </Button>

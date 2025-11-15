@@ -1,7 +1,7 @@
 //! Model operations audit trail
 
 use crate::Db;
-use adapteros_core::{AosError, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -19,40 +19,39 @@ pub struct ModelOperation {
     pub duration_ms: Option<i64>,
 }
 
-#[derive(Debug)]
-pub struct ModelOperationParams {
-    pub tenant_id: String,
-    pub model_id: String,
-    pub operation: String,
-    pub initiated_by: String,
-    pub status: String,
-    pub error_message: Option<String>,
-    pub started_at: String,
-    pub completed_at: Option<String>,
-    pub duration_ms: Option<i64>,
-}
-
 impl Db {
-    pub async fn log_model_operation(&self, params: ModelOperationParams) -> Result<String> {
+    /// Log a model operation to the audit trail
+    pub async fn log_model_operation(
+        &self,
+        tenant_id: &str,
+        model_id: &str,
+        operation: &str,
+        initiated_by: &str,
+        status: &str,
+        error_message: Option<&str>,
+        started_at: &str,
+        completed_at: Option<&str>,
+        duration_ms: Option<i64>,
+    ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
 
         sqlx::query(
-            "INSERT INTO model_operations (id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms)
+            "INSERT INTO model_operations 
+             (id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
-        .bind(&params.tenant_id)
-        .bind(&params.model_id)
-        .bind(&params.operation)
-        .bind(&params.initiated_by)
-        .bind(&params.status)
-        .bind(&params.error_message)
-        .bind(&params.started_at)
-        .bind(&params.completed_at)
-        .bind(params.duration_ms)
+        .bind(tenant_id)
+        .bind(model_id)
+        .bind(operation)
+        .bind(initiated_by)
+        .bind(status)
+        .bind(error_message)
+        .bind(started_at)
+        .bind(completed_at)
+        .bind(duration_ms)
         .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to log model operation: {}", e)))?;
+        .await?;
 
         Ok(id)
     }

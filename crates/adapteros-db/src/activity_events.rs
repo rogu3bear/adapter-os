@@ -1,5 +1,5 @@
 use crate::Db;
-use adapteros_core::{AosError, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -58,7 +58,7 @@ impl std::fmt::Display for ActivityEventType {
 impl std::str::FromStr for ActivityEventType {
     type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "adapter_created" => Ok(ActivityEventType::AdapterCreated),
             "adapter_updated" => Ok(ActivityEventType::AdapterUpdated),
@@ -98,40 +98,35 @@ pub struct ActivityEvent {
     pub created_at: String,
 }
 
-#[derive(Debug)]
-pub struct ActivityEventParams {
-    pub workspace_id: Option<String>,
-    pub user_id: String,
-    pub tenant_id: String,
-    pub event_type: ActivityEventType,
-    pub target_type: Option<String>,
-    pub target_id: Option<String>,
-    pub metadata_json: Option<String>,
-}
-
 impl Db {
-    pub async fn create_activity_event(&self, params: ActivityEventParams) -> Result<String> {
+    pub async fn create_activity_event(
+        &self,
+        workspace_id: Option<&str>,
+        user_id: &str,
+        tenant_id: &str,
+        event_type: ActivityEventType,
+        target_type: Option<&str>,
+        target_id: Option<&str>,
+        metadata_json: Option<&str>,
+    ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
-        let event_type_str = params.event_type.to_string();
+        let event_type_str = event_type.to_string();
         sqlx::query(
             r#"
-            INSERT INTO activity_events (id, workspace_id, user_id, tenant_id, event_type, target_type, target_id, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO activity_events (id, workspace_id, user_id, tenant_id, event_type, target_type, target_id, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
-        .bind(&params.workspace_id)
-        .bind(&params.user_id)
-        .bind(&params.tenant_id)
+        .bind(workspace_id)
+        .bind(user_id)
+        .bind(tenant_id)
         .bind(&event_type_str)
-        .bind(&params.target_type)
-        .bind(&params.target_id)
-        .bind(&params.metadata_json)
-        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(target_type)
+        .bind(target_id)
+        .bind(metadata_json)
         .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to create activity event: {}", e)))?;
-
+        .await?;
         Ok(id)
     }
 

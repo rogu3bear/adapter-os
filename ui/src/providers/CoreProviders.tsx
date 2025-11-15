@@ -26,7 +26,7 @@ export function useAuth(): AuthContextValue {
 }
 
 // Theme Context
-type Theme = 'light';
+type Theme = 'light' | 'dark' | 'system';
 
 interface ThemeContextValue {
   theme: Theme;
@@ -184,20 +184,74 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
 // Theme Provider Component
 function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme] = useState<Theme>('light');
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      const stored = localStorage.getItem('theme');
+      if (stored === 'light' || stored === 'dark' || stored === 'system') {
+        return stored;
+      }
+    } catch (error) {
+      logger.warn('Failed to read theme from localStorage', { component: 'ThemeProvider' });
+    }
+    return 'system';
+  });
 
-  // Always apply light theme
+  // Apply theme immediately and listen to system preference changes
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove('dark');
-  }, []);
+    const applyTheme = () => {
+      const root = document.documentElement;
+      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      
+      if (isDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+
+    // Listen to system preference changes when theme is 'system'
+    if (theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applyTheme();
+      
+      // Modern browsers
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
+      } 
+      // Fallback for older browsers
+      else if (mediaQuery.addListener) {
+        mediaQuery.addListener(handleChange);
+        return () => mediaQuery.removeListener(handleChange);
+      }
+    }
+  }, [theme]);
 
   const toggleTheme = useCallback(() => {
-    // No-op for light mode only
+    setThemeState((prev) => {
+      const next = prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light';
+      try {
+        localStorage.setItem('theme', next);
+      } catch (error) {
+        logger.warn('Failed to save theme to localStorage', { component: 'ThemeProvider' });
+      }
+      return next;
+    });
   }, []);
 
   const setTheme = useCallback((newTheme: Theme) => {
-    // No-op for light mode only
+    if (newTheme !== 'light' && newTheme !== 'dark' && newTheme !== 'system') {
+      logger.warn('Invalid theme value', { component: 'ThemeProvider', theme: newTheme });
+      return;
+    }
+    setThemeState(newTheme);
+    try {
+      localStorage.setItem('theme', newTheme);
+    } catch (error) {
+      logger.warn('Failed to save theme to localStorage', { component: 'ThemeProvider' });
+    }
   }, []);
 
   const value: ThemeContextValue = {

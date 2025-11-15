@@ -41,47 +41,6 @@ import { toast } from 'sonner';
 import { logger } from '../../utils/logger';
 import { ErrorRecoveryTemplates } from '../../components/ui/error-recovery';
 
-// Add helper function after imports and mocks, before describe
-const testOperation = async (
-  operationKey: string,
-  args: any[],
-  apiCall?: (mockApi: any, key: string) => void,
-  successMessage: string,
-  loadingState: string,
-  options?: { withCallbacks?: boolean }
-) => {
-  const mockApiClient = apiClient as any;
-  const apiMethod = operationKey.toLowerCase().replace('adapter', '');
-  const successResponse = operationKey === 'updateCategoryPolicy' ? mockPolicy : { success: true, message: 'Success' };
-  mockApiClient[apiMethod].mockResolvedValue(successResponse);
-
-  const hookOptions = options?.withCallbacks ? { onDataRefresh: vi.fn(), onAdapterEvict: vi.fn() } : {};
-  const { result } = renderHook(() => useAdapterOperations(hookOptions));
-
-  await act(async () => {
-    await result.current[operationKey as keyof ReturnType<typeof useAdapterOperations>](...args);
-  });
-
-  if (apiCall) {
-    apiCall(mockApiClient, apiMethod);
-  }
-  expect(toast.success).toHaveBeenCalledWith(successMessage);
-  expect(result.current[loadingState as keyof ReturnType<typeof useAdapterOperations>]).toBe(false);
-  expect(result.current.isOperationLoading).toBe(false);
-};
-
-// Update the mockPolicy to be global or inside
-const mockPolicy = {
-  promotion_threshold_ms: 1800000,
-  demotion_threshold_ms: 86400000,
-  memory_limit: 200 * 1024 * 1024,
-  eviction_priority: 'low' as const,
-  auto_promote: true,
-  auto_demote: false,
-  max_in_memory: 10,
-  routing_priority: 1.2,
-};
-
 describe('useAdapterOperations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,9 +70,11 @@ describe('useAdapterOperations', () => {
     });
   });
 
-  // For evictAdapter
   describe('evictAdapter', () => {
     it('sets loading state during operation', async () => {
+      const mockApiClient = apiClient as any;
+      mockApiClient.evictAdapter.mockResolvedValue({ success: true, message: 'Evicted' });
+
       const { result } = renderHook(() => useAdapterOperations());
 
       act(() => {
@@ -124,6 +85,7 @@ describe('useAdapterOperations', () => {
       expect(result.current.isOperationLoading).toBe(true);
 
       await act(async () => {
+        // Wait for the operation to complete
         await new Promise(resolve => setTimeout(resolve, 0));
       });
 
@@ -132,74 +94,180 @@ describe('useAdapterOperations', () => {
     });
 
     it('calls API client with correct parameters', async () => {
-      await testOperation('evictAdapter', ['adapter-1'], (mock, key) => expect(mock[key]).toHaveBeenCalledWith('adapter-1'), 'Adapter evicted successfully', 'isEvicting');
-    });
+      const mockApiClient = apiClient as any;
+      mockApiClient.evictAdapter.mockResolvedValue({ success: true, message: 'Evicted' });
 
-    it('shows success toast on successful operation', async () => {
-      await testOperation('evictAdapter', ['adapter-1'], undefined, 'Adapter evicted successfully', 'isEvicting');
-    });
+      const { result } = renderHook(() => useAdapterOperations());
 
-    // Keep unique tests as is
-    it('calls onAdapterEvict callback when provided', async () => {
-      const onAdapterEvict = vi.fn();
-      const { result } = renderHook(() => useAdapterOperations({ onAdapterEvict }));
       await act(async () => {
         await result.current.evictAdapter('adapter-1');
       });
+
+      expect(mockApiClient.evictAdapter).toHaveBeenCalledWith('adapter-1');
+    });
+
+    it('shows success toast on successful operation', async () => {
+      const mockApiClient = apiClient as any;
+      mockApiClient.evictAdapter.mockResolvedValue({ success: true, message: 'Evicted' });
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.evictAdapter('adapter-1');
+      });
+
+      expect(toast.success).toHaveBeenCalledWith('Adapter evicted successfully');
+    });
+
+    it('calls onAdapterEvict callback when provided', async () => {
+      const mockApiClient = apiClient as any;
+      mockApiClient.evictAdapter.mockResolvedValue({ success: true, message: 'Evicted' });
+
+      const onAdapterEvict = vi.fn();
+      const { result } = renderHook(() =>
+        useAdapterOperations({ onAdapterEvict })
+      );
+
+      await act(async () => {
+        await result.current.evictAdapter('adapter-1');
+      });
+
       expect(onAdapterEvict).toHaveBeenCalledWith('adapter-1');
     });
 
     it('handles errors gracefully', async () => {
-      const error = new Error('API Error');
       const mockApiClient = apiClient as any;
+      const error = new Error('API Error');
       mockApiClient.evictAdapter.mockRejectedValue(error);
+
       const { result } = renderHook(() => useAdapterOperations());
+
       await act(async () => {
         await result.current.evictAdapter('adapter-1');
       });
+
       expect(result.current.operationError).not.toBeNull();
       expect(logger.error).toHaveBeenCalled();
     });
   });
 
-  // For pinAdapter
   describe('pinAdapter', () => {
     it('calls API client with correct parameters for pinning', async () => {
-      await testOperation('pinAdapter', ['adapter-1', true], (mock, key) => expect(mock[key]).toHaveBeenCalledWith('adapter-1', true), 'Adapter pinned successfully', 'isPinning');
+      const mockApiClient = apiClient as any;
+      mockApiClient.pinAdapter.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.pinAdapter('adapter-1', true);
+      });
+
+      expect(mockApiClient.pinAdapter).toHaveBeenCalledWith('adapter-1', true);
     });
 
     it('shows appropriate success message for pinning', async () => {
-      await testOperation('pinAdapter', ['adapter-1', true], undefined, 'Adapter pinned successfully', 'isPinning');
+      const mockApiClient = apiClient as any;
+      mockApiClient.pinAdapter.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.pinAdapter('adapter-1', true);
+      });
+
+      expect(toast.success).toHaveBeenCalledWith('Adapter pinned successfully');
     });
 
     it('shows appropriate success message for unpinning', async () => {
-      await testOperation('pinAdapter', ['adapter-1', false], undefined, 'Adapter unpinned successfully', 'isPinning');
+      const mockApiClient = apiClient as any;
+      mockApiClient.pinAdapter.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.pinAdapter('adapter-1', false);
+      });
+
+      expect(toast.success).toHaveBeenCalledWith('Adapter unpinned successfully');
     });
   });
 
-  // For deleteAdapter
   describe('deleteAdapter', () => {
     it('calls API client with correct parameters', async () => {
-      await testOperation('deleteAdapter', ['adapter-1'], (mock, key) => expect(mock[key]).toHaveBeenCalledWith('adapter-1'), 'Adapter deleted successfully', 'isDeleting');
+      const mockApiClient = apiClient as any;
+      mockApiClient.deleteAdapter.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.deleteAdapter('adapter-1');
+      });
+
+      expect(mockApiClient.deleteAdapter).toHaveBeenCalledWith('adapter-1');
     });
 
     it('shows success message on deletion', async () => {
-      await testOperation('deleteAdapter', ['adapter-1'], undefined, 'Adapter deleted successfully', 'isDeleting');
+      const mockApiClient = apiClient as any;
+      mockApiClient.deleteAdapter.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.deleteAdapter('adapter-1');
+      });
+
+      expect(toast.success).toHaveBeenCalledWith('Adapter deleted successfully');
     });
   });
 
-  // For updateCategoryPolicy
   describe('updateCategoryPolicy', () => {
     it('calls API client with correct parameters', async () => {
-      await testOperation('updateCategoryPolicy', ['code', mockPolicy], (mock, key) => expect(mock[key]).toHaveBeenCalledWith('code', mockPolicy), 'Policy updated successfully for code', 'isUpdatingPolicy');
+      const mockApiClient = apiClient as any;
+      const mockPolicy = {
+        promotion_threshold_ms: 1800000,
+        demotion_threshold_ms: 86400000,
+        memory_limit: 200 * 1024 * 1024,
+        eviction_priority: 'low' as const,
+        auto_promote: true,
+        auto_demote: false,
+        max_in_memory: 10,
+        routing_priority: 1.2,
+      };
+      mockApiClient.updateCategoryPolicy.mockResolvedValue(mockPolicy);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.updateCategoryPolicy('code', mockPolicy);
+      });
+
+      expect(mockApiClient.updateCategoryPolicy).toHaveBeenCalledWith('code', mockPolicy);
     });
 
     it('shows success message with category name', async () => {
-      await testOperation('updateCategoryPolicy', ['code', mockPolicy], undefined, 'Policy updated successfully for code', 'isUpdatingPolicy');
+      const mockApiClient = apiClient as any;
+      const mockPolicy = {
+        promotion_threshold_ms: 1800000,
+        demotion_threshold_ms: 86400000,
+        memory_limit: 200 * 1024 * 1024,
+        eviction_priority: 'low' as const,
+        auto_promote: true,
+        auto_demote: false,
+        max_in_memory: 10,
+        routing_priority: 1.2,
+      };
+      mockApiClient.updateCategoryPolicy.mockResolvedValue(mockPolicy);
+
+      const { result } = renderHook(() => useAdapterOperations());
+
+      await act(async () => {
+        await result.current.updateCategoryPolicy('code', mockPolicy);
+      });
+
+      expect(toast.success).toHaveBeenCalledWith('Policy updated successfully for code');
     });
   });
 
-  // The onDataRefresh test remains as is
   describe('onDataRefresh callback', () => {
     it('calls onDataRefresh callback when provided', async () => {
       const mockApiClient = apiClient as any;

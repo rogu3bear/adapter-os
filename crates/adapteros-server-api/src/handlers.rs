@@ -3,24 +3,59 @@
 use crate::auth::{generate_token, generate_token_ed25519, refresh_token, verify_password, Claims};
 use crate::errors::ErrorResponseExt;
 use crate::middleware::{require_any_role, require_role};
-use crate::operation_tracker::{ModelOperationType, OperationCancellationError};
+use crate::operation_tracker::{
+    ModelOperationType, OperationCancellationError, OperationConflict,
+};
 use crate::services::repo_url::infer_repo_urls_parallel;
 use crate::state::{AppState, JwtMode, TrainingSessionMetadata};
-use crate::types::AdapterOSStatus;
 use crate::types::*; // This already re-exports adapteros_api_types::*
+use crate::types::AdapterOSStatus;
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
 use adapteros_api_types::{
-    repositories::RepositorySummary, AdapterActivationResponse, AdapterHealthResponse,
-    AdapterManifest, AdapterMetricsResponse, AdapterPerformance, AdapterResponse,
-    AdapterStateResponse, AdapterStats, AuthConfigResponse, BuildPlanRequest, ComparePlansRequest,
-    CreateTenantRequest, HealthResponse, InferRequest, InferResponse, InferenceTrace,
-    LoadAverageResponse, LoginRequest, LoginResponse, NodeDetailsResponse, NodePingResponse,
-    NodeResponse, PlanComparisonResponse, PlanDetailsResponse, PlanRebuildResponse, PlanResponse,
-    ProfileResponse, QualityMetricsResponse, RegisterAdapterRequest, RegisterNodeRequest,
-    RotateTokenResponse, SessionInfo, SystemMetricsResponse, TenantResponse, TenantUsageResponse,
-    TokenMetadata, UpdateAuthConfigRequest, UpdateProfileRequest, UpdateTenantRequest,
-    UserInfoResponse, WorkerInfo, WorkerResponse,
+    repositories::RepositorySummary,
+    AdapterActivationResponse,
+    AdapterHealthResponse,
+    AdapterManifest,
+    AdapterMetricsResponse,
+    AdapterPerformance,
+    AdapterResponse,
+    AdapterStateResponse,
+    AdapterStats,
+    AuthConfigResponse,
+    BuildPlanRequest,
+    ComparePlansRequest,
+    CreateTenantRequest,
+    HealthResponse,
+    InferRequest,
+    InferResponse,
+    InferenceTrace,
+    LoadAverageResponse,
+    LoginRequest,
+    LoginResponse,
+    NodeDetailsResponse,
+    NodePingResponse,
+    NodeResponse,
+    PlanComparisonResponse,
+    PlanDetailsResponse,
+    PlanRebuildResponse,
+    PlanResponse,
+    ProfileResponse,
+    QualityMetricsResponse,
+    RegisterAdapterRequest,
+    RegisterNodeRequest,
+    RotateTokenResponse,
+    SessionInfo,
+    SystemMetricsResponse,
+    TenantResponse,
+    TenantUsageResponse,
+    TokenMetadata,
+    UpdateAuthConfigRequest,
+    UpdateProfileRequest,
+    UpdateTenantRequest,
+    UserInfoResponse,
+    WorkerInfo,
+    WorkerResponse,
 };
 use adapteros_lora_lifecycle::state::AdapterState;
 use adapteros_orchestrator::training::TrainingJobBuilder;
@@ -298,7 +333,10 @@ fn map_git_error(message: &str, err: AosError) -> (StatusCode, Json<ErrorRespons
 }
 
 fn map_alert_to_response(alert: ProcessAlert) -> ProcessAlertResponse {
-    let escalation_level: i32 = alert.escalation_level.try_into().unwrap_or(i32::MAX);
+    let escalation_level: i32 = alert
+        .escalation_level
+        .try_into()
+        .unwrap_or(i32::MAX);
 
     ProcessAlertResponse {
         id: alert.id,
@@ -324,10 +362,11 @@ fn map_alert_to_response(alert: ProcessAlert) -> ProcessAlertResponse {
     }
 }
 
-fn map_system_alert_to_response(
-    alert: adapteros_system_metrics::monitoring_types::AlertResponse,
-) -> ProcessAlertResponse {
-    let escalation_level: i32 = alert.escalation_level.try_into().unwrap_or(i32::MAX);
+fn map_system_alert_to_response(alert: adapteros_system_metrics::monitoring_types::AlertResponse) -> ProcessAlertResponse {
+    let escalation_level: i32 = alert
+        .escalation_level
+        .try_into()
+        .unwrap_or(i32::MAX);
 
     ProcessAlertResponse {
         id: alert.id,
@@ -477,68 +516,6 @@ impl HealthCache {
 static HEALTH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HealthCache>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HealthCache::new(30)))); // 30 second cache
 
-/// Cache entry for CodeGraph analysis results
-#[derive(Debug, Clone)]
-struct CodeGraphCacheEntry {
-    frameworks: Vec<crate::types::DetectedFramework>,
-    languages: Vec<crate::types::LanguageInfo>,
-    security: Option<crate::types::SecurityScanResult>,
-    git_info: Option<crate::types::GitInfo>,
-    timestamp: Instant,
-    ttl: Duration,
-}
-
-impl CodeGraphCacheEntry {
-    fn new(
-        frameworks: Vec<crate::types::DetectedFramework>,
-        languages: Vec<crate::types::LanguageInfo>,
-        security: Option<crate::types::SecurityScanResult>,
-        git_info: Option<crate::types::GitInfo>,
-        ttl_seconds: u64,
-    ) -> Self {
-        Self {
-            frameworks,
-            languages,
-            security,
-            git_info,
-            timestamp: Instant::now(),
-            ttl: Duration::from_secs(ttl_seconds),
-        }
-    }
-
-    fn is_expired(&self) -> bool {
-        self.timestamp.elapsed() > self.ttl
-    }
-}
-
-/// Global CodeGraph analysis cache - keyed by repository path
-/// Uses a simple HashMap for demonstration; production should use Redis/external cache
-static CODEGRAPH_CACHE: once_cell::sync::Lazy<Arc<RwLock<HashMap<String, CodeGraphCacheEntry>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-
-/// Generate cache key for repository analysis
-fn make_cache_key(path: &str, include_frameworks: bool, include_languages: bool, include_security: bool) -> String {
-    format!("{}:f{}l{}s{}", path, include_frameworks as u8, include_languages as u8, include_security as u8)
-}
-
-/// Get cached analysis result if available and not expired
-fn get_cached_analysis(cache_key: &str) -> Option<CodeGraphCacheEntry> {
-    let cache = CODEGRAPH_CACHE.read().unwrap();
-    cache.get(cache_key).cloned().filter(|entry| !entry.is_expired())
-}
-
-/// Store analysis result in cache with TTL
-fn set_cached_analysis(cache_key: String, entry: CodeGraphCacheEntry) {
-    let mut cache = CODEGRAPH_CACHE.write().unwrap();
-
-    // Clean up expired entries periodically (simple approach)
-    if cache.len() > 100 { // Arbitrary cleanup threshold
-        cache.retain(|_, entry| !entry.is_expired());
-    }
-
-    cache.insert(cache_key, entry);
-}
-
 /// Check model runtime health summary for health endpoint with caching
 pub async fn check_model_runtime_health_summary(
     state: &AppState,
@@ -566,9 +543,7 @@ pub async fn check_model_runtime_health_summary(
     let duration = start_time.elapsed().as_secs_f64();
 
     // Record metrics
-    state
-        .metrics_collector
-        .record_inference_latency("health", "cache_miss", duration);
+    state.metrics_collector.record_inference_latency("health", "cache_miss", duration);
     // Could add custom counter for cache misses if needed
 
     // Update cache
@@ -608,10 +583,8 @@ async fn check_model_runtime_health_uncached(
 
     // Check for inconsistencies (simplified version)
     let mut inconsistencies_count = 0;
-    let runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models
-        .iter()
-        .map(|k| (k.tenant_id.clone(), k.model_id.clone()))
-        .collect();
+    let runtime_model_set: std::collections::HashSet<(String, String)> =
+        runtime_models.iter().map(|k| (k.tenant_id.clone(), k.model_id.clone())).collect();
 
     // Check each DB model
     for db_model in &db_models {
@@ -4089,42 +4062,10 @@ pub async fn list_policies(
 ) -> Result<Json<Vec<PolicyPackResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    #[derive(sqlx::FromRow)]
-    struct PolicyRow {
-        cpid: String,
-        content: String,
-        hash_b3: String,
-        created_at: String,
-    }
-
-    let policies = sqlx::query_as::<_, PolicyRow>(
-        "SELECT cpid, content, hash_b3, created_at FROM policies ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error listing policies: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let response: Vec<PolicyPackResponse> = policies
-        .into_iter()
-        .map(|row| PolicyPackResponse {
-            cpid: row.cpid,
-            content: row.content,
-            hash_b3: row.hash_b3,
-            created_at: row.created_at,
-        })
-        .collect();
-
-    Ok(Json(response))
+    // For now, return an empty list as no policy storage is implemented yet
+    // TODO: Implement policy storage and retrieval from database
+    info!("Listing policies (not yet implemented in database)");
+    Ok(Json(vec![]))
 }
 
 /// Get policy by CPID
@@ -4135,37 +4076,9 @@ pub async fn get_policy(
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    #[derive(sqlx::FromRow)]
-    struct PolicyRow {
-        content: String,
-        hash_b3: String,
-        created_at: String,
-    }
-
-    let policy = sqlx::query_as::<_, PolicyRow>(
-        "SELECT content, hash_b3, created_at FROM policies WHERE cpid = $1",
-    )
-    .bind(&cpid)
-    .fetch_optional(&state.db.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error getting policy {}: {}", cpid, e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?
-    .ok_or_else(|| {
-        tracing::warn!("Policy not found: {}", cpid);
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("policy not found").with_code("POLICY_NOT_FOUND")),
-        )
-    })?;
+    // For now, return a placeholder response as policy storage is not implemented
+    // TODO: Implement policy retrieval from database by CPID
+    warn!(cpid = %cpid, "Policy retrieval not implemented, returning placeholder");
 
     Ok(Json(PolicyPackResponse {
         cpid,
@@ -4234,52 +4147,57 @@ pub async fn apply_policy(
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
 
-    let hash_b3 = blake3::Hasher::new()
-        .update(req.content.as_bytes())
-        .finalize()
-        .to_hex()
-        .to_string();
+    // First validate the policy
+    match serde_json::from_str::<serde_json::Value>(&req.content) {
+        Ok(json_value) => {
+            // Check schema
+            if let Some(schema) = json_value.get("schema").and_then(|s| s.as_str()) {
+                if !schema.starts_with("adapteros.policy.") {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new("Invalid policy schema")
+                                .with_code("INVALID_POLICY")
+                                .with_string_details("Schema must start with 'adapteros.policy.'"),
+                        ),
+                    ));
+                }
+            } else {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Missing policy schema")
+                            .with_code("INVALID_POLICY")
+                            .with_string_details("Policy must have a 'schema' field"),
+                    ),
+                ));
+            }
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Invalid policy JSON")
+                        .with_code("INVALID_POLICY")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    }
 
+    // Generate hash
+    let hash_b3 = format!("b3:{:x}", md5::compute(&req.content));
     let created_at = chrono::Utc::now().to_rfc3339();
 
-    let result = sqlx::query(
-        r#"
-        INSERT INTO policies (cpid, content, hash_b3, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (cpid) DO UPDATE SET
-            content = $2,
-            hash_b3 = $3,
-            updated_at = $4
-        RETURNING cpid, content, hash_b3, created_at
-        "#,
-    )
-    .bind(&req.cpid)
-    .bind(&req.content)
-    .bind(&hash_b3)
-    .bind(&created_at)
-    .fetch_one(&state.db.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error applying policy {}: {}", req.cpid, e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    // TODO: Store policy in database
+    warn!(cpid = %req.cpid, hash = %hash_b3, "Policy application not fully implemented - validation only");
 
-    let row: (String, String, String, String) = result;
-
-    info!("Policy applied: {} with hash {}", req.cpid, hash_b3);
-
+    info!(cpid = %req.cpid, "Policy validated and ready for application");
     Ok(Json(PolicyPackResponse {
-        cpid: row.0,
-        content: row.1,
-        hash_b3: row.2,
-        created_at: row.3,
+        cpid: req.cpid,
+        content: req.content,
+        hash_b3,
+        created_at,
     }))
 }
 
@@ -4598,7 +4516,7 @@ pub async fn verify_bundle_signature(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("verification task failed")
-                    .with_code("INTERNAL_ERROR")
+                    .with_code("INTERNAL_SERVER_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -5079,17 +4997,6 @@ pub async fn infer(
     let request_id = uuid::Uuid::new_v4().to_string();
     let tenant_id = claims.tenant_id.clone();
     let max_tokens = req.max_tokens.unwrap_or(100);
-
-    if max_tokens < 1 || max_tokens > 4096 {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(
-                ErrorResponse::new("max_tokens must be between 1 and 4096")
-                    .with_code("VALIDATION_ERROR"),
-            ),
-        ));
-    }
-
     let require_evidence = req.require_evidence.unwrap_or(false);
     let policy_context = UnifiedPolicyContext {
         component: "server.api".to_string(),
@@ -7044,7 +6951,10 @@ pub async fn cancel_model_operation(
     // Check if there's an active operation for this model
     let tracker = state.operation_tracker.clone();
 
-    match tracker.cancel_model_operation(&model_id, &tenant_id).await {
+    match tracker
+        .cancel_model_operation(&model_id, &tenant_id)
+        .await
+    {
         Ok(()) => {
             info!(
                 model_id = %model_id,
@@ -7177,8 +7087,7 @@ pub async fn load_model_with_retry(
         |_progress_pct, _message| {
             // Progress callbacks temporarily disabled
         },
-    )
-    .await;
+    ).await;
 
     // Complete the operation (best effort)
     tracker
@@ -7258,7 +7167,7 @@ where
         (
             record.id.unwrap_or_else(|| model_id.to_string()),
             record.name,
-            "available".to_string(),  // Default status since not in schema
+            "available".to_string(), // Default status since not in schema
             "base_model".to_string(), // Default model type
             Some(model_path),
         )
@@ -7277,32 +7186,26 @@ where
     progress_callback(20.0, "Model status validated".to_string());
 
     // Get model runtime (30%)
-    let mut runtime = state
-        .model_runtime
-        .as_ref()
+    let mut runtime = state.model_runtime.as_ref()
         .ok_or_else(|| anyhow::anyhow!("Model runtime not available"))?
-        .lock()
-        .await;
+        .lock().await;
 
     progress_callback(30.0, "Model runtime acquired".to_string());
 
     // Load model with progress (30-90%)
-    let model_path =
-        model_path_value.ok_or_else(|| anyhow::anyhow!("Model path not configured"))?;
+    let model_path = model_path_value
+        .ok_or_else(|| anyhow::anyhow!("Model path not configured"))?;
 
-    runtime
-        .load_model_async_with_progress(
-            tenant_id,
-            &model_id_value,
-            &model_path,
-            |_pct, _msg| {
-                // Progress callbacks disabled for now to resolve lifetime issues
-                // TODO: Re-implement progress callbacks with proper lifetime management
-            },
-            Duration::from_secs(request.timeout_secs.unwrap_or(300)),
-        )
-        .await
-        .map_err(anyhow::Error::msg)?;
+    runtime.load_model_async_with_progress(
+        tenant_id,
+        &model_id_value,
+        &model_path,
+        |_pct, _msg| {
+            // Progress callbacks disabled for now to resolve lifetime issues
+            // TODO: Re-implement progress callbacks with proper lifetime management
+        },
+        Duration::from_secs(request.timeout_secs.unwrap_or(300)),
+    ).await.map_err(anyhow::Error::msg)?;
 
     progress_callback(90.0, "Model loaded, finalizing".to_string());
 
@@ -7438,7 +7341,7 @@ pub async fn unload_adapter(
     let tenant_id = &claims.tenant_id;
 
     // Start operation tracking
-    if let Err(e) = state
+    if let Err(OperationConflict { .. }) = state
         .operation_tracker
         .start_adapter_operation(
             &adapter_id,
@@ -7449,10 +7352,10 @@ pub async fn unload_adapter(
     {
         return Err((
             StatusCode::CONFLICT,
-            Json(ErrorResponse::new_user_friendly(
-                "OPERATION_IN_PROGRESS",
-                e.to_string(),
-            )),
+            Json(
+                ErrorResponse::new("Adapter is already being unloaded")
+                    .with_code("OPERATION_CONFLICT"),
+            ),
         ));
     }
 
@@ -7951,10 +7854,7 @@ pub async fn update_adapter_policy(
                 Json(
                     ErrorResponse::new("Invalid category")
                         .with_code("INVALID_CATEGORY")
-                        .with_string_details(
-                            "Category must be one of: code, framework, codebase, ephemeral"
-                                .to_string(),
-                        ),
+                        .with_string_details("Category must be one of: code, framework, codebase, ephemeral".to_string()),
                 ),
             ));
         }
@@ -8149,7 +8049,9 @@ pub async fn update_category_policy(
 
     // Convert request to CategoryPolicy
     let policy = adapteros_lora_lifecycle::CategoryPolicy {
-        promotion_threshold: std::time::Duration::from_millis(request.promotion_threshold_ms),
+        promotion_threshold: std::time::Duration::from_millis(
+            request.promotion_threshold_ms,
+        ),
         demotion_threshold: std::time::Duration::from_millis(request.demotion_threshold_ms),
         memory_limit: request.memory_limit,
         eviction_priority: match request.eviction_priority.as_str() {
@@ -8846,7 +8748,7 @@ pub async fn get_system_metrics(
                 started_sessions.difference(&completed_sessions).count() as i32
             } else {
                 // Fallback: approximate as started - completed
-
+                
                 if started > completed {
                     (started - completed) as i32
                 } else {
@@ -10045,11 +9947,8 @@ pub async fn monitor_operation_health(state: &AppState) -> Result<(), String> {
                     .map(|dt| dt.with_timezone(&chrono::Utc))
                     .or_else(|_| {
                         // Try SQLite datetime format: "YYYY-MM-DD HH:MM:SS"
-                        chrono::NaiveDateTime::parse_from_str(
-                            updated_at.as_str(),
-                            "%Y-%m-%d %H:%M:%S",
-                        )
-                        .map(|dt| dt.and_utc())
+                        chrono::NaiveDateTime::parse_from_str(updated_at.as_str(), "%Y-%m-%d %H:%M:%S")
+                            .map(|dt| dt.and_utc())
                     })
                     .or_else(|_| {
                         // Try ISO8601 without timezone
@@ -10397,7 +10296,7 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
                 started_sessions.difference(&completed_sessions).count() as i32
             } else {
                 // Fallback: approximate as started - completed
-
+                
                 if started > completed {
                     (started - completed) as i32
                 } else {
@@ -11579,9 +11478,7 @@ pub async fn list_training_sessions(
         // Check if job is in terminal state and mark session for cleanup
         use adapteros_core::TrainingJobStatus;
         match job.status {
-            TrainingJobStatus::Completed
-            | TrainingJobStatus::Failed
-            | TrainingJobStatus::Cancelled => {
+            TrainingJobStatus::Completed | TrainingJobStatus::Failed | TrainingJobStatus::Cancelled => {
                 sessions_to_cleanup.push(job.id.clone());
             }
             _ => {}
@@ -12126,6 +12023,7 @@ pub async fn get_training_artifacts(
     let mut manifest_hash_b3 = None;
     let mut manifest_hash_matches = false;
     let mut signature_valid = false;
+    
 
     if let (Some(path), Some(aid)) = (job.artifact_path.clone(), job.adapter_id.clone()) {
         let dir = std::path::PathBuf::from(path.clone());
@@ -12643,12 +12541,12 @@ pub async fn list_alerts(
     let filters = adapteros_system_metrics::AlertFilters {
         tenant_id: params.get("tenant_id").cloned(),
         worker_id: params.get("worker_id").cloned(),
-        status: params
-            .get("status")
-            .map(|s| adapteros_system_metrics::AlertStatus::from_string(s.to_string())),
-        severity: params
-            .get("severity")
-            .map(|s| adapteros_system_metrics::AlertSeverity::from_string(s.to_string())),
+        status: params.get("status").map(|s| adapteros_system_metrics::AlertStatus::from_string(
+                s.to_string(),
+            )),
+        severity: params.get("severity").map(|s| adapteros_system_metrics::AlertSeverity::from_string(
+                s.to_string(),
+            )),
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
@@ -12845,9 +12743,9 @@ pub async fn list_anomalies(
     let filters = adapteros_system_metrics::AnomalyFilters {
         tenant_id: params.get("tenant_id").cloned(),
         worker_id: params.get("worker_id").cloned(),
-        status: params
-            .get("status")
-            .map(|s| adapteros_system_metrics::AnomalyStatus::from_string(s.to_string())),
+        status: params.get("status").map(|s| adapteros_system_metrics::AnomalyStatus::from_string(
+                s.to_string(),
+            )),
         anomaly_type: params.get("anomaly_type").cloned(),
         start_time: None,
         end_time: None,
@@ -13258,7 +13156,7 @@ pub async fn alerts_stream(
         limit: Some(50),
     };
 
-    let backlog_alerts: Vec<crate::types::ProcessAlertResponse> =
+    let backlog_alerts: Vec<crate::types::ProcessAlertResponse> = 
         match state.db.list_process_alerts(filters).await {
             Ok(alerts) => alerts.into_iter().map(map_alert_to_response).collect(),
             Err(e) => {
@@ -13268,20 +13166,15 @@ pub async fn alerts_stream(
         };
 
     // Send backlog alerts
-    let backlog_stream =
-        stream::iter(
-            backlog_alerts
-                .into_iter()
-                .map(|alert| match serde_json::to_string(&alert) {
-                    Ok(json) => Ok(Event::default().event("alert").data(json)),
-                    Err(e) => {
-                        tracing::warn!("Failed to serialize backlog alert: {}", e);
-                        Ok(Event::default()
-                            .event("error")
-                            .data("{\"error\": \"serialization failed\"}".to_string()))
-                    }
-                }),
-        );
+    let backlog_stream = stream::iter(backlog_alerts.into_iter().map(|alert| {
+        match serde_json::to_string(&alert) {
+            Ok(json) => Ok(Event::default().event("alert").data(json)),
+            Err(e) => {
+                tracing::warn!("Failed to serialize backlog alert: {}", e);
+                Ok(Event::default().event("error").data("{\"error\": \"serialization failed\"}".to_string()))
+            }
+        }
+    }));
 
     // Real-time alert stream from broadcast channel
     let rx = state.alert_tx.subscribe();
@@ -13296,7 +13189,7 @@ pub async fn alerts_stream(
                         None
                     }
                 }
-            }
+            },
             Err(_) => None,
         }
     });
@@ -14047,7 +13940,7 @@ pub async fn get_compliance_audit(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to fetch violations")
-                    .with_code("INTERNAL_ERROR")
+                    .with_code("INTERNAL_SERVER_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )

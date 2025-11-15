@@ -8,12 +8,12 @@ use crate::types::{
     MetricsSnapshotResponse,
 };
 use adapteros_db::{activity_events::ActivityEvent, users::Role};
+use chrono::TimeZone;
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
 use adapteros_trace::{Trace, TraceSearchQuery};
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::{sse::Event, sse::KeepAlive, Sse};
 use axum::{http::StatusCode, Json};
-use chrono::TimeZone;
 // use prometheus; // Temporarily disabled
 use serde::Deserialize;
 use serde_json::Value;
@@ -222,11 +222,13 @@ pub struct NormalizedLogFilters {
     pub trace_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct ParsedLogFilters {
     pub telemetry: TelemetryFilters,
     pub realtime: NormalizedLogFilters,
 }
+
 
 pub fn normalize_log_filters(params: &LogsQueryParams) -> Result<ParsedLogFilters, ErrorResponse> {
     let mut telemetry_filters = TelemetryFilters::default();

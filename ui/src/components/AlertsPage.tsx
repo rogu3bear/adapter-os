@@ -61,7 +61,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingRules, setIsLoadingRules] = useState(false);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
@@ -118,6 +117,159 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       }
     });
   }, [alertRules, alerts]);
+
+  const loadAlerts = useCallback(async () => {
+    try {
+      const alerts = await apiClient.listAlerts({ limit: 50 });
+      setAlerts(alerts);
+      setErrorRecovery(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load alerts';
+      logger.error('Failed to load alerts', {
+        component: 'AlertsPage',
+        operation: 'loadAlerts',
+        tenantId: effectiveTenant,
+      }, toError(error));
+      setAlerts([]);
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => {
+            setErrorRecovery(null);
+            void loadAlerts();
+          }
+        )
+      );
+    }
+  }, [effectiveTenant]);
+
+  // Real-time alert streaming using EventSource
+  //
+  // Citations:
+  // - SSE pattern: [source: ui/src/hooks/useActivityFeed.ts L350-L437]
+  // - Backend endpoint: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
+  // - Event format: [source: crates/adapteros-server-api/src/types.rs L1732-1760]
+  useEffect(() => {
+    const base = (import.meta as any)?.env?.VITE_SSE_URL
+      ? `http://${(import.meta as any).env.VITE_SSE_URL}`
+      : ((import.meta as any)?.env?.VITE_API_URL || '/api');
+    const url = `${base}/v1/monitoring/alerts/stream`;
+    
+    let eventSource: EventSource | null = null;
+    let reconnectAttempts = 0;
+    const maxReconnect = 5;
+    const baseDelay = 1000;
+
+    const connectSSE = () => {
+      try {
+        eventSource = new EventSource(url);
+        
+        eventSource.addEventListener('alert', (event) => {
+          try {
+            const alert = JSON.parse((event as MessageEvent).data);
+            setAlerts((prev) => {
+              // Update existing alert or add new one
+              const existingIndex = prev.findIndex(a => a.id === alert.id);
+              if (existingIndex >= 0) {
+                const updated = [...prev];
+                updated[existingIndex] = alert;
+                return updated;
+              } else {
+                return [alert, ...prev].slice(0, 100); // Keep last 100 alerts
+              }
+            });
+            reconnectAttempts = 0;
+          } catch (err) {
+            logger.error('Failed to parse alert SSE payload', {
+              component: 'AlertsPage',
+              operation: 'sse_alert_parse',
+            }, toError(err));
+          }
+        });
+        
+        eventSource.addEventListener('open', () => {
+          reconnectAttempts = 0;
+          logger.info('Alert SSE stream connected', {
+            component: 'AlertsPage',
+            operation: 'sse_connect',
+          });
+        });
+        
+        eventSource.addEventListener('error', (evt: any) => {
+          reconnectAttempts++;
+          const unauthorized = evt?.status === 401 || evt?.code === 401;
+          if (unauthorized) {
+            logger.error('Alert SSE unauthorized', {
+              component: 'AlertsPage',
+              operation: 'sse_error',
+            }, new Error('Unauthorized'));
+            if (eventSource) {
+              eventSource.close();
+              eventSource = null;
+            }
+            return;
+          }
+          
+          if (reconnectAttempts >= maxReconnect) {
+            logger.error('Max SSE reconnect threshold reached (alerts)', {
+              component: 'AlertsPage',
+              operation: 'sse_reconnect',
+              reconnectAttempts,
+              maxReconnect,
+            });
+            if (eventSource) {
+              eventSource.close();
+              eventSource = null;
+            }
+            // Fallback to polling
+            const fallbackInterval = setInterval(() => {
+              void loadAlerts();
+            }, 5000);
+            return () => clearInterval(fallbackInterval);
+          }
+          
+          const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts - 1), 30000);
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          
+          setTimeout(() => {
+            if (eventSource === null) {
+              connectSSE();
+            }
+          }, delay);
+        });
+      } catch (err) {
+        logger.error('Failed to initialize alert SSE', {
+          component: 'AlertsPage',
+          operation: 'sse_init',
+        }, toError(err));
+      }
+    };
+    
+    // Initial load
+    void loadAlerts();
+    
+    // Connect to SSE stream
+    connectSSE();
+    
+    // Cleanup
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+  }, [effectiveTenant, loadAlerts]);
+
+  // Update metrics and evaluate alert rules when polling data arrives
+  useEffect(() => {
+    if (!metricsData) return;
+    
+    setMetrics(metricsData);
+    evaluateAlertRules(metricsData);
+  }, [metricsData, evaluateAlertRules]);
 
   const loadAlerts = useCallback(async () => {
     try {

@@ -351,8 +351,7 @@ mod tests {
 
         // Wait for timeout and try success
         tokio::time::sleep(Duration::from_millis(150)).await;
-        let result4: Result<(), CircuitBreakerError<&str>> =
-            circuit_breaker.execute(|| async { Ok(()) }).await;
+        let result4: Result<(), CircuitBreakerError<&str>> = circuit_breaker.execute(|| async { Ok(()) }).await;
         assert!(matches!(result4, Ok(())));
     }
 }

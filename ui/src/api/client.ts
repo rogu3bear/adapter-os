@@ -498,6 +498,12 @@ class ApiClient {
     });
   }
 
+  async deletePlan(planId: string): Promise<void> {
+    return this.request<void>(`/v1/plans/${planId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async exportPlanManifest(planId: string): Promise<Blob> {
     const url = `${this.baseUrl}/v1/plans/${planId}/manifest`;
     const response = await fetch(url, { credentials: 'include' });
@@ -505,6 +511,12 @@ class ApiClient {
       throw new Error(`Failed to export plan manifest: ${response.statusText}`);
     }
     return response.blob();
+  }
+
+  async deletePlan(planId: string): Promise<void> {
+    return this.request<void>(`/v1/plans/${planId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Control Plane
@@ -903,13 +915,6 @@ class ApiClient {
       body: JSON.stringify(data),
       ...options,
     }, skipRetry, cancelToken);
-  }
-
-  async batchInfer(data: types.BatchInferRequest): Promise<types.BatchInferResponse> {
-    return this.request<types.BatchInferResponse>('/v1/infer/batch', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
   }
 
   // ===== Phase 6: Policy Operations =====
@@ -1466,6 +1471,223 @@ class ApiClient {
       if (p === 0) return entropy;
       return entropy + p * Math.log2(p);
     }, 0);
+  }
+
+  // Workspace methods
+  async listWorkspaces(): Promise<types.Workspace[]> {
+    return this.request<types.Workspace[]>('/v1/workspaces');
+  }
+
+  async listUserWorkspaces(): Promise<types.Workspace[]> {
+    return this.request<types.Workspace[]>('/v1/workspaces/my');
+  }
+
+  async createWorkspace(data: types.CreateWorkspaceRequest): Promise<types.Workspace> {
+    return this.request<types.Workspace>('/v1/workspaces', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getWorkspace(workspaceId: string): Promise<types.Workspace> {
+    return this.request<types.Workspace>(`/v1/workspaces/${workspaceId}`);
+  }
+
+  async updateWorkspace(workspaceId: string, data: { name?: string; description?: string }): Promise<types.Workspace> {
+    return this.request<types.Workspace>(`/v1/workspaces/${workspaceId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listWorkspaceMembers(workspaceId: string): Promise<types.WorkspaceMember[]> {
+    return this.request<types.WorkspaceMember[]>(`/v1/workspaces/${workspaceId}/members`);
+  }
+
+  async addWorkspaceMember(workspaceId: string, data: types.AddWorkspaceMemberRequest): Promise<{ id: string }> {
+    return this.request<{ id: string }>(`/v1/workspaces/${workspaceId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateWorkspaceMember(workspaceId: string, memberId: string, data: { role: string }): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeWorkspaceMember(workspaceId: string, memberId: string): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listWorkspaceResources(workspaceId: string): Promise<types.WorkspaceResource[]> {
+    return this.request<types.WorkspaceResource[]>(`/v1/workspaces/${workspaceId}/resources`);
+  }
+
+  async shareWorkspaceResource(workspaceId: string, data: { resource_type: string; resource_id: string }): Promise<{ id: string }> {
+    return this.request<{ id: string }>(`/v1/workspaces/${workspaceId}/resources`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async unshareWorkspaceResource(workspaceId: string, resourceId: string, resourceType: string): Promise<void> {
+    const params = new URLSearchParams({ resource_type: resourceType });
+    return this.request<void>(`/v1/workspaces/${workspaceId}/resources/${resourceId}?${params.toString()}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Messaging methods
+  async listWorkspaceMessages(workspaceId: string, params?: { limit?: number; offset?: number }): Promise<types.Message[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages${query}`);
+  }
+
+  async createMessage(workspaceId: string, data: types.CreateMessageRequest): Promise<types.Message> {
+    return this.request<types.Message>(`/v1/workspaces/${workspaceId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async editMessage(workspaceId: string, messageId: string, data: types.CreateMessageRequest): Promise<types.Message> {
+    return this.request<types.Message>(`/v1/workspaces/${workspaceId}/messages/${messageId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getMessageThread(workspaceId: string, threadId: string): Promise<types.Message[]> {
+    return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages/${threadId}/thread`);
+  }
+
+  // Notification methods
+  async listNotifications(params?: {
+    workspace_id?: string;
+    type?: string;
+    unread_only?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<types.Notification[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.workspace_id) queryParams.append('workspace_id', params.workspace_id);
+    if (params?.type) queryParams.append('type', params.type);
+    if (params?.unread_only !== undefined) queryParams.append('unread_only', params.unread_only.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.Notification[]>(`/v1/notifications${query}`);
+  }
+
+  async getNotificationSummary(workspaceId?: string): Promise<types.NotificationSummary> {
+    const queryParams = new URLSearchParams();
+    if (workspaceId) queryParams.append('workspace_id', workspaceId);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.NotificationSummary>(`/v1/notifications/summary${query}`);
+  }
+
+  async markNotificationRead(notificationId: string): Promise<void> {
+    return this.request<void>(`/v1/notifications/${notificationId}/read`, {
+      method: 'POST',
+    });
+  }
+
+  async markAllNotificationsRead(workspaceId?: string): Promise<{ count: number }> {
+    const queryParams = new URLSearchParams();
+    if (workspaceId) queryParams.append('workspace_id', workspaceId);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<{ count: number }>(`/v1/notifications/read-all${query}`, {
+      method: 'POST',
+    });
+  }
+
+  // Tutorial methods
+  async listTutorials(): Promise<types.Tutorial[]> {
+    return this.request<types.Tutorial[]>('/v1/tutorials');
+  }
+
+  async markTutorialCompleted(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/complete`, {
+      method: 'POST',
+    });
+  }
+
+  async unmarkTutorialCompleted(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/complete`, {
+      method: 'DELETE',
+    });
+  }
+
+  async markTutorialDismissed(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/dismiss`, {
+      method: 'POST',
+    });
+  }
+
+  async unmarkTutorialDismissed(tutorialId: string): Promise<void> {
+    return this.request<void>(`/v1/tutorials/${tutorialId}/dismiss`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Activity event methods
+  async listActivityEvents(params?: {
+    workspace_id?: string;
+    user_id?: string;
+    tenant_id?: string;
+    event_type?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<types.ActivityEvent[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.workspace_id) queryParams.append('workspace_id', params.workspace_id);
+    if (params?.user_id) queryParams.append('user_id', params.user_id);
+    if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
+    if (params?.event_type) queryParams.append('event_type', params.event_type);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.ActivityEvent[]>(`/v1/activity${query}`);
+  }
+
+  async getRecentActivityEvents(params?: { event_types?: string[]; limit?: number }): Promise<types.RecentActivityEvent[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) {
+      queryParams.append('limit', params.limit.toString());
+    }
+    params?.event_types?.forEach((eventType) => {
+      queryParams.append('event_types[]', eventType);
+    });
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.RecentActivityEvent[]>(`/v1/telemetry/events/recent${query}`);
+  }
+
+  async createActivityEvent(data: types.CreateActivityEventRequest): Promise<types.ActivityEvent> {
+    return this.request<types.ActivityEvent>('/v1/activity', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listUserWorkspaceActivity(limit?: number): Promise<types.ActivityEvent[]> {
+    const queryParams = new URLSearchParams();
+    if (limit) queryParams.append('limit', limit.toString());
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.ActivityEvent[]>(`/v1/activity/my${query}`);
   }
 
   // Workspace methods
@@ -2292,19 +2514,6 @@ class ApiClient {
   async getStatus(): Promise<types.AdapterOSStatus> {
     return this.request<types.AdapterOSStatus>('/v1/status', {
       method: 'GET',
-    });
-  }
-
-  async deletePlan(planId: string): Promise<void> {
-    return this.request<void>(`/v1/plans/${planId}`, {
-      method: 'DELETE',
-    });
-  }
-
-  async analyzeRepository(req: types.AnalyzeRepositoryRequest): Promise<types.AnalyzeRepositoryResponse> {
-    return this.request<types.AnalyzeRepositoryResponse>('/v1/code-intelligence/analyze', {
-      method: 'POST',
-      body: JSON.stringify(req),
     });
   }
 }

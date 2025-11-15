@@ -577,10 +577,7 @@ pub async fn run(
     match worker.warmup().await {
         Ok(report) => {
             let steps = report.get("steps").and_then(|v| v.as_u64()).unwrap_or(0);
-            let duration_ms = report
-                .get("duration_ms")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let duration_ms = report.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
             output.success(format!(
                 "Warmup complete: steps={} duration={}ms",
                 steps, duration_ms

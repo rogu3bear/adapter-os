@@ -29,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Feature-gated experimental tests (federation, config, numerics, domain, lint) - 8 test files
   - Reduced warnings from 580 to 88 (85% reduction)
   - Remaining: 19 compilation errors in test files only (non-blocking for library usage)
-- Replaced println!/eprintln! in lora-kernel-mtl/build.rs with structured tracing for better error context in Metal compilation failures [source: crates/adapteros-lora-kernel-mtl/build.rs L38-39]
 
 ### Added
 - **Base Model UI User Journey** - Complete UI-driven workflow for model management (#FEATURE-001)

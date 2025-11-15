@@ -1,5 +1,5 @@
 use crate::Db;
-use adapteros_core::{AosError, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ impl std::fmt::Display for NotificationType {
 impl std::str::FromStr for NotificationType {
     type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "alert" => Ok(NotificationType::Alert),
             "message" => Ok(NotificationType::Message),
@@ -59,39 +59,35 @@ pub struct Notification {
     pub created_at: String,
 }
 
-#[derive(Debug)]
-pub struct NotificationParams {
-    pub user_id: String,
-    pub workspace_id: Option<String>,
-    pub type_: String,
-    pub target_type: Option<String>,
-    pub target_id: Option<String>,
-    pub title: String,
-    pub content: Option<String>,
-}
-
 impl Db {
-    pub async fn create_notification(&self, params: NotificationParams) -> Result<String> {
+    pub async fn create_notification(
+        &self,
+        user_id: &str,
+        workspace_id: Option<&str>,
+        type_: NotificationType,
+        target_type: Option<&str>,
+        target_id: Option<&str>,
+        title: &str,
+        content: Option<&str>,
+    ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
+        let type_str = type_.to_string();
         sqlx::query(
             r#"
-            INSERT INTO notifications (id, user_id, workspace_id, type, target_type, target_id, title, content, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notifications (id, user_id, workspace_id, type, target_type, target_id, title, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
-        .bind(&params.user_id)
-        .bind(&params.workspace_id)
-        .bind(&params.type_)
-        .bind(&params.target_type)
-        .bind(&params.target_id)
-        .bind(&params.title)
-        .bind(&params.content)
-        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(user_id)
+        .bind(workspace_id)
+        .bind(&type_str)
+        .bind(target_type)
+        .bind(target_id)
+        .bind(title)
+        .bind(content)
         .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to create notification: {}", e)))?;
-
+        .await?;
         Ok(id)
     }
 

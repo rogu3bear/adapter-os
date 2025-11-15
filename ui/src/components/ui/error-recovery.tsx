@@ -1,90 +1,275 @@
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+//! Error Recovery Component
+//!
+//! Provides comprehensive error handling with recovery paths and trust-building messaging.
+//!
+//! Citations:
+//! - docs/Smashing Design Techniques.md L300-L350 - Error recovery UX patterns
+//! - ui/src/utils/logger.ts L1-L50 - Error handling patterns
 
-export const ErrorRecoveryTemplates = {
-  default: 'An error occurred. Please try again.',
-  network: 'Network error. Check your connection.',
-  auth: 'Authentication failed. Please log in again.',
-  // Add more as needed based on common errors
+import React from 'react';
+import { Alert, AlertDescription, AlertTitle } from './alert';
+import { Button } from './button';
+import { AlertTriangle, RefreshCw, ArrowRight, HelpCircle, Home } from 'lucide-react';
+import { logger } from '../../utils/logger';
 
-  genericError: (error: Error, onRetry: () => void, options: Partial<ErrorRecoveryProps> = {}) => (
-    <ErrorRecovery 
-      title={options.title || "Error"}
-      message={error.message || ErrorRecoveryTemplates.default} 
-      variant={options.variant || "destructive"}
-      recoveryActions={[{ label: "Retry", action: onRetry, primary: true }]}
-      showHelp={options.showHelp || false}
-    />
-  ),
-
-  networkError: (onRetry: () => void, options: Partial<ErrorRecoveryProps> = {}) => (
-    <ErrorRecovery 
-      title={options.title || "Network Error"}
-      message={ErrorRecoveryTemplates.network} 
-      variant={options.variant || "destructive"}
-      recoveryActions={[{ label: "Retry", action: onRetry, primary: true }]}
-      showHelp={options.showHelp || false}
-    />
-  ),
-
-  authError: (onRetry: () => void, options: Partial<ErrorRecoveryProps> = {}) => (
-    <ErrorRecovery 
-      title={options.title || "Authentication Error"}
-      message={ErrorRecoveryTemplates.auth} 
-      variant={options.variant || "destructive"}
-      recoveryActions={[{ label: "Retry", action: onRetry, primary: true }]}
-      showHelp={options.showHelp || false}
-    />
-  ),
-};
-
-interface RecoveryAction {
+export interface RecoveryAction {
   label: string;
-  action: () => void;
+  action: () => void | Promise<void>;
+  variant?: 'default' | 'outline' | 'secondary';
   primary?: boolean;
-  variant?: string;
 }
 
-interface ErrorRecoveryProps {
+export interface ErrorRecoveryProps {
   title?: string;
-  message?: string;
-  error?: Error;
-  variant?: "default" | "destructive" | "warning";
+  message: string;
+  error?: Error & { userFriendly?: { title: string; message: string; actionText?: string; helpUrl?: string; variant: string } };
   recoveryActions?: RecoveryAction[];
   showHelp?: boolean;
+  helpUrl?: string;
+  variant?: 'error' | 'warning' | 'info';
+  className?: string;
 }
 
-export const ErrorRecovery = ({ 
-  title = "Error", 
-  message, 
+export function ErrorRecovery({
+  title,
+  message,
   error,
-  variant = "destructive", 
-  recoveryActions = [], 
-  showHelp = false 
-}: ErrorRecoveryProps) => {
-  const displayMessage = message || error?.message || ErrorRecoveryTemplates.default;
+  recoveryActions = [],
+  showHelp = true,
+  helpUrl,
+  variant = 'error',
+  className = ''
+}: ErrorRecoveryProps) {
+  // Use user-friendly error information if available
+  const displayTitle = error?.userFriendly?.title || title || 'Something went wrong';
+  const displayMessage = error?.userFriendly?.message || message;
+  const displayVariant = (error?.userFriendly?.variant as 'error' | 'warning' | 'info') || variant;
+  const displayHelpUrl = error?.userFriendly?.helpUrl || helpUrl;
+
+  // Add user-friendly action if available
+  const enhancedRecoveryActions = [...recoveryActions];
+  if (error?.userFriendly?.actionText && recoveryActions.length === 0) {
+    enhancedRecoveryActions.push({
+      label: error.userFriendly.actionText,
+      action: () => window.location.reload(), // Default action - could be customized
+      primary: true
+    });
+  }
+  const getIcon = () => {
+    switch (displayVariant) {
+      case 'warning':
+        return <AlertTriangle className="h-5 w-5 text-gray-500" />;
+      case 'info':
+        return <AlertTriangle className="h-5 w-5 text-gray-400" />;
+      default:
+        return <AlertTriangle className="h-5 w-5 text-gray-700" />;
+    }
+  };
+
+  const getAlertClass = () => {
+    switch (displayVariant) {
+      case 'warning':
+        return 'border-amber-200 bg-amber-50';
+      case 'info':
+        return 'border-blue-200 bg-blue-50';
+      default:
+        return 'border-red-200 bg-red-50';
+    }
+  };
+
+  const getTitleClass = () => {
+    switch (displayVariant) {
+      case 'warning':
+        return 'text-amber-800';
+      case 'info':
+        return 'text-blue-800';
+      default:
+        return 'text-red-800';
+    }
+  };
+
+  const getMessageClass = () => {
+    switch (displayVariant) {
+      case 'warning':
+        return 'text-amber-700';
+      case 'info':
+        return 'text-blue-700';
+      default:
+        return 'text-red-700';
+    }
+  };
 
   return (
-    <Alert variant={variant} className="mb-4">
-      {title && <AlertTitle>{title}</AlertTitle>}
-      <AlertDescription>{displayMessage}</AlertDescription>
-      <div className="flex flex-col sm:flex-row gap-2 mt-2">
-        {recoveryActions.map((action, index) => (
-          <Button 
-            key={index} 
-            onClick={action.action} 
-            variant={action.primary ? "default" : action.variant || "outline"} 
-            size="sm"
-          >
-            {action.label}
-          </Button>
-        ))}
+    <Alert className={`${getAlertClass()} ${className}`}>
+      {getIcon()}
+      <div className="flex-1">
+        <AlertTitle className={`${getTitleClass()} font-semibold`}>
+          {displayTitle}
+        </AlertTitle>
+        <AlertDescription className={`mt-1 ${getMessageClass()}`}>
+          {displayMessage}
+
+          {error && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-sm font-medium">
+                Technical Details
+              </summary>
+              <pre className="mt-1 text-xs bg-background/50 p-2 rounded border overflow-auto max-h-32">
+                {error.message}
+                {error.stack && (
+                  <>
+                    {'\n\nStack Trace:'}
+                    {error.stack}
+                  </>
+                )}
+              </pre>
+            </details>
+          )}
+
+          {(enhancedRecoveryActions.length > 0 || showHelp) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {enhancedRecoveryActions.map((action, index) => (
+                <Button
+                  key={index}
+                  variant={action.variant || (action.primary ? 'default' : 'outline')}
+                  size="sm"
+                  onClick={action.action}
+                  className="text-xs"
+                >
+                  {action.label}
+                  {action.primary && <ArrowRight className="h-3 w-3 ml-1" />}
+                </Button>
+              ))}
+
+              {showHelp && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const helpLink = displayHelpUrl || helpUrl;
+                    if (helpLink) {
+                      window.open(helpLink, '_blank');
+                    } else {
+                      // Default help action - could open help modal
+                      logger.info('Help requested from error recovery component', {
+                        component: 'ErrorRecovery',
+                        operation: 'helpRequest'
+                      });
+                    }
+                  }}
+                  className="text-xs"
+                >
+                  <HelpCircle className="h-3 w-3 mr-1" />
+                  Get Help
+                </Button>
+              )}
+            </div>
+          )}
+        </AlertDescription>
       </div>
-      {showHelp && (
-        <div className="mt-2 text-sm text-muted-foreground">
-          If the problem persists, check the console or contact support.
-        </div>
-      )}
     </Alert>
   );
+}
+
+// Pre-configured error recovery templates for common scenarios
+export const ErrorRecoveryTemplates = {
+  networkError: (retryAction?: () => void) => (
+    <ErrorRecovery
+      title="Connection Problem"
+      message="We're having trouble connecting to the server. This is usually temporary."
+      recoveryActions={
+        retryAction
+          ? [
+              { label: 'Try Again', action: retryAction, primary: true },
+              { label: 'Check Status', action: () => { window.location.href = '/dashboard'; } }
+            ]
+          : []
+      }
+      helpUrl="/docs/troubleshooting#network-issues"
+    />
+  ),
+
+  adapterLoadError: (adapterName: string, retryAction?: () => void) => (
+    <ErrorRecovery
+      title="Adapter Loading Failed"
+      message={`We couldn't load the adapter "${adapterName}". This might be due to insufficient memory or a corrupted adapter file.`}
+      recoveryActions={
+        retryAction
+          ? [
+              { label: 'Retry Loading', action: retryAction },
+              { label: 'Free Memory', action: () => { window.location.href = '/adapters'; } },
+              { label: 'Check Logs', action: () => { window.location.href = '/telemetry'; } }
+            ]
+          : []
+      }
+      helpUrl="/docs/adapters#loading-issues"
+    />
+  ),
+
+  trainingError: (retryAction?: () => void, alternativeAction?: () => void) => (
+    <ErrorRecovery
+      title="Training Failed"
+      message="The adapter training process encountered an error. This could be due to insufficient resources, invalid data, or configuration issues."
+      recoveryActions={
+        retryAction && alternativeAction
+          ? [
+              { label: 'Retry Training', action: retryAction },
+              { label: 'Adjust Settings', action: alternativeAction },
+              { label: 'View Logs', action: () => { window.location.href = '/telemetry'; } }
+            ]
+          : []
+      }
+      helpUrl="/docs/training#troubleshooting"
+    />
+  ),
+
+  inferenceError: (retryAction?: () => void) => (
+    <ErrorRecovery
+      title="Inference Failed"
+      message="We couldn't generate a response. This might be due to model issues, resource constraints, or invalid input."
+      variant="warning"
+      recoveryActions={
+        retryAction
+          ? [
+              { label: 'Try Again', action: retryAction, primary: true },
+              { label: 'Simplify Prompt', action: () => {/* Could focus input */} },
+              { label: 'Check Model Status', action: () => { window.location.href = '/adapters'; } }
+            ]
+          : []
+      }
+      helpUrl="/docs/inference#common-issues"
+    />
+  ),
+
+  permissionError: () => (
+    <ErrorRecovery
+      title="Permission Denied"
+      message="You don't have the required permissions to perform this action. Please contact your administrator."
+      variant="warning"
+      recoveryActions={[
+        { label: 'Go to Dashboard', action: () => { window.location.href = '/dashboard'; } }
+      ]}
+      showHelp={false}
+    />
+  ),
+
+  genericError: (error?: Error, retryAction?: () => void) => (
+    <ErrorRecovery
+      message="An unexpected error occurred. Our team has been notified and is working to resolve this."
+      error={error}
+      recoveryActions={
+        retryAction
+          ? [
+              { label: 'Try Again', action: retryAction },
+              { label: 'Go Home', action: () => { window.location.href = '/dashboard'; return; } }
+            ]
+          : [
+              { label: 'Go Home', action: () => { window.location.href = '/dashboard'; }, primary: true }
+            ]
+      }
+      helpUrl="/docs/support"
+    />
+  )
 };
+
+export default ErrorRecovery;

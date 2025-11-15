@@ -1,11 +1,11 @@
-use adapteros_server_api::model_runtime::ProgressEvent;
+use adapteros_server_api::model_runtime::{ModelRuntime, ModelKey, LoadModelSpec, ProgressEvent};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[tokio::test]
 async fn model_runtime_trait_smoke_test() {
     // Test that the ModelRuntime trait can be implemented and called
-    use adapteros_server_api::model_runtime::{LoadModelSpec, ModelKey, ModelRuntime};
+    use adapteros_server_api::model_runtime::{ModelRuntime, ModelKey, LoadModelSpec};
 
     struct TestRuntime;
     #[async_trait::async_trait]
@@ -14,17 +14,11 @@ async fn model_runtime_trait_smoke_test() {
             &self,
             req: LoadModelSpec,
             on_progress: F,
-        ) -> Result<
-            adapteros_server_api::model_runtime::ModelHandle,
-            adapteros_server_api::model_runtime::ModelLoadError,
-        >
+        ) -> Result<adapteros_server_api::model_runtime::ModelHandle, adapteros_server_api::model_runtime::ModelLoadError>
         where
             F: Fn(ProgressEvent) + Send + Sync + 'static,
         {
-            on_progress(ProgressEvent {
-                pct: 50.0,
-                message: "test progress".to_string(),
-            });
+            on_progress(ProgressEvent { pct: 50.0, message: "test progress".to_string() });
             Ok(adapteros_server_api::model_runtime::ModelHandle {
                 key: ModelKey {
                     tenant_id: req.tenant_id,
@@ -38,10 +32,7 @@ async fn model_runtime_trait_smoke_test() {
             false
         }
 
-        async fn unload(
-            &self,
-            _key: &ModelKey,
-        ) -> Result<(), adapteros_server_api::model_runtime::ModelLoadError> {
+        async fn unload(&self, _key: &ModelKey) -> Result<(), adapteros_server_api::model_runtime::ModelLoadError> {
             Ok(())
         }
     }
@@ -50,20 +41,18 @@ async fn model_runtime_trait_smoke_test() {
     let progress_events = Arc::new(Mutex::new(Vec::new()));
 
     let progress_events_clone = Arc::clone(&progress_events);
-    let result = runtime
-        .load_model_async_with_progress(
-            LoadModelSpec {
-                tenant_id: "test".to_string(),
-                model_id: "model".to_string(),
-                model_path: PathBuf::from("/tmp/test"),
-                adapter_path: None,
-                quantization: None,
-            },
-            move |ev| {
-                progress_events_clone.lock().unwrap().push(ev);
-            },
-        )
-        .await;
+    let result = runtime.load_model_async_with_progress(
+        LoadModelSpec {
+            tenant_id: "test".to_string(),
+            model_id: "model".to_string(),
+            model_path: PathBuf::from("/tmp/test"),
+            adapter_path: None,
+            quantization: None,
+        },
+        move |ev| {
+            progress_events_clone.lock().unwrap().push(ev);
+        },
+    ).await;
 
     assert!(result.is_ok());
     let events = progress_events.lock().unwrap();

@@ -157,7 +157,7 @@ final class ServicePanelClient {
     private var cachedAuthToken: String?
     private var tokenExpiration: Date?
 
-    init(baseURL: URL = URL(string: "http://localhost:8081")!, config: ServiceClientConfig = .default) {
+    init(baseURL: URL = URL(string: "http://localhost:3301")!, config: ServiceClientConfig = .default) {
         self.baseURL = baseURL
         self.config = config
         self.authManager = AuthenticationManager.shared

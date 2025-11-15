@@ -76,9 +76,7 @@ describe('RealtimeMetrics', () => {
     });
 
     const refreshButton = screen.getByRole('button', { name: /Refresh/ });
-    await act(async () => {
-      fireEvent.click(refreshButton);
-    });
+    fireEvent.click(refreshButton);
 
     await waitFor(() => {
       expect(screen.getByText(/45(\.0)?%/)).toBeInTheDocument();

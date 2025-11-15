@@ -278,18 +278,15 @@ impl DeterminismPolicy {
         }
 
         // For Metal backend, require kernel hash match if enabled
-        if self.config.require_kernel_hash_match
-            && report.backend_type == BackendType::Metal
-            && report.metallib_hash.is_some()
-            && report.manifest.is_some()
-        {
+        if self.config.require_kernel_hash_match && report.backend_type == BackendType::Metal && report.metallib_hash.is_some() && report.manifest.is_some() {
             let metallib_hash = report.metallib_hash.as_ref().unwrap();
             let manifest = report.manifest.as_ref().unwrap();
 
-            let expected_hash =
-                adapteros_core::B3Hash::from_hex(&manifest.kernel_hash).map_err(|e| {
-                    AosError::PolicyViolation(format!("Invalid kernel hash in manifest: {}", e))
-                })?;
+            let expected_hash = adapteros_core::B3Hash::from_hex(&manifest.kernel_hash)
+                .map_err(|e| AosError::PolicyViolation(format!(
+                    "Invalid kernel hash in manifest: {}",
+                    e
+                )))?;
 
             if metallib_hash != &expected_hash {
                 return Err(AosError::PolicyViolation(format!(

@@ -32,7 +32,8 @@ fn main() {
             "-std=metal3.1",
         ])
         .current_dir(&kernel_src_dir)
-        .output();
+        .output()
+        .expect("Failed to compile Metal shaders");
 
     if let Ok(output) = compile_output {
         if !output.status.success() {
@@ -58,7 +59,8 @@ fn main() {
             "adapteros_kernels.metallib",
         ])
         .current_dir(&kernel_src_dir)
-        .output();
+        .output()
+        .expect("Failed to link metallib");
 
     if let Ok(output) = link_output {
         if !output.status.success() {

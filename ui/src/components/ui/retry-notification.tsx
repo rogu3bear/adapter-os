@@ -79,10 +79,6 @@ export function RetryNotification({
     );
   }
 
-  if (timeRemaining <= 0) {
-    return null;
-  }
-
   return (
     <Alert className={`border-gray-300 bg-gray-50 ${className}`}>
       <RefreshCw className="h-4 w-4 text-gray-400 animate-spin" />

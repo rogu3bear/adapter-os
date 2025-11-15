@@ -188,18 +188,18 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                     <div className="flex items-center gap-2 text-xs">
                       <Hash className="h-3 w-3" />
                       <span className="text-muted-foreground">Manifest:</span>
-                      <code className="font-mono border border-border px-1 rounded">{currentSession.manifest_hash_b3.substring(0, 16)}...</code>
+                      <code className="font-mono">{currentSession.manifest_hash_b3.substring(0, 16)}...</code>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <Hash className="h-3 w-3" />
                       <span className="text-muted-foreground">Policy:</span>
-                      <code className="font-mono border border-border px-1 rounded">{currentSession.policy_hash_b3.substring(0, 16)}...</code>
+                      <code className="font-mono">{currentSession.policy_hash_b3.substring(0, 16)}...</code>
                     </div>
                     {currentSession.kernel_hash_b3 && (
                       <div className="flex items-center gap-2 text-xs">
                         <Hash className="h-3 w-3" />
                         <span className="text-muted-foreground">Kernel:</span>
-                        <code className="font-mono border border-border px-1 rounded">{currentSession.kernel_hash_b3.substring(0, 16)}...</code>
+                        <code className="font-mono">{currentSession.kernel_hash_b3.substring(0, 16)}...</code>
                       </div>
                     )}
                   </div>

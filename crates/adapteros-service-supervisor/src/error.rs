@@ -1,5 +1,6 @@
 //! Error types for the service supervisor
 
+use std::fmt;
 
 /// Result type alias for supervisor operations
 pub type Result<T> = std::result::Result<T, SupervisorError>;
@@ -55,11 +56,11 @@ impl SupervisorError {
     pub fn should_retry(&self) -> bool {
         matches!(
             self,
-            SupervisorError::Timeout(_)
-                | SupervisorError::CircuitBreaker(_)
-                | SupervisorError::Http(_)
-                | SupervisorError::Io(_)
-                | SupervisorError::Process(_)
+            SupervisorError::Timeout(_) |
+            SupervisorError::CircuitBreaker(_) |
+            SupervisorError::Http(_) |
+            SupervisorError::Io(_) |
+            SupervisorError::Process(_)
         )
     }
 
