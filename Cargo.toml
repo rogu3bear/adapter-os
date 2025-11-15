@@ -74,26 +74,29 @@ edition = "2021"  # Inherited by members for consistency
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/mplora"
 
-[features]
-default = ["deterministic-only"]
-deterministic-only = []
-experimental-backends = ["dep:pyo3"]
-mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi", "adapteros-lora-worker/mlx-ffi-backend"]
-extended-tests = []
-integration_tests = []
+# [features] and [dependencies] sections moved to individual crate Cargo.toml files
+# Virtual manifests (workspace-only) cannot have these sections
+#
+# [features]
+# default = ["deterministic-only"]
+# deterministic-only = []
+# experimental-backends = ["dep:pyo3"]
+# mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi", "adapteros-lora-worker/mlx-ffi-backend"]
+# extended-tests = []
+# integration_tests = []
 
-[dependencies]
-tower_governor = "0.5"
-# Re-export key crates for integration tests
-adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
-pyo3 = { workspace = true, features = ["extension-module"], optional = true }
-anyhow = "1.0"
-thiserror.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-tokio.workspace = true
-
+# [dependencies]
+# tower_governor = "0.5"
+# # Re-export key crates for integration tests
+# adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
+# adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
+# pyo3 = { workspace = true, features = ["extension-module"], optional = true }
+# anyhow = "1.0"
+# thiserror.workspace = true
+# serde.workspace = true
+# serde_json.workspace = true
+# tokio.workspace = true
+# 
 [workspace.dependencies]
 aes-gcm = "0.10"
 anyhow = "1.0"
@@ -190,6 +193,7 @@ prometheus = "0.13"
 
 # Testing
 proptest = "1.4"
+pyo3 = "0.22"
 
 [profile.release]
 opt-level = 3
@@ -204,92 +208,92 @@ opt-level = 0
 opt-level = 1
 
 # Test configurations
-[[test]]
-name = "determinism"
-path = "tests/determinism.rs"
-
-[[test]]
-name = "integration"
-path = "tests/integration_tests.rs"
-
-
-[[test]]
-name = "integration_qwen"
-path = "tests/integration_qwen.rs"
-
-[[test]]
-name = "deterministic_exec"
-path = "tests/deterministic_exec.rs"
-
-[[test]]
-name = "replay_identical"
-path = "tests/replay_identical.rs"
-
-[[test]]
-name = "cross_platform_determinism"
-path = "tests/cross_platform_determinism.rs"
-
-[[test]]
-name = "ipc_integration"
-path = "tests/integration/ipc_tests.rs"
-
-# Example binaries (require extended-tests)
-[[example]]
-name = "aos_usage"
-path = "examples/aos_usage.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "basic_inference"
-path = "examples/basic_inference.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "cursor_workflow"
-path = "examples/cursor_workflow.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "load_aos_adapter"
-path = "examples/load_aos_adapter.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "lora_routing"
-path = "examples/lora_routing.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "metrics_collector_example"
-path = "examples/metrics_collector_example.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "mlx_inference"
-path = "examples/mlx_inference.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "patch_proposal_advanced"
-path = "examples/patch_proposal_advanced.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "patch_proposal_api"
-path = "examples/patch_proposal_api.rs"
-required-features = ["extended-tests"]
-
-[[example]]
-name = "patch_proposal_basic"
-path = "examples/patch_proposal_basic.rs"
-required-features = ["extended-tests"]
-
-# Test dependencies
-[dev-dependencies]
-futures = "0.3"
-adapteros-core = { path = "crates/adapteros-core" }
-adapteros-manifest = { path = "crates/adapteros-manifest" }
-adapteros-chat = { path = "crates/adapteros-chat" }
+# [[test]]
+# name = "determinism"
+# path = "tests/determinism.rs"
+# 
+# [[test]]
+# name = "integration"
+# path = "tests/integration_tests.rs"
+# 
+# 
+# [[test]]
+# name = "integration_qwen"
+# path = "tests/integration_qwen.rs"
+# 
+# [[test]]
+# name = "deterministic_exec"
+# path = "tests/deterministic_exec.rs"
+# 
+# [[test]]
+# name = "replay_identical"
+# path = "tests/replay_identical.rs"
+# 
+# [[test]]
+# name = "cross_platform_determinism"
+# path = "tests/cross_platform_determinism.rs"
+# 
+# [[test]]
+# name = "ipc_integration"
+# path = "tests/integration/ipc_tests.rs"
+# 
+# # Example binaries (require extended-tests)
+# [[example]]
+# name = "aos_usage"
+# path = "examples/aos_usage.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "basic_inference"
+# path = "examples/basic_inference.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "cursor_workflow"
+# path = "examples/cursor_workflow.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "load_aos_adapter"
+# path = "examples/load_aos_adapter.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "lora_routing"
+# path = "examples/lora_routing.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "metrics_collector_example"
+# path = "examples/metrics_collector_example.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "mlx_inference"
+# path = "examples/mlx_inference.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "patch_proposal_advanced"
+# path = "examples/patch_proposal_advanced.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "patch_proposal_api"
+# path = "examples/patch_proposal_api.rs"
+# required-features = ["extended-tests"]
+# 
+# [[example]]
+# name = "patch_proposal_basic"
+# path = "examples/patch_proposal_basic.rs"
+# required-features = ["extended-tests"]
+# 
+# # Test dependencies
+# [dev-dependencies]
+# futures = "0.3"
+# adapteros-core = { path = "crates/adapteros-core" }
+# adapteros-manifest = { path = "crates/adapteros-manifest" }
+# adapteros-chat = { path = "crates/adapteros-chat" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-telemetry = { path = "crates/adapteros-telemetry" }

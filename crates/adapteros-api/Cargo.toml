@@ -4,21 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7"
-tower = "0.4"
-tower-http = "0.5"  # limit feature included
-prometheus = { workspace = true }
-uuid = { version = "1.7", features = ["v4"] }
-hyper-util = "0.1"
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-tracing = "0.1"
-# Local deps (path-based)
-adapteros-core = { path = "../adapteros-core" }
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
-adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
-adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
-adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+# Workspace dependencies
 axum = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -32,4 +18,15 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
 futures-util = { workspace = true }
+prometheus = { workspace = true }
+uuid = { workspace = true }
+
+# Non-workspace dependencies
 http-body-util = "0.1"
+
+# Local deps (path-based)
+adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }

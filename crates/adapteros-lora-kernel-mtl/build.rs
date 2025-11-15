@@ -35,16 +35,11 @@ fn main() {
         .output()
         .expect("Failed to compile Metal shaders");
 
-    if let Ok(output) = compile_output {
-        if !output.status.success() {
-            eprintln!(
-                "Metal compilation failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            std::process::exit(1);
-        }
-    } else {
-        eprintln!("Failed to execute metal compiler");
+    if !compile_output.status.success() {
+        eprintln!(
+            "Metal compilation failed: {}",
+            String::from_utf8_lossy(&compile_output.stderr)
+        );
         std::process::exit(1);
     }
 
@@ -62,16 +57,11 @@ fn main() {
         .output()
         .expect("Failed to link metallib");
 
-    if let Ok(output) = link_output {
-        if !output.status.success() {
-            eprintln!(
-                "Metallib linking failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            std::process::exit(1);
-        }
-    } else {
-        eprintln!("Failed to execute metallib linker");
+    if !link_output.status.success() {
+        eprintln!(
+            "Metallib linking failed: {}",
+            String::from_utf8_lossy(&link_output.stderr)
+        );
         std::process::exit(1);
     }
 
