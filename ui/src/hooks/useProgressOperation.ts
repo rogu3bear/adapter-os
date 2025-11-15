@@ -182,7 +182,7 @@ export function useProgressOperation(operationId?: string): UseProgressOperation
             progressData = {
               progress: adapter.state === 'warm' ? 100 : adapter.state === 'loading' ? 50 : 0,
               status: adapter.state === 'warm' ? 'Loaded' : adapter.state === 'loading' ? 'Loading...' : 'Pending',
-              variant: adapter.state === 'warm' ? 'success' : 'default'
+              variant: (adapter.state === 'warm' ? 'success' : 'default') as ProgressState['variant']
             };
             break;
 
@@ -305,14 +305,14 @@ export function useProgressOperation(operationId?: string): UseProgressOperation
       // Store for historical analysis
       storeOperationData(operation.type, duration);
 
-      const completedOperation = {
+      const completedOperation: ProgressOperation = {
         ...operation,
         lastUpdate: Date.now(),
         state: {
           ...operation.state,
           progress: 100,
           status: 'Completed',
-          variant: 'success',
+          variant: 'success' as const,
           ...finalState
         }
       };
@@ -339,13 +339,13 @@ export function useProgressOperation(operationId?: string): UseProgressOperation
       const operation = prev[operationId];
       if (!operation) return prev;
 
-      const cancelledOperation = {
+      const cancelledOperation: ProgressOperation = {
         ...operation,
         lastUpdate: Date.now(),
         state: {
           ...operation.state,
           status: 'Cancelled',
-          variant: 'warning'
+          variant: 'warning' as const
         }
       };
 
