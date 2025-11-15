@@ -20,6 +20,7 @@ pub mod code_policies;
 pub mod commits;
 pub mod contacts;
 pub mod cp_pointers;
+pub mod dashboard_configs;
 pub mod domain_adapters;
 pub mod enclave_operations;
 pub mod ephemeral_adapters;
