@@ -1052,16 +1052,74 @@ impl UnifiedTestingFramework {
             "Running test step"
         );
 
+        // Execute the test action based on its type
         let mut step_result = StepResult {
             step_id: step.id.clone(),
-            status: TestStatus::Passed,
+            status: TestStatus::Failed,
             output: None,
-            error: None,
+            error: Some(
+                "Test execution not yet implemented - framework is under development".to_string(),
+            ),
             execution_time_ms: 0,
         };
 
-        // TODO: Implement actual step execution logic
-        // This would handle different action types
+        // Execute based on action type
+        match &step.action {
+            TestAction::ExecuteCommand { command, args } => {
+                // Command execution not implemented
+                step_result.error = Some(format!(
+                    "ExecuteCommand action not implemented: {} {:?}",
+                    command, args
+                ));
+            }
+            TestAction::ApiCall { method, url, body } => {
+                // API call not implemented
+                step_result.error = Some(format!(
+                    "ApiCall action not implemented: {} {} (body: {:?})",
+                    method, url, body
+                ));
+            }
+            TestAction::DatabaseOperation {
+                operation,
+                query,
+                params,
+            } => {
+                // Database operation not implemented
+                step_result.error = Some(format!(
+                    "DatabaseOperation action not implemented: {} {} (params: {:?})",
+                    operation, query, params
+                ));
+            }
+            TestAction::FileOperation {
+                operation,
+                path,
+                content,
+            } => {
+                // File operation not implemented
+                step_result.error = Some(format!(
+                    "FileOperation action not implemented: {} {} (content: {:?})",
+                    operation, path, content
+                ));
+            }
+            TestAction::NetworkOperation {
+                operation,
+                host,
+                port,
+            } => {
+                // Network operation not implemented
+                step_result.error = Some(format!(
+                    "NetworkOperation action not implemented: {} {}:{}",
+                    operation, host, port
+                ));
+            }
+            TestAction::Custom { action_type, data } => {
+                // Custom action not implemented
+                step_result.error = Some(format!(
+                    "Custom action not implemented: {} (data: {:?})",
+                    action_type, data
+                ));
+            }
+        }
 
         let execution_time = start_instant.elapsed();
         step_result.execution_time_ms = execution_time.as_millis() as u64;
@@ -1086,13 +1144,17 @@ impl UnifiedTestingFramework {
 
         let assertion_result = AssertionResult {
             assertion_id: assertion.id.clone(),
-            status: TestStatus::Passed,
-            message: None,
-            details: None,
+            status: TestStatus::Failed,
+            message: Some("Assertion evaluation not yet implemented - framework is under development".to_string()),
+            details: Some(serde_json::json!({
+                "assertion_type": format!("{:?}", assertion.assertion_type),
+                "parameters": assertion.parameters,
+                "error": "Assertion framework not implemented"
+            })),
         };
 
-        // TODO: Implement actual assertion logic
-        // This would handle different assertion types
+        // Assertion execution not yet implemented
+        // Different assertion types would be evaluated here
 
         debug!(
             assertion_id = %assertion.id,

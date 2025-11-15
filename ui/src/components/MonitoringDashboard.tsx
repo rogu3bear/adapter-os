@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -23,6 +23,7 @@ import {
 import apiClient from '../api/client';
 import * as types from '../api/types';
 import { logger, toError } from '../utils/logger';
+import { usePolling } from '../hooks/usePolling';
 
 interface AlertEntry {
   id: string;
@@ -70,90 +71,7 @@ export const MonitoringDashboard: React.FC = () => {
   const gpuUtilization = pickMetric(systemMetrics, ['gpu_utilization', 'gpu_utilization_percent']);
   const uptimeSeconds = pickMetric(systemMetrics, ['uptime_seconds']);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchData = async () => {
-      try {
-        const [system, quality, adapters] = await Promise.all([
-          apiClient.getSystemMetrics(),
-          apiClient.getQualityMetrics(),
-          apiClient.getAdapterMetrics(),
-        ]);
-        if (!isMounted) return;
-
-        setSystemMetrics(system);
-        setQualityMetrics(quality);
-        setAdapterMetrics(
-          (adapters || []).map((entry) => {
-            const perf = entry.performance;
-            const activationRate = (() => {
-              if (!perf) return 0;
-              if (typeof perf.activation_rate === 'number') {
-                return perf.activation_rate;
-              }
-              if (
-                typeof perf.activation_count === 'number' &&
-                typeof perf.total_requests === 'number' &&
-                perf.total_requests > 0
-              ) {
-                return (perf.activation_count / perf.total_requests) * 100;
-              }
-              return perf.activation_count ?? 0;
-            })();
-
-            const avgLatencyMs = perf?.avg_latency_ms
-              ?? (typeof perf?.avg_latency_us === 'number'
-                ? perf!.avg_latency_us / 1000
-                : 0);
-
-            return {
-              adapterId: entry.adapter_id,
-              activationRate,
-              avgLatencyMs,
-              qualityScore: perf?.quality_score,
-              totalRequests: perf?.total_requests,
-            };
-          })
-        );
-
-        const timestamp = new Date().toISOString();
-        const cpuValue = pickMetric(system, ['cpu_usage', 'cpu_usage_percent', 'memory_usage_pct']);
-        const latencyValue = pickMetric(system, ['avg_latency_ms', 'latency_p95_ms']);
-
-        if (!isMounted) return;
-
-        setMetricHistory((prev) =>
-          [
-            ...prev.slice(-59),
-            { time: timestamp, value: cpuValue },
-          ]
-        );
-        setLatencyHistory((prev) =>
-          [
-            ...prev.slice(-59),
-            { time: timestamp, value: latencyValue },
-          ]
-        );
-
-        evaluateAlerts(system, adapters);
-      } catch (error) {
-        logger.error('Failed to fetch monitoring data', {
-          component: 'MonitoringDashboard',
-          operation: 'fetchData',
-        }, toError(error));
-      }
-    };
-
-    fetchData();
-    const interval = window.setInterval(fetchData, 5000);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  const evaluateAlerts = (
+  const evaluateAlerts = useCallback((
     system: types.SystemMetrics,
     adapters: types.AdapterMetrics[],
   ) => {
@@ -213,7 +131,93 @@ export const MonitoringDashboard: React.FC = () => {
     });
 
     setAlerts((prev) => [...newAlerts, ...prev].slice(0, 25));
-  };
+  }, []);
+
+  const fetchMonitoringData = useCallback(async () => {
+    const [system, quality, adapters] = await Promise.all([
+      apiClient.getSystemMetrics(),
+      apiClient.getQualityMetrics(),
+      apiClient.getAdapterMetrics(),
+    ]);
+
+    return { system, quality, adapters };
+  }, []);
+
+  usePolling(
+    fetchMonitoringData,
+    'normal',
+    {
+      operationName: 'MonitoringDashboard.fetchMonitoringData',
+      showLoadingIndicator: false,
+      onSuccess: (data) => {
+        const { system, quality, adapters } = data as {
+          system: types.SystemMetrics;
+          quality: types.QualityMetrics;
+          adapters: types.AdapterMetrics[];
+        };
+
+        setSystemMetrics(system);
+        setQualityMetrics(quality);
+        setAdapterMetrics(
+          (adapters || []).map((entry) => {
+            const perf = entry.performance;
+            const activationRate = (() => {
+              if (!perf) return 0;
+              if (typeof perf.activation_rate === 'number') {
+                return perf.activation_rate;
+              }
+              if (
+                typeof perf.activation_count === 'number' &&
+                typeof perf.total_requests === 'number' &&
+                perf.total_requests > 0
+              ) {
+                return (perf.activation_count / perf.total_requests) * 100;
+              }
+              return perf.activation_count ?? 0;
+            })();
+
+            const avgLatencyMs = perf?.avg_latency_ms
+              ?? (typeof perf?.avg_latency_us === 'number'
+                ? perf!.avg_latency_us / 1000
+                : 0);
+
+            return {
+              adapterId: entry.adapter_id,
+              activationRate,
+              avgLatencyMs,
+              qualityScore: perf?.quality_score,
+              totalRequests: perf?.total_requests,
+            };
+          })
+        );
+
+        const timestamp = new Date().toISOString();
+        const cpuValue = pickMetric(system, ['cpu_usage', 'cpu_usage_percent', 'memory_usage_pct']);
+        const latencyValue = pickMetric(system, ['avg_latency_ms', 'latency_p95_ms']);
+
+        setMetricHistory((prev) =>
+          [
+            ...prev.slice(-59),
+            { time: timestamp, value: cpuValue },
+          ]
+        );
+        setLatencyHistory((prev) =>
+          [
+            ...prev.slice(-59),
+            { time: timestamp, value: latencyValue },
+          ]
+        );
+
+        evaluateAlerts(system, adapters);
+      },
+      onError: (error) => {
+        logger.error('Failed to fetch monitoring data', {
+          component: 'MonitoringDashboard',
+          operation: 'fetchMonitoringData',
+        }, error);
+      }
+    }
+  );
 
   const cpuHistory = useMemo(
     () => metricHistory.map((entry) => ({ ...entry, label: 'CPU %' })),

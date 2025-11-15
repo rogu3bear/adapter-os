@@ -60,7 +60,7 @@ function SystemHealthWidget() {
 
   const { data: metrics, isLoading: loading } = usePolling(
     () => apiClient.getSystemMetrics(),
-    'normal',
+    'slow',
     {
       operationName: 'SystemHealthWidget.getSystemMetrics',
       showLoadingIndicator: false,
