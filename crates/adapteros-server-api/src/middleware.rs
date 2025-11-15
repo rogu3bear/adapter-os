@@ -68,7 +68,12 @@ pub async fn auth_middleware(
         .and_then(|header| header.strip_prefix("Bearer "))
         .map(|token| token.to_string());
 
-    let query_token = req.uri().query().and_then(|query| None);
+    let query_token = req.uri().query().and_then(|query| {
+        // Parse query string to extract token parameter
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "token")
+            .map(|(_, value)| value.into_owned())
+    });
 
     let cookie_token = req
         .headers()
@@ -167,7 +172,12 @@ pub async fn dual_auth_middleware(
         .and_then(|header| header.strip_prefix("Bearer "))
         .map(|token| token.to_string());
 
-    let query_token = req.uri().query().and_then(|query| None);
+    let query_token = req.uri().query().and_then(|query| {
+        // Parse query string to extract token parameter
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "token")
+            .map(|(_, value)| value.into_owned())
+    });
 
     let cookie_token = req
         .headers()

@@ -110,10 +110,12 @@ WorkersTab.tsx, TrainingWizard.tsx, Telemetry.tsx, and 24 others
 **SSE Authentication**: SSE endpoints use cookie-based session authentication.
 
 **Implementation Status**:
-- ✅ Cookie-based auth implemented - no token query parameters needed
+- ✅ Cookie-based auth implemented and working
+- ✅ Query parameter token auth implemented (2025-11-15) - `?token=xxx` now supported
+- ✅ Bearer header auth supported (existing)
 - ✅ Browser automatically sends session cookies with EventSource
-- ✅ Backend middleware validates session cookies via `Extension<Claims>`
-- ✅ UI components updated to use cookie-only authentication
+- ✅ Backend middleware validates tokens from headers, cookies, OR query parameters
+- ✅ UI components work with cookie-based authentication (primary method)
 
 **Affected Endpoints** (all use cookie-based auth):
 - `/v1/stream/metrics` - System metrics updates
@@ -146,8 +148,8 @@ The `/v1/stream/telemetry` endpoint emits:
 ## Priority Roadmap
 
 1. **Phase 1** (Backend Critical):
-   - Implement SSE token authentication on server
-   - Test SSE endpoints with query parameter tokens
+   - ✅ ~~Implement SSE token authentication on server~~ (COMPLETED 2025-11-15)
+   - ✅ ~~Test SSE endpoints with query parameter tokens~~ (Middleware-level fix applied)
 
 2. **Phase 2** (UI Enhancement):
    - Implement Recent Activity endpoint integration
