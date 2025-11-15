@@ -115,7 +115,7 @@ This document describes the three new features added to the AdapterOS Control Pl
 - `GET /v1/metrics/system` - System metrics
 - `GET /v1/training/jobs` - Training job list
 - `GET /v1/adapters` - Adapter list
-- Future: `GET /v1/telemetry/events` - Activity feed
+- `GET /v1/telemetry/events` - Activity feed (implemented)
 
 ---
 
