@@ -45,6 +45,7 @@ pub mod activity;
 pub mod batch;
 #[cfg(feature = "cdp")]
 pub mod code;
+pub mod dashboard;
 pub mod domain_adapters;
 #[cfg(feature = "federation")]
 pub mod federation;

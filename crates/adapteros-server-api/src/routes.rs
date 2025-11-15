@@ -342,6 +342,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/config",
             get(handlers::auth_get_config).put(handlers::auth_update_config),
         )
+        // Dashboard configuration endpoints
+        .route(
+            "/v1/dashboard/config",
+            get(handlers::dashboard::get_dashboard_config)
+                .put(handlers::dashboard::update_dashboard_config)
+                .delete(handlers::dashboard::reset_dashboard_config),
+        )
         // Prompt orchestration endpoints
         .route(
             "/v1/orchestration/config",
