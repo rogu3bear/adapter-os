@@ -5,6 +5,18 @@ import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Alert, AlertDescription } from './ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
+import { Input } from './ui/input';
 import {
   Play,
   Square,
@@ -21,7 +33,8 @@ import {
   Terminal,
   Brain,
   Settings,
-  Key
+  Key,
+  X
 } from 'lucide-react';
 import { ServiceCard } from './ServiceCard';
 import { TerminalOutput } from './TerminalOutput';
@@ -52,6 +65,17 @@ export default function ServicePanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [essentialServices, setEssentialServices] = useState<any[]>([]);
   const [essentialOperation, setEssentialOperation] = useState<'idle' | 'starting' | 'stopping'>('idle');
+
+  // Service-level loading state
+  const [serviceOperations, setServiceOperations] = useState<Record<string, 'starting' | 'stopping' | 'restarting' | null>>({});
+
+  // Notification state
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Confirmation dialogs
+  const [stopConfirmation, setStopConfirmation] = useState<SimpleService | null>(null);
+  const [stopAllConfirmation, setStopAllConfirmation] = useState(false);
+  const [stopAllConfirmText, setStopAllConfirmText] = useState('');
 
   // Load services from backend
   const loadServices = useCallback(async () => {
@@ -127,39 +151,181 @@ export default function ServicePanel() {
     return () => clearInterval(interval);
   }, [loadServices, loadEssentialServices]);
 
-  // Disable service control functions with placeholders
+  // Helper to show notification with auto-dismiss
+  const showNotification = useCallback((type: 'success' | 'error', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000); // Auto-dismiss after 5s
+  }, []);
+
+  // Start a service
   const handleStartService = async (service: SimpleService) => {
-    // Placeholder: Service control under development
-    logger.warn('Service start requested but not implemented', {
+    logger.info('Starting service', {
       component: 'ServicePanel',
       serviceId: service.id,
     });
-    // TODO: Implement when backend endpoint available
+
+    // Set optimistic loading state
+    setServiceOperations(prev => ({ ...prev, [service.id]: 'starting' }));
+
+    // Optimistically update service status
+    setServices(prev => prev.map(s =>
+      s.id === service.id ? { ...s, status: 'starting' as const } : s
+    ));
+
+    try {
+      const result = await apiClient.startService(service.id);
+
+      logger.info('Service started successfully', {
+        component: 'ServicePanel',
+        serviceId: service.id,
+        message: result.message,
+      });
+
+      showNotification('success', `Service "${service.name}" started successfully`);
+
+      // Reload services to get actual state
+      await loadServices();
+    } catch (error) {
+      logger.error('Failed to start service', {
+        component: 'ServicePanel',
+        serviceId: service.id,
+        error: toError(error),
+      });
+
+      showNotification('error', `Failed to start service "${service.name}": ${toError(error).message}`);
+
+      // Revert optimistic update on error
+      await loadServices();
+    } finally {
+      setServiceOperations(prev => ({ ...prev, [service.id]: null }));
+    }
   };
 
+  // Stop a service (with confirmation)
   const handleStopService = async (service: SimpleService) => {
-    // Placeholder: Service control under development
-    logger.warn('Service stop requested but not implemented', {
+    // Show confirmation dialog
+    setStopConfirmation(service);
+  };
+
+  const confirmStopService = async () => {
+    if (!stopConfirmation) return;
+
+    const service = stopConfirmation;
+    setStopConfirmation(null);
+
+    logger.info('Stopping service', {
       component: 'ServicePanel',
       serviceId: service.id,
     });
-    // TODO: Implement when backend endpoint available
+
+    // Set loading state
+    setServiceOperations(prev => ({ ...prev, [service.id]: 'stopping' }));
+
+    // Optimistically update service status
+    setServices(prev => prev.map(s =>
+      s.id === service.id ? { ...s, status: 'stopping' as const } : s
+    ));
+
+    try {
+      const result = await apiClient.stopService(service.id);
+
+      logger.info('Service stopped successfully', {
+        component: 'ServicePanel',
+        serviceId: service.id,
+        message: result.message,
+      });
+
+      showNotification('success', `Service "${service.name}" stopped successfully`);
+
+      await loadServices();
+    } catch (error) {
+      logger.error('Failed to stop service', {
+        component: 'ServicePanel',
+        serviceId: service.id,
+        error: toError(error),
+      });
+
+      showNotification('error', `Failed to stop service "${service.name}": ${toError(error).message}`);
+
+      await loadServices();
+    } finally {
+      setServiceOperations(prev => ({ ...prev, [service.id]: null }));
+    }
   };
 
-  // Start all essential services
+  // Start all essential services (with progress tracking)
   const handleStartEssentialServices = async () => {
-    // Placeholder
-    logger.warn('Essential services start requested but not implemented', {
+    logger.info('Starting all essential services', {
       component: 'ServicePanel',
     });
+
+    setEssentialOperation('starting');
+
+    try {
+      const result = await apiClient.startEssentialServices();
+
+      logger.info('Essential services started successfully', {
+        component: 'ServicePanel',
+        message: result.message,
+      });
+
+      showNotification('success', 'All essential services started successfully');
+
+      await loadServices();
+      await loadEssentialServices();
+    } catch (error) {
+      logger.error('Failed to start essential services', {
+        component: 'ServicePanel',
+        error: toError(error),
+      });
+
+      showNotification('error', `Failed to start essential services: ${toError(error).message}`);
+    } finally {
+      setEssentialOperation('idle');
+    }
   };
 
-  // Stop all essential services
+  // Stop all essential services (with strict confirmation)
   const handleStopEssentialServices = async () => {
-    // Placeholder
-    logger.warn('Essential services stop requested but not implemented', {
+    // Show confirmation dialog that requires typing "STOP"
+    setStopAllConfirmation(true);
+    setStopAllConfirmText('');
+  };
+
+  const confirmStopAllServices = async () => {
+    if (stopAllConfirmText !== 'STOP') return;
+
+    setStopAllConfirmation(false);
+    setStopAllConfirmText('');
+
+    logger.info('Stopping all essential services', {
       component: 'ServicePanel',
     });
+
+    setEssentialOperation('stopping');
+
+    try {
+      const result = await apiClient.stopEssentialServices();
+
+      logger.info('Essential services stopped successfully', {
+        component: 'ServicePanel',
+        message: result.message,
+      });
+
+      showNotification('success', 'All essential services stopped successfully');
+
+      await loadServices();
+      await loadEssentialServices();
+    } catch (error) {
+      logger.error('Failed to stop essential services', {
+        component: 'ServicePanel',
+        error: toError(error),
+      });
+
+      showNotification('error', `Failed to stop essential services: ${toError(error).message}`);
+    } finally {
+      setEssentialOperation('idle');
+    }
   };
 
   const coreServices = services.filter(s => s.category === 'core');
@@ -400,6 +566,78 @@ export default function ServicePanel() {
             <AuthenticationSettings />
           </TabsContent>
         </Tabs>
+
+        {/* Notification Alert */}
+        {notification && (
+          <div className="fixed bottom-4 right-4 z-50 max-w-md">
+            <Alert variant={notification.type === 'error' ? 'destructive' : 'default'} className="shadow-lg">
+              <AlertDescription className="flex items-center justify-between">
+                <span>{notification.message}</span>
+                <button
+                  onClick={() => setNotification(null)}
+                  className="ml-4 hover:opacity-70"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+
+        {/* Stop Service Confirmation Dialog */}
+        <AlertDialog open={!!stopConfirmation} onOpenChange={(open) => !open && setStopConfirmation(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Stop Service?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to stop <strong>{stopConfirmation?.name}</strong>?
+                <br /><br />
+                This will terminate the service and may affect dependent services.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmStopService} className="bg-red-600 hover:bg-red-700">
+                Stop Service
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Stop All Essential Services Confirmation Dialog */}
+        <AlertDialog open={stopAllConfirmation} onOpenChange={(open) => !open && setStopAllConfirmation(false)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-red-600">⚠️ Stop All Essential Services?</AlertDialogTitle>
+              <AlertDialogDescription>
+                <div className="space-y-3">
+                  <p>
+                    This action will stop <strong>all essential services</strong>, which may cause system-wide disruption.
+                  </p>
+                  <p>
+                    Type <code className="bg-gray-100 px-2 py-1 rounded">STOP</code> to confirm:
+                  </p>
+                  <Input
+                    value={stopAllConfirmText}
+                    onChange={(e) => setStopAllConfirmText(e.target.value)}
+                    placeholder="Type STOP to confirm"
+                    className="font-mono"
+                  />
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setStopAllConfirmText('')}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmStopAllServices}
+                disabled={stopAllConfirmText !== 'STOP'}
+                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Stop All Services
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

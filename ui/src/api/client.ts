@@ -513,12 +513,6 @@ class ApiClient {
     return response.blob();
   }
 
-  async deletePlan(planId: string): Promise<void> {
-    return this.request<void>(`/v1/plans/${planId}`, {
-      method: 'DELETE',
-    });
-  }
-
   // Control Plane
   async promote(data: types.PromotionRequest): Promise<types.PromotionRecord> {
     return this.request<types.PromotionRecord>('/v1/cp/promote', {
@@ -1135,6 +1129,20 @@ class ApiClient {
     return this.request<types.Alert>(`/v1/monitoring/alerts/${alertId}/acknowledge`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async updateMonitoringRule(ruleId: string, data: types.UpdateMonitoringRuleRequest): Promise<types.MonitoringRule> {
+    return this.request<types.MonitoringRule>(`/v1/monitoring/rules/${ruleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resolveAlert(alertId: string, data?: types.ResolveAlertRequest): Promise<types.Alert> {
+    return this.request<types.Alert>(`/v1/monitoring/alerts/${alertId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
     });
   }
 
@@ -2296,6 +2304,108 @@ class ApiClient {
    */
   async getStatus(): Promise<types.AdapterOSStatus> {
     return this.request<types.AdapterOSStatus>('/v1/status', {
+      method: 'GET',
+    });
+  }
+
+  // Service Control Methods
+
+  /**
+   * Start a service
+   * Citation: crates/adapteros-server-api/src/handlers/services.rs
+   */
+  async startService(serviceId: string): Promise<{ success: boolean; message: string }> {
+    logger.info('Starting service', {
+      component: 'ApiClient',
+      operation: 'startService',
+      serviceId,
+    });
+
+    return this.request(`/v1/services/${serviceId}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, false, undefined, false); // No retry for start operations
+  }
+
+  /**
+   * Stop a service
+   * Citation: crates/adapteros-server-api/src/handlers/services.rs
+   */
+  async stopService(serviceId: string): Promise<{ success: boolean; message: string }> {
+    logger.info('Stopping service', {
+      component: 'ApiClient',
+      operation: 'stopService',
+      serviceId,
+    });
+
+    return this.request(`/v1/services/${serviceId}/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, false, undefined, false); // No retry for stop operations
+  }
+
+  /**
+   * Restart a service
+   * Citation: crates/adapteros-server-api/src/handlers/services.rs
+   */
+  async restartService(serviceId: string): Promise<{ success: boolean; message: string }> {
+    logger.info('Restarting service', {
+      component: 'ApiClient',
+      operation: 'restartService',
+      serviceId,
+    });
+
+    return this.request(`/v1/services/${serviceId}/restart`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, false, undefined, false); // No retry for restart operations
+  }
+
+  /**
+   * Start all essential services
+   * Citation: crates/adapteros-server-api/src/handlers/services.rs
+   */
+  async startEssentialServices(): Promise<{ success: boolean; message: string }> {
+    logger.info('Starting all essential services', {
+      component: 'ApiClient',
+      operation: 'startEssentialServices',
+    });
+
+    return this.request('/v1/services/essential/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, false, undefined, false); // No retry for start operations
+  }
+
+  /**
+   * Stop all essential services
+   * Citation: crates/adapteros-server-api/src/handlers/services.rs
+   */
+  async stopEssentialServices(): Promise<{ success: boolean; message: string }> {
+    logger.info('Stopping all essential services', {
+      component: 'ApiClient',
+      operation: 'stopEssentialServices',
+    });
+
+    return this.request('/v1/services/essential/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, false, undefined, false); // No retry for stop operations
+  }
+
+  /**
+   * Get service logs
+   * Citation: crates/adapteros-server-api/src/handlers/services.rs
+   */
+  async getServiceLogs(serviceId: string, lines: number = 100): Promise<string[]> {
+    logger.info('Fetching service logs', {
+      component: 'ApiClient',
+      operation: 'getServiceLogs',
+      serviceId,
+      lines,
+    });
+
+    return this.request(`/v1/services/${serviceId}/logs?lines=${lines}`, {
       method: 'GET',
     });
   }

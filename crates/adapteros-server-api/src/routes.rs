@@ -17,7 +17,6 @@ use crate::handlers::replay::replay_from_bundle;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use crate::handlers::replay::replay_from_bundle;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -25,6 +24,12 @@ use crate::handlers::replay::replay_from_bundle;
         handlers::health,
         handlers::ready,
         handlers::get_status,
+        handlers::services::start_service,
+        handlers::services::stop_service,
+        handlers::services::restart_service,
+        handlers::services::start_essential_services,
+        handlers::services::stop_essential_services,
+        handlers::services::get_service_logs,
         handlers::auth_login,
         handlers::auth_refresh,
         handlers::auth_list_sessions,
@@ -127,6 +132,10 @@ use crate::handlers::replay::replay_from_bundle;
         // handlers::tutorials::mark_tutorial_dismissed,
         // handlers::tutorials::unmark_tutorial_dismissed,
         handlers::replay::replay_from_bundle,
+        // Prompt orchestration handlers
+        handlers::get_prompt_orchestration_config,
+        handlers::update_prompt_orchestration_config,
+        handlers::analyze_prompt,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -175,6 +184,12 @@ use crate::handlers::replay::replay_from_bundle;
         crate::types::AuditExtended,
         crate::types::AuditsResponse,
         crate::types::PromotionRecord,
+        // Prompt orchestration types
+        crate::types::PromptOrchestrationConfig,
+        crate::types::PromptAnalysisRequest,
+        crate::types::PromptAnalysisResponse,
+        crate::types::PromptFeatures,
+        crate::types::PromptOrchestrationMetrics,
         // Contacts and Streams types - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         crate::types::ContactResponse,
         crate::types::CreateContactRequest,
@@ -327,7 +342,42 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/config",
             get(handlers::auth_get_config).put(handlers::auth_update_config),
         )
+        // Prompt orchestration endpoints
+        .route(
+            "/v1/orchestration/config",
+            get(handlers::get_prompt_orchestration_config)
+                .post(handlers::update_prompt_orchestration_config),
+        )
+        .route(
+            "/v1/orchestration/analyze",
+            post(handlers::analyze_prompt),
+        )
         .route("/v1/status", get(handlers::get_status))
+        // Service control endpoints
+        .route(
+            "/v1/services/:service_id/start",
+            post(handlers::services::start_service),
+        )
+        .route(
+            "/v1/services/:service_id/stop",
+            post(handlers::services::stop_service),
+        )
+        .route(
+            "/v1/services/:service_id/restart",
+            post(handlers::services::restart_service),
+        )
+        .route(
+            "/v1/services/essential/start",
+            post(handlers::services::start_essential_services),
+        )
+        .route(
+            "/v1/services/essential/stop",
+            post(handlers::services::stop_essential_services),
+        )
+        .route(
+            "/v1/services/:service_id/logs",
+            get(handlers::services::get_service_logs),
+        )
         .route(
             "/v1/models/status/all",
             get(handlers::get_all_models_status),

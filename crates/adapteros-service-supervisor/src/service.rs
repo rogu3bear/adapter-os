@@ -4,8 +4,11 @@ use crate::config::{HealthCheckConfig, RestartPolicy, ServiceCategory, ServiceCo
 use crate::error::{Result, SupervisorError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
@@ -250,6 +253,84 @@ impl ManagedService {
     }
 
     /// Spawn the service process
+    /// Get log file path for this service
+    fn log_file_path(&self) -> PathBuf {
+        let log_dir = std::env::var("SUPERVISOR_LOG_DIR")
+            .unwrap_or_else(|_| "/tmp/adapteros/logs".to_string());
+        PathBuf::from(log_dir).join(format!("{}.log", self.config.name))
+    }
+
+    /// Spawn a task to capture and log stdout/stderr
+    async fn capture_output(
+        service_name: String,
+        log_path: PathBuf,
+        mut stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+        stream_name: &'static str,
+    ) {
+        tokio::spawn(async move {
+            // Ensure log directory exists
+            if let Some(parent) = log_path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+
+            // Open log file in append mode
+            let file = match OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .await
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    error!(
+                        "Failed to open log file for {}/{}: {}",
+                        service_name, stream_name, e
+                    );
+                    return;
+                }
+            };
+
+            let mut file = tokio::io::BufWriter::new(file);
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                        let log_line = format!("[{}] [{}] {}", timestamp, stream_name, line);
+
+                        if let Err(e) = file.write_all(log_line.as_bytes()).await {
+                            error!(
+                                "Failed to write to log file for {}/{}: {}",
+                                service_name, stream_name, e
+                            );
+                            break;
+                        }
+
+                        if let Err(e) = file.flush().await {
+                            error!(
+                                "Failed to flush log file for {}/{}: {}",
+                                service_name, stream_name, e
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Error reading from {}/{}: {}",
+                            service_name, stream_name, e
+                        );
+                        break;
+                    }
+                }
+            }
+
+            debug!("Log capture ended for {}/{}", service_name, stream_name);
+        });
+    }
+
     async fn spawn_process(&self) -> Result<Child> {
         let mut command = Command::new(&self.config.command);
         command.args(&self.config.args);
@@ -265,10 +346,64 @@ impl ManagedService {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
 
-        let child = command.spawn()
+        let mut child = command.spawn()
             .map_err(|e| SupervisorError::Process(format!("Failed to spawn {}: {}", self.config.name, e)))?;
 
+        // Capture stdout and stderr
+        let log_path = self.log_file_path();
+
+        if let Some(stdout) = child.stdout.take() {
+            Self::capture_output(
+                self.config.name.clone(),
+                log_path.clone(),
+                stdout,
+                "stdout",
+            )
+            .await;
+        }
+
+        if let Some(stderr) = child.stderr.take() {
+            Self::capture_output(
+                self.config.name.clone(),
+                log_path.clone(),
+                stderr,
+                "stderr",
+            )
+            .await;
+        }
+
         Ok(child)
+    }
+
+    /// Read logs from log file
+    pub async fn read_logs(&self, lines: usize) -> Result<Vec<String>> {
+        let log_path = self.log_file_path();
+
+        if !log_path.exists() {
+            return Ok(vec![format!("No logs available for {}", self.config.name)]);
+        }
+
+        let file = File::open(&log_path)
+            .await
+            .map_err(|e| SupervisorError::Io(format!("Failed to open log file: {}", e)))?;
+
+        let reader = BufReader::new(file);
+        let mut all_lines: Vec<String> = Vec::new();
+
+        let mut lines_stream = reader.lines();
+        while let Some(line) = lines_stream.next_line().await.transpose() {
+            match line {
+                Ok(l) => all_lines.push(l),
+                Err(e) => {
+                    warn!("Error reading log line: {}", e);
+                    break;
+                }
+            }
+        }
+
+        // Return last N lines
+        let start = all_lines.len().saturating_sub(lines);
+        Ok(all_lines[start..].to_vec())
     }
 
     /// Check HTTP health endpoint

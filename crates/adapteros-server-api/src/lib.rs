@@ -11,6 +11,7 @@ pub mod routes;
 pub mod services;
 pub mod signing;
 pub mod state;
+pub mod supervisor_client;
 pub mod types;
 pub mod uds_client;
 pub mod validation;

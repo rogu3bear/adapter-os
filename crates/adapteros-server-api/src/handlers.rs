@@ -92,6 +92,7 @@ pub mod models;
 pub mod notifications;
 pub mod openai;
 pub mod replay;
+pub mod services;
 pub mod telemetry;
 pub mod tutorials;
 pub mod workspaces;
@@ -679,9 +680,6 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
 pub async fn get_status(
     State(state): State<AppState>,
 ) -> Result<Json<AdapterOSStatus>, (StatusCode, Json<ErrorResponse>)> {
-    // Note: The actual status collection logic is in adapteros-server crate
-    // For now, return a basic status structure
-    // TODO: Import status collection from adapteros-server once dependency cycle is resolved
     let (production_mode, telemetry_mode) = match state.config.read() {
         Ok(cfg) => (
             cfg.production_mode,
@@ -697,6 +695,35 @@ pub async fn get_status(
         }
     };
 
+    // Fetch real service status from supervisor
+    let services = {
+        let supervisor_client = crate::supervisor_client::SupervisorClient::from_env()
+            .with_timeout(std::time::Duration::from_millis(500));
+
+        match supervisor_client.get_services().await {
+            Ok(supervisor_services) => {
+                // Convert supervisor ServiceStatus to API ServiceStatus
+                supervisor_services
+                    .into_iter()
+                    .map(|s| crate::types::ServiceStatus {
+                        id: s.id,
+                        name: s.name,
+                        state: s.state,
+                        pid: s.pid,
+                        port: s.port,
+                        health_status: s.health_status,
+                        restart_count: s.restart_count,
+                        last_error: s.last_error,
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch service status from supervisor");
+                vec![]
+            }
+        }
+    };
+
     let status = AdapterOSStatus {
         schema_version: "1.0".to_string(),
         status: "ok".to_string(),
@@ -708,7 +735,7 @@ pub async fn get_status(
         worker_count: 0,
         base_model_loaded: false,
         base_model_id: None,
-        services: vec![],
+        services,
         production_mode,
         tenant_id: None,
     };
@@ -7486,40 +7513,35 @@ pub async fn unload_adapter(
             }
         }
     } else {
-        // No lifecycle manager - just simulate
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        state
-            .db
-            .update_adapter_state(&adapter_id, "cold", "simulated_unload")
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-
-        state.db.update_adapter_memory(&adapter_id, 0).await.ok();
-
-        tracing::info!(
-            event = "adapter.unload",
+        // No lifecycle manager available - cannot unload adapter
+        tracing::error!(
+            event = "adapter.unload.failed",
             adapter_id = %adapter_id,
-            "Adapter unloaded successfully (simulated)"
+            reason = "no_lifecycle_manager",
+            "Adapter unload failed - lifecycle manager not configured"
         );
 
-        // Record simulated unload metrics
+        // Record failure metrics
         let unload_duration = unload_start.elapsed().as_secs_f64();
         state.metrics_collector.record_adapter_unload_latency(
             &adapter_id,
             tenant_id,
             unload_duration,
-            "success",
+            "no_lifecycle_manager",
         );
+
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("Lifecycle manager not configured - cannot unload adapters")
+                    .with_code("LIFECYCLE_MANAGER_UNAVAILABLE")
+                    .with_string_details(format!(
+                        "Adapter '{}' cannot be unloaded because the lifecycle manager is not initialized. \
+                         This is a server configuration issue. Adapters will remain in memory.",
+                        adapter_id
+                    )),
+            ),
+        ));
     }
 
     Ok(StatusCode::OK)
@@ -9254,27 +9276,40 @@ pub async fn routing_decisions(
 /// Get prompt orchestration configuration
 #[utoipa::path(
     get,
-    path = "/v1/prompt-orchestration/config",
+    path = "/v1/orchestration/config",
     responses(
         (status = 200, description = "Prompt orchestration configuration", body = PromptOrchestrationConfig)
     ),
-    tag = "prompt-orchestration"
+    tag = "orchestration"
 )]
 pub async fn get_prompt_orchestration_config(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<PromptOrchestrationConfig>, (StatusCode, Json<ErrorResponse>)> {
-    // For now, return default configuration
-    // In production, this would be stored in database/config file
+    // Fetch configuration from database
+    let db_config = state
+        .db
+        .get_orchestration_config(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to fetch orchestration config: {}", e),
+                }),
+            )
+        })?;
+
+    // Convert database row to API response type
     let config = PromptOrchestrationConfig {
-        enabled: true,
-        base_model_threshold: 0.2,
-        adapter_threshold: 0.1,
-        analysis_timeout: 50,
-        cache_enabled: true,
-        cache_ttl: 300,
-        enable_telemetry: true,
-        fallback_strategy: "adaptive".to_string(),
+        enabled: db_config.enabled,
+        base_model_threshold: db_config.base_model_threshold,
+        adapter_threshold: db_config.adapter_threshold,
+        analysis_timeout: db_config.analysis_timeout,
+        cache_enabled: db_config.cache_enabled,
+        cache_ttl: db_config.cache_ttl,
+        enable_telemetry: db_config.enable_telemetry,
+        fallback_strategy: db_config.fallback_strategy,
     };
 
     Ok(Json(config))
@@ -9282,35 +9317,104 @@ pub async fn get_prompt_orchestration_config(
 
 /// Update prompt orchestration configuration
 #[utoipa::path(
-    put,
-    path = "/v1/prompt-orchestration/config",
+    post,
+    path = "/v1/orchestration/config",
     request_body = PromptOrchestrationConfig,
     responses(
         (status = 200, description = "Configuration updated successfully"),
         (status = 400, description = "Invalid configuration", body = ErrorResponse)
     ),
-    tag = "prompt-orchestration"
+    tag = "orchestration"
 )]
 pub async fn update_prompt_orchestration_config(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Json(_config): Json<PromptOrchestrationConfig>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(config): Json<PromptOrchestrationConfig>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Validate and persist configuration
-    // For now, just accept the request
+    // Validate configuration values
+    if config.base_model_threshold < 0.0 || config.base_model_threshold > 1.0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "base_model_threshold must be between 0.0 and 1.0".to_string(),
+            }),
+        ));
+    }
+
+    if config.adapter_threshold < 0.0 || config.adapter_threshold > 1.0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "adapter_threshold must be between 0.0 and 1.0".to_string(),
+            }),
+        ));
+    }
+
+    if config.analysis_timeout <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "analysis_timeout must be greater than 0".to_string(),
+            }),
+        ));
+    }
+
+    if config.cache_ttl <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "cache_ttl must be greater than 0".to_string(),
+            }),
+        ));
+    }
+
+    if !["base_only", "best_effort", "adaptive"].contains(&config.fallback_strategy.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "fallback_strategy must be one of: base_only, best_effort, adaptive"
+                    .to_string(),
+            }),
+        ));
+    }
+
+    // Persist configuration to database
+    state
+        .db
+        .upsert_orchestration_config(
+            &claims.tenant_id,
+            config.enabled,
+            config.base_model_threshold,
+            config.adapter_threshold,
+            config.analysis_timeout,
+            config.cache_enabled,
+            config.cache_ttl,
+            config.enable_telemetry,
+            &config.fallback_strategy,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to save orchestration config: {}", e),
+                }),
+            )
+        })?;
+
     Ok(StatusCode::OK)
 }
 
 /// Analyze a prompt for orchestration decision
 #[utoipa::path(
     post,
-    path = "/v1/prompt-orchestration/analyze",
+    path = "/v1/orchestration/analyze",
     request_body = PromptAnalysisRequest,
     responses(
         (status = 200, description = "Prompt analysis result", body = PromptAnalysisResponse),
         (status = 400, description = "Invalid prompt", body = ErrorResponse)
     ),
-    tag = "prompt-orchestration"
+    tag = "orchestration"
 )]
 pub async fn analyze_prompt(
     State(state): State<AppState>,

@@ -441,7 +441,7 @@ async fn check_deterministic_mode() -> Option<bool> {
 async fn query_service_status() -> Option<Vec<ServiceStatus>> {
     // Try to connect to service supervisor
     let supervisor_url =
-        std::env::var("SUPERVISOR_API_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+        std::env::var("SUPERVISOR_API_URL").unwrap_or_else(|_| "http://localhost:3301".to_string());
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(500)) // Short timeout to avoid blocking status updates

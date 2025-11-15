@@ -254,24 +254,40 @@ async fn stop_essential_handler(
     }
 }
 
-/// Get service logs (placeholder for now)
+/// Get service logs
 async fn get_service_logs_handler(
     State(state): State<AppState>,
     Path(service_id): Path<String>,
+    Query(params): Query<LogsQuery>,
     _headers: HeaderMap,
 ) -> axum::response::Response {
-    // For now, return empty logs
-    // In a real implementation, this would read from log files
-    #[derive(Serialize)]
-    struct LogsResponse {
-        service_id: String,
-        logs: Vec<String>,
+    #[derive(Deserialize)]
+    struct LogsQuery {
+        #[serde(default = "default_log_lines")]
+        lines: usize,
     }
 
-    axum::Json(LogsResponse {
-        service_id,
-        logs: vec!["Logs not yet implemented".to_string()],
-    }).into_response()
+    fn default_log_lines() -> usize {
+        100
+    }
+
+    match state.supervisor.get_service_logs(&service_id, params.lines).await {
+        Ok(logs) => {
+            #[derive(Serialize)]
+            struct LogsResponse {
+                service_id: String,
+                logs: Vec<String>,
+            }
+
+            axum::Json(LogsResponse {
+                service_id,
+                logs,
+            }).into_response()
+        }
+        Err(e) => (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response(),
+    }
 }
 
 // Authentication functions removed for simplified implementation
