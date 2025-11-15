@@ -32,8 +32,9 @@ impl SystemMetricsDb {
 
     /// Run database migrations
     pub async fn run_migrations(&self) -> Result<()> {
-        MIGRATIONS.run(&self.pool).await
-            .map_err(|e| AosError::Database(format!("Failed to run system metrics migrations: {}", e)))?;
+        MIGRATIONS.run(&self.pool).await.map_err(|e| {
+            AosError::Database(format!("Failed to run system metrics migrations: {}", e))
+        })?;
         Ok(())
     }
 
@@ -71,7 +72,9 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store system metrics: {}", e)))?;
 
-        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
+        Ok(result
+            .last_insert_id()
+            .expect("Failed to get last insert ID"))
     }
 
     /// Get system metrics history
@@ -164,7 +167,9 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store health check: {}", e)))?;
 
-        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
+        Ok(result
+            .last_insert_id()
+            .expect("Failed to get last insert ID"))
     }
 
     /// Store threshold violation
@@ -196,7 +201,9 @@ impl SystemMetricsDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store threshold violation: {}", e)))?;
 
-        Ok(result.last_insert_id().expect("Failed to get last insert ID"))
+        Ok(result
+            .last_insert_id()
+            .expect("Failed to get last insert ID"))
     }
 
     /// Get unresolved threshold violations
@@ -500,27 +507,42 @@ mod tests {
                 load_15min: 1.0 + (i as f64 * 0.02),
             };
 
-            let id = db.store_metrics(&metrics).await.expect("Failed to store metrics");
+            let id = db
+                .store_metrics(&metrics)
+                .await
+                .expect("Failed to store metrics");
             assert!(id > 0);
         }
 
         // Test retrieving history (should get all 5 records)
-        let history = db.get_metrics_history(24, Some(10)).await.expect("Failed to get history");
+        let history = db
+            .get_metrics_history(24, Some(10))
+            .await
+            .expect("Failed to get history");
         assert_eq!(history.len(), 5);
 
         // Test threshold violations
-        let violation_id = db.store_threshold_violation("cpu", 95.0, 90.0, "high")
+        let violation_id = db
+            .store_threshold_violation("cpu", 95.0, 90.0, "high")
             .await
             .expect("Failed to store violation");
         assert!(violation_id > 0);
 
-        let violations = db.get_unresolved_violations().await.expect("Failed to get violations");
+        let violations = db
+            .get_unresolved_violations()
+            .await
+            .expect("Failed to get violations");
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].metric_name, "cpu");
 
         // Test resolving violation
-        db.resolve_violation(violation_id).await.expect("Failed to resolve violation");
-        let violations_after = db.get_unresolved_violations().await.expect("Failed to get violations after resolution");
+        db.resolve_violation(violation_id)
+            .await
+            .expect("Failed to resolve violation");
+        let violations_after = db
+            .get_unresolved_violations()
+            .await
+            .expect("Failed to get violations after resolution");
         assert_eq!(violations_after.len(), 0);
 
         // Test aggregations
@@ -538,9 +560,12 @@ mod tests {
             sample_count: 2,
         };
 
-        db.store_metrics_aggregation(&aggregation, "hourly").await.expect("Failed to store aggregation");
+        db.store_metrics_aggregation(&aggregation, "hourly")
+            .await
+            .expect("Failed to store aggregation");
 
-        let retrieved_agg = db.get_metrics_aggregation(base_timestamp, base_timestamp + 3600, "hourly")
+        let retrieved_agg = db
+            .get_metrics_aggregation(base_timestamp, base_timestamp + 3600, "hourly")
             .await
             .expect("Failed to get aggregation");
         assert!(retrieved_agg.is_some());
@@ -548,7 +573,10 @@ mod tests {
         assert_eq!(agg.avg_cpu_usage, 52.5);
 
         // Test cleanup
-        let deleted_count = db.cleanup_old_metrics(1).await.expect("Failed to cleanup metrics");
+        let deleted_count = db
+            .cleanup_old_metrics(1)
+            .await
+            .expect("Failed to cleanup metrics");
         assert_eq!(deleted_count, 0); // No old metrics in this test
     }
 }

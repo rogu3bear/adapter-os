@@ -1145,7 +1145,10 @@ impl UnifiedTestingFramework {
         let assertion_result = AssertionResult {
             assertion_id: assertion.id.clone(),
             status: TestStatus::Failed,
-            message: Some("Assertion evaluation not yet implemented - framework is under development".to_string()),
+            message: Some(
+                "Assertion evaluation not yet implemented - framework is under development"
+                    .to_string(),
+            ),
             details: Some(serde_json::json!({
                 "assertion_type": format!("{:?}", assertion.assertion_type),
                 "parameters": assertion.parameters,

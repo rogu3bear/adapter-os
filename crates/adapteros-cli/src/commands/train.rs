@@ -383,7 +383,10 @@ impl TrainArgs {
 
     /// Load training data by scanning a directory and processing files
     fn load_training_data_from_directory(&self) -> Result<Vec<TrainingExample>> {
-        info!("Scanning directory for training data: {}", self.data.display());
+        info!(
+            "Scanning directory for training data: {}",
+            self.data.display()
+        );
 
         let tokenizer_path = self
             .tokenizer
@@ -432,7 +435,10 @@ impl TrainArgs {
             )));
         }
 
-        info!("Generated {} training examples from directory", examples.len());
+        info!(
+            "Generated {} training examples from directory",
+            examples.len()
+        );
         Ok(examples)
     }
 
@@ -565,15 +571,26 @@ impl TrainArgs {
         let mut processed_count = 0;
 
         // Parse include/exclude patterns
-        let include_patterns: Vec<&str> = self.include_patterns
+        let include_patterns: Vec<&str> = self
+            .include_patterns
             .as_ref()
             .map(|s| s.split(',').map(|s| s.trim()).collect())
             .unwrap_or_else(|| vec!["*.md", "*.txt", "*.rs", "*.py", "*.js", "*.ts", "*.json"]);
 
-        let exclude_patterns: Vec<&str> = self.exclude_patterns
+        let exclude_patterns: Vec<&str> = self
+            .exclude_patterns
             .as_ref()
             .map(|s| s.split(',').map(|s| s.trim()).collect())
-            .unwrap_or_else(|| vec!["*.log", "*.tmp", "*.lock", ".git/**", "node_modules/**", "target/**"]);
+            .unwrap_or_else(|| {
+                vec![
+                    "*.log",
+                    "*.tmp",
+                    "*.lock",
+                    ".git/**",
+                    "node_modules/**",
+                    "target/**",
+                ]
+            });
 
         for entry in WalkDir::new(&self.data).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -634,11 +651,20 @@ impl TrainArgs {
     }
 
     /// Process a single file into training examples
-    fn process_file_for_training(&self, file_path: &Path, tokenizer: &Tokenizer) -> Result<Vec<TrainingExample>> {
+    fn process_file_for_training(
+        &self,
+        file_path: &Path,
+        tokenizer: &Tokenizer,
+    ) -> Result<Vec<TrainingExample>> {
         use std::fs;
 
-        let content = fs::read_to_string(file_path)
-            .map_err(|e| AosError::Io(format!("Failed to read file {}: {}", file_path.display(), e)))?;
+        let content = fs::read_to_string(file_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read file {}: {}",
+                file_path.display(),
+                e
+            ))
+        })?;
 
         if content.trim().is_empty() {
             return Ok(Vec::new());
@@ -672,7 +698,12 @@ impl TrainArgs {
     }
 
     /// Process text/markdown files into training examples
-    fn process_text_file(&self, content: &str, file_path: &Path, tokenizer: &Tokenizer) -> Result<Vec<TrainingExample>> {
+    fn process_text_file(
+        &self,
+        content: &str,
+        file_path: &Path,
+        tokenizer: &Tokenizer,
+    ) -> Result<Vec<TrainingExample>> {
         let mut examples = Vec::new();
 
         // Split content into chunks (simple approach: by paragraphs or fixed size)
@@ -691,9 +722,11 @@ impl TrainArgs {
             let input_text = format!("Document chunk: {}", chunk);
             let target_text = chunk.to_string();
 
-            let input_tokens = tokenizer.encode(input_text.as_str(), false)
+            let input_tokens = tokenizer
+                .encode(input_text.as_str(), false)
                 .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
-            let target_tokens = tokenizer.encode(target_text.as_str(), false)
+            let target_tokens = tokenizer
+                .encode(target_text.as_str(), false)
                 .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
 
             if input_tokens.is_empty() || target_tokens.is_empty() {
@@ -701,7 +734,10 @@ impl TrainArgs {
             }
 
             let mut metadata = HashMap::new();
-            metadata.insert("source_file".to_string(), file_path.to_string_lossy().to_string());
+            metadata.insert(
+                "source_file".to_string(),
+                file_path.to_string_lossy().to_string(),
+            );
             metadata.insert("chunk_index".to_string(), i.to_string());
             metadata.insert("file_type".to_string(), "text".to_string());
 
@@ -717,7 +753,12 @@ impl TrainArgs {
     }
 
     /// Process code files into training examples
-    fn process_code_file(&self, content: &str, file_path: &Path, tokenizer: &Tokenizer) -> Result<Vec<TrainingExample>> {
+    fn process_code_file(
+        &self,
+        content: &str,
+        file_path: &Path,
+        tokenizer: &Tokenizer,
+    ) -> Result<Vec<TrainingExample>> {
         let mut examples = Vec::new();
 
         // Simple approach: split by functions/classes (very basic)
@@ -729,12 +770,17 @@ impl TrainArgs {
             let trimmed = line.trim();
 
             // Simple heuristic for function/class starts
-            if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
-               trimmed.starts_with("class ") || trimmed.starts_with("function ") ||
-               trimmed.starts_with("def ") {
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("pub fn ")
+                || trimmed.starts_with("class ")
+                || trimmed.starts_with("function ")
+                || trimmed.starts_with("def ")
+            {
                 // Save previous block if it exists
                 if !current_block.is_empty() {
-                    if let Ok(example) = self.create_code_example(&current_block, file_path, tokenizer) {
+                    if let Ok(example) =
+                        self.create_code_example(&current_block, file_path, tokenizer)
+                    {
                         examples.push(example);
                     }
                 }
@@ -745,7 +791,9 @@ impl TrainArgs {
 
                 // End block on empty line after content
                 if trimmed.is_empty() && current_block.len() > 1 {
-                    if let Ok(example) = self.create_code_example(&current_block, file_path, tokenizer) {
+                    if let Ok(example) =
+                        self.create_code_example(&current_block, file_path, tokenizer)
+                    {
                         examples.push(example);
                     }
                     current_block.clear();
@@ -770,7 +818,12 @@ impl TrainArgs {
     }
 
     /// Create a training example from code block
-    fn create_code_example(&self, lines: &[&str], file_path: &Path, tokenizer: &Tokenizer) -> Result<TrainingExample> {
+    fn create_code_example(
+        &self,
+        lines: &[&str],
+        file_path: &Path,
+        tokenizer: &Tokenizer,
+    ) -> Result<TrainingExample> {
         let code_text = lines.join("\n");
 
         if code_text.trim().len() < 20 {
@@ -780,22 +833,33 @@ impl TrainArgs {
         let input_text = format!("Code snippet: {}", code_text);
         let target_text = code_text;
 
-        let input_tokens = tokenizer.encode(input_text.as_str(), false)
+        let input_tokens = tokenizer
+            .encode(input_text.as_str(), false)
             .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
-        let target_tokens = tokenizer.encode(target_text.as_str(), false)
+        let target_tokens = tokenizer
+            .encode(target_text.as_str(), false)
             .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
 
         if input_tokens.is_empty() || target_tokens.is_empty() {
-            return Err(AosError::Training("Empty tokens after encoding".to_string()));
+            return Err(AosError::Training(
+                "Empty tokens after encoding".to_string(),
+            ));
         }
 
         let mut metadata = HashMap::new();
-        metadata.insert("source_file".to_string(), file_path.to_string_lossy().to_string());
+        metadata.insert(
+            "source_file".to_string(),
+            file_path.to_string_lossy().to_string(),
+        );
         metadata.insert("file_type".to_string(), "code".to_string());
-        metadata.insert("language".to_string(), file_path.extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("unknown")
-            .to_string());
+        metadata.insert(
+            "language".to_string(),
+            file_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
+        );
 
         Ok(TrainingExample {
             input: input_tokens.get_ids().to_vec(),
@@ -806,7 +870,12 @@ impl TrainArgs {
     }
 
     /// Process JSON files into training examples
-    fn process_json_file(&self, content: &str, file_path: &Path, tokenizer: &Tokenizer) -> Result<Vec<TrainingExample>> {
+    fn process_json_file(
+        &self,
+        content: &str,
+        file_path: &Path,
+        tokenizer: &Tokenizer,
+    ) -> Result<Vec<TrainingExample>> {
         // Try to parse as JSON and create examples from key-value pairs or structure
         match serde_json::from_str::<serde_json::Value>(content) {
             Ok(json_value) => {
@@ -820,14 +889,19 @@ impl TrainArgs {
                 let input_text = format!("JSON data: {}", json_text);
                 let target_text = json_text;
 
-                let input_tokens = tokenizer.encode(input_text.as_str(), false)
+                let input_tokens = tokenizer
+                    .encode(input_text.as_str(), false)
                     .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
-                let target_tokens = tokenizer.encode(target_text.as_str(), false)
+                let target_tokens = tokenizer
+                    .encode(target_text.as_str(), false)
                     .map_err(|e| AosError::Training(format!("Tokenization failed: {}", e)))?;
 
                 if !input_tokens.is_empty() && !target_tokens.is_empty() {
                     let mut metadata = HashMap::new();
-                    metadata.insert("source_file".to_string(), file_path.to_string_lossy().to_string());
+                    metadata.insert(
+                        "source_file".to_string(),
+                        file_path.to_string_lossy().to_string(),
+                    );
                     metadata.insert("file_type".to_string(), "json".to_string());
 
                     examples.push(TrainingExample {

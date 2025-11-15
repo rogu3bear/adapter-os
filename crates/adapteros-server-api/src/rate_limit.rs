@@ -3,14 +3,19 @@
 //! Implements per-tenant rate limiting with token bucket algorithm for M1 production hardening.
 //! Each tenant gets their own isolated token bucket with configurable rate and burst capacity.
 
-use std::sync::Arc;
-use axum::{extract::{Request, State}, http::StatusCode, middleware::Next, response::Response};
 use crate::{auth::Claims, state::AppState, types::ErrorResponse};
-use tower_governor::{Governor, GovernorConfig, key_extractor::KeyExtractor};
+use axum::{
+    extract::{Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::Response,
+};
 use futures::future::BoxFuture;
+use std::sync::Arc;
 use tower::Layer;
-use tower::ServiceBuilder;
 use tower::Service;
+use tower::ServiceBuilder;
+use tower_governor::{key_extractor::KeyExtractor, Governor, GovernorConfig};
 
 #[derive(Clone)]
 struct TenantKeyExtractor {
@@ -141,12 +146,20 @@ impl TokenBucket {
 /// Per-tenant rate limiters
 type TenantRateLimiters = Arc<Mutex<HashMap<String, TokenBucket>>>;
 
-pub fn per_tenant_rate_limit_middleware(state: Arc<AppState>) -> impl Layer< S > + Clone + Send + 'static where S: Service<Request<Body>, Response = Response> + Send + Clone + 'static, S::Future: Send + 'static {
+pub fn per_tenant_rate_limit_middleware(
+    state: Arc<AppState>,
+) -> impl Layer<S> + Clone + Send + 'static
+where
+    S: Service<Request<Body>, Response = Response> + Send + Clone + 'static,
+    S::Future: Send + 'static,
+{
     let config = GovernorConfig::default()
         .per_second(100)
         .burst_size(100)
         .key_prefix("rate_limit");
-    let key_extractor = TenantKeyExtractor { state: state.clone() };
+    let key_extractor = TenantKeyExtractor {
+        state: state.clone(),
+    };
     ServiceBuilder::new().layer(Governor::new(&config, key_extractor))
 }
 

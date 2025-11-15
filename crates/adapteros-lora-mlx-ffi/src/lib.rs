@@ -208,8 +208,11 @@ impl MLXFFIModel {
             // This is a known limitation - adapter loading must be done at model load time.
             Err(AosError::FeatureDisabled {
                 feature: "MLX adapter hot-swapping".to_string(),
-                reason: "Current MLX FFI only supports loading adapters during initial model load".to_string(),
-                alternative: Some("Load adapter during initial model loading with load_base()".to_string()),
+                reason: "Current MLX FFI only supports loading adapters during initial model load"
+                    .to_string(),
+                alternative: Some(
+                    "Load adapter during initial model loading with load_base()".to_string(),
+                ),
             })
         }
     }
@@ -234,8 +237,10 @@ impl MLXFFIModel {
             // Note: Current FFI doesn't support explicit warmup.
             // MLX typically compiles kernels on first inference.
             // For now, this is a no-op that succeeds.
-            tracing::info!("MLX model warmup requested but not supported by current FFI. \
-                           Kernels will be compiled on first inference.");
+            tracing::info!(
+                "MLX model warmup requested but not supported by current FFI. \
+                           Kernels will be compiled on first inference."
+            );
             Ok(())
         }
     }

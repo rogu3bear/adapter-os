@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { ArrowRight, CheckCircle, Circle, AlertCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle, Circle, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { usePolling } from '../../hooks/usePolling';
+import { apiClient } from '../../api/client';
+import type { TrainingJob } from '../../api/types';
 
 interface PipelineStage {
   id: string;
@@ -15,14 +18,53 @@ interface PipelineStage {
 export function MLPipelineWidget() {
   const navigate = useNavigate();
 
-  // Mock pipeline state - in production, fetch from API
-  const stages: PipelineStage[] = [
-    { id: 'train', label: 'Train', status: 'completed', route: '/training' },
-    { id: 'test', label: 'Test', status: 'in_progress', route: '/testing' },
-    { id: 'compare', label: 'Compare', status: 'pending', route: '/golden' },
-    { id: 'promote', label: 'Promote', status: 'pending', route: '/promotion' },
-    { id: 'deploy', label: 'Deploy', status: 'pending', route: '/adapters' }
-  ];
+  // Fetch training jobs from API
+  const { data: trainingJobs, isLoading, error } = usePolling<TrainingJob[]>(
+    () => apiClient.listTrainingJobs(),
+    'normal',
+    {
+      operationName: 'MLPipelineWidget.listTrainingJobs',
+      showLoadingIndicator: false
+    }
+  );
+
+  // Derive pipeline stages from training job data
+  const stages: PipelineStage[] = useMemo(() => {
+    if (!trainingJobs || trainingJobs.length === 0) {
+      // Default state when no training jobs exist
+      return [
+        { id: 'train', label: 'Train', status: 'pending', route: '/training' },
+        { id: 'test', label: 'Test', status: 'pending', route: '/testing' },
+        { id: 'compare', label: 'Compare', status: 'pending', route: '/golden' },
+        { id: 'promote', label: 'Promote', status: 'pending', route: '/promotion' },
+        { id: 'deploy', label: 'Deploy', status: 'pending', route: '/adapters' }
+      ];
+    }
+
+    // Determine stage status based on training jobs
+    const latestJob = trainingJobs[0]; // Assuming sorted by most recent
+    const hasCompletedTraining = trainingJobs.some(job => job.status === 'completed');
+    const hasRunningTraining = trainingJobs.some(job => job.status === 'running');
+    const hasFailedTraining = trainingJobs.some(job => job.status === 'failed');
+
+    return [
+      {
+        id: 'train',
+        label: 'Train',
+        status: hasFailedTraining ? 'error' : hasRunningTraining ? 'in_progress' : hasCompletedTraining ? 'completed' : 'pending',
+        route: '/training'
+      },
+      {
+        id: 'test',
+        label: 'Test',
+        status: hasCompletedTraining && latestJob.adapter_id ? 'in_progress' : hasCompletedTraining ? 'pending' : 'pending',
+        route: '/testing'
+      },
+      { id: 'compare', label: 'Compare', status: 'pending', route: '/golden' },
+      { id: 'promote', label: 'Promote', status: 'pending', route: '/promotion' },
+      { id: 'deploy', label: 'Deploy', status: 'pending', route: '/adapters' }
+    ];
+  }, [trainingJobs]);
 
   const getStatusIcon = (status: PipelineStage['status']) => {
     switch (status) {

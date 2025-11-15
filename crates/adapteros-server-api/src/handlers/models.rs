@@ -8,6 +8,9 @@
 //! - Policy Pack #8 (Isolation): Per-tenant operations with UID/GID checks
 //! - Handler pattern from handlers.rs L4567-4597
 
+use crate::errors::AosError;
+use crate::services::adapter_loader::AdapterLoader;
+use crate::services::auth::{require_any_role, require_role};
 use crate::{
     auth::Claims,
     errors::ErrorResponseExt,
@@ -23,6 +26,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use blake3;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -30,10 +34,6 @@ use tokio::fs;
 use tokio_util::io::ReaderStream;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use blake3;
-use crate::services::auth::{require_role, require_any_role};
-use crate::services::adapter_loader::AdapterLoader;
-use crate::errors::AosError;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -178,34 +178,40 @@ pub async fn import_model(
     }
 
     // Compute hashes for files (synchronous read for small files; async for large in prod)
-    let weights_bytes = tokio::fs::read(&req.weights_path).await
-        .map_err(|e| {
-            error!("Failed to read weights for hashing: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
-            )
-        })?;
+    let weights_bytes = tokio::fs::read(&req.weights_path).await.map_err(|e| {
+        error!("Failed to read weights for hashing: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly(
+                "HASH_COMPUTE_ERROR",
+                e.to_string(),
+            )),
+        )
+    })?;
     let weights_hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
 
-    let config_bytes = tokio::fs::read(&req.config_path).await
-        .map_err(|e| {
-            error!("Failed to read config for hashing: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
-            )
-        })?;
+    let config_bytes = tokio::fs::read(&req.config_path).await.map_err(|e| {
+        error!("Failed to read config for hashing: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly(
+                "HASH_COMPUTE_ERROR",
+                e.to_string(),
+            )),
+        )
+    })?;
     let config_hash_b3 = blake3::hash(&config_bytes).to_hex().to_string();
 
-    let tokenizer_bytes = tokio::fs::read(&req.tokenizer_path).await
-        .map_err(|e| {
-            error!("Failed to read tokenizer for hashing: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new_user_friendly("HASH_COMPUTE_ERROR", e.to_string())),
-            )
-        })?;
+    let tokenizer_bytes = tokio::fs::read(&req.tokenizer_path).await.map_err(|e| {
+        error!("Failed to read tokenizer for hashing: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new_user_friendly(
+                "HASH_COMPUTE_ERROR",
+                e.to_string(),
+            )),
+        )
+    })?;
     let tokenizer_hash_b3 = blake3::hash(&tokenizer_bytes).to_hex().to_string();
 
     let tokenizer_config_hash_b3 = if let Some(tk_cfg_path) = &req.tokenizer_config_path {
@@ -250,7 +256,10 @@ pub async fn import_model(
         error!("Failed to insert/update model record: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("DB_INSERT_ERROR", e.to_string())),
+            Json(ErrorResponse::new_user_friendly(
+                "DB_INSERT_ERROR",
+                e.to_string(),
+            )),
         )
     })?;
 
@@ -379,7 +388,10 @@ pub async fn load_model(
     let hash_b3 = if row.hash_b3.is_empty() {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new_user_friendly("MISSING_HASH", "Model missing hash_b3 field")),
+            Json(ErrorResponse::new_user_friendly(
+                "MISSING_HASH",
+                "Model missing hash_b3 field",
+            )),
         ));
     } else {
         &row.hash_b3
@@ -397,7 +409,15 @@ pub async fn load_model(
             ),
         )
         .await
-        .map_err(|e| (StatusCode::CONFLICT, Json(ErrorResponse::new_user_friendly("OPERATION_IN_PROGRESS", e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new_user_friendly(
+                    "OPERATION_IN_PROGRESS",
+                    e.to_string(),
+                )),
+            )
+        })?;
 
     // Update status to loading
     let now = chrono::Utc::now().to_rfc3339();
@@ -421,7 +441,10 @@ pub async fn load_model(
 
     // Load model into runtime
     let loader = AdapterLoader::new(&state.db);
-    let adapter = loader.load_from_path(&model_path).await.map_err(AosError::from)?;
+    let adapter = loader
+        .load_from_path(&model_path)
+        .await
+        .map_err(AosError::from)?;
 
     let memory_mb = if adapter.is_ok() {
         4096 // Simplified fallback for now
@@ -448,14 +471,17 @@ pub async fn load_model(
 
             if let Err(e) = update_result {
                 error!("Failed to update loaded status: {}", e);
-                let _ = state.operation_tracker.complete_operation(
-                    &model_id,
-                    tenant_id,
-                    crate::operation_tracker::OperationType::Model(
-                        crate::operation_tracker::ModelOperationType::Load,
-                    ),
-                    false,
-                ).await;
+                let _ = state
+                    .operation_tracker
+                    .complete_operation(
+                        &model_id,
+                        tenant_id,
+                        crate::operation_tracker::OperationType::Model(
+                            crate::operation_tracker::ModelOperationType::Load,
+                        ),
+                        false,
+                    )
+                    .await;
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse::new_user_friendly("DB_ERROR", e.to_string())),
@@ -511,14 +537,17 @@ pub async fn load_model(
             if let Err(db_err) = update_result {
                 error!("Failed to update error status: {}", db_err);
             }
-            let _ = state.operation_tracker.complete_operation(
-                &model_id,
-                tenant_id,
-                crate::operation_tracker::OperationType::Model(
-                    crate::operation_tracker::ModelOperationType::Load,
-                ),
-                false,
-            ).await;
+            let _ = state
+                .operation_tracker
+                .complete_operation(
+                    &model_id,
+                    tenant_id,
+                    crate::operation_tracker::OperationType::Model(
+                        crate::operation_tracker::ModelOperationType::Load,
+                    ),
+                    false,
+                )
+                .await;
 
             error!(
                 model_id = %model_id,
@@ -1678,8 +1707,10 @@ pub async fn model_runtime_health(
     drop(guard);
 
     let mut inconsistencies = Vec::new();
-    let runtime_model_set: std::collections::HashSet<(String, String)> =
-        runtime_models.iter().map(|key| (key.tenant_id.clone(), key.model_id.clone())).collect();
+    let runtime_model_set: std::collections::HashSet<(String, String)> = runtime_models
+        .iter()
+        .map(|key| (key.tenant_id.clone(), key.model_id.clone()))
+        .collect();
 
     for db_model in &db_models {
         let tenant_id = &db_model.tenant_id;

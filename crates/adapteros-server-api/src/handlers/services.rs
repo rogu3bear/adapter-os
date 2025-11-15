@@ -2,7 +2,6 @@
 ///
 /// Proxy endpoints that forward service control operations to the supervisor API.
 /// These handlers provide service start/stop/restart functionality with localhost-only auth.
-
 use crate::errors::ErrorResponseExt;
 use crate::state::AppState;
 use crate::supervisor_client::SupervisorClient;
@@ -11,8 +10,8 @@ use adapteros_core::AosError;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::Json,
     response::IntoResponse,
+    response::Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -75,16 +74,14 @@ pub async fn start_service(
                 message,
             }))
         }
-        Err(AosError::NotFound(msg)) => {
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "not_found".to_string(),
-                    message: msg,
-                    details: None,
-                }),
-            ))
-        }
+        Err(AosError::NotFound(msg)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "not_found".to_string(),
+                message: msg,
+                details: None,
+            }),
+        )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to start service");
             Err((
@@ -132,16 +129,14 @@ pub async fn stop_service(
                 message,
             }))
         }
-        Err(AosError::NotFound(msg)) => {
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "not_found".to_string(),
-                    message: msg,
-                    details: None,
-                }),
-            ))
-        }
+        Err(AosError::NotFound(msg)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "not_found".to_string(),
+                message: msg,
+                details: None,
+            }),
+        )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to stop service");
             Err((
@@ -189,16 +184,14 @@ pub async fn restart_service(
                 message,
             }))
         }
-        Err(AosError::NotFound(msg)) => {
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "not_found".to_string(),
-                    message: msg,
-                    details: None,
-                }),
-            ))
-        }
+        Err(AosError::NotFound(msg)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "not_found".to_string(),
+                message: msg,
+                details: None,
+            }),
+        )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to restart service");
             Err((
@@ -324,18 +317,19 @@ pub async fn get_service_logs(
 
     let client = SupervisorClient::from_env();
 
-    match client.get_service_logs(&service_id, Some(params.lines)).await {
+    match client
+        .get_service_logs(&service_id, Some(params.lines))
+        .await
+    {
         Ok(logs) => Ok(Json(logs)),
-        Err(AosError::NotFound(msg)) => {
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "not_found".to_string(),
-                    message: msg,
-                    details: None,
-                }),
-            ))
-        }
+        Err(AosError::NotFound(msg)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "not_found".to_string(),
+                message: msg,
+                details: None,
+            }),
+        )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to fetch service logs");
             Err((

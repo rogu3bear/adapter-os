@@ -2,7 +2,6 @@
 ///
 /// Provides a typed interface to the supervisor API with retry logic,
 /// timeout handling, and proper error propagation.
-
 use adapteros_core::{AosError, Result};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -108,14 +107,9 @@ impl SupervisorClient {
     pub async fn get_services(&self) -> Result<Vec<ServiceStatus>> {
         let url = format!("{}/api/services", self.base_url);
 
-        let response = self.retry_request(|| async {
-            self.client
-                .get(&url)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async { self.client.get(&url).timeout(self.timeout).send().await })
+            .await?;
 
         if !response.status().is_success() {
             return Err(AosError::Network(format!(
@@ -125,10 +119,9 @@ impl SupervisorClient {
             )));
         }
 
-        let services_response: ServicesResponse = response
-            .json()
-            .await
-            .map_err(|e| AosError::Serialization(format!("Failed to parse services response: {}", e)))?;
+        let services_response: ServicesResponse = response.json().await.map_err(|e| {
+            AosError::Serialization(format!("Failed to parse services response: {}", e))
+        })?;
 
         Ok(services_response.services)
     }
@@ -141,32 +134,23 @@ impl SupervisorClient {
     pub async fn get_service(&self, service_id: &str) -> Result<ServiceStatus> {
         let url = format!("{}/api/services/{}", self.base_url, service_id);
 
-        let response = self.retry_request(|| async {
-            self.client
-                .get(&url)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async { self.client.get(&url).timeout(self.timeout).send().await })
+            .await?;
 
         match response.status() {
-            StatusCode::OK => {
-                response
-                    .json()
-                    .await
-                    .map_err(|e| AosError::Serialization(format!("Failed to parse service response: {}", e)))
-            }
-            StatusCode::NOT_FOUND => {
-                Err(AosError::NotFound(format!("Service '{}' not found", service_id)))
-            }
-            status => {
-                Err(AosError::Network(format!(
-                    "Supervisor API returned status {}: {}",
-                    status,
-                    response.text().await.unwrap_or_default()
-                )))
-            }
+            StatusCode::OK => response.json().await.map_err(|e| {
+                AosError::Serialization(format!("Failed to parse service response: {}", e))
+            }),
+            StatusCode::NOT_FOUND => Err(AosError::NotFound(format!(
+                "Service '{}' not found",
+                service_id
+            ))),
+            status => Err(AosError::Network(format!(
+                "Supervisor API returned status {}: {}",
+                status,
+                response.text().await.unwrap_or_default()
+            ))),
         }
     }
 
@@ -185,17 +169,19 @@ impl SupervisorClient {
             service_id: service_id.to_string(),
         };
 
-        let response = self.retry_request(|| async {
-            self.client
-                .post(&url)
-                .json(&request_body)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async {
+                self.client
+                    .post(&url)
+                    .json(&request_body)
+                    .timeout(self.timeout)
+                    .send()
+                    .await
+            })
+            .await?;
 
-        self.handle_operation_response(response, "start", service_id).await
+        self.handle_operation_response(response, "start", service_id)
+            .await
     }
 
     /// Stop a service
@@ -212,17 +198,19 @@ impl SupervisorClient {
             service_id: service_id.to_string(),
         };
 
-        let response = self.retry_request(|| async {
-            self.client
-                .post(&url)
-                .json(&request_body)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async {
+                self.client
+                    .post(&url)
+                    .json(&request_body)
+                    .timeout(self.timeout)
+                    .send()
+                    .await
+            })
+            .await?;
 
-        self.handle_operation_response(response, "stop", service_id).await
+        self.handle_operation_response(response, "stop", service_id)
+            .await
     }
 
     /// Restart a service
@@ -239,17 +227,19 @@ impl SupervisorClient {
             service_id: service_id.to_string(),
         };
 
-        let response = self.retry_request(|| async {
-            self.client
-                .post(&url)
-                .json(&request_body)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async {
+                self.client
+                    .post(&url)
+                    .json(&request_body)
+                    .timeout(self.timeout)
+                    .send()
+                    .await
+            })
+            .await?;
 
-        self.handle_operation_response(response, "restart", service_id).await
+        self.handle_operation_response(response, "restart", service_id)
+            .await
     }
 
     /// Start all essential services
@@ -259,16 +249,12 @@ impl SupervisorClient {
     pub async fn start_essential_services(&self) -> Result<String> {
         let url = format!("{}/api/services/essential/start", self.base_url);
 
-        let response = self.retry_request(|| async {
-            self.client
-                .post(&url)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async { self.client.post(&url).timeout(self.timeout).send().await })
+            .await?;
 
-        self.handle_operation_response(response, "start essential", "all").await
+        self.handle_operation_response(response, "start essential", "all")
+            .await
     }
 
     /// Stop all essential services
@@ -278,16 +264,12 @@ impl SupervisorClient {
     pub async fn stop_essential_services(&self) -> Result<String> {
         let url = format!("{}/api/services/essential/stop", self.base_url);
 
-        let response = self.retry_request(|| async {
-            self.client
-                .post(&url)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async { self.client.post(&url).timeout(self.timeout).send().await })
+            .await?;
 
-        self.handle_operation_response(response, "stop essential", "all").await
+        self.handle_operation_response(response, "stop essential", "all")
+            .await
     }
 
     /// Get service logs
@@ -299,20 +281,19 @@ impl SupervisorClient {
     /// # Errors
     /// Returns `AosError::NotFound` if the service doesn't exist
     /// Returns `AosError::Network` if the request fails
-    pub async fn get_service_logs(&self, service_id: &str, lines: Option<u32>) -> Result<Vec<String>> {
+    pub async fn get_service_logs(
+        &self,
+        service_id: &str,
+        lines: Option<u32>,
+    ) -> Result<Vec<String>> {
         let mut url = format!("{}/api/services/{}/logs", self.base_url, service_id);
         if let Some(lines) = lines {
             url.push_str(&format!("?lines={}", lines));
         }
 
-        let response = self.retry_request(|| async {
-            self.client
-                .get(&url)
-                .timeout(self.timeout)
-                .send()
-                .await
-        })
-        .await?;
+        let response = self
+            .retry_request(|| async { self.client.get(&url).timeout(self.timeout).send().await })
+            .await?;
 
         match response.status() {
             StatusCode::OK => {
@@ -321,23 +302,21 @@ impl SupervisorClient {
                     logs: Vec<String>,
                 }
 
-                let logs_response: LogsResponse = response
-                    .json()
-                    .await
-                    .map_err(|e| AosError::Serialization(format!("Failed to parse logs response: {}", e)))?;
+                let logs_response: LogsResponse = response.json().await.map_err(|e| {
+                    AosError::Serialization(format!("Failed to parse logs response: {}", e))
+                })?;
 
                 Ok(logs_response.logs)
             }
-            StatusCode::NOT_FOUND => {
-                Err(AosError::NotFound(format!("Service '{}' not found", service_id)))
-            }
-            status => {
-                Err(AosError::Network(format!(
-                    "Supervisor API returned status {}: {}",
-                    status,
-                    response.text().await.unwrap_or_default()
-                )))
-            }
+            StatusCode::NOT_FOUND => Err(AosError::NotFound(format!(
+                "Service '{}' not found",
+                service_id
+            ))),
+            status => Err(AosError::Network(format!(
+                "Supervisor API returned status {}: {}",
+                status,
+                response.text().await.unwrap_or_default()
+            ))),
         }
     }
 
@@ -348,7 +327,8 @@ impl SupervisorClient {
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/health", self.base_url);
 
-        match self.client
+        match self
+            .client
             .get(&url)
             .timeout(Duration::from_secs(2))
             .send()
@@ -409,10 +389,9 @@ impl SupervisorClient {
     ) -> Result<String> {
         match response.status() {
             StatusCode::OK => {
-                let op_response: ServiceOperationResponse = response
-                    .json()
-                    .await
-                    .map_err(|e| AosError::Serialization(format!("Failed to parse response: {}", e)))?;
+                let op_response: ServiceOperationResponse = response.json().await.map_err(|e| {
+                    AosError::Serialization(format!("Failed to parse response: {}", e))
+                })?;
 
                 if op_response.success {
                     Ok(op_response.message)
@@ -423,17 +402,16 @@ impl SupervisorClient {
                     )))
                 }
             }
-            StatusCode::NOT_FOUND => {
-                Err(AosError::NotFound(format!("Service '{}' not found", service_id)))
-            }
-            status => {
-                Err(AosError::Network(format!(
-                    "Supervisor API returned status {} for {} operation: {}",
-                    status,
-                    operation,
-                    response.text().await.unwrap_or_default()
-                )))
-            }
+            StatusCode::NOT_FOUND => Err(AosError::NotFound(format!(
+                "Service '{}' not found",
+                service_id
+            ))),
+            status => Err(AosError::Network(format!(
+                "Supervisor API returned status {} for {} operation: {}",
+                status,
+                operation,
+                response.text().await.unwrap_or_default()
+            ))),
         }
     }
 }

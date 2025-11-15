@@ -300,11 +300,15 @@ impl Signal {
     /// Verify the signal signature against a public key
     ///
     /// Returns true if the signature is valid and the signal has not been tampered with.
-    pub fn verify_signature(&self, public_key: &adapteros_crypto::signature::PublicKey) -> Result<bool> {
+    pub fn verify_signature(
+        &self,
+        public_key: &adapteros_crypto::signature::PublicKey,
+    ) -> Result<bool> {
         match &self.signature {
             Some(sig_hex) => {
-                let sig_bytes = hex::decode(sig_hex)
-                    .map_err(|e| adapteros_core::AosError::Crypto(format!("Invalid signature hex: {}", e)))?;
+                let sig_bytes = hex::decode(sig_hex).map_err(|e| {
+                    adapteros_core::AosError::Crypto(format!("Invalid signature hex: {}", e))
+                })?;
 
                 if sig_bytes.len() != 64 {
                     return Ok(false);
@@ -314,7 +318,9 @@ impl Signal {
                 sig_array.copy_from_slice(&sig_bytes);
 
                 let signature = adapteros_crypto::signature::Signature::from_bytes(&sig_array)
-                    .map_err(|e| adapteros_core::AosError::Crypto(format!("Invalid signature: {}", e)))?;
+                    .map_err(|e| {
+                        adapteros_core::AosError::Crypto(format!("Invalid signature: {}", e))
+                    })?;
 
                 let canonical_data = self.canonical_representation();
                 match public_key.verify(&canonical_data, &signature) {

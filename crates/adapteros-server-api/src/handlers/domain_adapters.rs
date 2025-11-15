@@ -1,12 +1,8 @@
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::{
-    CreateDomainAdapterRequest,
-    DomainAdapterExecutionResponse,
-    DomainAdapterManifestResponse,
-    DomainAdapterResponse,
-    LoadDomainAdapterRequest,
-    TestDomainAdapterRequest,
+    CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
+    DomainAdapterResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
     TestDomainAdapterResponse,
 };
 use adapteros_db::domain_adapters::DomainAdapterCreateBuilder;
@@ -17,7 +13,7 @@ use axum::{
     response::Json,
 };
 use chrono::Utc;
-use serde_json::{json};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -579,18 +575,17 @@ pub async fn test_domain_adapter(
     let mut max_epsilon = 0.0f64;
 
     // Parse input data to JSON value
-    let input_value: serde_json::Value = serde_json::from_str(&req.input_data)
-        .map_err(|e| {
-            error!("Invalid input data format: {}", e);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Invalid input data format")
-                        .with_code("INVALID_INPUT")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let input_value: serde_json::Value = serde_json::from_str(&req.input_data).map_err(|e| {
+        error!("Invalid input data format: {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid input data format")
+                    .with_code("INVALID_INPUT")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // Calculate input hash for database recording
     let input_hash = format!("{:x}", md5::compute(&req.input_data));
@@ -600,12 +595,9 @@ pub async fn test_domain_adapter(
         let exec_start = std::time::Instant::now();
 
         // Execute the adapter
-        let result = execute_domain_adapter_inner(
-            &state,
-            &adapter_id,
-            &input_value,
-            &mut trace_events,
-        ).await;
+        let result =
+            execute_domain_adapter_inner(&state, &adapter_id, &input_value, &mut trace_events)
+                .await;
 
         let exec_time = exec_start.elapsed().as_millis() as u64;
 
@@ -647,12 +639,11 @@ pub async fn test_domain_adapter(
             // Try to calculate numerical epsilon if outputs are JSON numbers
             if let (Ok(first_json), Ok(current_json)) = (
                 serde_json::from_str::<serde_json::Value>(first_output),
-                serde_json::from_str::<serde_json::Value>(output)
+                serde_json::from_str::<serde_json::Value>(output),
             ) {
-                if let (Some(first_num), Some(current_num)) = (
-                    first_json.as_f64(),
-                    current_json.as_f64()
-                ) {
+                if let (Some(first_num), Some(current_num)) =
+                    (first_json.as_f64(), current_json.as_f64())
+                {
                     let diff = (first_num - current_num).abs();
                     max_epsilon = max_epsilon.max(diff);
                     epsilon = Some(max_epsilon);
@@ -1119,13 +1110,20 @@ async fn execute_domain_adapter_inner(
         .ok_or_else(|| format!("Domain adapter not found: {}", adapter_id))?;
 
     if adapter.status != "loaded" {
-        return Err(format!("Domain adapter must be loaded before execution: {}", adapter.status));
+        return Err(format!(
+            "Domain adapter must be loaded before execution: {}",
+            adapter.status
+        ));
     }
 
     // Check if adapter is in loaded registry
     let loaded_adapters = LOADED_ADAPTERS.lock().await;
-    let loaded_adapter = loaded_adapters.get(adapter_id)
-        .ok_or_else(|| format!("Domain adapter not found in loaded registry: {}", adapter_id))?;
+    let loaded_adapter = loaded_adapters.get(adapter_id).ok_or_else(|| {
+        format!(
+            "Domain adapter not found in loaded registry: {}",
+            adapter_id
+        )
+    })?;
 
     // Add trace events
     trace_events.push("adapter_prepare".to_string());
@@ -1139,10 +1137,16 @@ async fn execute_domain_adapter_inner(
     let input_hash = format!("{:x}", md5::compute(&input_json));
 
     // Get domain type from manifest to determine execution logic
-    let domain_type = loaded_adapter.manifest
+    let domain_type = loaded_adapter
+        .manifest
         .get("domain_type")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| format!("Invalid manifest: missing domain_type for adapter {}", adapter_id))?;
+        .ok_or_else(|| {
+            format!(
+                "Invalid manifest: missing domain_type for adapter {}",
+                adapter_id
+            )
+        })?;
 
     // Execute based on domain type
     let output_data = match domain_type {
@@ -1236,33 +1240,33 @@ pub async fn execute_domain_adapter(
     );
 
     let mut trace_events = Vec::new();
-    let output_json = execute_domain_adapter_inner(&state, &adapter_id, &input_data, &mut trace_events)
-        .await
-        .map_err(|e| {
-            error!("Domain adapter execution failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Domain adapter execution failed")
-                        .with_code("EXECUTION_FAILED")
-                        .with_string_details(e),
-                ),
-            )
-        })?;
+    let output_json =
+        execute_domain_adapter_inner(&state, &adapter_id, &input_data, &mut trace_events)
+            .await
+            .map_err(|e| {
+                error!("Domain adapter execution failed: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Domain adapter execution failed")
+                            .with_code("EXECUTION_FAILED")
+                            .with_string_details(e),
+                    ),
+                )
+            })?;
 
     // Parse the output back to JSON for response
-    let output_data: serde_json::Value = serde_json::from_str(&output_json)
-        .map_err(|e| {
-            error!("Failed to parse adapter output: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Invalid adapter output format")
-                        .with_code("INVALID_OUTPUT")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let output_data: serde_json::Value = serde_json::from_str(&output_json).map_err(|e| {
+        error!("Failed to parse adapter output: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Invalid adapter output format")
+                    .with_code("INVALID_OUTPUT")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // Calculate output hash for verification
     let output_json_copy = output_json.clone();

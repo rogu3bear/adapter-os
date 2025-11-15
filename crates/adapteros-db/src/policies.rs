@@ -22,9 +22,13 @@ impl Db {
 
         match row {
             Some(record) => {
-                let policies: TenantPolicies = serde_json::from_str(&record.body_json)
-                    .map_err(|e| {
-                        anyhow::anyhow!("Failed to deserialize tenant policies for {}: {}", tenant_id, e)
+                let policies: TenantPolicies =
+                    serde_json::from_str(&record.body_json).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to deserialize tenant policies for {}: {}",
+                            tenant_id,
+                            e
+                        )
                     })?;
                 Ok(policies)
             }
@@ -37,7 +41,11 @@ impl Db {
     }
 
     /// Save or update policies for a tenant
-    pub async fn save_policies(&self, tenant_id: &str, policies: &TenantPolicies) -> Result<String> {
+    pub async fn save_policies(
+        &self,
+        tenant_id: &str,
+        policies: &TenantPolicies,
+    ) -> Result<String> {
         let body_json = serde_json::to_string(policies)
             .map_err(|e| anyhow::anyhow!("Failed to serialize tenant policies: {}", e))?;
 
@@ -76,7 +84,11 @@ impl Db {
     }
 
     /// Get policy history for a tenant (for auditing)
-    pub async fn get_policy_history(&self, tenant_id: &str, limit: Option<i64>) -> Result<Vec<PolicyHistoryEntry>> {
+    pub async fn get_policy_history(
+        &self,
+        tenant_id: &str,
+        limit: Option<i64>,
+    ) -> Result<Vec<PolicyHistoryEntry>> {
         let limit = limit.unwrap_or(10);
 
         let rows = sqlx::query!(
