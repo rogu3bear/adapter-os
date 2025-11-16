@@ -26,6 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 argon2 = "0.5"
 rand = "0.8"
+rand_chacha = "0.3"  # For deterministic RNG per Determinism Policy
 async-trait = "0.1"
 
 # Cryptography for migration verification
