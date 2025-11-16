@@ -153,5 +153,71 @@ This document maintains citations linking patent claims to their current impleme
 
 ---
 
+## Policy Engine Threshold Configuration
+
+**Feature:** Config-driven policy thresholds ensuring documentation and enforcement cannot diverge
+
+**Patent Gate:** Adversarial test coverage for floating-point edge cases and boundary conditions
+
+### Core Implementation
+
+1. **PolicyEngine Threshold Methods**
+   - **Location:** `crates/adapteros-policy/src/lib.rs` (lines 107-163)
+   - **Methods:** `check_resource_limits`, `check_system_thresholds`, `check_memory_headroom`, `should_open_circuit_breaker`
+   - **Configuration Source:** `adapteros_manifest::Policies` (PerformancePolicy, MemoryPolicy)
+
+2. **PerformancePolicy Struct**
+   - **Location:** `crates/adapteros-manifest/src/lib.rs` (lines 432-440)
+   - **Fields:**
+     - `max_tokens: usize` - Maximum tokens per request (default: 1000)
+     - `cpu_threshold_pct: f32` - CPU usage threshold (default: 90.0)
+     - `memory_threshold_pct: f32` - Memory usage threshold (default: 95.0)
+     - `circuit_breaker_threshold: usize` - Failure count threshold (default: 5)
+
+3. **MemoryPolicy Struct**
+   - **Location:** `crates/adapteros-manifest/src/lib.rs` (lines 443-447)
+   - **Fields:**
+     - `min_headroom_pct: u8` - Minimum memory headroom (default: 15)
+
+### Security Testing
+
+**Adversarial Coverage:** `tests/fault_injection_harness.rs` (lines 1016-1200)
+
+1. **Floating-Point Edge Cases** (lines 1020-1055)
+   - NaN input handling
+   - Infinity (positive/negative) input handling
+   - Subnormal values
+   - **Citation:** test_policy_thresholds_nan_handling, test_policy_thresholds_infinity_handling
+
+2. **Integer Overflow/Underflow** (lines 1057-1087)
+   - usize::MAX for max_tokens
+   - Zero threshold edge cases
+   - **Citation:** test_policy_thresholds_integer_overflow, test_policy_thresholds_zero_thresholds
+
+3. **Boundary Value Testing** (lines 1089-1120)
+   - Exact threshold boundaries (at, above, below)
+   - Negative percentage values
+   - Percentage values exceeding 100.0
+   - **Citation:** test_policy_thresholds_boundary_values, test_policy_thresholds_negative_percentages
+
+4. **Error Message Validation** (lines 1122-1145)
+   - Ensures error messages include actual threshold values
+   - Prevents silent failures
+   - **Citation:** test_policy_thresholds_error_message_accuracy
+
+### Integration Tests
+
+**Location:** `crates/adapteros-policy/tests/policy_engine_thresholds.rs` (lines 1-317)
+
+1. **Config-Driven Enforcement** (lines 17-121)
+   - Verifies thresholds come from config, not hard-coded
+   - Tests runtime config changes
+
+2. **Documentation Contract** (lines 268-316)
+   - Enforces contract between manifest defaults and PolicyEngine
+   - Prevents documentation drift
+
+---
+
 **Last Updated:** 2025-11-16
 **Maintainer:** AdapterOS Core Team

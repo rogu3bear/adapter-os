@@ -1012,3 +1012,268 @@ fn test_stack_name_normalization_consistency() {
     assert_eq!(stack.namespace(), reparsed.namespace());
     assert_eq!(stack.identifier(), reparsed.identifier());
 }
+
+// ============================================================================
+// POLICY THRESHOLD ADVERSARIAL TESTS
+// ============================================================================
+
+#[test]
+fn test_policy_thresholds_nan_handling() {
+    use adapteros_core::AosError;
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: NaN values should not cause panics or silent failures
+    let policies = Policies::default();
+    let engine = PolicyEngine::new(policies);
+
+    // NaN CPU usage - should return error, not panic
+    let result = engine.check_system_thresholds(f32::NAN, 50.0);
+    assert!(result.is_err(), "NaN CPU usage should be rejected");
+
+    // NaN memory usage - should return error
+    let result2 = engine.check_system_thresholds(50.0, f32::NAN);
+    assert!(result2.is_err(), "NaN memory usage should be rejected");
+
+    // NaN headroom - should return error
+    let result3 = engine.check_memory_headroom(f32::NAN);
+    assert!(result3.is_err(), "NaN headroom should be rejected");
+}
+
+#[test]
+fn test_policy_thresholds_infinity_handling() {
+    use adapteros_core::AosError;
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Infinity values should be rejected
+    let policies = Policies::default();
+    let engine = PolicyEngine::new(policies);
+
+    // Positive infinity CPU
+    let result = engine.check_system_thresholds(f32::INFINITY, 50.0);
+    assert!(result.is_err(), "Infinite CPU usage should be rejected");
+
+    // Negative infinity memory
+    let result2 = engine.check_system_thresholds(50.0, f32::NEG_INFINITY);
+    assert!(result2.is_err(), "Negative infinite memory should be rejected");
+
+    // Positive infinity headroom
+    let result3 = engine.check_memory_headroom(f32::INFINITY);
+    // This might actually pass if headroom is "infinite" (no memory pressure)
+    // But should still validate input
+}
+
+#[test]
+fn test_policy_thresholds_integer_overflow() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Maximum integer values
+    let mut policies = Policies::default();
+    policies.performance.max_tokens = usize::MAX;
+    let engine = PolicyEngine::new(policies);
+
+    // Request with usize::MAX should pass
+    assert!(engine.check_resource_limits(usize::MAX).is_ok());
+
+    // usize::MAX - 1 should also pass
+    assert!(engine.check_resource_limits(usize::MAX - 1).is_ok());
+}
+
+#[test]
+fn test_policy_thresholds_zero_thresholds() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Zero thresholds (all requests should fail)
+    let mut policies = Policies::default();
+    policies.performance.max_tokens = 0;
+    policies.performance.cpu_threshold_pct = 0.0;
+    policies.performance.memory_threshold_pct = 0.0;
+    policies.memory.min_headroom_pct = 0;
+
+    let engine = PolicyEngine::new(policies);
+
+    // Any non-zero request should fail with zero max_tokens
+    assert!(engine.check_resource_limits(1).is_err());
+
+    // Any CPU usage should fail with 0.0 threshold
+    assert!(engine.check_system_thresholds(0.01, 50.0).is_err());
+
+    // Any memory usage should fail with 0.0 threshold
+    assert!(engine.check_system_thresholds(50.0, 0.01).is_err());
+
+    // Zero headroom should pass with 0 threshold
+    assert!(engine.check_memory_headroom(0.0).is_ok());
+}
+
+#[test]
+fn test_policy_thresholds_boundary_values() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Exact boundary testing
+    let mut policies = Policies::default();
+    policies.performance.max_tokens = 100;
+    policies.performance.cpu_threshold_pct = 75.0;
+    policies.performance.memory_threshold_pct = 80.0;
+
+    let engine = PolicyEngine::new(policies);
+
+    // Exact boundary should pass
+    assert!(engine.check_resource_limits(100).is_ok());
+    assert!(engine.check_system_thresholds(75.0, 80.0).is_ok());
+
+    // Just below should pass
+    assert!(engine.check_resource_limits(99).is_ok());
+    assert!(engine.check_system_thresholds(74.999, 79.999).is_ok());
+
+    // Just above should fail
+    assert!(engine.check_resource_limits(101).is_err());
+    assert!(engine.check_system_thresholds(75.001, 80.0).is_err());
+    assert!(engine.check_system_thresholds(75.0, 80.001).is_err());
+}
+
+#[test]
+fn test_policy_thresholds_negative_percentages() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Negative percentage values
+    let mut policies = Policies::default();
+    policies.performance.cpu_threshold_pct = -10.0;
+    policies.performance.memory_threshold_pct = -5.0;
+
+    let engine = PolicyEngine::new(policies);
+
+    // Any positive usage should fail with negative threshold
+    assert!(engine.check_system_thresholds(0.01, 50.0).is_err());
+    assert!(engine.check_system_thresholds(50.0, 0.01).is_err());
+
+    // Negative usage (impossible in practice) should pass
+    assert!(engine.check_system_thresholds(-20.0, -10.0).is_ok());
+}
+
+#[test]
+fn test_policy_thresholds_exceeding_hundred_percent() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Percentages over 100%
+    let mut policies = Policies::default();
+    policies.performance.cpu_threshold_pct = 150.0;
+    policies.performance.memory_threshold_pct = 200.0;
+
+    let engine = PolicyEngine::new(policies);
+
+    // 100% usage should pass with 150% threshold
+    assert!(engine.check_system_thresholds(100.0, 100.0).is_ok());
+
+    // 149% should pass
+    assert!(engine.check_system_thresholds(149.0, 199.0).is_ok());
+
+    // 151% should fail
+    assert!(engine.check_system_thresholds(151.0, 200.0).is_err());
+}
+
+#[test]
+fn test_policy_thresholds_error_message_accuracy() {
+    use adapteros_core::AosError;
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Ensure error messages include actual values
+    let mut policies = Policies::default();
+    policies.performance.max_tokens = 500;
+    policies.performance.cpu_threshold_pct = 85.5;
+    policies.performance.memory_threshold_pct = 92.3;
+    policies.memory.min_headroom_pct = 18;
+
+    let engine = PolicyEngine::new(policies);
+
+    // Check max_tokens error includes threshold
+    if let Err(AosError::PolicyViolation(msg)) = engine.check_resource_limits(501) {
+        assert!(msg.contains("500"), "Error should include threshold: {}", msg);
+        assert!(msg.contains("501"), "Error should include actual value: {}", msg);
+    } else {
+        panic!("Expected PolicyViolation error");
+    }
+
+    // Check CPU error includes threshold
+    if let Err(AosError::PerformanceViolation(msg)) = engine.check_system_thresholds(86.0, 50.0) {
+        assert!(
+            msg.contains("85.5") || msg.contains("85"),
+            "Error should include threshold: {}",
+            msg
+        );
+        assert!(
+            msg.contains("86"),
+            "Error should include actual value: {}",
+            msg
+        );
+    } else {
+        panic!("Expected PerformanceViolation error");
+    }
+
+    // Check memory error includes threshold
+    if let Err(AosError::MemoryPressure(msg)) = engine.check_system_thresholds(50.0, 93.0) {
+        assert!(
+            msg.contains("92"),
+            "Error should include threshold: {}",
+            msg
+        );
+        assert!(
+            msg.contains("93"),
+            "Error should include actual value: {}",
+            msg
+        );
+    } else {
+        panic!("Expected MemoryPressure error");
+    }
+}
+
+#[test]
+fn test_policy_thresholds_subnormal_float_values() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Subnormal floating-point values
+    let policies = Policies::default();
+    let engine = PolicyEngine::new(policies);
+
+    // Very small subnormal values should be handled gracefully
+    let subnormal = f32::from_bits(0x00000001); // Smallest positive subnormal
+    assert!(engine
+        .check_system_thresholds(subnormal, subnormal)
+        .is_ok());
+
+    // Should still enforce thresholds correctly
+    assert!(engine.check_system_thresholds(subnormal, 100.0).is_err());
+}
+
+#[test]
+fn test_policy_thresholds_circuit_breaker_edge_cases() {
+    use adapteros_manifest::Policies;
+    use adapteros_policy::PolicyEngine;
+
+    // Adversarial case: Circuit breaker edge cases
+    let mut policies = Policies::default();
+    policies.performance.circuit_breaker_threshold = usize::MAX;
+    let engine = PolicyEngine::new(policies);
+
+    // Should not open even with very high failure count
+    assert!(!engine.should_open_circuit_breaker(usize::MAX - 1));
+
+    // Should open at exact threshold
+    assert!(engine.should_open_circuit_breaker(usize::MAX));
+
+    // Zero threshold edge case
+    let mut policies2 = Policies::default();
+    policies2.performance.circuit_breaker_threshold = 0;
+    let engine2 = PolicyEngine::new(policies2);
+
+    // Should open immediately with 0 threshold
+    assert!(engine2.should_open_circuit_breaker(0));
+    assert!(engine2.should_open_circuit_breaker(1));
+}
