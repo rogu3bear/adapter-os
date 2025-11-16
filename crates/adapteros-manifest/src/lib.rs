@@ -132,6 +132,17 @@ pub struct Adapter {
     pub auto_promote: bool,
     #[serde(default = "default_eviction_priority")]
     pub eviction_priority: EvictionPriority,
+
+    // Pipeline semantics
+    /// Whether this adapter operates in the upstream phase (pre-processing/input transformation)
+    /// vs downstream phase (generation-time modulation). Default is false (downstream).
+    ///
+    /// ⚠️ **EXPERIMENTAL/INCOMPLETE**: Setting this to `true` currently only tracks the adapter
+    /// as upstream and prevents it from being selected during generation, but does NOT actually
+    /// apply the adapter to modify inputs. Full implementation requires kernel API changes.
+    /// See `InferencePipeline::apply_upstream_adapters()` for details.
+    #[serde(default = "default_upstream_enabled")]
+    pub upstream_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -176,6 +187,10 @@ fn default_auto_promote() -> bool {
 
 fn default_eviction_priority() -> EvictionPriority {
     EvictionPriority::Normal
+}
+
+fn default_upstream_enabled() -> bool {
+    false // Default to downstream (current behavior)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
