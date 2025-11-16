@@ -7,7 +7,10 @@ use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
 use adapteros_core::B3Hash;
-use adapteros_system_metrics::{
+// TODO: Re-enable once adapteros-system-metrics SQLx issues are resolved
+// Using local stubs instead
+use crate::system_metrics_stubs as adapteros_system_metrics;
+use crate::system_metrics_stubs::{
     AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
     CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
@@ -4820,7 +4823,7 @@ pub async fn get_system_metrics(
     use adapteros_system_metrics::SystemMetricsCollector;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Collect real system metrics
+    // Collect system metrics (using stubs until adapteros-system-metrics is re-enabled)
     let mut collector = SystemMetricsCollector::new();
     let metrics = collector.collect_metrics();
     let load_avg = collector.load_average();
@@ -5409,7 +5412,7 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
     use adapteros_system_metrics::SystemMetricsCollector;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Collect real system metrics
+    // Collect system metrics (using stubs until adapteros-system-metrics is re-enabled)
     let mut collector = SystemMetricsCollector::new();
     let metrics = collector.collect_metrics();
     let load_avg = collector.load_average();

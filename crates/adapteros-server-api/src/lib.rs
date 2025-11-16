@@ -8,6 +8,7 @@ pub mod permissions;
 pub mod routes;
 pub mod signing;
 pub mod state;
+pub mod system_metrics_stubs;
 pub mod types;
 pub mod uds_client;
 pub mod validation;
