@@ -27,6 +27,7 @@ members = [
     "crates/adapteros-lora-quant",
     "crates/adapteros-server",
     "crates/adapteros-server-api",
+    "crates/adapteros-tui",
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
