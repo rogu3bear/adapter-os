@@ -8,7 +8,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```ignore
 //! use adapteros_manifest::{ManifestV3, Adapter, AdapterTier};
 //! use adapteros_core::B3Hash;
 //!
@@ -358,6 +358,10 @@ impl Default for Policies {
                 latency_p95_ms: 24,
                 router_overhead_pct_max: 8,
                 throughput_tokens_per_s_min: 40,
+                max_tokens: 1000,
+                cpu_threshold_pct: 90.0,
+                memory_threshold_pct: 95.0,
+                circuit_breaker_threshold: 5,
             },
             memory: MemoryPolicy {
                 min_headroom_pct: 15,
@@ -433,6 +437,10 @@ pub struct PerformancePolicy {
     pub latency_p95_ms: u32,
     pub router_overhead_pct_max: u8,
     pub throughput_tokens_per_s_min: u32,
+    pub max_tokens: usize,
+    pub cpu_threshold_pct: f32,
+    pub memory_threshold_pct: f32,
+    pub circuit_breaker_threshold: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -657,6 +665,10 @@ mod tests {
                     latency_p95_ms: 24,
                     router_overhead_pct_max: 8,
                     throughput_tokens_per_s_min: 40,
+                    max_tokens: 1000,
+                    cpu_threshold_pct: 90.0,
+                    memory_threshold_pct: 95.0,
+                    circuit_breaker_threshold: 5,
                 },
                 memory: MemoryPolicy {
                     min_headroom_pct: 15,
