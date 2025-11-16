@@ -2186,6 +2186,86 @@ impl FusedKernels for MetalKernels {
         })
     }
 
+    // ============================================================================
+    // Helper methods for safetensors metadata parsing and validation
+    // ============================================================================
+
+    /// Extract metadata from safetensors
+    fn parse_safetensors_metadata(tensors: &SafeTensors) -> Result<(u32, f32)> {
+        // Try to parse metadata JSON if present
+        if let Ok(metadata_bytes) = tensors.metadata() {
+            if let Ok(metadata_str) = std::str::from_utf8(metadata_bytes) {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_str) {
+                    let rank = metadata
+                        .get("rank")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .or_else(|| {
+                            metadata
+                                .get("r")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<u32>().ok())
+                        });
+
+                    let alpha = metadata
+                        .get("lora_alpha")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<f32>().ok())
+                        .or_else(|| {
+                            metadata
+                                .get("alpha")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<f32>().ok())
+                        });
+
+                    if let (Some(r), Some(a)) = (rank, alpha) {
+                        return Ok((r, a));
+                    }
+                }
+            }
+        }
+
+        // Fallback: infer from tensor shapes
+        Err(AosError::Kernel(
+            "No metadata found, will infer from tensor shapes".to_string(),
+        ))
+    }
+
+    /// Validate tensor shape compatibility for LoRA
+    fn validate_lora_shapes(
+        a_shape: &[usize],
+        b_shape: &[usize],
+        rank: usize,
+        module: &str,
+    ) -> Result<()> {
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(AosError::Kernel(format!(
+                "Module {} has invalid tensor ranks: lora_a {:?}, lora_b {:?}",
+                module, a_shape, b_shape
+            )));
+        }
+
+        let a_rank = a_shape[0];
+        let b_rank = b_shape[1];
+
+        // Both should match the declared rank (with some tolerance for padding)
+        if a_rank != rank && a_rank != rank.div_ceil(16) * 16 {
+            return Err(AosError::Kernel(format!(
+                "Module {} lora_a has rank {} but expected {} (or padded)",
+                module, a_rank, rank
+            )));
+        }
+
+        if b_rank != rank && b_rank != rank.div_ceil(16) * 16 {
+            return Err(AosError::Kernel(format!(
+                "Module {} lora_b has rank {} but expected {} (or padded)",
+                module, b_rank, rank
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Load adapter at runtime (hot-swap)
     ///
     /// This method enables deterministic hot-swapping of LoRA adapter weights
@@ -2228,37 +2308,29 @@ impl FusedKernels for MetalKernels {
         // Extract adapter ID from metadata or use slot ID
         let adapter_id = format!("runtime_adapter_{}", id);
 
-        // Determine rank from first tensor
-        let first_tensor_name = tensors
-            .names()
-            .next()
-            .ok_or_else(|| AosError::Kernel(format!("No tensors found in adapter {}", id)))?;
+        // Extract metadata (rank and alpha)
+        let (rank, alpha) = Self::parse_safetensors_metadata(&tensors).unwrap_or_else(|_| {
+            // Fallback: infer rank from first tensor
+            let first_name = tensors.names().next().unwrap();
+            let first_tensor = tensors.tensor(first_name).unwrap();
+            let shape = first_tensor.shape();
 
-        let first_tensor = tensors.tensor(first_tensor_name).map_err(|err| {
-            AosError::Kernel(format!(
-                "Failed to get first tensor for adapter {}: {}",
-                id, err
-            ))
-        })?;
+            let inferred_rank = if first_name.contains("lora_a") {
+                shape[0] as u32
+            } else if first_name.contains("lora_b") {
+                shape[1] as u32
+            } else {
+                8 // Conservative default
+            };
 
-        let shape = first_tensor.shape();
-        if shape.len() < 2 {
-            return Err(AosError::Kernel(format!(
-                "Adapter {} first tensor has invalid shape {:?}",
-                id, shape
-            )));
-        }
+            tracing::warn!(
+                adapter_id = id,
+                inferred_rank,
+                "No metadata found, inferred rank from tensor shapes"
+            );
 
-        // For lora_a tensors, rank is first dimension; for lora_b it's second
-        // Try to infer from tensor name pattern
-        let rank = if first_tensor_name.contains("lora_a") {
-            shape[0]
-        } else if first_tensor_name.contains("lora_b") {
-            shape[1]
-        } else {
-            // Fallback: assume lora_a pattern (rank, in_dim)
-            shape[0]
-        } as u32;
+            (inferred_rank, 16.0)
+        });
 
         let rank_usize = rank as usize;
         let rank_padded = rank_usize.div_ceil(16) * 16;
@@ -2366,7 +2438,7 @@ impl FusedKernels for MetalKernels {
             adapter_id: adapter_id.clone(),
             rank,
             rank_padded: rank_padded as u32,
-            alpha: 16.0, // Default alpha, could be extracted from metadata
+            alpha,
             lora_a_buffers,
             lora_b_buffers,
             module_shapes,
@@ -2375,12 +2447,9 @@ impl FusedKernels for MetalKernels {
 
         // Wait for any in-flight GPU operations to complete before modifying adapter state
         // This ensures thread-safety by synchronizing with the Metal command queue
-        if let Some(ref _queue) = Some(&self._queue) {
-            // Create a synchronization fence
-            let sync_buffer = self._queue.new_command_buffer();
-            sync_buffer.commit();
-            sync_buffer.wait_until_completed();
-        }
+        let sync_buffer = self._queue.new_command_buffer();
+        sync_buffer.commit();
+        sync_buffer.wait_until_completed();
 
         // Update adapter index map if needed
         let adapter_index = id as usize;
@@ -2393,6 +2462,12 @@ impl FusedKernels for MetalKernels {
         // Store adapter weights
         self.adapter_weights
             .insert(adapter_id.clone(), adapter_weights);
+
+        // Track VRAM usage
+        self.vram_tracker.track_adapter_load(
+            &adapter_id,
+            total_bytes / (1024 * 1024), // Convert to MB
+        );
 
         // If LoRA buffers are already allocated, copy weights immediately
         if self.lora_buffers.is_some() && self.embedding_dimensions.is_some() {
@@ -2414,8 +2489,9 @@ impl FusedKernels for MetalKernels {
 
                     (intermediate_size, kv_width)
                 } else {
-                    // Use defaults
-                    (18944, hidden_size / 8)
+                    return Err(AosError::Kernel(
+                        "Transformer weights not loaded, cannot determine dimensions".to_string(),
+                    ));
                 };
 
             let rank = rank_usize;
@@ -2443,6 +2519,7 @@ impl FusedKernels for MetalKernels {
             adapter_id = id,
             adapter_name = %adapter_id,
             rank,
+            alpha,
             modules = target_modules.len(),
             bytes = total_bytes,
             "Adapter loaded successfully"
@@ -2475,11 +2552,9 @@ impl FusedKernels for MetalKernels {
         let adapter_index = id as usize;
 
         // Wait for any in-flight GPU operations before modifying state
-        if let Some(ref _queue) = Some(&self._queue) {
-            let sync_buffer = self._queue.new_command_buffer();
-            sync_buffer.commit();
-            sync_buffer.wait_until_completed();
-        }
+        let sync_buffer = self._queue.new_command_buffer();
+        sync_buffer.commit();
+        sync_buffer.wait_until_completed();
 
         // Get adapter name from index map
         let adapter_name = if adapter_index < self.adapter_index_map.len() {
@@ -2495,6 +2570,26 @@ impl FusedKernels for MetalKernels {
         if adapter_name.is_empty() {
             return Err(AosError::Kernel(format!("Adapter ID {} not loaded", id)));
         }
+
+        // Get adapter metadata before removal for VRAM tracking
+        let vram_mb = self
+            .adapter_weights
+            .get(&adapter_name)
+            .map(|w| w.total_bytes / (1024 * 1024))
+            .unwrap_or(0);
+
+        // Get actual rank from the adapter being unloaded (CRITICAL FIX)
+        let rank = self
+            .adapter_weights
+            .get(&adapter_name)
+            .map(|w| w.rank as usize)
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    adapter_id = id,
+                    "Adapter not found in weights map, using default rank for cleanup"
+                );
+                8 // Fallback to conservative default
+            });
 
         // Zero out GPU buffer regions if LoRA buffers are allocated
         if self.lora_buffers.is_some() && self.embedding_dimensions.is_some() {
@@ -2514,10 +2609,10 @@ impl FusedKernels for MetalKernels {
 
                     (intermediate_size, kv_width)
                 } else {
-                    (18944, hidden_size / 8)
+                    return Err(AosError::Kernel(
+                        "Transformer weights not loaded, cannot determine dimensions".to_string(),
+                    ));
                 };
-
-            let rank = adapteros_lora_kernel_api::MploraConfig::default().history_window;
 
             if let Some(buffers) = self.lora_buffers.as_ref() {
                 let adapter_offset_hidden = adapter_index * hidden_size * rank;
@@ -2578,9 +2673,15 @@ impl FusedKernels for MetalKernels {
             self.adapter_index_map[adapter_index] = String::new();
         }
 
+        // Track VRAM release
+        self.vram_tracker
+            .track_adapter_unload(&adapter_name, vram_mb);
+
         tracing::info!(
             adapter_id = id,
             adapter_name = %adapter_name,
+            rank,
+            vram_mb,
             "Adapter unloaded successfully"
         );
 
