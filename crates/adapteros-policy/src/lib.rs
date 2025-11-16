@@ -107,11 +107,10 @@ impl PolicyEngine {
     /// Check if request should be allowed based on resource limits
     pub fn check_resource_limits(&self, max_tokens: usize) -> Result<()> {
         // Check against policy limits
-        if max_tokens > 1000 {
-            // Would be configurable in real implementation
+        if max_tokens > self.policies.performance.max_tokens {
             return Err(AosError::PolicyViolation(format!(
-                "Request exceeds max tokens limit: {} > 1000",
-                max_tokens
+                "Request exceeds max tokens limit: {} > {}",
+                max_tokens, self.policies.performance.max_tokens
             )));
         }
 
@@ -131,17 +130,17 @@ impl PolicyEngine {
 
     /// Check system resource thresholds
     pub fn check_system_thresholds(&self, cpu_usage: f32, memory_usage: f32) -> Result<()> {
-        if cpu_usage > 90.0 {
+        if cpu_usage > self.policies.performance.cpu_threshold_pct {
             return Err(AosError::PerformanceViolation(format!(
-                "CPU usage {}% exceeds threshold 90%",
-                cpu_usage
+                "CPU usage {:.1}% exceeds threshold {:.1}%",
+                cpu_usage, self.policies.performance.cpu_threshold_pct
             )));
         }
 
-        if memory_usage > 95.0 {
+        if memory_usage > self.policies.performance.memory_threshold_pct {
             return Err(AosError::MemoryPressure(format!(
-                "Memory usage {}% exceeds threshold 95%",
-                memory_usage
+                "Memory usage {:.1}% exceeds threshold {:.1}%",
+                memory_usage, self.policies.performance.memory_threshold_pct
             )));
         }
 
@@ -150,16 +149,17 @@ impl PolicyEngine {
 
     /// Check memory headroom policy (Memory Ruleset #12)
     pub fn check_memory_headroom(&self, headroom_pct: f32) -> Result<()> {
-        if headroom_pct < 15.0 {
+        let min_headroom = self.policies.memory.min_headroom_pct as f32;
+        if headroom_pct < min_headroom {
             return Err(AosError::MemoryPressure(format!(
-                "Insufficient memory headroom: {:.1}% < 15% (Memory Ruleset #12)",
-                headroom_pct
+                "Insufficient memory headroom: {:.1}% < {:.1}% (Memory Ruleset #12)",
+                headroom_pct, min_headroom
             )));
         }
         Ok(())
     }
     pub fn should_open_circuit_breaker(&self, failure_count: usize) -> bool {
-        failure_count >= 5 // Would be configurable in real implementation
+        failure_count >= self.policies.performance.circuit_breaker_threshold
     }
 
     /// Check if memory pressure exceeds limits
