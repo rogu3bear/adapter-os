@@ -30,6 +30,10 @@ tokio = { workspace = true, features = ["full"] }
 # Process management
 anyhow = { workspace = true }
 
+# Unix signal handling (Unix-only)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # HTTP and time utilities (for health checks and timestamps)
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 chrono = { version = "0.4", features = ["serde"] }
