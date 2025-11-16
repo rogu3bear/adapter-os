@@ -53,7 +53,7 @@ pub fn check_symlink_safety(path: impl AsRef<Path>) -> Result<()> {
 
     // Check symlink depth
     if symlink_chain.len() > protection.max_depth as usize {
-        return Err(AosError::Security(format!(
+        return Err(AosError::Io(format!(
             "Symlink chain depth {} exceeds maximum {}",
             symlink_chain.len(),
             protection.max_depth
@@ -64,7 +64,7 @@ pub fn check_symlink_safety(path: impl AsRef<Path>) -> Result<()> {
     for symlink_path in &symlink_chain {
         if let Ok(target) = std::fs::read_link(symlink_path) {
             if is_target_blocked(&target, &protection)? {
-                return Err(AosError::Security(format!(
+                return Err(AosError::Io(format!(
                     "Symlink target {} is blocked by security policy",
                     target.display()
                 )));
@@ -87,14 +87,14 @@ fn resolve_symlink_chain(path: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
     for _ in 0..10 {
         // Prevent infinite loops
         if visited.contains(&current_path) {
-            return Err(AosError::Security("Circular symlink detected".to_string()));
+            return Err(AosError::Io("Circular symlink detected".to_string()));
         }
         visited.insert(current_path.clone());
 
         if current_path.is_symlink() {
             chain.push(current_path.clone());
             let target = std::fs::read_link(&current_path)
-                .map_err(|e| AosError::Security(format!("Failed to read symlink: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to read symlink: {}", e)))?;
 
             if target.is_absolute() {
                 current_path = target;
@@ -147,7 +147,7 @@ pub fn is_symlink(path: impl AsRef<Path>) -> bool {
 /// Get symlink target
 pub fn get_symlink_target(path: impl AsRef<Path>) -> Result<PathBuf> {
     std::fs::read_link(path)
-        .map_err(|e| AosError::Security(format!("Failed to read symlink: {}", e)))
+        .map_err(|e| AosError::Io(format!("Failed to read symlink: {}", e)))
 }
 
 /// Create a safe symlink
@@ -160,7 +160,7 @@ pub fn create_safe_symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) -> 
 
     // Create the symlink
     std::os::unix::fs::symlink(target, link)
-        .map_err(|e| AosError::Security(format!("Failed to create symlink: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to create symlink: {}", e)))?;
 
     debug!(
         "Created safe symlink: {} -> {}",
@@ -175,11 +175,11 @@ pub fn remove_safe_symlink(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
 
     if !path.is_symlink() {
-        return Err(AosError::Security("Path is not a symlink".to_string()));
+        return Err(AosError::Io("Path is not a symlink".to_string()));
     }
 
     std::fs::remove_file(path)
-        .map_err(|e| AosError::Security(format!("Failed to remove symlink: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to remove symlink: {}", e)))?;
 
     debug!("Removed symlink: {}", path.display());
     Ok(())

@@ -19,5 +19,5 @@ pub use loader::{load_examples_from_manifest, load_examples_with_encoder, Datase
 pub use packager::{AdapterManifest, AdapterPackager, PackagedAdapter};
 pub use quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 pub use trainer::{
-    LoRAWeights, MicroLoRATrainer, SeparatedTrainingResult, TrainingConfig, TrainingResult,
+    LoRAWeights, MicroLoRATrainer, TrainingConfig, TrainingResult,
 };
