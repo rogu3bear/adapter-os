@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "cdp")]
 pub mod code_jobs;
+pub mod codebase_ingestion;
 pub mod dataset_builder;
 #[cfg(feature = "federation")]
 pub mod federation_daemon;
@@ -17,6 +18,7 @@ pub mod training;
 
 #[cfg(feature = "cdp")]
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
+pub use codebase_ingestion::{CodebaseIngestion, IngestionConfig, IngestionResult};
 pub use dataset_builder::{build_from_directory, DatasetBuilderConfig};
 #[cfg(feature = "federation")]
 pub use federation_daemon::{
