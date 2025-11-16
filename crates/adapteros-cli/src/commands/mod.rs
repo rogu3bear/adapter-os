@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod adapter_info;
 pub mod adapter_swap;
+pub mod deploy;
 pub mod audit;
 pub mod audit_determinism;
 pub mod bootstrap;
@@ -17,6 +18,8 @@ pub mod explain;
 // pub mod export_callgraph;  // Temporarily disabled due to mplora-codegraph dependency
 pub mod golden;
 pub mod import;
+pub mod maintenance;
+pub mod status;
 pub mod import_model;
 pub mod ingest_docs;
 pub mod init_tenant;
@@ -43,6 +46,8 @@ pub mod trace;
 pub mod train;
 pub mod tutorial;
 pub mod verify;
+pub mod verify_adapters;
+pub mod verify_determinism_loop;
 pub mod verify_federation;
 pub mod verify_gpu;
 pub mod verify_telemetry;
