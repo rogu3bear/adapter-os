@@ -244,6 +244,7 @@ impl Signal {
             payload: HashMap::new(),
             priority,
             trace_id: None,
+            signature: None,
         }
     }
 
@@ -259,6 +260,7 @@ impl Signal {
             payload,
             priority,
             trace_id: None,
+            signature: None,
         }
     }
 

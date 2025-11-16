@@ -40,7 +40,7 @@ pub fn set_secure_file_permissions(
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(config.default_file_permissions);
         std::fs::set_permissions(path, perms)
-            .map_err(|e| AosError::Security(format!("Failed to set file permissions: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to set file permissions: {}", e)))?;
 
         debug!(
             "Set secure file permissions: {:o}",
@@ -64,7 +64,7 @@ pub fn set_secure_dir_permissions(path: impl AsRef<Path>, config: &PermissionCon
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(config.default_dir_permissions);
         std::fs::set_permissions(path, perms).map_err(|e| {
-            AosError::Security(format!("Failed to set directory permissions: {}", e))
+            AosError::Io(format!("Failed to set directory permissions: {}", e))
         })?;
 
         debug!(
@@ -91,7 +91,7 @@ pub fn check_secure_permissions(
     {
         use std::os::unix::fs::PermissionsExt;
         let metadata = std::fs::metadata(&path)
-            .map_err(|e| AosError::Security(format!("Failed to get file metadata: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?;
 
         let permissions = metadata.permissions();
         let mode = permissions.mode();
@@ -151,11 +151,11 @@ pub fn set_secure_permissions_recursive(
 
         // Recursively set permissions for all entries
         let entries = std::fs::read_dir(path)
-            .map_err(|e| AosError::Security(format!("Failed to read directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read directory: {}", e)))?;
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                AosError::Security(format!("Failed to read directory entry: {}", e))
+                AosError::Io(format!("Failed to read directory entry: {}", e))
             })?;
             let entry_path = entry.path();
 
@@ -180,11 +180,11 @@ pub fn check_and_fix_permissions_recursive(
 
         // Recursively check and fix permissions for all entries
         let entries = std::fs::read_dir(path)
-            .map_err(|e| AosError::Security(format!("Failed to read directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read directory: {}", e)))?;
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                AosError::Security(format!("Failed to read directory entry: {}", e))
+                AosError::Io(format!("Failed to read directory entry: {}", e))
             })?;
             let entry_path = entry.path();
 

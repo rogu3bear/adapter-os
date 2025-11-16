@@ -437,11 +437,13 @@ async fn run_training_job(
                     input: vec![1, 2, 3],
                     target: vec![4, 5, 6],
                     metadata: Default::default(),
+                    weight: 1.0,
                 },
                 WorkerTrainingExample {
                     input: vec![7, 8, 9],
                     target: vec![10, 11, 12],
                     metadata: Default::default(),
+                    weight: 1.0,
                 },
             ]
         }

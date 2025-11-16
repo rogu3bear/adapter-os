@@ -101,7 +101,7 @@ impl Generator {
 
             // Get router decision
             // For now, use dummy features and uniform priors sized to adapter_count
-            let num_adapters = router.adapter_count().unwrap_or(8);
+            let num_adapters = 8; // Default adapter count for dummy routing
             let features = vec![0.0f32; 16]; // Dummy features
             let priors = vec![1.0f32 / num_adapters as f32; num_adapters]; // Uniform priors
             let decision = router.route(&features, &priors);

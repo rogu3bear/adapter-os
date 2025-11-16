@@ -50,7 +50,7 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
 
     // Check path depth
     if components.len() > protection.max_depth as usize {
-        return Err(AosError::Security(format!(
+        return Err(AosError::Io(format!(
             "Path depth {} exceeds maximum {}",
             components.len(),
             protection.max_depth
@@ -61,7 +61,7 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
     for component in &components {
         match component {
             Component::ParentDir => {
-                return Err(AosError::Security(
+                return Err(AosError::Io(
                     "Parent directory traversal detected".to_string(),
                 ));
             }
@@ -70,7 +70,7 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
 
                 // Check blocked components
                 if protection.blocked_components.contains(&name_str) {
-                    return Err(AosError::Security(format!(
+                    return Err(AosError::Io(format!(
                         "Blocked component detected: {}",
                         name_str
                     )));
@@ -80,7 +80,7 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
                 if !protection.allowed_components.is_empty()
                     && !protection.allowed_components.contains(&name_str)
                 {
-                    return Err(AosError::Security(format!(
+                    return Err(AosError::Io(format!(
                         "Component not allowed: {}",
                         name_str
                     )));
@@ -151,7 +151,7 @@ fn check_raw_patterns(path_str: &str) -> Result<()> {
 
     for pattern in suspicious_patterns {
         if path_str.contains(pattern) {
-            return Err(AosError::Security(format!(
+            return Err(AosError::Io(format!(
                 "Suspicious pattern detected in raw path: {}",
                 pattern
             )));
@@ -178,7 +178,7 @@ fn check_url_decoded_patterns(path_str: &str) -> Result<()> {
 
         for pattern in traversal_patterns {
             if decoded.contains(pattern) {
-                return Err(AosError::Security(format!(
+                return Err(AosError::Io(format!(
                     "Suspicious pattern detected after URL decoding (level {}): {}",
                     level + 1,
                     pattern
@@ -265,7 +265,7 @@ fn check_dangerous_absolute_paths(path_str: &str) -> Result<()> {
 
     for prefix in dangerous_prefixes {
         if normalized_path.starts_with(prefix) {
-            return Err(AosError::Security(format!(
+            return Err(AosError::Io(format!(
                 "Access to sensitive system path not allowed: {}",
                 path_str
             )));
@@ -286,7 +286,7 @@ pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
 
     // Check if the path itself is a symlink (only if it exists)
     if path.exists() && path.is_symlink() {
-        return Err(AosError::Security(format!(
+        return Err(AosError::Io(format!(
             "Path is a symlink, which is not allowed: {}",
             path.display()
         )));
@@ -308,7 +308,7 @@ pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
 
         // Only check for symlinks if the intermediate path exists
         if current.exists() && current.is_symlink() {
-            return Err(AosError::Security(format!(
+            return Err(AosError::Io(format!(
                 "Path contains symlink component, which is not allowed: {}",
                 current.display()
             )));
@@ -331,7 +331,7 @@ pub fn normalize_path(path: impl AsRef<Path>) -> Result<PathBuf> {
     // Normalize the path
     let normalized = path
         .canonicalize()
-        .map_err(|e| AosError::Security(format!("Failed to canonicalize path: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to canonicalize path: {}", e)))?;
 
     Ok(normalized)
 }
@@ -366,7 +366,7 @@ pub fn get_relative_path_safe(base: impl AsRef<Path>, target: impl AsRef<Path>) 
     // Get relative path
     let relative = target
         .strip_prefix(base)
-        .map_err(|e| AosError::Security(format!("Failed to get relative path: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to get relative path: {}", e)))?;
 
     // Check the result
     check_path_traversal(relative)?;
@@ -385,7 +385,7 @@ pub fn is_path_within_base(path: impl AsRef<Path>, base: impl AsRef<Path>) -> Re
 
     // Canonicalize base path (must exist)
     let canonical_base = base.canonicalize().map_err(|e| {
-        AosError::Security(format!(
+        AosError::Io(format!(
             "Failed to canonicalize base path for validation: {}",
             e
         ))
@@ -421,7 +421,7 @@ pub fn validate_path_within_bases(
     // Canonicalize the path
     let canonical_path = path
         .canonicalize()
-        .map_err(|e| AosError::Security(format!("Failed to canonicalize path: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to canonicalize path: {}", e)))?;
 
     // Check if path is within any allowed base
     for base in allowed_bases {
@@ -431,7 +431,7 @@ pub fn validate_path_within_bases(
     }
 
     // Path is not within any allowed base directory
-    Err(AosError::Security(format!(
+    Err(AosError::Io(format!(
         "Path '{}' is not within any allowed base directory",
         canonical_path.display()
     )))
@@ -453,7 +453,7 @@ pub fn safe_file_metadata(
 ) -> Result<std::fs::Metadata> {
     validate_path_within_bases(&path, allowed_bases)?;
     std::fs::metadata(&path)
-        .map_err(|e| AosError::Security(format!("Failed to read file metadata: {}", e)))
+        .map_err(|e| AosError::Io(format!("Failed to read file metadata: {}", e)))
 }
 
 /// Safe path normalization with base validation
@@ -472,7 +472,7 @@ pub fn normalize_path_with_base_validation(
     // Canonicalize the path
     let normalized = path
         .canonicalize()
-        .map_err(|e| AosError::Security(format!("Failed to canonicalize path: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to canonicalize path: {}", e)))?;
 
     // Validate against allowed bases
     validate_path_within_bases(&normalized, allowed_bases)?;
@@ -520,7 +520,7 @@ pub fn validate_file_path_comprehensive(
     // Check path length
     let path_str = path.to_string_lossy();
     if path_str.len() > config.max_path_length {
-        return Err(AosError::Security(format!(
+        return Err(AosError::Io(format!(
             "Path length {} exceeds maximum {}",
             path_str.len(),
             config.max_path_length
@@ -553,7 +553,7 @@ pub fn validate_file_size_limits(
 
     // Get basic metadata first
     let metadata = std::fs::metadata(path)
-        .map_err(|e| AosError::Security(format!("Failed to read file metadata: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to read file metadata: {}", e)))?;
 
     let file_size = metadata.len();
 
@@ -569,7 +569,7 @@ pub fn validate_file_size_limits(
             path,
         );
 
-        return Err(AosError::Security(format!(
+        return Err(AosError::Io(format!(
             "File size {} bytes exceeds global maximum {} bytes",
             file_size, config.max_file_size_bytes
         )));
@@ -593,7 +593,7 @@ pub fn validate_file_size_per_tenant(
 
     if let Some(tenant_limit) = config.per_tenant_limits.get(tenant_id) {
         let metadata = std::fs::metadata(path).map_err(|e| {
-            AosError::Security(format!(
+            AosError::Io(format!(
                 "Failed to read file metadata for tenant validation: {}",
                 e
             ))
@@ -612,7 +612,7 @@ pub fn validate_file_size_per_tenant(
                 path,
             );
 
-            return Err(AosError::Security(format!(
+            return Err(AosError::Io(format!(
                 "File size {} bytes exceeds tenant '{}' limit of {} bytes",
                 metadata.len(),
                 tenant_id,
@@ -664,7 +664,7 @@ pub fn validate_file_streaming(
 
     // Open file for streaming validation
     let file = std::fs::File::open(path).map_err(|e| {
-        AosError::Security(format!(
+        AosError::Io(format!(
             "Failed to open file for streaming validation: {}",
             e
         ))
@@ -675,7 +675,7 @@ pub fn validate_file_streaming(
     let mut header_buffer = vec![0u8; config.max_header_size_bytes];
 
     let bytes_read = std::io::Read::read(&mut reader, &mut header_buffer).map_err(|e| {
-        AosError::Security(format!("Failed to read file header for validation: {}", e))
+        AosError::Io(format!("Failed to read file header for validation: {}", e))
     })?;
 
     // Basic header validation - ensure it's not all zeros or has expected structure
@@ -687,7 +687,7 @@ pub fn validate_file_streaming(
         .count();
 
     if non_zero_bytes == 0 {
-        return Err(AosError::Security(
+        return Err(AosError::Io(
             "File header appears to be all zeros".to_string(),
         ));
     }
@@ -703,7 +703,7 @@ pub fn validate_file_streaming(
                                first_four == [0x50, 0x4B, 0x03, 0x04]; // ZIP signature
 
         if !is_reasonable_data && non_zero_bytes < bytes_read / 2 {
-            return Err(AosError::Security(
+            return Err(AosError::Io(
                 "File header contains suspicious data patterns".to_string(),
             ));
         }

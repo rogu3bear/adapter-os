@@ -322,6 +322,7 @@ impl TrainingDatasetManager {
                 input: example.input.clone(),
                 target: example.target.clone(),
                 metadata: example.metadata.clone().unwrap_or_default(),
+                weight: 1.0, // Default weight for examples from ingest-docs
             };
 
             let json = serde_json::to_string(&worker_example)?;

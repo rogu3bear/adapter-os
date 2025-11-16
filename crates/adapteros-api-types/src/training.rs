@@ -1,10 +1,6 @@
 //! Training types
 
-<<<<<<< HEAD
-use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
-=======
 use adapteros_orchestrator::{TrainingConfig, TrainingJob, TrainingTemplate};
->>>>>>> integration-branch
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -29,23 +25,6 @@ pub struct StartTrainingRequest {
     pub config: TrainingConfigRequest,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
-<<<<<<< HEAD
-    // Optional dataset path for training examples (JSON as used by CLI)
-    pub dataset_path: Option<String>,
-    // Optional: build dataset directly from a directory
-    // Absolute repository root and relative path under root
-    pub directory_root: Option<String>,
-    pub directory_path: Option<String>,
-    // Optional tenant context for directory analysis and registration
-    pub tenant_id: Option<String>,
-    // Packaging/registration options
-    pub adapters_root: Option<String>,
-    pub package: Option<bool>,
-    pub register: Option<bool>,
-    pub adapter_id: Option<String>,
-    pub tier: Option<i32>,
-=======
->>>>>>> integration-branch
 }
 
 /// Training job response
@@ -67,13 +46,6 @@ pub struct TrainingJobResponse {
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
     pub estimated_completion: Option<String>,
-<<<<<<< HEAD
-    // Artifact metadata (populated when packaging is enabled)
-    pub artifact_path: Option<String>,
-    pub adapter_id: Option<String>,
-    pub weights_hash_b3: Option<String>,
-=======
->>>>>>> integration-branch
 }
 
 impl From<TrainingJob> for TrainingJobResponse {
@@ -95,12 +67,6 @@ impl From<TrainingJob> for TrainingJobResponse {
             completed_at: job.completed_at,
             error_message: job.error_message,
             estimated_completion: None, // Calculate if needed
-<<<<<<< HEAD
-            artifact_path: job.artifact_path,
-            adapter_id: job.adapter_id,
-            weights_hash_b3: job.weights_hash_b3,
-=======
->>>>>>> integration-branch
         }
     }
 }
@@ -129,15 +95,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             epochs: req.epochs,
             learning_rate: req.learning_rate,
             batch_size: req.batch_size,
-<<<<<<< HEAD
-            warmup_steps: req.warmup_steps,
-            max_seq_length: req.max_seq_length,
-            gradient_accumulation_steps: req.gradient_accumulation_steps,
-=======
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
->>>>>>> integration-branch
         }
     }
 }
@@ -248,15 +208,3 @@ pub struct ValidateDatasetResponse {
     pub warnings: Vec<String>,
     pub statistics: Option<DatasetStatisticsResponse>,
 }
-<<<<<<< HEAD
-
-/// Training event for SSE streaming
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TrainingEvent {
-    pub event_type: String, // "job_started", "job_completed", "job_failed", "epoch_completed", "progress_updated"
-    pub job_id: String,
-    pub timestamp: String,
-    pub payload: serde_json::Value,
-}
-=======
->>>>>>> integration-branch

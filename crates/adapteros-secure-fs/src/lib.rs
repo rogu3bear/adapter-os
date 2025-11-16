@@ -90,7 +90,7 @@ impl SecureFsManager {
     pub fn set_root_dir(&mut self, path: impl AsRef<StdPath>) -> Result<()> {
         if self.config.enable_caps {
             let root_dir = Dir::open_ambient_dir(path, cap_std::ambient_authority())
-                .map_err(|e| AosError::Security(format!("Failed to open root directory: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to open root directory: {}", e)))?;
 
             self.root_dir = Some(root_dir);
             info!("Set root directory for capability-based access");
@@ -114,13 +114,13 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             let file = root_dir.open(relative_path).map_err(|e| {
-                AosError::Security(format!("Failed to open file with capabilities: {}", e))
+                AosError::Io(format!("Failed to open file with capabilities: {}", e))
             })?;
             Ok(file)
         } else {
             // Fallback to standard file operations
             let file = std::fs::File::open(path)
-                .map_err(|e| AosError::Security(format!("Failed to open file: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to open file: {}", e)))?;
             Ok(File::from_std(file))
         }
     }
@@ -146,13 +146,13 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             let file = root_dir.create(relative_path).map_err(|e| {
-                AosError::Security(format!("Failed to create file with capabilities: {}", e))
+                AosError::Io(format!("Failed to create file with capabilities: {}", e))
             })?;
             Ok(file)
         } else {
             // Fallback to standard file operations
             let file = std::fs::File::create(path)
-                .map_err(|e| AosError::Security(format!("Failed to create file: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to create file: {}", e)))?;
             Ok(File::from_std(file))
         }
     }
@@ -173,16 +173,16 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             let dir = root_dir.open_dir(relative_path).map_err(|e| {
-                AosError::Security(format!("Failed to open directory with capabilities: {}", e))
+                AosError::Io(format!("Failed to open directory with capabilities: {}", e))
             })?;
             Ok(dir)
         } else {
             // Fallback to standard directory operations
             let _dir = std::fs::read_dir(path)
-                .map_err(|e| AosError::Security(format!("Failed to open directory: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to open directory: {}", e)))?;
             Ok(
                 Dir::open_ambient_dir(path, cap_std::ambient_authority()).map_err(|e| {
-                    AosError::Security(format!("Failed to open directory with capabilities: {}", e))
+                    AosError::Io(format!("Failed to open directory with capabilities: {}", e))
                 })?,
             )
         }
@@ -209,7 +209,7 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             root_dir.create_dir(relative_path).map_err(|e| {
-                AosError::Security(format!(
+                AosError::Io(format!(
                     "Failed to create directory with capabilities: {}",
                     e
                 ))
@@ -217,7 +217,7 @@ impl SecureFsManager {
         } else {
             // Fallback to standard directory operations
             std::fs::create_dir(path)
-                .map_err(|e| AosError::Security(format!("Failed to create directory: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to create directory: {}", e)))?;
         }
 
         // Set secure permissions
@@ -242,7 +242,7 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             root_dir.create_dir_all(relative_path).map_err(|e| {
-                AosError::Security(format!(
+                AosError::Io(format!(
                     "Failed to create directory with capabilities: {}",
                     e
                 ))
@@ -250,7 +250,7 @@ impl SecureFsManager {
         } else {
             // Fallback to standard directory operations
             std::fs::create_dir_all(path)
-                .map_err(|e| AosError::Security(format!("Failed to create directory: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to create directory: {}", e)))?;
         }
 
         // Set secure permissions
@@ -275,12 +275,12 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             root_dir.remove_file(relative_path).map_err(|e| {
-                AosError::Security(format!("Failed to remove file with capabilities: {}", e))
+                AosError::Io(format!("Failed to remove file with capabilities: {}", e))
             })?;
         } else {
             // Fallback to standard file operations
             std::fs::remove_file(path)
-                .map_err(|e| AosError::Security(format!("Failed to remove file: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to remove file: {}", e)))?;
         }
 
         Ok(())
@@ -302,7 +302,7 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             root_dir.remove_dir(relative_path).map_err(|e| {
-                AosError::Security(format!(
+                AosError::Io(format!(
                     "Failed to remove directory with capabilities: {}",
                     e
                 ))
@@ -310,7 +310,7 @@ impl SecureFsManager {
         } else {
             // Fallback to standard directory operations
             std::fs::remove_dir(path)
-                .map_err(|e| AosError::Security(format!("Failed to remove directory: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to remove directory: {}", e)))?;
         }
 
         Ok(())
@@ -332,7 +332,7 @@ impl SecureFsManager {
         if let Some(ref root_dir) = self.root_dir {
             let relative_path = self.make_relative_path(path)?;
             root_dir.remove_dir_all(relative_path).map_err(|e| {
-                AosError::Security(format!(
+                AosError::Io(format!(
                     "Failed to remove directory with capabilities: {}",
                     e
                 ))
@@ -340,7 +340,7 @@ impl SecureFsManager {
         } else {
             // Fallback to standard directory operations
             std::fs::remove_dir_all(path)
-                .map_err(|e| AosError::Security(format!("Failed to remove directory: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to remove directory: {}", e)))?;
         }
 
         Ok(())
@@ -358,7 +358,7 @@ impl SecureFsManager {
         // Check path depth
         let depth = path.components().count();
         if depth > self.config.max_path_depth as usize {
-            return Err(AosError::Security(format!(
+            return Err(AosError::Io(format!(
                 "Path depth {} exceeds maximum {}",
                 depth, self.config.max_path_depth
             )));
@@ -371,7 +371,7 @@ impl SecureFsManager {
 
                 // Check blocked extensions
                 if self.config.blocked_extensions.contains(&ext_str) {
-                    return Err(AosError::Security(format!(
+                    return Err(AosError::Io(format!(
                         "File extension {} is blocked by security policy",
                         ext_str
                     )));
@@ -381,7 +381,7 @@ impl SecureFsManager {
                 if !self.config.allowed_extensions.is_empty()
                     && !self.config.allowed_extensions.contains(&ext_str)
                 {
-                    return Err(AosError::Security(format!(
+                    return Err(AosError::Io(format!(
                         "File extension {} is not allowed by security policy",
                         ext_str
                     )));
@@ -413,7 +413,7 @@ impl SecureFsManager {
             };
             let perms = std::fs::Permissions::from_mode(permissions);
             std::fs::set_permissions(path, perms)
-                .map_err(|e| AosError::Security(format!("Failed to set permissions: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to set permissions: {}", e)))?;
         }
 
         #[cfg(windows)]
