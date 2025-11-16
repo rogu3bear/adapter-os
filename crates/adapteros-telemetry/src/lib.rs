@@ -1,10 +1,10 @@
 //! Telemetry with canonical JSON and BLAKE3 hashing
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_crypto::Keypair;
+use adapteros_crypto::{generate_signing_key, load_signing_key, sign_bundle, Keypair};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -88,13 +88,23 @@ impl Clone for TelemetryWriter {
 
 impl TelemetryWriter {
     /// Create a new telemetry writer
+    ///
+    /// Per Artifacts Ruleset #13: All bundles signed with persistent Ed25519 key
     pub fn new<P: AsRef<Path>>(output_dir: P, max_events: usize, max_bytes: usize) -> Result<Self> {
         let (sender, receiver) = unbounded();
         let output_dir = output_dir.as_ref().to_path_buf();
 
+        // Load or generate persistent signing key using adapteros-crypto
+        let key_path = PathBuf::from("var/keys/telemetry_signing.key");
+        let signing_keypair = if key_path.exists() {
+            load_signing_key(&key_path)?
+        } else {
+            generate_signing_key(&key_path)?
+        };
+
         let handle = thread::spawn(move || {
-            if let Err(e) = run_writer(receiver, output_dir, max_events, max_bytes) {
-                eprintln!("Telemetry writer error: {}", e);
+            if let Err(e) = run_writer(receiver, output_dir, max_events, max_bytes, signing_keypair) {
+                tracing::error!(error = %e, "Telemetry writer thread failed");
             }
         });
 
@@ -260,6 +270,7 @@ fn run_writer(
     output_dir: PathBuf,
     max_events: usize,
     max_bytes: usize,
+    signing_keypair: Keypair,
 ) -> Result<()> {
     std::fs::create_dir_all(&output_dir)?;
 
@@ -293,8 +304,8 @@ fn run_writer(
             writer.flush()?;
             drop(writer);
 
-            // Sign bundle with Merkle root - placeholder implementation
-            finalize_bundle(&bundle_path, &event_hashes)?;
+            // Sign bundle with Merkle root using persistent keypair
+            finalize_bundle(&bundle_path, &event_hashes, &signing_keypair)?;
 
             // Start new bundle
             bundle_idx += 1;
@@ -312,7 +323,7 @@ fn run_writer(
     Ok(())
 }
 
-fn finalize_bundle(path: &Path, event_hashes: &[B3Hash]) -> Result<()> {
+fn finalize_bundle(path: &Path, event_hashes: &[B3Hash], signing_keypair: &Keypair) -> Result<()> {
     // Compute Merkle root (simplified but deterministic)
     let merkle_root = if event_hashes.is_empty() {
         B3Hash::hash(b"empty")
@@ -324,35 +335,26 @@ fn finalize_bundle(path: &Path, event_hashes: &[B3Hash]) -> Result<()> {
         B3Hash::hash(&combined)
     };
 
-    // Sign bundle with Merkle root (per Artifacts Ruleset #13)
-    let signature = sign_bundle_merkle_root(&merkle_root)?;
+    // Compute bundle hash (content-addressed)
+    let bundle_bytes = fs::read(path)?;
+    let bundle_hash = B3Hash::hash(&bundle_bytes);
+
+    // Sign bundle using adapteros-crypto (per Artifacts Ruleset #13)
+    let bundle_signature = sign_bundle(&bundle_hash, &merkle_root, signing_keypair)?;
 
     // Write metadata file
     let meta_path = path.with_extension("meta.json");
     let metadata = BundleMetadata {
         event_count: event_hashes.len(),
         merkle_root,
-        signature: Some(hex::encode(&signature)),
+        signature: Some(hex::encode(bundle_signature.signature.to_bytes())),
+        public_key: Some(hex::encode(bundle_signature.public_key.to_bytes())),
     };
 
     let meta_file = File::create(meta_path)?;
     serde_json::to_writer_pretty(meta_file, &metadata)?;
 
     Ok(())
-}
-
-/// Sign bundle Merkle root with Ed25519 keypair
-/// Per Artifacts Ruleset #13: Sign with Ed25519, store signature in bundle metadata
-fn sign_bundle_merkle_root(merkle_root: &B3Hash) -> Result<Vec<u8>> {
-    // In production, this would use a key from Secure Enclave
-    // For now, generate an ephemeral keypair for development
-    // Integrate with Secure Enclave for production - placeholder implementation
-    let keypair = Keypair::generate();
-
-    // Sign the Merkle root bytes
-    let signature = keypair.sign(merkle_root.as_bytes());
-
-    Ok(signature.to_bytes().to_vec())
 }
 
 /// Verify bundle signature (for audit/validation)
@@ -393,7 +395,8 @@ pub fn verify_bundle_signature(
 struct BundleMetadata {
     event_count: usize,
     merkle_root: B3Hash,
-    signature: Option<String>, // Ed25519 signature in hex format
+    signature: Option<String>,  // Ed25519 signature in hex format
+    public_key: Option<String>, // Ed25519 public key in hex format (for verification)
 }
 
 /// Security events (always logged at 100% sampling per Telemetry Ruleset #9)
