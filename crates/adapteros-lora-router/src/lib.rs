@@ -180,6 +180,8 @@ pub struct Router {
     shared_downsample: bool,
     /// Deterministic sampling seed for telemetry
     seed: [u8; 32],
+    /// Active adapter stack filter (if set, only these adapter indices are eligible)
+    active_stack_filter: Option<Vec<usize>>,
 }
 
 impl Router {
@@ -199,6 +201,7 @@ impl Router {
             compression_ratio: 0.8,
             shared_downsample: false,
             seed: [0u8; 32],
+            active_stack_filter: None,
         }
     }
 
@@ -209,6 +212,29 @@ impl Router {
         r.adapter_count = Some(weights.len());
         r.seed = seed;
         r
+    }
+
+    /// Set active adapter stack filter. When set, only adapters in the stack are eligible for selection.
+    /// The indices should be sorted for deterministic behavior.
+    pub fn set_active_stack(&mut self, adapter_indices: Vec<usize>) {
+        let mut sorted = adapter_indices;
+        sorted.sort_unstable(); // Sort for determinism
+        self.active_stack_filter = Some(sorted);
+        tracing::info!(
+            stack_size = adapter_indices.len(),
+            "Active adapter stack filter set"
+        );
+    }
+
+    /// Clear the active adapter stack filter, returning to normal routing.
+    pub fn clear_active_stack(&mut self) {
+        self.active_stack_filter = None;
+        tracing::info!("Active adapter stack filter cleared");
+    }
+
+    /// Get the current active stack filter, if any
+    pub fn get_active_stack(&self) -> Option<&[usize]> {
+        self.active_stack_filter.as_deref()
     }
 
     /// Set telemetry writer
@@ -337,6 +363,23 @@ impl Router {
             .map(|(i, &prior)| (i, prior))
             .collect();
 
+        // Filter by active stack if set (deterministic: stack filter is already sorted)
+        if let Some(ref stack_filter) = self.active_stack_filter {
+            scores.retain(|(idx, _)| stack_filter.binary_search(idx).is_ok());
+
+            // Log stack filtering event
+            if let Some(ref telemetry) = self.telemetry {
+                let _ = telemetry.log(
+                    "router.stack_filter",
+                    serde_json::json!({
+                        "stack_size": stack_filter.len(),
+                        "candidates_after_filter": scores.len(),
+                        "token_index": self.token_count,
+                    }),
+                );
+            }
+        }
+
         // Sort by score descending, then by index for determinism
         scores.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
@@ -435,6 +478,31 @@ impl Router {
             .enumerate()
             .map(|(i, &prior)| (i, prior))
             .collect();
+
+        // Filter by active stack if set (deterministic: stack filter is already sorted)
+        if let Some(ref stack_filter) = self.active_stack_filter {
+            scores.retain(|(idx, _)| stack_filter.binary_search(idx).is_ok());
+
+            // Log stack filtering event
+            if let Some(ref telemetry) = self.telemetry {
+                let _ = telemetry.log(
+                    "router.stack_filter",
+                    serde_json::json!({
+                        "stack_size": stack_filter.len(),
+                        "candidates_after_filter": scores.len(),
+                        "token_index": self.token_count,
+                    }),
+                );
+            }
+
+            if scores.is_empty() {
+                let _ = self.log_k0_event("stack_filter_empty", features);
+                return Decision {
+                    indices: SmallVec::new(),
+                    gates_q15: SmallVec::new(),
+                };
+            }
+        }
 
         // Check if any adapter qualifies (score > threshold)
         let qualifying_count = scores.iter().filter(|(_, score)| *score > 0.1).count();
@@ -971,5 +1039,134 @@ mod tests {
         let t = w2.total_weight();
         assert!((t - 1.0).abs() < 0.001, "total_weight ≈ 1, got {}", t);
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_active_stack_filter() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Set active stack to indices [1, 3, 5]
+        router.set_active_stack(vec![1, 3, 5]);
+
+        // Verify stack is set and sorted
+        assert_eq!(router.get_active_stack(), Some(&[1, 3, 5][..]));
+
+        // Create priors for 6 adapters
+        let features = vec![0.0f32; 22];
+        let priors = vec![0.1, 0.9, 0.5, 0.8, 0.3, 0.7]; // All positive scores
+
+        // Route with stack filter
+        let decision = router.route(&features, &priors);
+
+        // Only adapters 1, 3, 5 should be eligible
+        assert!(decision.indices.len() <= 3);
+        for &idx in decision.indices.iter() {
+            assert!(
+                idx == 1 || idx == 3 || idx == 5,
+                "Selected adapter {} not in stack [1, 3, 5]",
+                idx
+            );
+        }
+
+        // The top adapters should be 1 (0.9), 3 (0.8), 5 (0.7) in that order
+        assert_eq!(decision.indices.len(), 3);
+        assert_eq!(decision.indices[0], 1); // Highest score in stack
+        assert_eq!(decision.indices[1], 5); // Second highest in stack
+        assert_eq!(decision.indices[2], 3); // Third highest in stack
+    }
+
+    #[test]
+    fn test_active_stack_filter_empty_results() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Set active stack to indices [6, 7, 8] (out of range)
+        router.set_active_stack(vec![6, 7, 8]);
+
+        // Create priors for 6 adapters (indices 0-5)
+        let features = vec![0.0f32; 22];
+        let priors = vec![0.1, 0.9, 0.5, 0.8, 0.3, 0.7];
+
+        // Route with stack filter - should return empty since no adapters in stack are available
+        let decision = router.route(&features, &priors);
+
+        // No adapters should be selected
+        assert_eq!(decision.indices.len(), 0);
+        assert_eq!(decision.gates_q15.len(), 0);
+    }
+
+    #[test]
+    fn test_clear_active_stack() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Set active stack
+        router.set_active_stack(vec![1, 3, 5]);
+        assert!(router.get_active_stack().is_some());
+
+        // Clear stack
+        router.clear_active_stack();
+        assert!(router.get_active_stack().is_none());
+
+        // Route should now work normally without filtering
+        let features = vec![0.0f32; 22];
+        let priors = vec![0.1, 0.9, 0.5, 0.8, 0.3, 0.7];
+
+        let decision = router.route(&features, &priors);
+
+        // All adapters eligible, top 3 should be selected
+        assert_eq!(decision.indices.len(), 3);
+        // Top scores: 0.9 (idx 1), 0.8 (idx 3), 0.7 (idx 5)
+        assert_eq!(decision.indices[0], 1);
+        assert_eq!(decision.indices[1], 3);
+        assert_eq!(decision.indices[2], 5);
+    }
+
+    #[test]
+    fn test_active_stack_determinism() {
+        let mut router1 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        let mut router2 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Set same stack on both routers
+        router1.set_active_stack(vec![0, 2, 4, 6]);
+        router2.set_active_stack(vec![0, 2, 4, 6]);
+
+        let features = vec![0.5f32; 22];
+        let priors = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+
+        // Route on both routers
+        let d1 = router1.route(&features, &priors);
+        let d2 = router2.route(&features, &priors);
+
+        // Should produce identical results (deterministic)
+        assert_eq!(d1.indices, d2.indices);
+        assert_eq!(d1.gates_q15, d2.gates_q15);
+    }
+
+    #[test]
+    fn test_route_with_k0_detection_and_stack_filter() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Set active stack
+        router.set_active_stack(vec![1, 3]);
+
+        let features = vec![0.0f32; 22];
+        // Low scores for stack adapters (below 0.1 threshold)
+        let priors = vec![0.5, 0.05, 0.5, 0.05, 0.5];
+
+        // Route with k0 detection
+        let decision = router.route_with_k0_detection(&features, &priors);
+
+        // Should return empty since stack adapters (1, 3) don't qualify
+        assert_eq!(decision.indices.len(), 0);
+    }
+
+    #[test]
+    fn test_active_stack_sorting() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Set unsorted stack - should be sorted internally
+        router.set_active_stack(vec![5, 1, 3]);
+
+        // Verify stack is sorted
+        assert_eq!(router.get_active_stack(), Some(&[1, 3, 5][..]));
     }
 }

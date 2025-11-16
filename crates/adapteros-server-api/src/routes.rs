@@ -1,4 +1,5 @@
 use crate::handlers;
+use crate::handlers::adapter_stacks;
 use crate::handlers::domain_adapters;
 use crate::middleware::{
     auth_middleware, dual_auth_middleware, metrics_auth_middleware, user_friendly_error_middleware,
@@ -115,6 +116,15 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::get_domain_adapter_manifest,
         // domain_adapters::execute_domain_adapter,  // Temporarily removed for compilation
         domain_adapters::delete_domain_adapter,
+        // Adapter stack handlers
+        adapter_stacks::list_stacks,
+        adapter_stacks::get_stack,
+        adapter_stacks::create_stack,
+        adapter_stacks::update_stack,
+        adapter_stacks::delete_stack,
+        adapter_stacks::activate_stack,
+        adapter_stacks::deactivate_stack,
+        adapter_stacks::get_active_stack,
         // Model status handlers
         handlers::get_base_model_status,
         handlers::get_all_models_status,
@@ -264,6 +274,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "contacts", description = "Contact discovery and management"),
         (name = "streams", description = "Real-time SSE event streams"),
         (name = "domain-adapters", description = "Domain adapter management"),
+        (name = "adapter-stacks", description = "Adapter stack management and workflow selection"),
         (name = "git", description = "Git integration and session management"),
         (name = "federation", description = "Federation verification and quarantine management"),
         (name = "openai", description = "OpenAI-compatible endpoints for external tools"),
@@ -720,6 +731,29 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/domain-adapters/:adapter_id/execute",
             post(domain_adapters::execute_domain_adapter),
+        )
+        // Adapter stack routes
+        .route(
+            "/v1/adapter-stacks",
+            get(adapter_stacks::list_stacks).post(adapter_stacks::create_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/active",
+            get(adapter_stacks::get_active_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/deactivate",
+            post(adapter_stacks::deactivate_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/:name",
+            get(adapter_stacks::get_stack)
+                .put(adapter_stacks::update_stack)
+                .delete(adapter_stacks::delete_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/:name/activate",
+            post(adapter_stacks::activate_stack),
         )
         // Contacts routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
         .route(

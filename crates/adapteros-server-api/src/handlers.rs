@@ -42,6 +42,7 @@ use sqlx::Row;
 use tracing::{error, info, warn};
 
 pub mod activity;
+pub mod adapter_stacks;
 pub mod batch;
 #[cfg(feature = "cdp")]
 pub mod code;

@@ -83,5 +83,56 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         [],
     )?;
 
+    // Create adapter_stacks table for named adapter groups
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS adapter_stacks (
+            name TEXT PRIMARY KEY,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    // Create stack_members table for adapter stack membership
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS stack_members (
+            stack_name TEXT NOT NULL,
+            adapter_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (stack_name, adapter_id),
+            FOREIGN KEY (stack_name) REFERENCES adapter_stacks(name) ON DELETE CASCADE,
+            FOREIGN KEY (adapter_id) REFERENCES adapters(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Create active_stack table to track the currently active stack
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS active_stack (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            stack_name TEXT,
+            activated_at TEXT,
+            FOREIGN KEY (stack_name) REFERENCES adapter_stacks(name) ON DELETE SET NULL
+        )",
+        [],
+    )?;
+
+    // Initialize active_stack with NULL (no stack active by default)
+    conn.execute(
+        "INSERT OR IGNORE INTO active_stack (id, stack_name, activated_at) VALUES (1, NULL, NULL)",
+        [],
+    )?;
+
+    // Create indices for stack tables
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_stack_members_adapter ON stack_members(adapter_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_stack_members_position ON stack_members(stack_name, position)",
+        [],
+    )?;
+
     Ok(())
 }
