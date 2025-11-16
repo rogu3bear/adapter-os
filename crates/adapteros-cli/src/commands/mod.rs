@@ -22,7 +22,7 @@ pub mod ingest_docs;
 pub mod init_tenant;
 pub mod list_adapters;
 pub mod manual;
-pub mod metrics;
+// pub mod metrics;  // Temporarily disabled - depends on adapteros-system-metrics
 pub mod node_list;
 pub mod node_sync;
 pub mod node_verify;
@@ -44,5 +44,6 @@ pub mod train;
 pub mod tutorial;
 pub mod verify;
 pub mod verify_federation;
+pub mod verify_gpu;
 pub mod verify_telemetry;
 pub mod infer;

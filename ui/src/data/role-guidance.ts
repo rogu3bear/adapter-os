@@ -122,29 +122,6 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
       'Monitor Alerts for incidents',
       'Review telemetry for performance'
     ]
-  },
-  {
-    role: 'Auditor',
-    title: 'Auditor',
-    description: 'Audit-focused role for compliance verification and security review.',
-    capabilities: [
-      'View audit trails',
-      'Access compliance reports',
-      'Review policy configurations',
-      'Monitor security events',
-      'Export telemetry data'
-    ],
-    restrictions: [
-      'Read-only access',
-      'Cannot modify any settings',
-      'Cannot execute operations'
-    ],
-    tips: [
-      'Use Policies for compliance review',
-      'Check Dashboard for audit overview',
-      'Review Operations for audit trails',
-      'Export data for external analysis'
-    ]
   }
 ];
 

@@ -6,8 +6,11 @@
 //! - UpstreamDownstream: Two-phase execution with upstream adapters first, then downstream
 
 use adapteros_core::Result;
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, info};
 
 /// Workflow type for adapter execution
@@ -66,20 +69,45 @@ pub struct PhaseStats {
     pub time_ms: u64,
 }
 
+/// Trait for executing individual adapters
+///
+/// This allows WorkflowExecutor to work with different execution backends
+/// (real kernels, mocks, etc.)
+pub trait AdapterExecutionBackend: Send + Sync {
+    /// Execute a single adapter on the given input tokens
+    ///
+    /// # Arguments
+    /// * `adapter_id` - Adapter identifier
+    /// * `input_tokens` - Input token IDs
+    /// * `model_state` - Current model state
+    ///
+    /// # Returns
+    /// Output tokens and state updates
+    fn execute_adapter(
+        &self,
+        adapter_id: &str,
+        input_tokens: &[u32],
+        model_state: &HashMap<String, Vec<f32>>,
+    ) -> impl std::future::Future<Output = Result<AdapterExecutionResult>> + Send;
+}
+
 /// Workflow executor that handles different execution strategies
-pub struct WorkflowExecutor {
+pub struct WorkflowExecutor<B: AdapterExecutionBackend> {
     /// Workflow type to execute
     workflow_type: WorkflowType,
     /// Adapter IDs in execution order
     adapter_ids: Vec<String>,
+    /// Execution backend
+    backend: Arc<B>,
 }
 
-impl WorkflowExecutor {
-    /// Create a new workflow executor
-    pub fn new(workflow_type: WorkflowType, adapter_ids: Vec<String>) -> Self {
+impl<B: AdapterExecutionBackend> WorkflowExecutor<B> {
+    /// Create a new workflow executor with execution backend
+    pub fn new(workflow_type: WorkflowType, adapter_ids: Vec<String>, backend: Arc<B>) -> Self {
         Self {
             workflow_type,
             adapter_ids,
+            backend,
         }
     }
 
@@ -121,7 +149,9 @@ impl WorkflowExecutor {
             debug!("Executing adapter: {}", adapter_id);
 
             // Execute single adapter
-            let adapter_result = self.execute_adapter(adapter_id, &current_output, &context.model_state).await?;
+            let adapter_result = self
+                .execute_adapter(adapter_id, &current_output, &context.model_state)
+                .await?;
 
             // Update for next iteration
             current_output = adapter_result.output_tokens;
@@ -164,9 +194,7 @@ impl WorkflowExecutor {
                 let id = adapter_id.clone();
                 let tokens = context.input_tokens.clone();
                 let state = context.model_state.clone();
-                async move {
-                    self.execute_adapter(&id, &tokens, &state).await
-                }
+                async move { self.execute_adapter(&id, &tokens, &state).await }
             })
             .collect();
 
@@ -203,7 +231,10 @@ impl WorkflowExecutor {
     }
 
     /// Execute adapters in upstream/downstream pattern
-    async fn execute_upstream_downstream(&self, context: WorkflowContext) -> Result<WorkflowResult> {
+    async fn execute_upstream_downstream(
+        &self,
+        context: WorkflowContext,
+    ) -> Result<WorkflowResult> {
         info!(
             "Executing upstream/downstream workflow with {} adapters",
             self.adapter_ids.len()
@@ -219,9 +250,16 @@ impl WorkflowExecutor {
 
         // Phase 1: Execute upstream adapters in parallel
         let phase1_start = std::time::Instant::now();
-        debug!("Phase 1: Executing {} upstream adapters", upstream_ids.len());
+        debug!(
+            "Phase 1: Executing {} upstream adapters",
+            upstream_ids.len()
+        );
 
-        let upstream_executor = WorkflowExecutor::new(WorkflowType::Parallel, upstream_ids.clone());
+        let upstream_executor = WorkflowExecutor::new(
+            WorkflowType::Parallel,
+            upstream_ids.clone(),
+            self.backend.clone(),
+        );
         let upstream_result = upstream_executor.execute_parallel(context.clone()).await?;
 
         phases.push(PhaseStats {
@@ -232,7 +270,10 @@ impl WorkflowExecutor {
 
         // Phase 2: Execute downstream adapters with upstream results
         let phase2_start = std::time::Instant::now();
-        debug!("Phase 2: Executing {} downstream adapters", downstream_ids.len());
+        debug!(
+            "Phase 2: Executing {} downstream adapters",
+            downstream_ids.len()
+        );
 
         let downstream_context = WorkflowContext {
             input_tokens: upstream_result.output_tokens,
@@ -240,8 +281,14 @@ impl WorkflowExecutor {
             metadata: context.metadata,
         };
 
-        let downstream_executor = WorkflowExecutor::new(WorkflowType::Parallel, downstream_ids.clone());
-        let downstream_result = downstream_executor.execute_parallel(downstream_context).await?;
+        let downstream_executor = WorkflowExecutor::new(
+            WorkflowType::Parallel,
+            downstream_ids.clone(),
+            self.backend.clone(),
+        );
+        let downstream_result = downstream_executor
+            .execute_parallel(downstream_context)
+            .await?;
 
         phases.push(PhaseStats {
             name: "downstream".to_string(),
@@ -260,42 +307,191 @@ impl WorkflowExecutor {
         })
     }
 
-    /// Execute a single adapter (placeholder - would integrate with actual adapter execution)
+    /// Execute a single adapter using the configured backend
     async fn execute_adapter(
         &self,
         adapter_id: &str,
         input_tokens: &[u32],
-        _model_state: &HashMap<String, Vec<f32>>,
+        model_state: &HashMap<String, Vec<f32>>,
     ) -> Result<AdapterExecutionResult> {
-        // This is a placeholder implementation
-        // In reality, this would:
-        // 1. Load the adapter weights
-        // 2. Apply the adapter transformation
-        // 3. Return the modified output
-
         debug!(
             "Executing adapter {} with {} input tokens",
             adapter_id,
             input_tokens.len()
         );
 
-        // Simulate some processing
+        // Delegate to backend
+        self.backend
+            .execute_adapter(adapter_id, input_tokens, model_state)
+            .await
+    }
+}
+
+/// Result from a single adapter execution
+pub struct AdapterExecutionResult {
+    /// Output tokens from this adapter
+    pub output_tokens: Vec<u32>,
+    /// State updates from this adapter
+    pub state_updates: HashMap<String, Vec<f32>>,
+}
+
+/// Mock execution backend for testing
+pub struct MockAdapterBackend;
+
+impl AdapterExecutionBackend for MockAdapterBackend {
+    async fn execute_adapter(
+        &self,
+        adapter_id: &str,
+        input_tokens: &[u32],
+        _model_state: &HashMap<String, Vec<f32>>,
+    ) -> Result<AdapterExecutionResult> {
+        debug!("Mock execution of adapter {}", adapter_id);
+
+        // Simulate processing
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        // Mock result
         Ok(AdapterExecutionResult {
-            output_tokens: input_tokens.to_vec(), // In reality, this would be transformed
+            output_tokens: input_tokens.to_vec(),
             state_updates: HashMap::new(),
         })
     }
 }
 
-/// Result from a single adapter execution
-struct AdapterExecutionResult {
-    /// Output tokens from this adapter
-    output_tokens: Vec<u32>,
-    /// State updates from this adapter
-    state_updates: HashMap<String, Vec<f32>>,
+/// Real kernel-based execution backend
+///
+/// Executes adapters using Metal/MLX kernels with actual LoRA transformations.
+///
+/// # Usage Example
+///
+/// ```ignore
+/// use adapteros_lora_kernel_mtl::MetalKernels;
+/// use adapteros_lora_lifecycle::{KernelAdapterBackend, WorkflowExecutor, WorkflowType};
+/// use std::sync::Arc;
+/// use tokio::sync::Mutex;
+///
+/// // Initialize kernels (usually from Worker)
+/// let kernels = MetalKernels::new(/* ... */);
+/// let kernels_arc = Arc::new(Mutex::new(kernels));
+///
+/// // Create kernel backend with adapter mapping
+/// let adapter_names = vec!["adapter_1".to_string(), "adapter_2".to_string()];
+/// let backend = KernelAdapterBackend::new(
+///     kernels_arc.clone(),
+///     adapter_names.clone(),
+///     152064  // Qwen2.5 vocab size
+/// );
+///
+/// // Create and execute workflow
+/// let executor = WorkflowExecutor::new(
+///     WorkflowType::UpstreamDownstream,
+///     adapter_names,
+///     Arc::new(backend)
+/// );
+/// ```
+///
+/// # Note on Worker Integration
+///
+/// The Worker struct currently owns kernels directly, making it difficult to share
+/// them with workflows. To use KernelAdapterBackend properly:
+///
+/// 1. **Option A**: Refactor Worker to store `kernels: Arc<Mutex<K>>` instead of `K`
+/// 2. **Option B**: Create workflows outside Worker with separate kernel instances
+/// 3. **Option C**: Use MockAdapterBackend for testing (current Worker approach)
+pub struct KernelAdapterBackend<K: FusedKernels> {
+    /// Kernel implementation (Metal or MLX)
+    kernels: Arc<Mutex<K>>,
+    /// Mapping from adapter names to indices
+    adapter_name_to_index: HashMap<String, u16>,
+    /// Vocabulary size for output logits
+    vocab_size: usize,
+}
+
+impl<K: FusedKernels> KernelAdapterBackend<K> {
+    /// Create a new kernel-based backend
+    ///
+    /// # Arguments
+    /// * `kernels` - Kernel implementation
+    /// * `adapter_names` - List of adapter names in order (index = position)
+    /// * `vocab_size` - Vocabulary size (e.g., 152064 for Qwen2.5)
+    pub fn new(kernels: Arc<Mutex<K>>, adapter_names: Vec<String>, vocab_size: usize) -> Self {
+        let adapter_name_to_index = adapter_names
+            .into_iter()
+            .enumerate()
+            .map(|(idx, name)| (name, idx as u16))
+            .collect();
+
+        Self {
+            kernels,
+            adapter_name_to_index,
+            vocab_size,
+        }
+    }
+}
+
+impl<K: FusedKernels + Send + Sync> AdapterExecutionBackend for KernelAdapterBackend<K> {
+    async fn execute_adapter(
+        &self,
+        adapter_id: &str,
+        input_tokens: &[u32],
+        _model_state: &HashMap<String, Vec<f32>>,
+    ) -> Result<AdapterExecutionResult> {
+        debug!(
+            "Kernel execution of adapter {} with {} input tokens",
+            adapter_id,
+            input_tokens.len()
+        );
+
+        // Get adapter index from name
+        let adapter_index = self
+            .adapter_name_to_index
+            .get(adapter_id)
+            .copied()
+            .ok_or_else(|| {
+                adapteros_core::AosError::Lifecycle(format!(
+                    "Adapter '{}' not found in name-to-index mapping",
+                    adapter_id
+                ))
+            })?;
+
+        // Create RouterRing with just this adapter at full activation
+        let router_ring = RouterRing {
+            indices: vec![adapter_index],
+            gates_q15: vec![32767], // Max Q15 value = 1.0
+            position: 0,
+        };
+
+        // Run inference through kernels
+        let mut output_tokens = Vec::new();
+        let mut current_input = input_tokens.to_vec();
+
+        // Simple single-step execution
+        // In practice, this would run multiple autoregressive steps
+        let mut io_buffers = IoBuffers {
+            input_ids: current_input.clone(),
+            output_logits: vec![0.0; self.vocab_size],
+            position: 0,
+        };
+
+        // Execute kernel step
+        {
+            let mut kernels = self.kernels.lock().await;
+            kernels.run_step(&router_ring, &mut io_buffers)?;
+        }
+
+        // For workflow execution, we return the input tokens
+        // (actual token generation would happen in Worker's autoregressive loop)
+        output_tokens = current_input;
+
+        debug!(
+            "Kernel execution complete: {} output tokens",
+            output_tokens.len()
+        );
+
+        Ok(AdapterExecutionResult {
+            output_tokens,
+            state_updates: HashMap::new(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -304,9 +500,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_sequential_workflow() {
+        let backend = Arc::new(MockAdapterBackend);
         let executor = WorkflowExecutor::new(
             WorkflowType::Sequential,
             vec!["adapter1".to_string(), "adapter2".to_string()],
+            backend,
         );
 
         let context = WorkflowContext {
@@ -323,6 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_workflow() {
+        let backend = Arc::new(MockAdapterBackend);
         let executor = WorkflowExecutor::new(
             WorkflowType::Parallel,
             vec![
@@ -330,6 +529,7 @@ mod tests {
                 "adapter2".to_string(),
                 "adapter3".to_string(),
             ],
+            backend,
         );
 
         let context = WorkflowContext {
@@ -346,6 +546,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_upstream_downstream_workflow() {
+        let backend = Arc::new(MockAdapterBackend);
         let executor = WorkflowExecutor::new(
             WorkflowType::UpstreamDownstream,
             vec![
@@ -354,6 +555,7 @@ mod tests {
                 "downstream1".to_string(),
                 "downstream2".to_string(),
             ],
+            backend,
         );
 
         let context = WorkflowContext {

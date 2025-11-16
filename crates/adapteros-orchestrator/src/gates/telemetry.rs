@@ -22,7 +22,7 @@ impl Gate for TelemetryGate {
     }
 
     async fn check(&self, config: &OrchestratorConfig) -> Result<()> {
-        println!("  🔐 Verifying telemetry chain...");
+        tracing::debug!("Verifying telemetry chain");
 
         // Load bundles for this CPID
         let bundle_dir = Path::new("var/telemetry").join(&config.cpid);
@@ -39,9 +39,9 @@ impl Gate for TelemetryGate {
 
         verify_chain(&bundles)?;
 
-        println!(
-            "     ✅ Telemetry chain verified: {} bundles",
-            bundles.len()
+        tracing::info!(
+            bundle_count = bundles.len(),
+            "Telemetry chain verified"
         );
         Ok(())
     }

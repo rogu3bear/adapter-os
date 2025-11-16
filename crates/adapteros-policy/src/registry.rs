@@ -32,11 +32,12 @@ pub enum PolicyId {
     DeterministicIo = 20,
     Drift = 21,
     Mplora = 22,
+    Naming = 23,
 }
 
 impl PolicyId {
     /// Get all policy IDs in order
-    pub fn all() -> &'static [PolicyId; 22] {
+    pub fn all() -> &'static [PolicyId; 23] {
         &[
             PolicyId::Egress,
             PolicyId::Determinism,
@@ -60,6 +61,7 @@ impl PolicyId {
             PolicyId::DeterministicIo,
             PolicyId::Drift,
             PolicyId::Mplora,
+            PolicyId::Naming,
         ]
     }
 
@@ -88,6 +90,7 @@ impl PolicyId {
             PolicyId::DeterministicIo => "Deterministic I/O",
             PolicyId::Drift => "Drift",
             PolicyId::Mplora => "MPLoRA",
+            PolicyId::Naming => "Naming",
         }
     }
 
@@ -116,6 +119,7 @@ impl PolicyId {
             PolicyId::DeterministicIo => "File reads/writes via hashed wrappers; no wall-clock; stubbed network",
             PolicyId::Drift => "Environment fingerprint tracking and drift detection with cryptographic verification",
             PolicyId::Mplora => "Orthogonal multi-path LoRA constraints enforcement with shared downsample validation",
+            PolicyId::Naming => "Adapter and stack naming conventions with reserved namespace and hierarchy enforcement",
         }
     }
 
@@ -144,6 +148,7 @@ impl PolicyId {
             PolicyId::DeterministicIo => "I/O layer, filesystem operations",
             PolicyId::Drift => "startup verification, runtime drift checks",
             PolicyId::Mplora => "adapteros-router, adapteros-kernel-mtl",
+            PolicyId::Naming => "adapter registration, stack creation, API endpoints",
         }
     }
 
@@ -172,6 +177,7 @@ impl PolicyId {
             PolicyId::DeterministicIo => true,
             PolicyId::Drift => true,
             PolicyId::Mplora => true,
+            PolicyId::Naming => true,
         }
     }
 }

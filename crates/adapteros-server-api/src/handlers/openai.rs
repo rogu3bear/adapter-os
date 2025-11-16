@@ -27,6 +27,9 @@ pub async fn chat_completions(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Json<ChatCompletionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::InferenceExecute)?;
+
     if req.model.as_str() != "adapteros-qwen2.5-7b" {
         return Err((
             StatusCode::BAD_REQUEST,

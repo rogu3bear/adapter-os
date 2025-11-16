@@ -25,6 +25,8 @@ base64 = "0.22"
 hex = { workspace = true }
 rand = { workspace = true }
 half = "2.4"
+safetensors = { workspace = true }
+memmap2 = "0.9"
 
 [build-dependencies]
 blake3 = "1.5"

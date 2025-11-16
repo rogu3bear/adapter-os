@@ -217,6 +217,110 @@ This document maintains citations linking patent claims to their current impleme
    - Enforces contract between manifest defaults and PolicyEngine
    - Prevents documentation drift
 
+## Multi-Agent Coordination System
+
+**Feature:** Deterministic cross-agent synchronization with tick-based barriers and global sequencing
+
+**Patent Gate:** Adversarial test coverage for distributed coordination failures
+
+### Core Implementation
+
+1. **AgentBarrier Type**
+   - **Location:** `crates/adapteros-deterministic-exec/src/multi_agent.rs` (lines 36-150)
+   - **Synchronization:** Tick-based barriers ensuring all agents reach same logical time
+   - **Determinism:** Global sequence counter prevents race conditions
+   - **Fault Tolerance:** Timeout protection and agent registration validation
+
+2. **GlobalTickLedger**
+   - **Location:** `crates/adapteros-deterministic-exec/src/global_ledger.rs` (lines 73-604)
+   - **Consistency:** Merkle chain verification for cross-host event ordering
+   - **Replay Protection:** Tamper-evident event logging with BLAKE3 hashes
+   - **Federation:** Cross-host divergence detection and consistency reporting
+
+3. **CoordinatedAction**
+   - **Location:** `crates/adapteros-deterministic-exec/src/multi_agent.rs` (lines 170-204)
+   - **Atomicity:** Global sequence numbers for deterministic action ordering
+   - **Integrity:** BLAKE3 hash verification of action payloads
+   - **Serialization:** Deterministic encoding for cross-agent communication
+
+### Security Testing
+
+**Adversarial Coverage:** `tests/fault_injection_harness.rs` (lines 1281-1382)
+
+1. **Barrier Synchronization Attacks** (lines 1285-1303)
+   - Empty agent names, extremely long names, special characters
+   - **Citation:** test_multi_agent_barrier_adversarial_conditions
+
+2. **Merkle Chain Tampering** (lines 1305-1382)
+   - Adversarial event data, tampered hashes, replay attacks
+   - **Citation:** test_global_tick_ledger_merkle_chain_integrity
+
+3. **Cross-Host Consistency** (lines 1365-1381)
+   - Divergence detection, tampered peer data validation
+   - **Citation:** test_global_tick_ledger_merkle_chain_integrity
+
+**Federation Coverage:** `tests/federation_adversarial_tests.rs` (lines 1-227)
+
+1. **Configuration Attacks** (lines 11-31)
+   - Malformed peer hosts, invalid hostnames, IP addresses
+   - **Citation:** test_federation_malformed_config
+
+2. **Signature Verification** (lines 33-52)
+   - Empty messages, wrong messages, empty signatures
+   - **Citation:** test_signature_verification_adversarial
+
+3. **Replay Attack Prevention** (lines 54-73)
+   - Same message replay detection and rejection
+   - **Citation:** test_federation_replay_attack_prevention
+
+4. **Man-in-the-Middle Protection** (lines 75-94)
+   - Certificate validation and tampering detection
+   - **Citation:** test_federation_man_in_middle_protection
+
+5. **Denial-of-Service Protection** (lines 96-125)
+   - Connection limit enforcement and resource exhaustion prevention
+   - **Citation:** test_federation_dos_protection
+
+6. **Message Tampering Detection** (lines 127-146)
+   - Content modification detection and integrity verification
+   - **Citation:** test_federation_message_tampering_detection
+
+## Database Schema Recovery System
+
+**Feature:** Automatic schema migration and integrity verification with adversarial input handling
+
+**Patent Gate:** Fault injection testing for database corruption and migration failures
+
+### Core Implementation
+
+1. **Schema Validation**
+   - **Location:** `crates/adapteros-db/src/lib.rs` (lines 1-200)
+   - **Migration:** Automatic application of missing schema versions
+   - **Integrity:** Table existence and constraint validation
+   - **Recovery:** Graceful handling of corrupted database files
+
+2. **Process Monitoring Schema**
+   - **Location:** `crates/adapteros-db/src/process_monitoring.rs` (lines 1-1400)
+   - **Tables:** process_monitoring_rules, process_alerts, process_anomalies
+   - **Constraints:** Foreign key relationships and data type validation
+   - **Indexing:** Performance optimization for monitoring queries
+
+### Security Testing
+
+**Adversarial Coverage:** `tests/fault_injection_harness.rs` (lines 1384-1527)
+
+1. **Database Corruption** (lines 1389-1433)
+   - Corrupted files, invalid SQLite headers, migration failures
+   - **Citation:** test_database_schema_recovery_adversarial
+
+2. **Process Monitoring Attacks** (lines 1435-1527)
+   - Empty fields, extreme values, special characters, NaN/Infinity
+   - **Citation:** test_process_monitoring_adversarial_inputs
+
+3. **Schema Integrity** (lines 1411-1433)
+   - Table existence verification, constraint validation
+   - **Citation:** test_database_schema_recovery_adversarial
+
 ---
 
 **Last Updated:** 2025-11-16

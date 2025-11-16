@@ -4,12 +4,14 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
 // Database abstraction layer
-pub mod traits;
-pub mod sqlite_backend;
 pub mod postgres_backend;
+pub mod sqlite_backend;
+pub mod traits;
 
 // Re-export commonly used types
-pub use traits::{DatabaseBackend, DatabaseConfig, DatabaseBackendType, CreateStackRequest, StackRecord};
+pub use traits::{
+    CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig, StackRecord,
+};
 
 // PostgreSQL backend for production (legacy - to be deprecated)
 pub mod postgres;
@@ -173,6 +175,8 @@ pub use sqlx::Row;
 
 pub mod adapters;
 pub mod artifacts;
+pub mod audit;
+pub use audit::AuditLog;
 pub mod audits;
 pub mod migration_verify;
 pub mod unified_access;
@@ -194,7 +198,7 @@ pub use jobs::Job;
 pub mod training_jobs;
 pub use training_jobs::{TrainingJobRecord, TrainingProgress};
 pub mod training_datasets;
-pub use training_datasets::{TrainingDataset, DatasetFile, DatasetStatistics};
+pub use training_datasets::{DatasetFile, DatasetStatistics, TrainingDataset};
 pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
@@ -217,6 +221,6 @@ pub mod workers;
 
 // Re-export unified access types
 pub use unified_access::{
-    ConnectionInfo, DatabaseAccess, DatabaseStatistics, DatabaseType, HealthState,
-    HealthStatus, SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
+    ConnectionInfo, DatabaseAccess, DatabaseStatistics, DatabaseType, HealthState, HealthStatus,
+    SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
 };

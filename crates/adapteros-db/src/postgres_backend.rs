@@ -37,8 +37,8 @@ impl PostgresBackend {
 impl DatabaseBackend for PostgresBackend {
     async fn insert_stack(&self, stack: CreateStackRequest) -> Result<String> {
         let id = self.generate_id();
-        let adapter_ids_json = serde_json::to_string(&stack.adapter_ids)
-            .map_err(|e| AosError::Serialization(e))?;
+        let adapter_ids_json =
+            serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
 
         sqlx::query(
             r#"
@@ -60,16 +60,19 @@ impl DatabaseBackend for PostgresBackend {
     }
 
     async fn get_stack(&self, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (
-            String,           // id
-            String,           // name
-            Option<String>,   // description
-            String,           // adapter_ids_json
-            Option<String>,   // workflow_type
-            String,           // created_at
-            String,           // updated_at
-            Option<String>,   // created_by
-        )>(
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,         // id
+                String,         // name
+                Option<String>, // description
+                String,         // adapter_ids_json
+                Option<String>, // workflow_type
+                String,         // created_at
+                String,         // updated_at
+                Option<String>, // created_by
+            ),
+        >(
             r#"
             SELECT id, name, description, adapter_ids_json, workflow_type,
                    created_at::text as "created_at",
@@ -97,16 +100,19 @@ impl DatabaseBackend for PostgresBackend {
     }
 
     async fn list_stacks(&self) -> Result<Vec<StackRecord>> {
-        let rows = sqlx::query_as::<_, (
-            String,           // id
-            String,           // name
-            Option<String>,   // description
-            String,           // adapter_ids_json
-            Option<String>,   // workflow_type
-            String,           // created_at
-            String,           // updated_at
-            Option<String>,   // created_by
-        )>(
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,         // id
+                String,         // name
+                Option<String>, // description
+                String,         // adapter_ids_json
+                Option<String>, // workflow_type
+                String,         // created_at
+                String,         // updated_at
+                Option<String>, // created_by
+            ),
+        >(
             r#"
             SELECT id, name, description, adapter_ids_json, workflow_type,
                    created_at::text as "created_at",
@@ -114,7 +120,7 @@ impl DatabaseBackend for PostgresBackend {
                    created_by
             FROM adapter_stacks
             ORDER BY created_at DESC
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -151,8 +157,8 @@ impl DatabaseBackend for PostgresBackend {
     }
 
     async fn update_stack(&self, id: &str, stack: CreateStackRequest) -> Result<bool> {
-        let adapter_ids_json = serde_json::to_string(&stack.adapter_ids)
-            .map_err(|e| AosError::Serialization(e))?;
+        let adapter_ids_json =
+            serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
 
         let result = sqlx::query(
             r#"
@@ -191,7 +197,7 @@ impl DatabaseBackend for PostgresBackend {
                 SELECT FROM information_schema.tables
                 WHERE table_schema = 'public'
                 AND table_name = $1
-            )"
+            )",
         )
         .bind(table_name)
         .fetch_one(&self.pool)

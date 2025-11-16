@@ -16,6 +16,7 @@ use adapteros_core::{AosError, B3Hash, Result};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -197,14 +198,25 @@ impl AdapterTable {
                 active.insert(id.clone(), adapter);
                 added_count += 1;
             } else {
-                // Rollback on partial failure
-                drop(active);
-                drop(staged);
-                self.rollback_internal()?;
-                return Err(AosError::Worker(format!(
-                    "Adapter {} not found in staged set",
-                    id
-                )));
+                // Rollback on partial failure (keep locks held to prevent race)
+                let rollback = self.rollback_state.read();
+                if let Some(ref saved_state) = *rollback {
+                    *active = saved_state.clone();
+                    tracing::warn!(
+                        adapter_id = %id,
+                        "Rolled back to previous state due to missing staged adapter"
+                    );
+                    // Locks will be dropped automatically at end of scope
+                    return Err(AosError::Worker(format!(
+                        "Adapter {} not found in staged set",
+                        id
+                    )));
+                } else {
+                    return Err(AosError::Worker(format!(
+                        "Adapter {} not found in staged set and no rollback state available",
+                        id
+                    )));
+                }
             }
         }
 
@@ -222,6 +234,18 @@ impl AdapterTable {
 
         if let Some(ref saved_state) = *rollback {
             *active = saved_state.clone();
+            let adapter_count = saved_state.len();
+
+            // Verify rollback integrity
+            drop(active);
+            drop(rollback);
+            let new_hash = self.compute_stack_hash();
+            tracing::info!(
+                stack_hash = %new_hash.to_short_hex(),
+                adapter_count = adapter_count,
+                "Rollback completed and verified"
+            );
+
             Ok(())
         } else {
             Err(AosError::Worker("No rollback state available".to_string()))
@@ -319,7 +343,7 @@ impl AdapterTable {
         let checkpoint = StackCheckpoint {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_secs(),
             metadata_hash,
             cross_layer_hash,
@@ -399,6 +423,76 @@ impl AdapterTable {
     /// Clear staged adapters
     pub fn clear_staged(&self) {
         self.staged.write().clear();
+    }
+
+    /// Save checkpoints to disk for crash recovery
+    ///
+    /// Uses atomic write (temp file + rename) to ensure consistency.
+    ///
+    /// # Arguments
+    /// * `path` - Path to save checkpoints (e.g., `/var/run/aos/stack_checkpoints.json`)
+    ///
+    /// # Returns
+    /// Ok(()) on success, error if write fails
+    pub fn save_checkpoints(&self, path: &Path) -> Result<()> {
+        let checkpoints = self.checkpoints.read();
+
+        // Serialize checkpoints to JSON
+        let serialized = serde_json::to_string_pretty(&*checkpoints)?;
+
+        // Atomic write: write to temp file, then rename
+        let temp_path = path.with_extension("tmp");
+        std::fs::write(&temp_path, serialized)
+            .map_err(|e| AosError::Io(format!("Failed to write checkpoint temp file: {}", e)))?;
+
+        // Rename with cleanup on failure
+        if let Err(e) = std::fs::rename(&temp_path, path) {
+            // Clean up orphaned temp file
+            std::fs::remove_file(&temp_path).ok();
+            return Err(AosError::Io(format!("Failed to rename checkpoint file: {}", e)));
+        }
+
+        tracing::info!(
+            checkpoint_count = checkpoints.len(),
+            path = %path.display(),
+            "Checkpoints saved to disk"
+        );
+
+        Ok(())
+    }
+
+    /// Restore checkpoints from disk
+    ///
+    /// Loads previously saved checkpoints for crash recovery.
+    ///
+    /// # Arguments
+    /// * `path` - Path to load checkpoints from
+    ///
+    /// # Returns
+    /// Ok(()) on success (or if file doesn't exist), error if load fails
+    pub fn restore_checkpoints(&self, path: &Path) -> Result<()> {
+        if !path.exists() {
+            tracing::info!(
+                path = %path.display(),
+                "No checkpoint file found, starting fresh"
+            );
+            return Ok(());
+        }
+
+        let data = std::fs::read_to_string(path)
+            .map_err(|e| AosError::Io(format!("Failed to read checkpoint file: {}", e)))?;
+
+        let restored: Vec<StackCheckpoint> = serde_json::from_str(&data)?;
+
+        *self.checkpoints.write() = restored;
+
+        tracing::info!(
+            checkpoint_count = self.checkpoints.read().len(),
+            path = %path.display(),
+            "Checkpoints restored from disk"
+        );
+
+        Ok(())
     }
 }
 
@@ -534,29 +628,49 @@ where
                     let mut kernels_lock = kernels.lock().await;
                     kernels_lock.load_adapter(adapter_id_u16, weights)?;
 
-                    // TODO: Verify GPU buffers and create fingerprint
-                    // This requires vram_tracker methods which are Metal-specific
-                    // Commented out for now to allow generic FusedKernels usage
-                    // let (buffer_size, first, last, mid) =
-                    //     kernels_lock.verify_adapter_buffers(adapter_id_u16)?;
-                    // use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
-                    // let gpu_fp = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
-                    // kernels_lock
-                    //     .vram_tracker_mut()
-                    //     .store_fingerprint(adapter_id_u16 as u32, gpu_fp.clone());
+                    // Get actual VRAM usage from Metal buffers
+                    // This ensures tracking matches real GPU allocation
+                    let vram_mb = match kernels_lock.verify_adapter_buffers(adapter_id_u16) {
+                        Ok((buffer_size, first_sample, last_sample, mid_sample)) => {
+                            // Use actual Metal buffer size (includes alignment padding)
+                            let vram_mb = (buffer_size / (1024 * 1024)).max(1);
 
-                    tracing::info!(
-                        adapter_id = %adapter_id,
-                        "Adapter loaded via kernel backend"
-                    );
+                            // Create and store GPU fingerprint for integrity verification
+                            use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
+                            let gpu_fp = GpuBufferFingerprint::new(
+                                buffer_size,
+                                &first_sample,
+                                &last_sample,
+                                &mid_sample,
+                            );
+                            kernels_lock.store_gpu_fingerprint(
+                                adapter_id_u16,
+                                buffer_size,
+                                &gpu_fp.checkpoint_hash.to_hex()
+                            );
+
+                            tracing::info!(
+                                adapter_id = %adapter_id,
+                                vram_mb = vram_mb,
+                                buffer_size = buffer_size,
+                                "Adapter loaded with GPU fingerprint stored"
+                            );
+
+                            vram_mb
+                        }
+                        Err(e) => {
+                            // Fallback to payload size if verification fails
+                            tracing::warn!(
+                                adapter_id = %adapter_id,
+                                error = %e,
+                                "Failed to verify GPU buffers, using payload size estimate"
+                            );
+                            let vram_bytes = weights.len() as u64;
+                            (vram_bytes / (1024 * 1024)).max(1)
+                        }
+                    };
 
                     drop(kernels_lock);
-
-                    // Get VRAM size from loaded adapter (would need to return from load_adapter)
-                    // For now, estimate based on weight size
-                    let vram_bytes = weights.len() as u64;
-                    let vram_mb = (vram_bytes / (1024 * 1024)).max(1);
-
                     vram_mb
                 } else {
                     // No kernel backend - use mock value for metadata-only mode

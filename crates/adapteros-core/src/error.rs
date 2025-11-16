@@ -1,5 +1,34 @@
 //! Error types for AdapterOS
+//!
+//! ## Error Message Standards
+//!
+//! When creating error messages, follow these conventions:
+//!
+//! 1. **Capitalization**: Start with a capital letter
+//!    - ✅ `"Failed to load adapter: file not found"`
+//!    - ❌ `"failed to load adapter: file not found"`
+//!
+//! 2. **Format**: Use "Action failed: reason" or "Entity state: details"
+//!    - ✅ `"Dataset not found: {id}"`
+//!    - ✅ `"Invalid configuration: vocab_size must be non-zero"`
+//!    - ❌ `"dataset not found"`
+//!
+//! 3. **Dynamic values**: Use `format!()` for interpolation
+//!    - ✅ `AosError::Config(format!("Port {} already in use", port))`
+//!    - ❌ `AosError::Config("port already in use".to_string())`
+//!
+//! 4. **Static messages**: Use `.to_string()` without interpolation
+//!    - ✅ `AosError::Config("Database connection required".to_string())`
+//!
+//! 5. **No trailing periods**: Error strings should not end with periods
+//!    - ✅ `"Connection timeout after 30s"`
+//!    - ❌ `"Connection timeout after 30s."`
+//!
+//! 6. **Be specific and actionable**: Include enough context to debug
+//!    - ✅ `"Failed to verify GPU buffers for adapter 'code-review': hash mismatch"`
+//!    - ❌ `"Verification failed"`
 
+use crate::B3Hash;
 use thiserror::Error;
 use zip::result::ZipError;
 
@@ -133,6 +162,13 @@ pub enum AosError {
 
     #[error("Lifecycle error: {0}")]
     Lifecycle(String),
+
+    #[error("Adapter hash mismatch for {adapter_id}: expected {expected}, got {actual}")]
+    AdapterHashMismatch {
+        adapter_id: String,
+        expected: B3Hash,
+        actual: B3Hash,
+    },
 
     #[error("Git error: {0}")]
     Git(String),

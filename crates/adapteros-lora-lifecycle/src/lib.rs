@@ -6,7 +6,7 @@
 //! - Hot-swap loading/unloading
 //! - Memory pressure eviction
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::{sqlx, Db};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_manifest::Policies;
@@ -46,6 +46,41 @@ pub struct AdapterEvictionEvent {
     pub memory_freed: usize,
 }
 
+/// Telemetry event emitted when adapter load hash validation fails
+#[derive(Debug, Clone, Serialize)]
+pub struct AdapterLoadHashMismatchEvent {
+    pub adapter_id: String,
+    pub adapter_idx: u16,
+    pub expected_hash: String,
+    pub actual_hash: String,
+}
+
+/// Telemetry event for GPU buffer integrity verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuIntegrityVerificationEvent {
+    pub adapter_id: String,
+    pub adapter_idx: u16,
+    pub verified: bool,
+    pub buffer_bytes: u64,
+    pub checkpoint_hash: String,
+    pub memory_footprint_within_tolerance: bool,
+    pub z_score: Option<f64>,
+    pub baseline_mean: Option<f64>,
+    pub timestamp: u64,
+}
+
+/// Telemetry event for GPU integrity violations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuIntegrityViolationEvent {
+    pub adapter_id: String,
+    pub adapter_idx: u16,
+    pub violation_type: String, // "fingerprint_mismatch", "memory_anomaly", "verification_error"
+    pub details: String,
+    pub buffer_bytes: Option<u64>,
+    pub z_score: Option<f64>,
+    pub timestamp: u64,
+}
+
 pub mod activation_tracker;
 pub mod category_policies;
 pub mod loader;
@@ -60,7 +95,10 @@ pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
 pub use state::{AdapterState, AdapterStateRecord, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
-pub use workflow_executor::{WorkflowExecutor, WorkflowType, WorkflowContext, WorkflowResult, ExecutionStats};
+pub use workflow_executor::{
+    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, KernelAdapterBackend,
+    MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
+};
 
 /// Enhanced lifecycle manager for adapters with category-aware state management
 pub struct LifecycleManager {
@@ -88,6 +126,7 @@ impl LifecycleManager {
     /// Create a new lifecycle manager
     pub fn new(
         adapter_names: Vec<String>,
+        adapter_hashes: HashMap<String, B3Hash>,
         policies: &Policies,
         adapters_base_path: PathBuf,
         telemetry: Option<TelemetryWriter>,
@@ -104,7 +143,10 @@ impl LifecycleManager {
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
-            loader: Arc::new(RwLock::new(AdapterLoader::new(adapters_base_path))),
+            loader: Arc::new(RwLock::new(AdapterLoader::new(
+                adapters_base_path,
+                adapter_hashes,
+            ))),
             telemetry,
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
@@ -122,6 +164,7 @@ impl LifecycleManager {
     /// Create a new lifecycle manager with database integration
     pub fn new_with_db(
         adapter_names: Vec<String>,
+        adapter_hashes: HashMap<String, B3Hash>,
         policies: &Policies,
         adapters_base_path: PathBuf,
         telemetry: Option<TelemetryWriter>,
@@ -139,7 +182,10 @@ impl LifecycleManager {
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
-            loader: Arc::new(RwLock::new(AdapterLoader::new(adapters_base_path))),
+            loader: Arc::new(RwLock::new(AdapterLoader::new(
+                adapters_base_path,
+                adapter_hashes,
+            ))),
             telemetry,
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
@@ -546,7 +592,13 @@ impl LifecycleManager {
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterState::Unloaded {
                 let mut loader = self.loader.write();
-                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id)?;
+                let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
+                    Ok(handle) => handle,
+                    Err(err) => {
+                        self.report_adapter_hash_mismatch(adapter_id, record.adapter_idx, &err);
+                        return Err(err);
+                    }
+                };
 
                 record.state = AdapterState::Cold;
 
@@ -565,7 +617,13 @@ impl LifecycleManager {
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterState::Unloaded {
                 let mut loader = self.loader.write();
-                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id)?;
+                let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
+                    Ok(handle) => handle,
+                    Err(err) => {
+                        self.report_adapter_hash_mismatch(adapter_id, record.adapter_idx, &err);
+                        return Err(err);
+                    }
+                };
 
                 record.state = AdapterState::Cold;
 
@@ -574,6 +632,32 @@ impl LifecycleManager {
         }
 
         Ok(())
+    }
+
+    fn report_adapter_hash_mismatch(&self, adapter_id: &str, adapter_idx: u16, err: &AosError) {
+        if let AosError::AdapterHashMismatch {
+            adapter_id: mismatch_id,
+            expected,
+            actual,
+        } = err
+        {
+            if let Some(ref telemetry) = self.telemetry {
+                let event = AdapterLoadHashMismatchEvent {
+                    adapter_id: mismatch_id.clone(),
+                    adapter_idx,
+                    expected_hash: expected.to_hex(),
+                    actual_hash: actual.to_hex(),
+                };
+
+                if let Err(log_err) = telemetry.log("adapter_load_failed_hash_mismatch", event) {
+                    warn!(
+                        adapter_id = adapter_id,
+                        error = %log_err,
+                        "Failed to log adapter hash mismatch telemetry"
+                    );
+                }
+            }
+        }
     }
 
     /// Get current K value
@@ -931,7 +1015,7 @@ impl LifecycleManager {
 
     /// Load and activate an adapter stack
     pub async fn activate_stack(&self, stack_name: String, adapter_ids: Vec<String>) -> Result<()> {
-        use tracing::{info, debug};
+        use tracing::{debug, info};
 
         info!(
             "Activating adapter stack '{}' with {} adapters",
@@ -956,11 +1040,16 @@ impl LifecycleManager {
                 // Check if adapter is loaded
                 let is_loaded = {
                     let states = self.states.read();
-                    states.get(&idx).map_or(false, |record| record.state.is_loaded())
+                    states
+                        .get(&idx)
+                        .map_or(false, |record| record.state.is_loaded())
                 };
 
                 if !is_loaded {
-                    info!("Adapter {} needs to be loaded for stack {}", adapter_id, stack_name);
+                    info!(
+                        "Adapter {} needs to be loaded for stack {}",
+                        adapter_id, stack_name
+                    );
                     // In a real implementation, we would load the adapter here
                     // For now, we just log that it needs loading
                 }
@@ -1046,8 +1135,8 @@ impl LifecycleManager {
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?
         .ok_or_else(|| AosError::NotFound(format!("Stack {} not found", stack_id)))?;
 
-        let adapter_ids: Vec<String> = serde_json::from_str(&row.1)
-            .map_err(|e| AosError::Serialization(e))?;
+        let adapter_ids: Vec<String> =
+            serde_json::from_str(&row.1).map_err(|e| AosError::Serialization(e))?;
 
         self.activate_stack(row.0, adapter_ids).await
     }
@@ -1059,15 +1148,15 @@ impl LifecycleManager {
             active_stack.clone()
         };
 
-        let (stack_name, adapter_ids) = stack_info
-            .ok_or_else(|| AosError::Lifecycle("No active stack".to_string()))?;
+        let (stack_name, adapter_ids) =
+            stack_info.ok_or_else(|| AosError::Lifecycle("No active stack".to_string()))?;
 
         info!("Executing workflow for stack '{}'", stack_name);
 
         // Get workflow type from database if available
         let workflow_type = if let Some(ref db) = self.db {
             let row = sqlx::query_scalar::<_, Option<String>>(
-                "SELECT workflow_type FROM adapter_stacks WHERE name = ?"
+                "SELECT workflow_type FROM adapter_stacks WHERE name = ?",
             )
             .bind(&stack_name)
             .fetch_optional(db.pool())
@@ -1088,7 +1177,11 @@ impl LifecycleManager {
         };
 
         // Create and execute workflow
-        let executor = WorkflowExecutor::new(workflow_type, adapter_ids);
+        // Note: Uses MockAdapterBackend for workflow coordination/testing.
+        // For real kernel execution with LoRA transformations, use Worker::execute_workflow()
+        // which creates KernelAdapterBackend with shared kernel access.
+        let backend = Arc::new(MockAdapterBackend);
+        let executor = WorkflowExecutor::new(workflow_type, adapter_ids, backend);
         let result = executor.execute(context).await?;
 
         // Log telemetry
@@ -1106,6 +1199,73 @@ impl LifecycleManager {
 
         Ok(result)
     }
+
+    // ===== GPU Integrity Verification API =====
+
+    /// Get current adapter state for GPU verification
+    ///
+    /// Returns list of (adapter_id, adapter_name, state) for adapters that should
+    /// have GPU buffers loaded. Used by external GPU verification code.
+    pub fn get_loaded_adapters(&self) -> Vec<(u16, String, AdapterState)> {
+        let states = self.states.read();
+        states
+            .iter()
+            .filter_map(|(id, record)| {
+                // Only adapters in Cold, Warm, Hot, or Resident states have GPU buffers
+                if !matches!(record.state, AdapterState::Unloaded) {
+                    Some((*id, record.adapter_id.clone(), record.state))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Mark adapter state as verified with GPU
+    ///
+    /// Called by external GPU verification code after successful buffer verification.
+    /// This is an integration point for cross-layer integrity checks.
+    ///
+    /// # Arguments
+    /// * `adapter_id` - Adapter that was verified
+    /// * `gpu_fingerprint_hash` - BLAKE3 hash of GPU buffer fingerprint
+    ///
+    /// # Usage
+    /// ```no_run
+    /// // In Worker or orchestrator layer with both lifecycle and GPU access:
+    /// let (buffer_size, first, last, mid) = kernels.verify_adapter_buffers(adapter_id)?;
+    /// let fingerprint = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
+    /// lifecycle.mark_gpu_verified(adapter_id, fingerprint.checkpoint_hash)?;
+    /// ```
+    pub fn mark_gpu_verified(&self, adapter_id: u16, _gpu_fingerprint_hash: B3Hash) -> Result<()> {
+        // For now, just log verification (future: store verification timestamp in state record)
+        let states = self.states.read();
+        if let Some(record) = states.get(&adapter_id) {
+            info!(
+                "GPU verification passed for adapter {} ({})",
+                adapter_id, record.adapter_id
+            );
+        }
+        Ok(())
+    }
+}
+
+/// GPU integrity verification report
+///
+/// Returned by external verification code to indicate which adapters passed/failed
+/// GPU buffer integrity checks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuIntegrityReport {
+    /// Adapters that passed verification
+    pub verified: Vec<(u16, String)>,
+    /// Adapters that failed verification (id, name, reason)
+    pub failed: Vec<(u16, String, String)>,
+    /// Adapters that were skipped (not in GPU)
+    pub skipped: Vec<(u16, String)>,
+    /// Total adapters checked
+    pub total_checked: usize,
+    /// Verification timestamp
+    pub timestamp: u64,
 }
 
 /// K reduction event for telemetry
@@ -1119,10 +1279,19 @@ pub struct KReductionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::B3Hash;
     use adapteros_manifest::Policies;
+    use std::collections::HashMap;
 
     fn test_policies() -> Policies {
         Policies::default()
+    }
+
+    fn build_adapter_hashes(names: &[String]) -> HashMap<String, B3Hash> {
+        names
+            .iter()
+            .map(|name| (name.clone(), B3Hash::hash(name.as_bytes())))
+            .collect()
     }
 
     #[test]
@@ -1131,8 +1300,15 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("mplora_test_lifecycle");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            3,
+        );
 
         // Initial state should be unloaded
         assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
@@ -1158,8 +1334,15 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("mplora_test_pinning");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            3,
+        );
 
         // Pin adapter
         manager
@@ -1189,8 +1372,15 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("mplora_activation_tracker");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            2,
+        );
 
         manager.set_activation_window(3);
         manager

@@ -10,6 +10,7 @@ use std::path::Path;
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 pub mod backend;
+pub mod embedding;
 pub mod lora;
 pub mod routing;
 pub mod tensor;
@@ -18,6 +19,7 @@ pub mod tensor;
 pub mod mock;
 
 pub use backend::MLXFFIBackend;
+pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
 pub use lora::{LoRAAdapter, LoRAConfig};
 pub use routing::apply_multi_lora;
 pub use tensor::MLXFFITensor;

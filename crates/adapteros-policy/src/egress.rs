@@ -61,11 +61,13 @@ fn validate_pf_macos() -> Result<()> {
     let has_deny_out = rules.contains("block out") || rules.contains("block all");
 
     if !has_deny_out {
-        eprintln!("⚠️  Warning: No explicit deny-all outbound rule detected");
-        eprintln!("   Current PF rules:");
-        eprintln!("{}", rules);
-        eprintln!("\n   To add deny-all egress:");
-        eprintln!("   echo 'block out all' | sudo pfctl -f -");
+        tracing::warn!(
+            current_rules = %rules,
+            "No explicit deny-all outbound rule detected in PF configuration"
+        );
+        tracing::info!(
+            "To add deny-all egress: echo 'block out all' | sudo pfctl -f -"
+        );
 
         // In strict mode, return error
         return Err(AosError::EgressViolation(
@@ -73,7 +75,7 @@ fn validate_pf_macos() -> Result<()> {
         ));
     }
 
-    eprintln!("✓ PF firewall enabled with egress blocking");
+    tracing::info!("PF firewall enabled with egress blocking verified");
     Ok(())
 }
 
@@ -91,10 +93,11 @@ pub fn validate_no_network_sockets() -> Result<()> {
             let lines: Vec<&str> = sockets.lines().skip(1).collect(); // Skip header
 
             if !lines.is_empty() {
-                eprintln!("⚠️  Warning: TCP sockets detected:");
-                for line in &lines {
-                    eprintln!("   {}", line);
-                }
+                tracing::warn!(
+                    socket_count = lines.len(),
+                    sockets = %sockets,
+                    "TCP listening sockets detected - potential egress violation"
+                );
                 // In production, this would be an error
                 // For now, just warn
             }

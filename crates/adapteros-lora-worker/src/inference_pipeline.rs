@@ -253,6 +253,26 @@ impl InferencePipeline {
             let priors = vec![1.0; 8]; // Uniform priors for all adapters
             let decision = self.router.route(&features, &priors);
 
+            // Emit router decision telemetry
+            let router_event = RouterDecisionEvent {
+                step,
+                input_token_id,
+                candidate_adapters: decision
+                    .candidates
+                    .iter()
+                    .map(|c| RouterCandidate {
+                        adapter_idx: c.adapter_idx,
+                        raw_score: c.raw_score,
+                        gate_q15: c.gate_q15,
+                    })
+                    .collect(),
+                entropy: decision.entropy,
+                tau: self.router.tau(),
+                entropy_floor: self.router.eps(),
+                stack_hash: self.router.stack_hash(),
+            };
+            let _ = self.telemetry.log_router_decision(router_event);
+
             // 6. Check policy: entropy floor (simplified for now)
             // TODO: Implement router entropy check in PolicyEngine
             let entropy = self.calculate_gate_entropy(&decision.gates_q15);

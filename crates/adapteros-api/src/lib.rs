@@ -29,7 +29,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use hyper_util::rt::TokioExecutor;
@@ -42,16 +42,21 @@ use tower::{Service, ServiceBuilder};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+pub mod streaming;
 pub mod types;
+
+pub use streaming::{
+    completion_handler, streaming_inference_handler, CompletionResponse, StreamingInferenceRequest,
+};
 
 use adapteros_lora_kernel_api::FusedKernels;
 
 /// API server state
-pub struct ApiState<K: FusedKernels> {
+pub struct ApiState<K: FusedKernels + Send + Sync> {
     worker: Arc<tokio::sync::Mutex<adapteros_lora_worker::Worker<K>>>,
 }
 
-impl<K: FusedKernels> ApiState<K> {
+impl<K: FusedKernels + Send + Sync> ApiState<K> {
     /// Create new API state with worker
     pub fn new(worker: adapteros_lora_worker::Worker<K>) -> Self {
         Self {
@@ -64,7 +69,7 @@ impl<K: FusedKernels> ApiState<K> {
 ///
 /// Creates a Unix Domain Socket HTTP server with streaming responses
 /// and proper error handling for AdapterOS inference requests.
-pub async fn serve_uds_with_worker<K: FusedKernels + 'static, P: AsRef<Path>>(
+pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: AsRef<Path>>(
     socket_path: P,
     worker: adapteros_lora_worker::Worker<K>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -92,9 +97,11 @@ pub async fn serve_uds_with_worker<K: FusedKernels + 'static, P: AsRef<Path>>(
         std::fs::set_permissions(socket_path, perms)?;
     }
 
-    println!("🚀 AdapterOS UDS server listening");
-    println!("   Socket: {}", socket_path.display());
-    println!("   Permissions: 600 (owner read/write only)");
+    tracing::info!(
+        socket = %socket_path.display(),
+        permissions = "0600",
+        "AdapterOS UDS server listening"
+    );
 
     // Create API state with worker
     let state = Arc::new(ApiState::new(worker));
@@ -102,7 +109,9 @@ pub async fn serve_uds_with_worker<K: FusedKernels + 'static, P: AsRef<Path>>(
     // Create router with middleware
     let app = Router::new()
         .route("/inference", post(inference_handler))
-        .route("/health", post(health_handler))
+        .route("/v1/completions", post(completion_handler))
+        .route("/v1/chat/completions", post(streaming_inference_handler))
+        .route("/health", get(health_handler))
         .route("/adapter", post(adapter_command_handler))
         .layer(
             ServiceBuilder::new()
@@ -165,7 +174,7 @@ pub async fn serve_uds_with_worker<K: FusedKernels + 'static, P: AsRef<Path>>(
 }
 
 /// Inference endpoint handler
-async fn inference_handler<K: FusedKernels>(
+async fn inference_handler<K: FusedKernels + Send + Sync>(
     State(state): State<Arc<ApiState<K>>>,
     Json(request): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, ApiError> {
@@ -188,7 +197,7 @@ async fn health_handler() -> impl IntoResponse {
 }
 
 /// Adapter command endpoint
-async fn adapter_command_handler<K: FusedKernels>(
+async fn adapter_command_handler<K: FusedKernels + Send + Sync>(
     State(state): State<Arc<ApiState<K>>>,
     Json(command): Json<adapteros_lora_worker::AdapterCommand>,
 ) -> Result<Json<adapteros_lora_worker::AdapterCommandResult>, ApiError> {
@@ -196,6 +205,7 @@ async fn adapter_command_handler<K: FusedKernels>(
     let mut worker = state.worker.lock().await;
     let result = worker
         .execute_adapter_command(command)
+        .await
         .map_err(|e| ApiError::WorkerError(e.to_string()))?;
 
     Ok(Json(result))

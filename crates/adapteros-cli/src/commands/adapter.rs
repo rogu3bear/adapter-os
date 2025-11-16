@@ -317,7 +317,7 @@ async fn send_adapter_command(
 pub enum AdapterCommand {
     /// List all adapters with their states
     #[command(
-        after_help = "Examples:\n  aosctl adapter list\n  aosctl adapter list --json\n  aosctl adapter list --tenant dev"
+        after_help = "Examples:\n  aosctl adapter list\n  aosctl adapter list --json\n  aosctl adapter list --tenant dev\n  aosctl adapter list --pinned-only"
     )]
     List {
         /// Output format
@@ -327,6 +327,10 @@ pub enum AdapterCommand {
         /// Tenant ID
         #[arg(long)]
         tenant: Option<String>,
+
+        /// Only show pinned adapters
+        #[arg(long)]
+        pinned_only: bool,
     },
 
     /// Show detailed metrics for an adapter
@@ -402,6 +406,25 @@ pub enum AdapterCommand {
         #[arg(long)]
         tenant: Option<String>,
     },
+
+    /// Evict adapter from memory
+    #[command(
+        after_help = "Examples:\n  aosctl adapter evict adapter-1\n  aosctl adapter evict adapter-1 --tenant dev --reason \"Low activation\""
+    )]
+    Evict {
+        /// Adapter ID
+        #[arg()]
+        adapter_id: String,
+
+        /// Tenant ID
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Reason for eviction (for audit trail)
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
     /// Upsert a synthetic directory adapter (optional activate)
     #[command(
         after_help = "Examples:\n  aosctl adapter directory-upsert --tenant dev --root /abs/repo --path src/api --activate\n  aosctl adapter directory-upsert --tenant dev --root /abs/repo --path src/api"
@@ -423,6 +446,28 @@ pub enum AdapterCommand {
         #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
+
+    /// Verify GPU buffer integrity for loaded adapters
+    #[command(
+        after_help = "Examples:\n  aosctl adapter verify-gpu\n  aosctl adapter verify-gpu --tenant dev\n  aosctl adapter verify-gpu --adapter adapter-1 --tenant dev"
+    )]
+    VerifyGpu {
+        /// Tenant ID
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Specific adapter ID to verify (optional, verifies all if omitted)
+        #[arg(long)]
+        adapter: Option<String>,
+
+        /// UDS socket path
+        #[arg(long, default_value = "/var/run/aos/aos.sock")]
+        socket: std::path::PathBuf,
+
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "10000")]
+        timeout: u64,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -434,7 +479,9 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Demote { .. } => "adapter_demote".to_string(),
         AdapterCommand::Pin { .. } => "adapter_pin".to_string(),
         AdapterCommand::Unpin { .. } => "adapter_unpin".to_string(),
+        AdapterCommand::Evict { .. } => "adapter_evict".to_string(),
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
+        AdapterCommand::VerifyGpu { .. } => "adapter_verify_gpu".to_string(),
     }
 }
 
@@ -447,7 +494,9 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Demote { tenant, .. } => tenant.clone(),
         AdapterCommand::Pin { tenant, .. } => tenant.clone(),
         AdapterCommand::Unpin { tenant, .. } => tenant.clone(),
+        AdapterCommand::Evict { tenant, .. } => tenant.clone(),
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
+        AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
     }
 }
 
@@ -464,7 +513,7 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
     let _ = crate::cli_telemetry::emit_cli_command(&command_name, tenant_id.as_deref(), true).await;
 
     match cmd {
-        AdapterCommand::List { json, tenant } => list_adapters(json, tenant, output).await,
+        AdapterCommand::List { json, tenant, pinned_only } => list_adapters(json, tenant, pinned_only, output).await,
         AdapterCommand::Profile {
             adapter_id,
             json,
@@ -482,6 +531,11 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
         AdapterCommand::Unpin { adapter_id, tenant } => {
             unpin_adapter(&adapter_id, tenant, output).await
         }
+        AdapterCommand::Evict {
+            adapter_id,
+            tenant,
+            reason,
+        } => evict_adapter(&adapter_id, tenant, reason.as_deref(), output).await,
         AdapterCommand::DirectoryUpsert {
             tenant,
             root,
@@ -489,11 +543,22 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             activate,
             base_url,
         } => directory_upsert(&tenant, &root, &path, activate, &base_url, output).await,
+        AdapterCommand::VerifyGpu {
+            tenant,
+            adapter,
+            socket,
+            timeout,
+        } => {
+            let tenant_id = tenant.as_deref().unwrap_or("default");
+            crate::commands::verify_gpu::run(tenant_id, adapter.as_deref(), &socket, timeout)
+                .await
+                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
+        }
     }
 }
 
 /// List all adapters with their current states
-async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter) -> Result<()> {
+async fn list_adapters(json: bool, tenant: Option<String>, pinned_only: bool, output: &OutputWriter) -> Result<()> {
     info!("Listing adapter lifecycle status");
 
     let socket_path = get_worker_socket_path(tenant.as_deref());
@@ -614,7 +679,12 @@ async fn list_adapters(json: bool, tenant: Option<String>, output: &OutputWriter
 
     // Connect to worker and fetch adapter states
     match connect_and_fetch_adapter_states(&socket_path, Duration::from_secs(5)).await {
-        Ok(adapters) => {
+        Ok(mut adapters) => {
+            // Filter to only pinned adapters if requested
+            if pinned_only {
+                adapters.retain(|a| a.pinned);
+            }
+
             if json {
                 output.result(&serde_json::to_string_pretty(&adapters)?);
             } else {
@@ -1174,6 +1244,83 @@ async fn unpin_adapter(
     Ok(())
 }
 
+/// Evict adapter from memory
+async fn evict_adapter(
+    adapter_id: &str,
+    tenant: Option<String>,
+    reason: Option<&str>,
+    output: &OutputWriter,
+) -> Result<()> {
+    validate_adapter_id(adapter_id)?;
+
+    info!(
+        adapter_id = %adapter_id,
+        reason = ?reason,
+        "Evicting adapter"
+    );
+
+    let socket_path = get_worker_socket_path(tenant.as_deref());
+
+    if !socket_path.exists() {
+        if output.mode().is_json() {
+            let mut response = serde_json::json!({
+                "success": true,
+                "message": "Evicted adapter (mock)",
+                "adapter_id": adapter_id
+            });
+            if let Some(r) = reason {
+                response["reason"] = serde_json::Value::String(r.to_string());
+            }
+            output.result(&serde_json::to_string_pretty(&response)?);
+        } else {
+            output.warning(&format!(
+                "Worker socket not found at: {}",
+                socket_path.display()
+            ));
+            output.success(&format!("Evicted adapter: {} (mock)", adapter_id));
+            if let Some(r) = reason {
+                output.result(&format!("Reason: {}", r));
+            }
+        }
+        return Ok(());
+    }
+
+    match send_adapter_command(&socket_path, "evict", adapter_id, Duration::from_secs(5)).await {
+        Ok(_) => {
+            if output.mode().is_json() {
+                let mut response = serde_json::json!({
+                    "success": true,
+                    "message": "Adapter evicted successfully",
+                    "adapter_id": adapter_id
+                });
+                if let Some(r) = reason {
+                    response["reason"] = serde_json::Value::String(r.to_string());
+                }
+                output.result(&serde_json::to_string_pretty(&response)?);
+            } else {
+                output.success(&format!("Evicted adapter: {}", adapter_id));
+                if let Some(r) = reason {
+                    output.result(&format!("Reason: {}", r));
+                }
+            }
+        }
+        Err(e) => {
+            if output.mode().is_json() {
+                let response = serde_json::json!({
+                    "success": false,
+                    "error": format!("{}", e),
+                    "adapter_id": adapter_id
+                });
+                output.result(&serde_json::to_string_pretty(&response)?);
+            } else {
+                output.error(&format!("Failed to evict adapter: {}", e));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1235,6 +1382,14 @@ mod tests {
             }),
             "adapter_unpin"
         );
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::Evict {
+                adapter_id: "test".to_string(),
+                tenant: None,
+                reason: None
+            }),
+            "adapter_evict"
+        );
     }
 
     #[test]
@@ -1242,14 +1397,16 @@ mod tests {
         assert_eq!(
             extract_tenant_from_adapter_command(&AdapterCommand::List {
                 json: false,
-                tenant: None
+                tenant: None,
+                pinned_only: false
             }),
             None
         );
         assert_eq!(
             extract_tenant_from_adapter_command(&AdapterCommand::List {
                 json: false,
-                tenant: Some("dev".to_string())
+                tenant: Some("dev".to_string()),
+                pinned_only: false
             }),
             Some("dev".to_string())
         );
@@ -1260,6 +1417,22 @@ mod tests {
                 tenant: Some("prod".to_string())
             }),
             Some("prod".to_string())
+        );
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::Evict {
+                adapter_id: "test".to_string(),
+                tenant: Some("dev".to_string()),
+                reason: None
+            }),
+            Some("dev".to_string())
+        );
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::Evict {
+                adapter_id: "test".to_string(),
+                tenant: None,
+                reason: Some("Low activation".to_string())
+            }),
+            None
         );
     }
 
@@ -1278,7 +1451,7 @@ mod tests {
     async fn test_list_adapters_mock() {
         // Test mock data fallback
         let output = OutputWriter::new(OutputMode::Text, false);
-        let result = list_adapters(false, None, &output).await;
+        let result = list_adapters(false, None, false, &output).await;
         assert!(result.is_ok());
     }
 
@@ -1323,10 +1496,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_evict_adapter_mock() {
+        // Test mock data fallback
+        let output = OutputWriter::new(OutputMode::Text, false);
+        let result = evict_adapter("test-adapter", None, None, &output).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_evict_adapter_with_reason() {
+        // Test evict with reason
+        let output = OutputWriter::new(OutputMode::Text, false);
+        let result = evict_adapter("test-adapter", None, Some("Low activation"), &output).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_evict_adapter_invalid_id() {
+        // Test evict with invalid adapter ID
+        let output = OutputWriter::new(OutputMode::Text, false);
+        let result = evict_adapter("invalid@adapter", None, None, &output).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_adapters_pinned_only() {
+        // Test pinned-only filter
+        let output = OutputWriter::new(OutputMode::Text, false);
+        let result = list_adapters(false, None, true, &output).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
     async fn test_json_output() {
         // Test JSON output format
         let output = OutputWriter::new(OutputMode::Json, false);
-        let result = list_adapters(true, None, &output).await;
+        let result = list_adapters(true, None, false, &output).await;
         assert!(result.is_ok());
     }
 

@@ -19,7 +19,9 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 
 pub use chunker::{ChunkingOptions, DocumentChunker};
-pub use embeddings::{EmbeddingModel, SimpleEmbeddingModel, EMBEDDING_DIMENSION};
+pub use embeddings::{
+    EmbeddingModel, ProductionEmbeddingModel, SimpleEmbeddingModel, EMBEDDING_DIMENSION,
+};
 pub use rag_integration::{
     generate_revision, prepare_document_for_rag, prepare_documents_for_rag, RagChunkParams,
 };

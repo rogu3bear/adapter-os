@@ -29,6 +29,9 @@ adapteros-registry = { path = "../adapteros-registry" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 bincode = "1.3"
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
+blake3 = "1.5"
+tokenizers = { workspace = true }
 
 # Database
 sqlx = { workspace = true }

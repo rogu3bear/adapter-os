@@ -11,6 +11,7 @@ pub mod gates;
 pub mod report;
 pub mod supervisor;
 pub mod training;
+pub mod training_dataset_integration;
 
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
 pub use federation_daemon::{
@@ -20,6 +21,9 @@ pub use gates::*;
 pub use report::{GateReport, GateResult, ReportFormat};
 pub use training::{
     TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
+};
+pub use training_dataset_integration::{
+    CreateDatasetFromDocumentsRequest, DatasetCreationResult, TrainingDatasetManager,
 };
 
 /// Gate runner configuration
@@ -76,17 +80,17 @@ impl Orchestrator {
 
         for gate in &self.gates {
             let gate_name = gate.name();
-            println!("Running gate: {}...", gate_name);
+            tracing::info!(gate = %gate_name, "Running promotion gate");
 
             let result = gate.check(&self.config).await;
 
             match &result {
                 Ok(()) => {
-                    println!("  ✓ {} PASSED", gate_name);
+                    tracing::info!(gate = %gate_name, status = "passed", "Gate check completed");
                     report.add_result(gate_name, GateResult::passed());
                 }
                 Err(e) => {
-                    println!("  ✗ {} FAILED: {}", gate_name, e);
+                    tracing::warn!(gate = %gate_name, status = "failed", error = %e, "Gate check failed");
                     report.add_result(gate_name, GateResult::failed(e.to_string()));
 
                     if !self.config.continue_on_error {

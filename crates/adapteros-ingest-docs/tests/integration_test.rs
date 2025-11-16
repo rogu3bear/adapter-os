@@ -1,12 +1,24 @@
 //! Integration tests for document ingestion pipeline
 
 use adapteros_ingest_docs::{
-    default_ingest_options, generate_training_data, DocumentIngestor, DocumentSource,
-    SimpleEmbeddingModel, TrainingGenConfig, TrainingStrategy,
+    default_ingest_options, generate_training_data, load_tokenizer, DocumentIngestor,
+    DocumentSource, EmbeddingModel, SimpleEmbeddingModel, TrainingGenConfig, TrainingStrategy,
 };
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
+use tokenizers::Tokenizer;
+
+fn fixture_tokenizer() -> Arc<Tokenizer> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("Failed to locate workspace root");
+    let tokenizer_path = repo_root.join("models/test-model/tokenizer.json");
+    load_tokenizer(&tokenizer_path).expect("Failed to load tokenizer")
+}
 
 #[test]
 fn test_markdown_ingestion() {
@@ -64,10 +76,8 @@ fn test_training_data_generation() {
         .ingest_markdown_path(temp_file.path())
         .expect("Failed to ingest markdown");
 
-    // Load tokenizer (using bert-base-uncased for testing)
-    let tokenizer = tokenizers::Tokenizer::from_pretrained("bert-base-uncased", None)
-        .expect("Failed to load tokenizer");
-    let tokenizer = Arc::new(tokenizer);
+    // Load tokenizer from fixtures
+    let tokenizer = fixture_tokenizer();
 
     // Generate training data with identity strategy
     let config = TrainingGenConfig {
@@ -96,9 +106,7 @@ fn test_training_data_generation() {
 
 #[test]
 fn test_embedding_generation() {
-    let tokenizer = tokenizers::Tokenizer::from_pretrained("bert-base-uncased", None)
-        .expect("Failed to load tokenizer");
-    let tokenizer = Arc::new(tokenizer);
+    let tokenizer = fixture_tokenizer();
 
     let embedding_model = SimpleEmbeddingModel::new(tokenizer);
 
@@ -143,9 +151,7 @@ async fn test_rag_preparation() {
         .expect("Failed to ingest markdown");
 
     // Create embedding model
-    let tokenizer = tokenizers::Tokenizer::from_pretrained("bert-base-uncased", None)
-        .expect("Failed to load tokenizer");
-    let tokenizer = Arc::new(tokenizer);
+    let tokenizer = fixture_tokenizer();
     let embedding_model = Arc::new(SimpleEmbeddingModel::new(tokenizer))
         as Arc<dyn adapteros_ingest_docs::EmbeddingModel>;
 

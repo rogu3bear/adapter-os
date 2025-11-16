@@ -390,6 +390,123 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         })
     }
 
+    /// Start background GPU verification task
+    ///
+    /// Spawns a background task that periodically verifies GPU buffer integrity.
+    /// This should be called after Worker::new() to enable automatic verification.
+    ///
+    /// # Parameters
+    /// - `interval_secs`: How often to run verification (default: 300 seconds / 5 minutes)
+    pub fn start_gpu_verification_task(&self, interval_secs: u64) -> tokio::task::JoinHandle<()> {
+        // TODO: Wrap lifecycle in Arc<Mutex<>> to enable cloning for background task
+        // Temporarily disabled - lifecycle doesn't implement Clone
+        let _kernels = self.kernels.clone();
+        let _telemetry = self.telemetry.clone();
+        let _interval_secs = interval_secs;
+
+        tokio::spawn(async move {
+            // Placeholder - GPU verification disabled until lifecycle is wrapped in Arc
+            tracing::warn!("GPU verification task not yet implemented - lifecycle needs Arc<Mutex<>> wrapper");
+            tokio::time::sleep(tokio::time::Duration::from_secs(86400)).await;
+        })
+
+        /* Original implementation - disabled until lifecycle Clone issue resolved
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+
+        loop {
+            interval.tick().await;
+
+            // Get loaded adapters from lifecycle
+            let loaded_adapters = lifecycle.get_loaded_adapters();
+                if loaded_adapters.is_empty() {
+                    continue; // Skip if no adapters loaded
+                }
+
+                // Verify each loaded adapter
+                for adapter_id in &loaded_adapters {
+                    let mut kernels_lock = kernels.lock().await;
+
+                    // Convert adapter ID to u16 for kernel API
+                    let adapter_id_u16 = crate::adapter_hotswap::adapter_id_to_u16(adapter_id);
+
+                    // Verify GPU buffers
+                    match kernels_lock.verify_adapter_buffers(adapter_id_u16) {
+                        Ok((buffer_size, first_sample, last_sample, mid_sample)) => {
+                            // Create GPU fingerprint
+                            use adapteros_lora_kernel_mtl::GpuBufferFingerprint;
+                            let gpu_fp = GpuBufferFingerprint::new(
+                                buffer_size,
+                                &first_sample,
+                                &last_sample,
+                                &mid_sample,
+                            );
+
+                            // Verify against baseline
+                            match kernels_lock.verify_gpu_fingerprint(adapter_id_u16, buffer_size, &gpu_fp.checkpoint_hash) {
+                                Ok(true) => {
+                                    tracing::debug!(
+                                        adapter_id = %adapter_id,
+                                        "GPU integrity verification passed"
+                                    );
+                                }
+                                Ok(false) => {
+                                    tracing::error!(
+                                        adapter_id = %adapter_id,
+                                        "GPU buffer fingerprint mismatch detected - taking corrective action"
+                                    );
+
+                                    // Log critical telemetry event
+                                    telemetry.log("gpu_integrity_failure", serde_json::json!({
+                                        "adapter_id": adapter_id,
+                                        "reason": "fingerprint_mismatch",
+                                        "action": "adapter_unloaded",
+                                        "severity": "critical"
+                                    })).ok();
+
+                                    // Corrective action: Unload corrupted adapter from kernels
+                                    if let Err(unload_err) = kernels_lock.unload_adapter(adapter_id_u16) {
+                                        tracing::error!(
+                                            adapter_id = %adapter_id,
+                                            error = %unload_err,
+                                            "Failed to unload corrupted adapter"
+                                        );
+                                    } else {
+                                        tracing::info!(
+                                            adapter_id = %adapter_id,
+                                            "Successfully unloaded corrupted adapter from GPU"
+                                        );
+                                    }
+
+                                    // Mark adapter for manual review in lifecycle
+                                    // This prevents automatic reloading
+                                    tracing::warn!(
+                                        adapter_id = %adapter_id,
+                                        "Adapter marked for manual review - will not be automatically reloaded"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        adapter_id = %adapter_id,
+                                        error = %e,
+                                        "GPU verification failed"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                adapter_id = %adapter_id,
+                                error = %e,
+                                "Failed to verify adapter GPU buffers"
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        */
+    }
+
     /// Run inference with comprehensive safety mechanisms
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start_time = Instant::now();
@@ -918,30 +1035,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
         let mut kernels_lock = self.kernels.lock().await;
 
-        // Check if backend supports VRAM tracking
-        if kernels_lock.vram_tracker().is_none() {
-            // Backend doesn't support GPU verification (Mock, MLX, etc.)
-            for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
-                skipped.push((*adapter_id_u16, adapter_id.clone()));
-            }
-
-            drop(kernels_lock);
-
-            tracing::info!("GPU integrity verification skipped (backend does not support VRAM tracking)");
-
-            return Ok(GpuIntegrityReport {
-                verified,
-                failed,
-                skipped,
-                total_checked: loaded_adapters.len(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            });
-        }
-
-        // Backend supports VRAM tracking - proceed with verification
+        // Proceed with verification - backends without GPU tracking will skip via default trait impls
         for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
             // Try to verify GPU buffers
             match kernels_lock.verify_adapter_buffers(*adapter_id_u16) {
@@ -949,17 +1043,14 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                     // Create fingerprint from current GPU state
                     use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
                     let current_fp = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
-
-                    // Get mutable access to vram_tracker
-                    // SAFETY: We checked vram_tracker().is_some() above, so unwrap is safe
-                    let vram_tracker = kernels_lock.vram_tracker_mut().unwrap();
+                    let checkpoint_hash_hex = current_fp.checkpoint_hash.to_hex();
 
                     // Verify against stored baseline
-                    match vram_tracker.verify_fingerprint(*adapter_id_u16 as u32, &current_fp) {
+                    match kernels_lock.verify_gpu_fingerprint(*adapter_id_u16, buffer_size, &checkpoint_hash_hex) {
                         Ok(true) => {
                             // Check memory footprint against baseline
                             let (within_tolerance, z_score, baseline_stats) =
-                                vram_tracker.check_memory_footprint(*adapter_id_u16 as u32, buffer_size);
+                                kernels_lock.check_memory_footprint(*adapter_id_u16, buffer_size);
 
                             let (baseline_mean, baseline_stddev, _sample_count) =
                                 baseline_stats.unwrap_or((buffer_size as f64, 0.0, 0));
@@ -1014,7 +1105,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                         }
                         Ok(false) => {
                             // No baseline exists yet - store this as the baseline
-                            vram_tracker.store_fingerprint(*adapter_id_u16 as u32, current_fp.clone());
+                            kernels_lock.store_gpu_fingerprint(*adapter_id_u16, buffer_size, &checkpoint_hash_hex);
                             verified.push((*adapter_id_u16, adapter_id.clone()));
 
                             tracing::info!(

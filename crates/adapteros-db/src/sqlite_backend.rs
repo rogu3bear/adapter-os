@@ -41,8 +41,8 @@ impl DatabaseBackend for SqliteBackend {
     async fn insert_stack(&self, stack: CreateStackRequest) -> Result<String> {
         let id = self.generate_id();
         let now = self.current_timestamp();
-        let adapter_ids_json = serde_json::to_string(&stack.adapter_ids)
-            .map_err(|e| AosError::Serialization(e))?;
+        let adapter_ids_json =
+            serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
 
         sqlx::query(
             r#"
@@ -152,8 +152,8 @@ impl DatabaseBackend for SqliteBackend {
 
     async fn update_stack(&self, id: &str, stack: CreateStackRequest) -> Result<bool> {
         let now = self.current_timestamp();
-        let adapter_ids_json = serde_json::to_string(&stack.adapter_ids)
-            .map_err(|e| AosError::Serialization(e))?;
+        let adapter_ids_json =
+            serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
 
         let result = sqlx::query(
             r#"
@@ -189,7 +189,7 @@ impl DatabaseBackend for SqliteBackend {
 
     async fn table_exists(&self, table_name: &str) -> Result<bool> {
         let exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
         )
         .bind(table_name)
         .fetch_one(&self.pool)
