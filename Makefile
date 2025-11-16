@@ -35,7 +35,9 @@ ui-dev: ## Start Web UI dev server
 	cd ui && pnpm dev
 
 tui: ## Run the Terminal UI control panel
-	cargo run -p adapteros-tui
+	@echo "Launching adapterOS TUI..."
+	@cargo build -p adapteros-tui 2>/dev/null || cargo build -p adapteros-tui
+	@./target/debug/adapteros-tui
 
 tui-debug: ## Run TUI with debug logging
 	RUST_LOG=debug cargo run -p adapteros-tui
