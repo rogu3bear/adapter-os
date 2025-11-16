@@ -13,6 +13,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_router::Router;
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
+use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -93,16 +94,7 @@ pub struct InferenceTrace {
     pub evidence: Vec<String>,
 }
 
-/// Router decision for a single generation step
-#[derive(Debug, Clone)]
-pub struct RouterDecision {
-    /// Step number
-    pub step: usize,
-    /// Selected adapter indices
-    pub adapter_indices: Vec<u16>,
-    /// Quantized gates (Q15)
-    pub gates_q15: Vec<i16>,
-}
+pub type RouterDecision = RouterDecisionEvent;
 
 /// Base model inference pipeline
 pub struct InferencePipeline {
@@ -253,6 +245,7 @@ impl InferencePipeline {
                 })?;
                 std::slice::from_ref(last_token)
             };
+            let input_token_id = input_ids.last().copied();
 
             // 5. Router decision: select K adapters
             // Create feature vector from token embeddings (simplified for now)
@@ -301,12 +294,32 @@ impl InferencePipeline {
                 );
             }
 
-            // 10. Record router decision
-            router_decisions.push(RouterDecision {
+            // 10. Record canonical router decision
+            let candidate_adapters: Vec<RouterCandidate> = decision
+                .candidates
+                .iter()
+                .map(|candidate| RouterCandidate {
+                    adapter_idx: candidate.adapter_idx,
+                    raw_score: candidate.raw_score,
+                    gate_q15: candidate.gate_q15,
+                })
+                .collect();
+
+            let event = RouterDecisionEvent {
                 step,
-                adapter_indices: decision.indices.to_vec(),
-                gates_q15: decision.gates_q15.to_vec(),
-            });
+                input_token_id,
+                candidate_adapters,
+                entropy: decision.entropy,
+                tau: self.router.temperature(),
+                entropy_floor: self.router.entropy_floor(),
+                stack_hash: self.router.stack_hash(),
+            };
+
+            if let Err(err) = self.telemetry.log_router_decision(event.clone()) {
+                warn!("Failed to log router decision: {}", err);
+            }
+
+            router_decisions.push(event);
 
             // 11. Check stopping criteria
             if next_token == self.tokenizer.eos_token_id() {

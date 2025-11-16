@@ -35,6 +35,7 @@ use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Instant;
 use tracing::info;
 
@@ -237,12 +238,13 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms
-pub struct Worker<K: FusedKernels> {
+pub struct Worker<K: FusedKernels + Send + Sync> {
     manifest: ManifestV3,
     policy: PolicyEngine,
     router: Router,
     rag: Option<RagSystem>,
-    kernels: K,
+    /// Kernels wrapped in Arc<Mutex<>> for shared access with workflows
+    kernels: Arc<tokio::sync::Mutex<K>>,
     memory_monitor: MemoryMonitor,
     tokenizer: Arc<QwenTokenizer>,
     generator: Generator,
@@ -260,10 +262,10 @@ pub struct Worker<K: FusedKernels> {
     profiler: adapteros_profiler::AdapterProfiler,
     lifecycle: adapteros_lora_lifecycle::LifecycleManager,
     // Hot-swap management
-    hotswap: HotSwapManager,
+    hotswap: HotSwapManager<K>,
 }
 
-impl<K: FusedKernels> Worker<K> {
+impl<K: FusedKernels + Send + Sync> Worker<K> {
     /// Create a new worker with comprehensive safety mechanisms
     pub async fn new(
         manifest: ManifestV3,
@@ -344,20 +346,32 @@ impl<K: FusedKernels> Worker<K> {
 
         // Initialize lifecycle manager
         let adapters_path = std::path::PathBuf::from("./adapters");
+
+        // Build adapter hashes map from manifest
+        let adapter_hashes: std::collections::HashMap<String, adapteros_core::B3Hash> = manifest
+            .adapters
+            .iter()
+            .map(|a| (a.id.clone(), a.hash.clone()))
+            .collect();
+
         let lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
             adapter_names,
+            adapter_hashes,
             &manifest.policies,
-            adapters_path,
+            adapters_path.clone(),
             Some(telemetry.clone()),
             manifest.router.k_sparse,
         );
+
+        // Create shared kernels Arc for both Worker and HotSwapManager
+        let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
         Ok(Self {
             manifest,
             policy,
             router,
             rag,
-            kernels,
+            kernels: kernels_arc.clone(),
             memory_monitor,
             tokenizer,
             generator,
@@ -372,7 +386,7 @@ impl<K: FusedKernels> Worker<K> {
             telemetry,
             profiler,
             lifecycle,
-            hotswap: HotSwapManager::new(),
+            hotswap: HotSwapManager::new_with_kernels(kernels_arc, adapters_path),
         })
     }
 
@@ -509,7 +523,10 @@ impl<K: FusedKernels> Worker<K> {
             };
 
             let kernel_start = Instant::now();
-            self.kernels.run_step(&router_ring, &mut io_buffers)?;
+            {
+                let mut kernels = self.kernels.lock().await;
+                kernels.run_step(&router_ring, &mut io_buffers)?;
+            }
             let kernel_duration = kernel_start.elapsed();
 
             // Record latency for each active adapter (simplified: divide equally)
@@ -862,16 +879,242 @@ impl<K: FusedKernels> Worker<K> {
     }
 
     /// Execute adapter hot-swap command
-    pub fn execute_adapter_command(
+    pub async fn execute_adapter_command(
         &mut self,
         command: AdapterCommand,
     ) -> Result<AdapterCommandResult> {
-        self.hotswap.execute(command)
+        self.hotswap.execute(command).await
+    }
+
+    /// Verify GPU buffers for all loaded adapters
+    ///
+    /// Reads GPU buffer checkpoints and validates against stored fingerprints.
+    /// Also checks memory footprint against adaptive baseline with 2σ tolerance.
+    ///
+    /// Returns a report with verified/failed/skipped adapters.
+    ///
+    /// # Usage
+    ///
+    /// This method can be called on-demand to verify GPU integrity after adapter
+    /// operations (load, swap, rollback) or as part of periodic health checks.
+    ///
+    /// ```no_run
+    /// let report = worker.verify_gpu_integrity().await?;
+    /// if !report.failed.is_empty() {
+    ///     // Handle integrity failures
+    /// }
+    /// ```
+    pub async fn verify_gpu_integrity(
+        &self,
+    ) -> Result<adapteros_lora_lifecycle::GpuIntegrityReport> {
+        use adapteros_lora_lifecycle::GpuIntegrityReport;
+
+        let mut verified = Vec::new();
+        let mut failed = Vec::new();
+        let mut skipped = Vec::new();
+
+        // Get adapters that should have GPU buffers loaded
+        let loaded_adapters = self.lifecycle.get_loaded_adapters();
+
+        let mut kernels_lock = self.kernels.lock().await;
+
+        // Check if backend supports VRAM tracking
+        if kernels_lock.vram_tracker().is_none() {
+            // Backend doesn't support GPU verification (Mock, MLX, etc.)
+            for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
+                skipped.push((*adapter_id_u16, adapter_id.clone()));
+            }
+
+            drop(kernels_lock);
+
+            tracing::info!("GPU integrity verification skipped (backend does not support VRAM tracking)");
+
+            return Ok(GpuIntegrityReport {
+                verified,
+                failed,
+                skipped,
+                total_checked: loaded_adapters.len(),
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            });
+        }
+
+        // Backend supports VRAM tracking - proceed with verification
+        for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
+            // Try to verify GPU buffers
+            match kernels_lock.verify_adapter_buffers(*adapter_id_u16) {
+                Ok((buffer_size, first, last, mid)) => {
+                    // Create fingerprint from current GPU state
+                    use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
+                    let current_fp = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
+
+                    // Get mutable access to vram_tracker
+                    // SAFETY: We checked vram_tracker().is_some() above, so unwrap is safe
+                    let vram_tracker = kernels_lock.vram_tracker_mut().unwrap();
+
+                    // Verify against stored baseline
+                    match vram_tracker.verify_fingerprint(*adapter_id_u16 as u32, &current_fp) {
+                        Ok(true) => {
+                            // Check memory footprint against baseline
+                            let (within_tolerance, z_score, baseline_stats) =
+                                vram_tracker.check_memory_footprint(*adapter_id_u16 as u32, buffer_size);
+
+                            let (baseline_mean, baseline_stddev, _sample_count) =
+                                baseline_stats.unwrap_or((buffer_size as f64, 0.0, 0));
+
+                            if within_tolerance {
+                                verified.push((*adapter_id_u16, adapter_id.clone()));
+
+                                // Emit telemetry for successful verification
+                                use adapteros_lora_lifecycle::GpuIntegrityVerificationEvent;
+                                let _ = self.telemetry.log("gpu_integrity_verification", GpuIntegrityVerificationEvent {
+                                    adapter_id: adapter_id.clone(),
+                                    adapter_idx: *adapter_id_u16,
+                                    verified: true,
+                                    buffer_bytes: buffer_size,
+                                    checkpoint_hash: current_fp.checkpoint_hash.to_hex(),
+                                    memory_footprint_within_tolerance: true,
+                                    z_score: Some(z_score),
+                                    baseline_mean: Some(baseline_mean),
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs(),
+                                });
+                            } else {
+                                failed.push((
+                                    *adapter_id_u16,
+                                    adapter_id.clone(),
+                                    format!(
+                                        "Memory footprint anomaly: {} bytes (baseline: {:.1} ± {:.1}, z-score: {:.2})",
+                                        buffer_size, baseline_mean, baseline_stddev, z_score
+                                    ),
+                                ));
+
+                                // Emit telemetry for memory footprint anomaly
+                                use adapteros_lora_lifecycle::GpuIntegrityViolationEvent;
+                                let _ = self.telemetry.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
+                                    adapter_id: adapter_id.clone(),
+                                    adapter_idx: *adapter_id_u16,
+                                    violation_type: "memory_anomaly".to_string(),
+                                    details: format!(
+                                        "Memory footprint {} bytes exceeds 2σ tolerance (baseline: {:.1} ± {:.1}, z-score: {:.2})",
+                                        buffer_size, baseline_mean, baseline_stddev, z_score
+                                    ),
+                                    buffer_bytes: Some(buffer_size),
+                                    z_score: Some(z_score),
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs(),
+                                });
+                            }
+                        }
+                        Ok(false) => {
+                            // No baseline exists yet - store this as the baseline
+                            vram_tracker.store_fingerprint(*adapter_id_u16 as u32, current_fp.clone());
+                            verified.push((*adapter_id_u16, adapter_id.clone()));
+
+                            tracing::info!(
+                                adapter_id = %adapter_id,
+                                adapter_idx = adapter_id_u16,
+                                "Stored initial GPU fingerprint baseline"
+                            );
+                        }
+                        Err(msg) => {
+                            failed.push((
+                                *adapter_id_u16,
+                                adapter_id.clone(),
+                                format!("GPU buffer fingerprint mismatch: {}", msg),
+                            ));
+
+                            // Emit telemetry for fingerprint mismatch
+                            use adapteros_lora_lifecycle::GpuIntegrityViolationEvent;
+                            let _ = self.telemetry.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
+                                adapter_id: adapter_id.clone(),
+                                adapter_idx: *adapter_id_u16,
+                                violation_type: "fingerprint_mismatch".to_string(),
+                                details: format!("GPU buffer checkpoint hash does not match stored fingerprint: {}", msg),
+                                buffer_bytes: Some(buffer_size),
+                                z_score: None,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Adapter not loaded or verification not supported
+                    skipped.push((*adapter_id_u16, adapter_id.clone()));
+                    tracing::debug!(
+                        adapter_id = %adapter_id,
+                        error = %e,
+                        "GPU verification skipped"
+                    );
+                }
+            }
+        }
+
+        drop(kernels_lock);
+
+        Ok(GpuIntegrityReport {
+            verified,
+            failed,
+            skipped,
+            total_checked: loaded_adapters.len(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
     }
 
     /// Get current adapter states
     pub fn get_adapter_states(&self) -> Vec<adapter_hotswap::AdapterState> {
         self.hotswap.table().get_active()
+    }
+
+    /// Execute a workflow using real kernel backend
+    ///
+    /// Runs the workflow through actual Metal/MLX kernels with LoRA transformations.
+    /// Kernels are shared via Arc<Mutex<K>> to allow concurrent workflow execution.
+    pub async fn execute_workflow(
+        &self,
+        workflow_type: adapteros_lora_lifecycle::WorkflowType,
+        adapter_ids: Vec<String>,
+        context: adapteros_lora_lifecycle::WorkflowContext,
+    ) -> Result<adapteros_lora_lifecycle::WorkflowResult>
+    where
+        K: Send + Sync,
+    {
+        use adapteros_lora_lifecycle::{KernelAdapterBackend, WorkflowExecutor};
+
+        info!(
+            "Executing workflow with {} adapters using real kernels",
+            adapter_ids.len()
+        );
+
+        // Create kernel backend with adapter name mapping
+        let adapter_names: Vec<String> = self
+            .manifest
+            .adapters
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
+
+        let backend = Arc::new(KernelAdapterBackend::new(
+            self.kernels.clone(),
+            adapter_names,
+            152064, // Qwen2.5 vocab size
+        ));
+
+        // Create and execute workflow
+        let executor = WorkflowExecutor::new(workflow_type, adapter_ids, backend);
+        executor.execute(context).await
     }
 }
 
