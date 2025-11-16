@@ -432,6 +432,25 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
         )
+        // Adapter stacks routes
+        .route(
+            "/v1/adapter-stacks",
+            get(handlers::adapter_stacks::list_stacks)
+                .post(handlers::adapter_stacks::create_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/:id",
+            get(handlers::adapter_stacks::get_stack)
+                .delete(handlers::adapter_stacks::delete_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/:id/activate",
+            post(handlers::adapter_stacks::activate_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/deactivate",
+            post(handlers::adapter_stacks::deactivate_stack),
+        )
         // Domain adapter routes
         .route(
             "/v1/domain-adapters",

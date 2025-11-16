@@ -1,5 +1,5 @@
 use adapteros_crypto::Keypair;
-use adapteros_db::Db;
+use adapteros_db::{sqlx, Db};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,8 @@ pub struct AppState {
     pub crypto: Arc<CryptoState>,
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
     pub code_job_manager: Option<Arc<CodeJobManager>>,
+    pub active_stack: Arc<RwLock<Option<String>>>,
+    pub db_pool: sqlx::SqlitePool,
 }
 
 impl AppState {
@@ -68,6 +70,7 @@ impl AppState {
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
     ) -> Self {
+        let db_pool = db.pool().clone(); // Get the pool from the Db struct
         Self {
             db,
             jwt_secret: Arc::new(jwt_secret),
@@ -79,6 +82,8 @@ impl AppState {
             crypto: Arc::new(CryptoState::new()),
             lifecycle_manager: None,
             code_job_manager: None,
+            active_stack: Arc::new(RwLock::new(None)),
+            db_pool,
         }
     }
 
