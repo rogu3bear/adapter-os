@@ -824,7 +824,10 @@ pub async fn get_import_status(
     let import = import.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("import not found").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "Import not found. The import ID may be invalid or the import may have been removed.",
+            )),
         )
     })?;
 
@@ -1249,7 +1252,10 @@ pub async fn download_model_artifact(
         warn!(error = %e, "Invalid or expired model artifact token");
         (
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("invalid download token").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "The download token is invalid or has expired. Please request a new download link.",
+            )),
         )
     })?;
 
@@ -1258,7 +1264,10 @@ pub async fn download_model_artifact(
     if token_claims.tenant_id != claims.tenant_id || token_claims.sub != claims.sub {
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("token does not match requester").with_code("UNAUTHORIZED")),
+            Json(ErrorResponse::new_user_friendly(
+                "UNAUTHORIZED",
+                "The download token does not match your credentials. Access denied.",
+            )),
         ));
     }
 
@@ -1270,14 +1279,20 @@ pub async fn download_model_artifact(
         );
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("artifact not found").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "The requested model artifact could not be found. The file may have been moved or deleted.",
+            )),
         )
     })?;
 
     if !metadata.is_file() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("artifact not found").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "The requested model artifact could not be found. The file may have been moved or deleted.",
+            )),
         ));
     }
 
@@ -1289,7 +1304,10 @@ pub async fn download_model_artifact(
         );
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("artifact not found").with_code("NOT_FOUND")),
+            Json(ErrorResponse::new_user_friendly(
+                "NOT_FOUND",
+                "The requested model artifact could not be opened. The file may have been moved or access permissions changed.",
+            )),
         )
     })?;
 

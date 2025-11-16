@@ -156,13 +156,11 @@ pub async fn list_workspace_messages(
     let limit = params
         .get("limit")
         .and_then(|s| s.parse::<i64>().ok())
-        .or(Some(50))
-        .unwrap();
+        .unwrap_or(50);
     let offset = params
         .get("offset")
         .and_then(|s| s.parse::<i64>().ok())
-        .or(Some(0))
-        .unwrap();
+        .unwrap_or(0);
 
     let messages = state
         .db
