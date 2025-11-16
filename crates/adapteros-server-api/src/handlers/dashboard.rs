@@ -22,21 +22,17 @@ pub async fn get_dashboard_config(
 ) -> Result<Json<GetDashboardConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
     let user_id = &claims.sub;
 
-    let widgets = state
-        .db
-        .get_dashboard_config(user_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to get dashboard config for user {}: {}", user_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to retrieve dashboard configuration")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let widgets = state.db.get_dashboard_config(user_id).await.map_err(|e| {
+        error!("Failed to get dashboard config for user {}: {}", user_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to retrieve dashboard configuration")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let response_widgets = widgets
         .into_iter()
@@ -70,10 +66,7 @@ pub async fn update_dashboard_config(
     if req.widgets.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("No widget configurations provided")
-                    .with_code("BAD_REQUEST"),
-            ),
+            Json(ErrorResponse::new("No widget configurations provided").with_code("BAD_REQUEST")),
         ));
     }
 
@@ -89,7 +82,10 @@ pub async fn update_dashboard_config(
         .update_dashboard_config(user_id, widget_updates)
         .await
         .map_err(|e| {
-            error!("Failed to update dashboard config for user {}: {}", user_id, e);
+            error!(
+                "Failed to update dashboard config for user {}: {}",
+                user_id, e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -126,7 +122,10 @@ pub async fn reset_dashboard_config(
         .reset_dashboard_config(user_id)
         .await
         .map_err(|e| {
-            error!("Failed to reset dashboard config for user {}: {}", user_id, e);
+            error!(
+                "Failed to reset dashboard config for user {}: {}",
+                user_id, e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(

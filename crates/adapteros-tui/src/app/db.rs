@@ -13,8 +13,8 @@ pub struct DbClient {
 impl DbClient {
     /// Create a new database client from environment or config file
     pub async fn new() -> Result<Self> {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "sqlite:var/aos.db".to_string());
+        let database_url =
+            std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:var/aos.db".to_string());
 
         info!(database_url = %database_url, "Connecting to database");
 
@@ -59,9 +59,11 @@ impl DbClient {
             None => return Ok(0),
         };
 
-        let row = sqlx::query("SELECT COUNT(*) as count FROM training_jobs WHERE status IN ('queued', 'running')")
-            .fetch_one(pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM training_jobs WHERE status IN ('queued', 'running')",
+        )
+        .fetch_one(pool)
+        .await?;
 
         let count: i64 = row.try_get("count")?;
         debug!(count = count, "Active training jobs count");
@@ -111,7 +113,7 @@ impl DbClient {
             "SELECT id, tenant_id, status, created_at, started_at, completed_at
              FROM training_jobs
              ORDER BY created_at DESC
-             LIMIT ?"
+             LIMIT ?",
         )
         .bind(limit)
         .fetch_all(pool)
@@ -144,7 +146,7 @@ impl DbClient {
             "SELECT id, name, version, tenant_id, created_at
              FROM adapters
              ORDER BY created_at DESC
-             LIMIT ?"
+             LIMIT ?",
         )
         .bind(limit)
         .fetch_all(pool)
