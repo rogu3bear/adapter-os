@@ -115,6 +115,7 @@ log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&i
 | **Content Addressing** | `adapteros-core/hash.rs` | BLAKE3 hashing for all artifacts |
 | **Deterministic Exec** | `adapteros-deterministic-exec` | Serial FIFO task execution, no concurrency |
 | **HKDF Seeding** | `adapteros-core/hash.rs` | Domain-separated seeds (router, dropout, sampling, etc.) |
+| **Heartbeat Recovery** | `adapteros-lora-lifecycle`, `adapteros-db` | 5-min timeout, auto-reset stale adapters |
 
 ### Adapter Lifecycle State Machine
 ```
@@ -131,6 +132,44 @@ let manager = LifecycleManager::new_with_db(adapter_names, &policies, path, tele
 manager.record_router_decision(&selected).await?; // Auto-promote
 manager.check_memory_pressure(total_mem, 0.85).await?; // Auto-evict
 ```
+
+### Heartbeat Mechanism (Agent G Stability Reinforcement Phase 2)
+**Purpose:** Detect and recover adapters that freeze/crash without updating state
+
+**Components:**
+1. **Database Schema (migration 0065)**:
+   - `adapters.last_heartbeat` (INTEGER, Unix timestamp)
+   - `training_jobs.last_heartbeat` (INTEGER, Unix timestamp)
+   - Partial indexes for efficient queries
+   - Views: `stale_adapters`, `stale_training_jobs` (5-min threshold)
+
+2. **Lifecycle Methods**:
+   ```rust
+   // Update heartbeat (called periodically by adapter)
+   manager.heartbeat_adapter(&adapter_id).await?;
+
+   // Check for stale adapters
+   let stale_ids = manager.check_stale_adapters(300).await?;
+
+   // Auto-recover stale adapters (resets to unloaded)
+   let recovered = manager.recover_stale_adapters(300).await?;
+   ```
+
+3. **Server Integration** (`main.rs`):
+   - Background task runs every 5 minutes
+   - Calls `db.recover_stale_adapters(300)` (300s = 5min threshold)
+   - Logs stale detection and recovery events
+   - Emits telemetry for audit trail
+
+**Recovery Flow:**
+1. Adapter sends periodic heartbeat via `heartbeat_adapter()`
+2. Background task queries for adapters with `last_heartbeat < now - 300s`
+3. Stale adapters reset to `unloaded` state, heartbeat cleared
+4. Recovery logged to audit + telemetry bundles
+
+**Complements `recover_from_crash()`:**
+- `recover_from_crash()`: Detects adapters stuck in "loading" state (5-min timeout)
+- Heartbeat recovery: Detects frozen adapters in any state (no heartbeat)
 
 ### Deterministic Executor Seeding
 **Critical:** Seed derived from base model manifest hash via HKDF
@@ -404,7 +443,7 @@ verifier.verify_all()?; // Checks Ed25519 signatures
 **Purpose:** Prevent critical adapters from being evicted or deleted, ensuring production stability.
 
 **Implementation:**
-- **Table:** `pinned_adapters` (migration 0068)
+- **Table:** `pinned_adapters` (migration 0060)
 - **View:** `active_pinned_adapters` (auto-filters expired pins via SQL)
 - **Module:** `crates/adapteros-db/src/pinned_adapters.rs`
 - **Single Source of Truth:** View respects TTL automatically, eliminating need for manual expiration checks
