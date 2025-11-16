@@ -55,6 +55,10 @@ pub use policy_packs::{
     PolicyPackValidator, RagIndexValidator, RefusalValidator, RetentionValidator, RouterValidator,
     SecretsValidator, TelemetryValidator,
 };
+pub use packs::{
+    AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, NamingViolationType,
+    StackNameValidation,
+};
 pub use quarantine::{QuarantineManager, QuarantineOperation};
 pub use refusal::{RefusalReason, RefusalResponse};
 pub use security_monitoring::{SecurityMonitoringService, SecurityReport};

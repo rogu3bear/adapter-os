@@ -88,7 +88,17 @@ interface Adapter {
   tier: number;
   languages_json?: string;
   framework?: string;
-  
+
+  // Semantic naming fields
+  adapter_name?: string;           // Full semantic name: tenant/domain/purpose/r001
+  tenant_namespace?: string;       // e.g., "shop-floor"
+  domain?: string;                 // e.g., "hydraulics"
+  purpose?: string;                // e.g., "troubleshooting"
+  revision?: string;               // e.g., "r042"
+  parent_id?: string;              // Parent adapter for lineage tracking
+  fork_type?: 'independent' | 'extension';
+  fork_reason?: string;
+
   // Code intelligence fields
   category: 'code' | 'framework' | 'codebase' | 'ephemeral';
   scope: 'global' | 'tenant' | 'repo' | 'commit';
@@ -97,14 +107,14 @@ interface Adapter {
   repo_id?: string;
   commit_sha?: string;
   intent?: string;
-  
+
   // Lifecycle state management
   current_state: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
   pinned: boolean;
   memory_bytes: number;
   last_activated?: string;
   activation_count: number;
-  
+
   created_at: string;
   updated_at: string;
   active: boolean;
@@ -505,10 +515,46 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                       <TableCell className="table-cell-standard">
                         <div className="flex-center">
                           {getCategoryIcon(adapter.category)}
-                          <div>
-                            <div className="font-medium">{adapter.name}</div>
-                            <div className="text-sm text-muted-foreground">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">
+                                {adapter.adapter_name ? (
+                                  // Display semantic name: tenant/domain/purpose
+                                  <>
+                                    <span className="text-blue-600">{adapter.tenant_namespace}</span>
+                                    <span className="text-muted-foreground">/</span>
+                                    <span className="text-green-600">{adapter.domain}</span>
+                                    <span className="text-muted-foreground">/</span>
+                                    <span>{adapter.purpose}</span>
+                                  </>
+                                ) : (
+                                  // Fallback to legacy name
+                                  adapter.name
+                                )}
+                              </span>
+                              {adapter.revision && (
+                                <Badge variant="outline" className="text-xs">
+                                  {adapter.revision}
+                                </Badge>
+                              )}
+                              {adapter.fork_type && (
+                                <Badge variant={adapter.fork_type === 'extension' ? 'default' : 'secondary'} className="text-xs">
+                                  {adapter.fork_type === 'extension' ? (
+                                    <><GitBranch className="w-3 h-3 mr-1" />Extend</>
+                                  ) : (
+                                    <><Layers className="w-3 h-3 mr-1" />Fork</>
+                                  )}
+                                </Badge>
+                              )}
+                              {adapter.parent_id && (
+                                <Badge variant="outline" className="text-xs text-purple-600">
+                                  <GitBranch className="w-3 h-3 mr-1" />Lineage
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-sm text-muted-foreground mt-1">
                               Tier {adapter.tier} • Rank {adapter.rank}
+                              {adapter.fork_reason && <> • {adapter.fork_reason}</>}
                             </div>
                           </div>
                         </div>

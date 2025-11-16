@@ -12,7 +12,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 21 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 23 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -31,7 +31,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 │  ┌──────────────┐    ┌──────────────┐   ┌───────────┐ │
 │  │   Policy     │───▶│   Router     │──▶│  Modular  │ │
 │  │  Registry   │    │ (Q15 Gates)  │   │  Kernels  │ │
-│  │  (20 Packs) │    │ K-Sparse     │   │ (.metallib)│ │
+│  │  (23 Packs) │    │ K-Sparse     │   │ (.metallib)│ │
 │  └──────────────┘    └──────────────┘   └───────────┘ │
 │         │                    │                  │       │
 │         ▼                    ▼                  ▼       │
@@ -119,12 +119,15 @@ cargo build --release
 ### Register LoRA Adapters
 
 ```bash
-# Register your LoRA adapters
+# Register your LoRA adapters with semantic names
+# Format: {tenant}/{domain}/{purpose}/{revision}
 ./target/release/aosctl register-adapter \
-  --id my-lora \
+  --name "tenant-a/engineering/code-review/r001" \
   --hash <adapter-hash> \
-  --tier 1 \
+  --tier persistent \
   --rank 16
+
+# See docs/ADAPTER_TAXONOMY.md for naming conventions
 ```
 
 ### Start Serving
@@ -166,7 +169,7 @@ cargo build --release
 
 | Crate | Purpose |
 |-------|---------|
-| `adapteros-policy` | 20-pack policy registry with enforcement |
+| `adapteros-policy` | 23-pack policy registry with enforcement |
 | `adapteros-telemetry` | Canonical JSON event logging with Merkle trees |
 | `adapteros-crypto` | Ed25519 signing, BLAKE3 hashing, HKDF |
 | `adapteros-artifacts` | Content-addressed artifact store with SBOM |
@@ -209,13 +212,14 @@ kernel void fused_attention_lora(
 
 ### 3. **Policy Enforcement**
 
-20 canonical policy packs ensure compliance:
+23 canonical policy packs ensure compliance:
 - **Egress Ruleset**: Zero network during serving, PF enforcement
 - **Determinism Ruleset**: Precompiled kernels, HKDF seeding
 - **Router Ruleset**: K bounds, entropy floor, Q15 gates
 - **Evidence Ruleset**: Mandatory open-book grounding
 - **Refusal Ruleset**: Abstain on low confidence
-- **And 15 more** for security, compliance, and quality
+- **Naming Ruleset**: Semantic adapter naming with lineage tracking
+- **And 17 more** for security, compliance, and quality
 
 ### 4. **Deterministic Execution**
 
@@ -308,7 +312,8 @@ AdapterOS alpha-v0.01-1 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 20 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 23 canonical policy packs with CLI commands
+- ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
 - ✅ **Database Schema**: Versioned migrations with rollback support
@@ -331,7 +336,8 @@ AdapterOS alpha-v0.01-1 includes:
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
 - **[System Architecture](docs/architecture.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 20 canonical policy packs
+- **[Policy Registry](docs/POLICIES.md)** - 23 canonical policy packs
+- **[Adapter Taxonomy](docs/ADAPTER_TAXONOMY.md)** - Semantic naming and lineage tracking
 
 ### Key Topics
 - **Control Plane**: [docs/control-plane.md](docs/control-plane.md)
