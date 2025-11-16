@@ -196,31 +196,33 @@ impl MigrationVerifier {
     }
 
     /// Verify Ed25519 signature
-    fn verify_signature(&self, _file_hash: &str, signature_b64: &str) -> Result<()> {
+    fn verify_signature(&self, file_hash: &str, signature_b64: &str) -> Result<()> {
         use base64::{engine::general_purpose, Engine as _};
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-        // Decode public key from base64 PEM
-        let public_key_pem = general_purpose::STANDARD
+        // Decode public key PEM from base64
+        let public_key_pem_bytes = general_purpose::STANDARD
             .decode(&self.signatures.public_key)
             .map_err(|e| AosError::Crypto(format!("Invalid public key encoding: {}", e)))?;
+
+        // Convert bytes to string for PEM parsing
+        let public_key_pem = String::from_utf8(public_key_pem_bytes)
+            .map_err(|e| AosError::Crypto(format!("Invalid PEM encoding: {}", e)))?;
+
+        // Parse PEM and extract raw Ed25519 public key
+        // PEM format: -----BEGIN PUBLIC KEY-----\n<base64>\n-----END PUBLIC KEY-----
+        let public_key_bytes = Self::extract_ed25519_public_key_from_pem(&public_key_pem)?;
+
+        // Create Ed25519 verifying key
+        let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
+            .map_err(|e| AosError::Crypto(format!("Invalid Ed25519 public key: {}", e)))?;
 
         // Decode signature from base64
         let signature_bytes = general_purpose::STANDARD
             .decode(signature_b64)
             .map_err(|e| AosError::Crypto(format!("Invalid signature encoding: {}", e)))?;
 
-        // Parse PEM to extract raw Ed25519 public key
-        // Ed25519 public key is 32 bytes, PEM has header/footer/encoding
-        // For simplicity, we'll extract the raw key bytes from the PEM structure
-
-        // Extract public key bytes from PEM (skip PEM header/footer and base64 decode)
-        let public_key_der = &public_key_pem;
-
-        // Ed25519 public key in DER format has a specific structure
-        // For production, use a proper PEM parser (e.g., from ring or ed25519-dalek crates)
-        // For now, we'll validate the signature length and hash
-
-        // Signature should be 64 bytes for Ed25519
+        // Validate signature length
         if signature_bytes.len() != 64 {
             return Err(AosError::Crypto(format!(
                 "Invalid Ed25519 signature length: {} (expected 64)",
@@ -228,20 +230,76 @@ impl MigrationVerifier {
             )));
         }
 
-        // For production implementation, use ed25519-dalek to actually verify:
-        // use ed25519_dalek::{PublicKey, Signature, Verifier};
-        // let public_key = PublicKey::from_bytes(&raw_key_bytes)?;
-        // let signature = Signature::from_bytes(&signature_bytes)?;
-        // public_key.verify(file_hash.as_bytes(), &signature)?;
+        // Create signature object
+        let signature = Signature::from_bytes(
+            signature_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| AosError::Crypto("Failed to parse signature".to_string()))?,
+        );
 
-        // Placeholder: In production, perform actual Ed25519 verification
+        // Verify signature against file hash
+        verifying_key
+            .verify(file_hash.as_bytes(), &signature)
+            .map_err(|e| {
+                AosError::Crypto(format!("Ed25519 signature verification failed: {}", e))
+            })?;
+
         debug!(
-            "Signature verification: {} bytes, public_key: {} bytes",
-            signature_bytes.len(),
-            public_key_der.len()
+            "✓ Ed25519 signature verified (key fingerprint: {})",
+            hex::encode(&public_key_bytes[..4])
         );
 
         Ok(())
+    }
+
+    /// Extract raw Ed25519 public key bytes from PEM format
+    ///
+    /// Parses OpenSSL-generated Ed25519 public key PEM and extracts the 32-byte raw key.
+    /// DER structure for Ed25519 public key (SPKI format):
+    /// - SEQUENCE (48 bytes total for Ed25519)
+    ///   - SEQUENCE (algorithm identifier)
+    ///     - OID 1.3.101.112 (Ed25519)
+    ///   - BIT STRING (34 bytes)
+    ///     - 0x00 (unused bits)
+    ///     - 32 bytes (raw Ed25519 public key)
+    fn extract_ed25519_public_key_from_pem(pem: &str) -> Result<[u8; 32]> {
+        // Remove PEM header/footer and whitespace
+        let pem_body = pem
+            .lines()
+            .filter(|line| !line.starts_with("-----"))
+            .collect::<String>();
+
+        // Decode base64
+        use base64::{engine::general_purpose, Engine as _};
+        let der_bytes = general_purpose::STANDARD
+            .decode(pem_body.trim())
+            .map_err(|e| AosError::Crypto(format!("Failed to decode PEM base64: {}", e)))?;
+
+        // Parse DER structure to extract raw key
+        // Ed25519 public key in SPKI format is 44 bytes:
+        // 30 2a (SEQUENCE, 42 bytes)
+        //   30 05 (SEQUENCE, 5 bytes)
+        //     06 03 2b 65 70 (OID 1.3.101.112 = Ed25519)
+        //   03 21 (BIT STRING, 33 bytes)
+        //     00 (unused bits)
+        //     <32 bytes of Ed25519 public key>
+
+        if der_bytes.len() < 44 {
+            return Err(AosError::Crypto(format!(
+                "Invalid Ed25519 DER length: {} (expected >= 44)",
+                der_bytes.len()
+            )));
+        }
+
+        // Extract the last 32 bytes (raw Ed25519 public key)
+        // This works for standard SPKI-encoded Ed25519 keys
+        let key_start = der_bytes.len() - 32;
+        let raw_key_bytes: [u8; 32] = der_bytes[key_start..]
+            .try_into()
+            .map_err(|_| AosError::Crypto("Failed to extract Ed25519 key bytes".to_string()))?;
+
+        Ok(raw_key_bytes)
     }
 
     /// List all .sql migration files in the migrations directory
@@ -333,5 +391,22 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("signatures not found"));
+    }
+
+    #[test]
+    #[ignore] // Run with --ignored flag to test against actual migrations
+    fn test_verify_actual_migrations() {
+        // This test verifies the actual migrations in the project
+        // Run with: cargo test test_verify_actual_migrations -- --ignored
+        let migrations_dir = "../../migrations";
+
+        let verifier = MigrationVerifier::new(migrations_dir)
+            .expect("Failed to create verifier");
+
+        verifier.verify_all()
+            .expect("Migration verification failed");
+
+        println!("✓ Successfully verified {} migrations", verifier.signature_count());
+        println!("✓ Public key fingerprint: {}", verifier.public_key_fingerprint());
     }
 }
