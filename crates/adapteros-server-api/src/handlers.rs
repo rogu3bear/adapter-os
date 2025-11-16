@@ -6,6 +6,7 @@ use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
+use adapteros_core::B3Hash;
 use adapteros_system_metrics::{
     AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
     CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
@@ -82,7 +83,56 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// Upsert a synthetic directory adapter and optionally activate it
+/// Upsert a synthetic directory adapter and optionally activate it.
+///
+/// This handler performs directory analysis and adapter registration with proper async/blocking separation.
+///
+/// # Blocking Operations
+///
+/// All blocking operations (filesystem I/O and CPU-intensive analysis) are executed in a dedicated
+/// blocking thread pool via `tokio::task::spawn_blocking` to prevent head-of-line blocking on the
+/// async runtime. The handler combines three phases into a single blocking call:
+///
+/// 1. **Path Validation**: Validates root path exists and relative path is safe (no `..`)
+/// 2. **Directory Analysis**: CPU-intensive codebase analysis with `adapteros_codegraph`
+/// 3. **Artifact Creation**: Creates placeholder `.safetensors` file for adapter
+///
+/// # Timeout Protection
+///
+/// The combined blocking operation is wrapped in `tokio::time::timeout` with a configurable duration
+/// (default: 120 seconds, configured via `ApiConfig::directory_analysis_timeout_secs`). This prevents
+/// malicious or extremely large directories from tying up blocking threads indefinitely.
+///
+/// # Error Handling
+///
+/// Errors are returned with appropriate HTTP status codes:
+/// - `400 BAD_REQUEST`: Invalid paths, path traversal attempts, or analysis failures
+/// - `408 REQUEST_TIMEOUT`: Operation exceeded configured timeout
+/// - `500 INTERNAL_SERVER_ERROR`: Filesystem errors or task panics
+///
+/// # Observability
+///
+/// The handler includes structured tracing spans for each phase:
+/// - `directory_adapter_blocking_ops`: Top-level span for entire blocking operation
+/// - `path_validation`: Path validation phase
+/// - `directory_analysis`: Directory analysis phase (includes root and path fields)
+/// - `artifact_creation`: Artifact file creation phase (includes hash field)
+///
+/// # Permissions
+///
+/// Requires `Admin` or `Operator` role via RBAC.
+///
+/// # Example
+///
+/// ```no_run
+/// POST /v1/adapters/directory/upsert
+/// {
+///   "root": "/workspace/my-project",
+///   "path": "src",
+///   "tenant_id": "tenant-a",
+///   "activate": false
+/// }
+/// ```
 #[utoipa::path(
     post,
     path = "/v1/adapters/directory/upsert",
@@ -99,104 +149,175 @@ pub async fn upsert_directory_adapter(
     Extension(claims): Extension<Claims>,
     Json(req): Json<DirectoryUpsertRequest>,
 ) -> Result<(StatusCode, Json<DirectoryUpsertResponse>), (StatusCode, Json<ErrorResponse>)> {
+    use std::time::Duration;
+    use tracing::{info_span, warn};
+
+    // Top-level span for entire handler execution
+    let _handler_span = info_span!(
+        "upsert_directory_adapter_handler",
+        tenant_id = %req.tenant_id,
+        root_path = %req.root,
+        activate = req.activate
+    ).entered();
+
     // Require admin or operator
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
-    // Validate root is absolute and readable
-    let root = std::path::PathBuf::from(&req.root);
-    if !root.is_absolute() || !root.exists() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid root")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details("root must be an existing absolute path"),
-            ),
-        ));
-    }
+    // Combined blocking operations: path validation, directory analysis, and artifact creation
+    // Timeout prevents malicious/large directories from tying up blocking threads indefinitely
+    let tenant_id = req.tenant_id.clone();
+    let root_str = req.root;
+    let path_str = req.path;
 
-    // Validate path is safe relative
-    let rel = std::path::PathBuf::from(&req.path);
-    if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid path")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details("path must be relative and must not contain .."),
-            ),
-        ));
-    }
+    // Read timeout from config
+    let timeout_secs = {
+        let config = state.config.read().unwrap();
+        config.directory_analysis_timeout_secs
+    };
 
-    // Analyze directory to derive deterministic fingerprint
-    let analysis = adapteros_codegraph::analyze_directory(&root, &rel).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("directory analysis failed")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let (adapter_id, hash_hex, hash_b3, analysis) = tokio::time::timeout(
+        Duration::from_secs(timeout_secs),
+        tokio::task::spawn_blocking(move || {
+            let _span = info_span!("directory_adapter_blocking_ops", tenant = %tenant_id).entered();
 
-    // Build adapter_id and synthetic artifact hash from fingerprint
-    let adapter_id = format!(
-        "directory::{}::{}",
-        req.tenant_id,
-        analysis.fingerprint.to_short_hex()
-    );
-    let hash_hex = analysis.fingerprint.to_hex();
-    let hash_b3 = format!("b3:{}", hash_hex);
-
-    // Ensure placeholder artifact exists at ./adapters/{hash}.safetensors
-    let artifact_dir = std::path::PathBuf::from("./adapters");
-    let artifact_path = artifact_dir.join(format!("{}.safetensors", hash_hex));
-    if !artifact_path.exists() {
-        if let Some(parent) = artifact_path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
+            // Phase 1: Validate paths
+            let _validation_span = info_span!("path_validation").entered();
+            let root = std::path::PathBuf::from(&root_str);
+            if !root.is_absolute() || !root.exists() {
                 return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    StatusCode::BAD_REQUEST,
                     Json(
-                        ErrorResponse::new("failed to create adapters directory")
-                            .with_code("INTERNAL_SERVER_ERROR")
+                        ErrorResponse::new("invalid root")
+                            .with_code("BAD_REQUEST")
+                            .with_string_details("root must be an existing absolute path"),
+                    ),
+                ));
+            }
+
+            let rel = std::path::PathBuf::from(&path_str);
+            if rel.is_absolute()
+                || rel
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid path")
+                            .with_code("BAD_REQUEST")
+                            .with_string_details("path must be relative and must not contain .."),
+                    ),
+                ));
+            }
+            drop(_validation_span);
+
+            // Phase 2: Analyze directory (CPU-intensive + filesystem I/O)
+            let _analysis_span = info_span!("directory_analysis",
+                root = %root.display(),
+                path = %rel.display()
+            ).entered();
+            let analysis = adapteros_codegraph::analyze_directory(&root, &rel).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("directory analysis failed")
+                            .with_code("BAD_REQUEST")
                             .with_string_details(e.to_string()),
                     ),
-                ))
-            }
-        }
-        if let Err(e) = std::fs::write(&artifact_path, b"synthetic adapter placeholder") {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to write adapter artifact")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
-        }
-    }
+                )
+            })?;
+            drop(_analysis_span);
 
-    // Register adapter if not present
-    let existing = state.db.get_adapter(&adapter_id).await.map_err(|e| {
+            // Build adapter_id and synthetic artifact hash from fingerprint
+            let adapter_id = format!(
+                "directory::{}::{}",
+                tenant_id,
+                analysis.fingerprint.to_short_hex()
+            );
+            let hash_hex = analysis.fingerprint.to_hex();
+            let hash_b3 = format!("b3:{}", hash_hex);
+
+            // Phase 3: Ensure placeholder artifact (blocking filesystem I/O)
+            let _artifact_span = info_span!("artifact_creation", hash = %hash_hex).entered();
+            let artifact_dir = std::path::PathBuf::from("./adapters");
+            let artifact_path = artifact_dir.join(format!("{}.safetensors", hash_hex));
+            if !artifact_path.exists() {
+                if let Some(parent) = artifact_path.parent() {
+                    if let Err(e) = std::fs::create_dir_all(parent) {
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to create adapters directory")
+                                    .with_code("INTERNAL_SERVER_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        ));
+                    }
+                }
+                if let Err(e) = std::fs::write(&artifact_path, b"synthetic adapter placeholder") {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("failed to write adapter artifact")
+                                .with_code("INTERNAL_SERVER_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    ));
+                }
+            }
+            drop(_artifact_span);
+
+            Ok((adapter_id, hash_hex, hash_b3, analysis))
+        })
+    )
+    .await
+    // Error handling chain (triple-nested Result unwrapping):
+    // 1. First .map_err: Handle timeout::Elapsed from tokio::time::timeout
+    .map_err(|_| {
+        warn!(timeout_secs = %timeout_secs, "Directory adapter operation timed out");
+        (
+            StatusCode::REQUEST_TIMEOUT,
+            Json(
+                ErrorResponse::new("directory analysis timed out")
+                    .with_code("REQUEST_TIMEOUT")
+                    .with_string_details(format!("operation exceeded {} second limit", timeout_secs)),
+            ),
+        )
+    })?
+    // 2. Second .map_err: Handle JoinError from tokio::task::spawn_blocking (task panic)
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
-                ErrorResponse::new("failed to query adapter")
+                ErrorResponse::new("blocking task panicked")
                     .with_code("INTERNAL_SERVER_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
-    })?;
+    })?
+    // 3. Final ?: Handle inner errors from blocking closure (path validation, analysis, filesystem)
+    ?;
+
+    // Register adapter if not present
+    let existing = {
+        let _db_span = info_span!("db_get_adapter_check", adapter_id = %adapter_id).entered();
+        state.db.get_adapter(&adapter_id).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to query adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+    };
 
     if existing.is_none() {
-        let languages = analysis
-            .language_stats
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let languages = analysis.language_stats.keys().cloned().collect::<Vec<_>>();
         let languages_json = serde_json::to_string(&languages).unwrap_or("[]".to_string());
 
+        let _db_span = info_span!("db_register_adapter", adapter_id = %adapter_id).entered();
         state
             .db
             .register_adapter(
@@ -224,12 +345,20 @@ pub async fn upsert_directory_adapter(
     // Optionally activate (load) adapter now
     let mut activated = false;
     if req.activate {
-        match state.db.get_adapter(&adapter_id).await {
+        let adapter_result = {
+            let _db_span = info_span!("db_get_adapter_for_activation", adapter_id = %adapter_id).entered();
+            state.db.get_adapter(&adapter_id).await
+        };
+
+        match adapter_result {
             Ok(Some(a)) => {
-                let _ = state
-                    .db
-                    .update_adapter_state(&adapter_id, "loading", "directory_upsert")
-                    .await;
+                {
+                    let _db_span = info_span!("db_update_adapter_state_loading", adapter_id = %adapter_id).entered();
+                    let _ = state
+                        .db
+                        .update_adapter_state(&adapter_id, "loading", "directory_upsert")
+                        .await;
+                }
 
                 if let Some(ref lifecycle) = state.lifecycle_manager {
                     use adapteros_lora_lifecycle::AdapterLoader;
@@ -237,14 +366,22 @@ pub async fn upsert_directory_adapter(
                     // Use the DB numeric id if it parses, else fall back to 0
                     let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
                     let adapters_path = PathBuf::from("./adapters");
-                    let mut loader = AdapterLoader::new(adapters_path);
-                    if loader.load_adapter_async(adapter_idx, &hash_hex).await.is_ok() {
+                    let mut expected_hashes = HashMap::new();
+                    expected_hashes.insert(hash_hex.clone(), analysis.fingerprint);
+                    let mut loader = AdapterLoader::new(adapters_path, expected_hashes);
+                    if loader
+                        .load_adapter_async(adapter_idx, &hash_hex)
+                        .await
+                        .is_ok()
+                    {
+                        let _db_span = info_span!("db_update_adapter_state_success", adapter_id = %adapter_id).entered();
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
                             .await;
                         activated = true;
                     } else {
+                        let _db_span = info_span!("db_update_adapter_state_failure", adapter_id = %adapter_id).entered();
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "cold", "load_failed")
@@ -252,6 +389,7 @@ pub async fn upsert_directory_adapter(
                     }
                 } else {
                     // Simulate load
+                    let _db_span = info_span!("db_update_adapter_state_simulated", adapter_id = %adapter_id).entered();
                     let _ = state
                         .db
                         .update_adapter_state(&adapter_id, "warm", "simulated_load")
@@ -463,6 +601,16 @@ pub async fn create_tenant(
         )
     })?;
 
+    // Audit log: tenant created
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TENANT_CREATE,
+        crate::audit_helper::resources::TENANT,
+        Some(&tenant.id),
+    )
+    .await;
+
     Ok(Json(TenantResponse {
         id: tenant.id,
         name: tenant.name,
@@ -541,8 +689,20 @@ pub async fn update_tenant(
     })?;
 
     use sqlx::Row;
+    let tenant_id_value: String = row.get("tenant_id");
+
+    // Audit log: tenant updated
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TENANT_UPDATE,
+        crate::audit_helper::resources::TENANT,
+        Some(&tenant_id_value),
+    )
+    .await;
+
     Ok(Json(TenantResponse {
-        id: row.get("tenant_id"),
+        id: tenant_id_value,
         name: row.get("name"),
         itar_flag: row.get("itar_flag"),
         created_at: row.get("created_at"),
@@ -577,6 +737,17 @@ pub async fn pause_tenant(
     })?;
 
     tracing::info!("Tenant {} paused by {}", tenant_id, claims.email);
+
+    // Audit log: tenant paused
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TENANT_PAUSE,
+        crate::audit_helper::resources::TENANT,
+        Some(&tenant_id),
+    )
+    .await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -607,6 +778,17 @@ pub async fn archive_tenant(
     })?;
 
     tracing::info!("Tenant {} archived by {}", tenant_id, claims.email);
+
+    // Audit log: tenant archived
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TENANT_ARCHIVE,
+        crate::audit_helper::resources::TENANT,
+        Some(&tenant_id),
+    )
+    .await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -791,6 +973,16 @@ pub async fn register_node(
         )
     })?;
 
+    // Audit log: node registered
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::NODE_REGISTER,
+        crate::audit_helper::resources::NODE,
+        Some(&node.id),
+    )
+    .await;
+
     Ok(Json(NodeResponse {
         id: node.id,
         hostname: node.hostname,
@@ -895,6 +1087,16 @@ pub async fn mark_node_offline(
         )
     })?;
 
+    // Audit log: node marked offline
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::NODE_OFFLINE,
+        crate::audit_helper::resources::NODE,
+        Some(&node_id),
+    )
+    .await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -945,6 +1147,16 @@ pub async fn evict_node(
                 ),
             )
         })?;
+
+    // Audit log: node evicted
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::NODE_EVICT,
+        crate::audit_helper::resources::NODE,
+        Some(&node_id),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2134,8 +2346,11 @@ pub async fn promotion_gates(
 /// List policies (stub)
 pub async fn list_policies(
     State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<PolicyPackResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view policies
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+
     // Stub - would query database
     Ok(Json(vec![]))
 }
@@ -2143,9 +2358,12 @@ pub async fn list_policies(
 /// Get policy by CPID (stub)
 pub async fn get_policy(
     State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view policies
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+
     // Stub - would query database
     Ok(Json(PolicyPackResponse {
         cpid,
@@ -2158,9 +2376,12 @@ pub async fn get_policy(
 /// Validate policy (stub)
 pub async fn validate_policy(
     State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<ValidatePolicyRequest>,
 ) -> Result<Json<PolicyValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Compliance and Admin can validate policies
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyValidate)?;
+
     // Basic JSON validation
     match serde_json::from_str::<serde_json::Value>(&req.content) {
         Ok(_) => Ok(Json(PolicyValidationResponse {
@@ -2178,19 +2399,32 @@ pub async fn validate_policy(
 
 /// Apply policy (stub)
 pub async fn apply_policy(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<ApplyPolicyRequest>,
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Compliance, Role::Admin])?;
+    // Role check: Admin-only (applying policies is a critical operation)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyApply)?;
 
     // Stub - would validate, sign, and store policy
-    Ok(Json(PolicyPackResponse {
-        cpid: req.cpid,
+    let response = PolicyPackResponse {
+        cpid: req.cpid.clone(),
         content: req.content,
         hash_b3: "b3:placeholder".to_string(),
         created_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    };
+
+    // Audit log: policy applied
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::POLICY_APPLY,
+        crate::audit_helper::resources::POLICY,
+        Some(&req.cpid),
+    )
+    .await;
+
+    Ok(Json(response))
 }
 
 /// Sign policy with Ed25519
@@ -2199,7 +2433,8 @@ pub async fn sign_policy(
     Extension(claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<SignPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_role(&claims, Role::Admin)?;
+    // Role check: Admin-only (signing policies is a critical operation)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicySign)?;
 
     // Get or generate signing key for the tenant
     let signing_key_result = sqlx::query_scalar::<_, Option<String>>(
@@ -2269,6 +2504,16 @@ pub async fn sign_policy(
             ));
         }
     };
+
+    // Audit log: policy signed
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::POLICY_SIGN,
+        crate::audit_helper::resources::POLICY,
+        Some(&cpid),
+    )
+    .await;
 
     Ok(Json(SignPolicyResponse {
         cpid: cpid.clone(),
@@ -2765,6 +3010,9 @@ pub async fn infer(
     Extension(claims): Extension<Claims>,
     Json(req): Json<InferRequest>,
 ) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::InferenceExecute)?;
+
     // Validate request
     if req.prompt.is_empty() {
         return Err((
@@ -3404,9 +3652,12 @@ pub async fn create_process_monitoring_report(
 )]
 pub async fn list_adapters(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(query): Query<ListAdaptersQuery>,
 ) -> Result<Json<Vec<AdapterResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: all roles can list adapters
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterList)?;
+
     let adapters = state.db.list_adapters().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -3565,8 +3816,8 @@ pub async fn register_adapter(
     Extension(claims): Extension<Claims>,
     Json(req): Json<RegisterAdapterRequest>,
 ) -> Result<(StatusCode, Json<AdapterResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // Require admin role
-    require_role(&claims, Role::Admin)?;
+    // Role check: Operator and Admin can register adapters
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterRegister)?;
 
     // Validate inputs
     if req.adapter_id.is_empty() || req.name.is_empty() || req.hash_b3.is_empty() {
@@ -3622,11 +3873,21 @@ pub async fn register_adapter(
             )
         })?;
 
+    // Audit log: adapter registration
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_REGISTER,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&req.adapter_id),
+    )
+    .await;
+
     Ok((
         StatusCode::CREATED,
         Json(AdapterResponse {
             id,
-            adapter_id: req.adapter_id,
+            adapter_id: req.adapter_id.clone(),
             name: req.name,
             hash_b3: req.hash_b3,
             rank: req.rank,
@@ -3656,8 +3917,8 @@ pub async fn delete_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Require admin role
-    require_role(&claims, Role::Admin)?;
+    // Role check: Admin-only (destructive operation)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterDelete)?;
 
     state.db.delete_adapter(&adapter_id).await.map_err(|e| {
         (
@@ -3669,6 +3930,16 @@ pub async fn delete_adapter(
             ),
         )
     })?;
+
+    // Audit log: adapter deletion
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_DELETE,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -3691,8 +3962,8 @@ pub async fn load_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    // Role check: Operator, SRE, and Admin can load adapters
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterLoad)?;
 
     // Get adapter from database
     let adapter = state
@@ -3732,6 +4003,19 @@ pub async fn load_adapter(
             )
         })?;
 
+    let expected_hash = parse_hash_b3(&adapter.hash_b3).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("invalid adapter hash")
+                    .with_code("INVALID_HASH")
+                    .with_string_details(format!("{}: {}", adapter.hash_b3, e)),
+            ),
+        )
+    })?;
+    let mut expected_hashes = HashMap::new();
+    expected_hashes.insert(adapter.hash_b3.clone(), expected_hash);
+
     tracing::info!("Loading adapter {} ({})", adapter_id, adapter.name);
 
     // Actually load the adapter using LifecycleManager if available
@@ -3747,7 +4031,7 @@ pub async fn load_adapter(
         use std::path::PathBuf;
 
         let adapters_path = PathBuf::from("./adapters");
-        let mut loader = AdapterLoader::new(adapters_path);
+        let mut loader = AdapterLoader::new(adapters_path, expected_hashes);
 
         match loader
             .load_adapter_async(adapter_idx, &adapter.hash_b3)
@@ -3834,6 +4118,16 @@ pub async fn load_adapter(
         );
     }
 
+    // Audit log: adapter load
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_LOAD,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     // Return the adapter with updated stats
     let (total, selected, avg_gate) = state
         .db
@@ -3867,6 +4161,11 @@ pub async fn load_adapter(
     }))
 }
 
+fn parse_hash_b3(hash_b3: &str) -> Result<B3Hash, String> {
+    let trimmed = hash_b3.strip_prefix("b3:").unwrap_or(hash_b3);
+    B3Hash::from_hex(trimmed).map_err(|e| e.to_string())
+}
+
 /// Unload an adapter from memory
 #[utoipa::path(
     post,
@@ -3885,8 +4184,8 @@ pub async fn unload_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    // Role check: Operator, SRE, and Admin can unload adapters
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterUnload)?;
 
     // Get adapter from database
     let _adapter = state
@@ -3938,7 +4237,7 @@ pub async fn unload_adapter(
         use std::path::PathBuf;
 
         let adapters_path = PathBuf::from("./adapters");
-        let mut loader = AdapterLoader::new(adapters_path);
+        let mut loader = AdapterLoader::new(adapters_path, HashMap::new());
 
         match loader.unload_adapter(adapter_idx) {
             Ok(_) => {
@@ -4013,7 +4312,94 @@ pub async fn unload_adapter(
         );
     }
 
+    // Audit log: adapter unload
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_UNLOAD,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     Ok(StatusCode::OK)
+}
+
+/// Verify GPU buffer integrity for loaded adapters
+///
+/// Performs cryptographic verification that adapter lifecycle metadata matches
+/// actual GPU buffer state through fingerprinting and cross-layer hashing.
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/verify-gpu",
+    params(
+        ("adapter_id" = Option<String>, Query, description = "Specific adapter ID to verify (optional)")
+    ),
+    responses(
+        (status = 200, description = "GPU integrity verification report", body = GpuIntegrityReport),
+        (status = 500, description = "Verification failed", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn verify_gpu_integrity(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<adapteros_lora_lifecycle::GpuIntegrityReport>, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    let adapter_id = params.get("adapter_id").map(|s| s.as_str());
+
+    tracing::info!(
+        adapter_id = ?adapter_id,
+        "GPU integrity verification requested"
+    );
+
+    // Check if Worker is available
+    if let Some(worker) = &state.worker {
+        let report = worker
+            .lock()
+            .await
+            .verify_gpu_integrity()
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("GPU verification failed")
+                            .with_code("VERIFICATION_FAILED")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+        tracing::info!(
+            total_checked = report.total_checked,
+            verified = report.verified.len(),
+            failed = report.failed.len(),
+            skipped = report.skipped.len(),
+            "GPU integrity verification completed"
+        );
+
+        Ok(Json(report))
+    } else {
+        // Worker not available - return empty report with informative message
+        tracing::warn!("GPU verification endpoint called but Worker not available in AppState");
+
+        let report = adapteros_lora_lifecycle::GpuIntegrityReport {
+            verified: vec![],
+            failed: vec![],
+            skipped: vec![],
+            total_checked: 0,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        Ok(Json(report))
+    }
 }
 
 /// Get adapter activations
@@ -4348,8 +4734,11 @@ pub async fn list_repositories(
     )
 )]
 pub async fn get_quality_metrics(
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<QualityMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view metrics
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
+
     // Stub implementation - would compute from telemetry
     Ok(Json(QualityMetricsResponse {
         arr: 0.95,
@@ -4370,8 +4759,11 @@ pub async fn get_quality_metrics(
 )]
 pub async fn get_adapter_metrics(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdapterMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view metrics
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
+
     let adapters = state.db.list_adapters().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -4421,8 +4813,11 @@ pub async fn get_adapter_metrics(
 )]
 pub async fn get_system_metrics(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<SystemMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view metrics
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
+
     use adapteros_system_metrics::SystemMetricsCollector;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -5616,12 +6011,8 @@ pub async fn list_training_jobs(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<TrainingJobResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    // Role check: All roles can view training jobs
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingView)?;
 
     let jobs = state.training_service.list_jobs().await.map_err(|e| {
         (
@@ -5653,12 +6044,8 @@ pub async fn get_training_job(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    // Role check: All roles can view training jobs
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingView)?;
 
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
         (
@@ -5688,18 +6075,14 @@ pub async fn start_training(
     Extension(claims): Extension<Claims>,
     Json(req): Json<StartTrainingRequest>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    // Role check: Operator and Admin can start training
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingStart)?;
 
     let config = req.config.into();
 
     let job = state
         .training_service
-        .start_training(req.adapter_name, config, req.template_id, req.repo_id)
+        .start_training(req.adapter_name.clone(), config, req.template_id, req.repo_id)
         .await
         .map_err(|e| {
             (
@@ -5711,6 +6094,16 @@ pub async fn start_training(
                 ),
             )
         })?;
+
+    // Audit log: training started
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TRAINING_START,
+        crate::audit_helper::resources::TRAINING_JOB,
+        Some(&job.id),
+    )
+    .await;
 
     Ok(Json(job.into()))
 }
@@ -5731,12 +6124,8 @@ pub async fn cancel_training(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    // Role check: Operator and Admin can cancel training
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingCancel)?;
 
     state
         .training_service
@@ -5752,6 +6141,16 @@ pub async fn cancel_training(
                 ),
             )
         })?;
+
+    // Audit log: training cancelled
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TRAINING_CANCEL,
+        crate::audit_helper::resources::TRAINING_JOB,
+        Some(&job_id),
+    )
+    .await;
 
     Ok(StatusCode::OK)
 }
@@ -5772,12 +6171,8 @@ pub async fn get_training_logs(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    // Role check: All roles can view training logs
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingViewLogs)?;
 
     let logs = state
         .training_service
@@ -7355,6 +7750,97 @@ pub async fn get_compliance_audit(
     }))
 }
 
+/// Query audit logs with filtering and pagination
+#[utoipa::path(
+    get,
+    path = "/v1/audit/logs",
+    params(
+        ("user_id" = Option<String>, Query, description = "Filter by user ID"),
+        ("action" = Option<String>, Query, description = "Filter by action"),
+        ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
+        ("resource_id" = Option<String>, Query, description = "Filter by resource ID"),
+        ("status" = Option<String>, Query, description = "Filter by status (success/failure)"),
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("from_time" = Option<String>, Query, description = "Start time (RFC3339)"),
+        ("to_time" = Option<String>, Query, description = "End time (RFC3339)"),
+        ("limit" = Option<usize>, Query, description = "Maximum results (default: 100, max: 1000)"),
+        ("offset" = Option<usize>, Query, description = "Offset for pagination"),
+    ),
+    responses(
+        (status = 200, description = "Audit logs retrieved successfully", body = AuditLogsResponse),
+        (status = 403, description = "Forbidden - requires AuditView permission", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "audit"
+)]
+pub async fn query_audit_logs(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Query(query): axum::extract::Query<crate::types::AuditLogsQuery>,
+) -> Result<Json<crate::types::AuditLogsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Only Admin, SRE, and Compliance can view audit logs
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::AuditView)?;
+
+    // Apply defaults and limits
+    let limit = query.limit.unwrap_or(100).min(1000);
+    let offset = query.offset.unwrap_or(0);
+
+    // Query audit logs from database
+    let logs = state
+        .db
+        .query_audit_logs(
+            query.user_id.as_deref(),
+            query.action.as_deref(),
+            query.resource_type.as_deref(),
+            query.resource_id.as_deref(),
+            query.status.as_deref(),
+            query.tenant_id.as_deref(),
+            query.from_time.as_deref(),
+            query.to_time.as_deref(),
+            Some(limit),
+            Some(offset),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to query audit logs")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Convert AuditLog to AuditLogResponse
+    let log_responses: Vec<crate::types::AuditLogResponse> = logs
+        .iter()
+        .map(|log| crate::types::AuditLogResponse {
+            id: log.id.clone(),
+            timestamp: log.timestamp.clone(),
+            user_id: log.user_id.clone(),
+            user_role: log.user_role.clone(),
+            tenant_id: log.tenant_id.clone(),
+            action: log.action.clone(),
+            resource_type: log.resource_type.clone(),
+            resource_id: log.resource_id.clone(),
+            status: log.status.clone(),
+            error_message: log.error_message.clone(),
+            ip_address: log.ip_address.clone(),
+            metadata_json: log.metadata_json.clone(),
+        })
+        .collect();
+
+    let total = log_responses.len();
+
+    Ok(Json(crate::types::AuditLogsResponse {
+        logs: log_responses,
+        total,
+        limit,
+        offset,
+    }))
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct FederationAuditResponse {
     pub total_hosts: usize,
@@ -7391,4 +7877,264 @@ pub struct ComplianceControl {
     pub last_checked: String,
     pub evidence: Vec<String>,
     pub findings: Vec<String>,
+}
+
+// ============================================================================
+// Semantic Name Validation Endpoints
+// ============================================================================
+
+use adapteros_core::{AdapterName, StackName};
+use adapteros_policy::{
+    AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, StackNameValidation,
+};
+
+/// Request to validate an adapter name
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ValidateAdapterNameRequest {
+    /// Adapter name to validate (format: {tenant}/{domain}/{purpose}/{revision})
+    pub name: String,
+    /// Tenant ID making the request
+    pub tenant_id: String,
+    /// Parent adapter name (if forking/extending)
+    pub parent_name: Option<String>,
+    /// Latest revision number in lineage (if extending)
+    pub latest_revision: Option<u32>,
+}
+
+/// Response for adapter name validation
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ValidateAdapterNameResponse {
+    /// Whether the name is valid
+    pub valid: bool,
+    /// List of validation violations (empty if valid)
+    pub violations: Vec<NameViolationResponse>,
+    /// Parsed adapter name components (if valid)
+    pub parsed: Option<ParsedAdapterName>,
+}
+
+/// Parsed adapter name components
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ParsedAdapterName {
+    pub tenant: String,
+    pub domain: String,
+    pub purpose: String,
+    pub revision: String,
+    pub revision_number: u32,
+    pub base_path: String,
+    pub display_name: String,
+}
+
+/// Name violation details
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct NameViolationResponse {
+    /// Violation type
+    pub violation_type: String,
+    /// Component that violated policy
+    pub component: String,
+    /// Detailed reason
+    pub reason: String,
+    /// Suggested fix
+    pub suggestion: Option<String>,
+}
+
+/// Request to validate a stack name
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ValidateStackNameRequest {
+    /// Stack name to validate (format: stack.{namespace}[.{identifier}])
+    pub name: String,
+    /// Tenant ID making the request
+    pub tenant_id: String,
+}
+
+/// Response for stack name validation
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ValidateStackNameResponse {
+    /// Whether the name is valid
+    pub valid: bool,
+    /// List of validation violations (empty if valid)
+    pub violations: Vec<NameViolationResponse>,
+    /// Parsed stack name components (if valid)
+    pub parsed: Option<ParsedStackName>,
+}
+
+/// Parsed stack name components
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ParsedStackName {
+    pub namespace: String,
+    pub identifier: Option<String>,
+    pub full_name: String,
+}
+
+/// Validate an adapter name
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/validate-name",
+    request_body = ValidateAdapterNameRequest,
+    responses(
+        (status = 200, description = "Validation result", body = ValidateAdapterNameResponse),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "adapters"
+)]
+pub async fn validate_adapter_name(
+    State(state): State<AppState>,
+    Json(req): Json<ValidateAdapterNameRequest>,
+) -> Result<Json<ValidateAdapterNameResponse>, (StatusCode, String)> {
+    // Create naming policy with default config
+    let policy = NamingPolicy::new(NamingConfig::default());
+
+    // Create validation request
+    let validation_req = AdapterNameValidation {
+        name: req.name.clone(),
+        tenant_id: req.tenant_id.clone(),
+        parent_name: req.parent_name.clone(),
+        latest_revision: req.latest_revision,
+    };
+
+    // Analyze the name for violations
+    let violations = policy.analyze_adapter_name(&validation_req);
+
+    // Try to parse the name if no violations
+    let parsed = if violations.is_empty() {
+        AdapterName::parse(&req.name)
+            .ok()
+            .map(|name| ParsedAdapterName {
+                tenant: name.tenant().to_string(),
+                domain: name.domain().to_string(),
+                purpose: name.purpose().to_string(),
+                revision: name.revision().to_string(),
+                revision_number: name.revision_number().unwrap_or(0),
+                base_path: name.base_path().to_string(),
+                display_name: name.display_name().to_string(),
+            })
+    } else {
+        None
+    };
+
+    // Convert violations to response format
+    let violation_responses: Vec<_> = violations
+        .iter()
+        .map(|v| NameViolationResponse {
+            violation_type: format!("{:?}", v.violation_type),
+            component: v.component.clone(),
+            reason: v.reason.clone(),
+            suggestion: v.suggestion.clone(),
+        })
+        .collect();
+
+    Ok(Json(ValidateAdapterNameResponse {
+        valid: violation_responses.is_empty(),
+        violations: violation_responses,
+        parsed,
+    }))
+}
+
+/// Validate a stack name
+#[utoipa::path(
+    post,
+    path = "/v1/stacks/validate-name",
+    request_body = ValidateStackNameRequest,
+    responses(
+        (status = 200, description = "Validation result", body = ValidateStackNameResponse),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "stacks"
+)]
+pub async fn validate_stack_name(
+    State(state): State<AppState>,
+    Json(req): Json<ValidateStackNameRequest>,
+) -> Result<Json<ValidateStackNameResponse>, (StatusCode, String)> {
+    // Create naming policy with default config
+    let policy = NamingPolicy::new(NamingConfig::default());
+
+    // Create validation request
+    let validation_req = StackNameValidation {
+        name: req.name.clone(),
+        tenant_id: req.tenant_id.clone(),
+    };
+
+    // Validate the stack name
+    let result = policy.validate_stack_name(&validation_req);
+
+    // Try to parse the name
+    let parsed = StackName::parse(&req.name).ok().map(|name| ParsedStackName {
+        namespace: name.namespace().to_string(),
+        identifier: name.identifier().map(|s| s.to_string()),
+        full_name: name.to_string(),
+    });
+
+    // Convert error to violation if validation failed
+    let violations = if let Err(e) = result {
+        vec![NameViolationResponse {
+            violation_type: "ValidationError".to_string(),
+            component: req.name.clone(),
+            reason: e.to_string(),
+            suggestion: None,
+        }]
+    } else {
+        vec![]
+    };
+
+    Ok(Json(ValidateStackNameResponse {
+        valid: violations.is_empty(),
+        violations,
+        parsed: if violations.is_empty() { parsed } else { None },
+    }))
+}
+
+/// Get the next revision number for an adapter lineage
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/next-revision/{tenant}/{domain}/{purpose}",
+    params(
+        ("tenant" = String, Path, description = "Tenant namespace"),
+        ("domain" = String, Path, description = "Domain namespace"),
+        ("purpose" = String, Path, description = "Purpose identifier")
+    ),
+    responses(
+        (status = 200, description = "Next revision number", body = NextRevisionResponse),
+        (status = 404, description = "Lineage not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "adapters"
+)]
+pub async fn get_next_revision(
+    State(state): State<AppState>,
+    Path((tenant, domain, purpose)): Path<(String, String, String)>,
+) -> Result<Json<NextRevisionResponse>, (StatusCode, String)> {
+    // Get registry from database
+    let registry = state
+        .registry
+        .as_ref()
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Registry not available".to_string(),
+            )
+        })?;
+
+    // Get next revision number
+    let next_rev = registry
+        .next_revision_number(&tenant, &domain, &purpose)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Format the suggested name
+    let suggested_name = format!("{}/{}/{}/r{:03}", tenant, domain, purpose, next_rev);
+
+    Ok(Json(NextRevisionResponse {
+        next_revision: next_rev,
+        suggested_name,
+        base_path: format!("{}/{}/{}", tenant, domain, purpose),
+    }))
+}
+
+/// Response for next revision query
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct NextRevisionResponse {
+    /// Next revision number
+    pub next_revision: u32,
+    /// Suggested full adapter name
+    pub suggested_name: String,
+    /// Base path (tenant/domain/purpose)
+    pub base_path: String,
 }

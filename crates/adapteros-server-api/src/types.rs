@@ -1635,3 +1635,56 @@ pub struct GitStatusResponse {
     pub staged_files: Vec<String>,
     pub untracked_files: Vec<String>,
 }
+
+// ===== Audit Logs API Types =====
+
+/// Query parameters for audit logs
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AuditLogsQuery {
+    /// Filter by user ID
+    pub user_id: Option<String>,
+    /// Filter by action (e.g., "adapter.register", "training.start")
+    pub action: Option<String>,
+    /// Filter by resource type (e.g., "adapter", "tenant")
+    pub resource_type: Option<String>,
+    /// Filter by resource ID
+    pub resource_id: Option<String>,
+    /// Filter by status ("success" or "failure")
+    pub status: Option<String>,
+    /// Filter by tenant ID
+    pub tenant_id: Option<String>,
+    /// Start time (RFC3339 format)
+    pub from_time: Option<String>,
+    /// End time (RFC3339 format)
+    pub to_time: Option<String>,
+    /// Maximum number of results (default: 100, max: 1000)
+    pub limit: Option<usize>,
+    /// Offset for pagination
+    pub offset: Option<usize>,
+}
+
+/// Single audit log record response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AuditLogResponse {
+    pub id: String,
+    pub timestamp: String,
+    pub user_id: String,
+    pub user_role: String,
+    pub tenant_id: String,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub ip_address: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
+/// Audit logs list response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AuditLogsResponse {
+    pub logs: Vec<AuditLogResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
