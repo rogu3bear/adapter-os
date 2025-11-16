@@ -1,6 +1,6 @@
 //! Adapter lifecycle management commands
 
-use crate::output::OutputWriter;
+use crate::{commands::adapter_train_from_code, output::OutputWriter};
 use adapteros_client::AdapterOSClient;
 use adapteros_core::{AosError, Result};
 use clap::Subcommand;
@@ -452,6 +452,13 @@ pub enum AdapterCommand {
         #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
+
+    /// Train an adapter directly from a repository snapshot
+    #[command(
+        name = "train-from-code",
+        after_help = "Examples:\n  aosctl adapter train-from-code --repo ./my-repo\n  aosctl adapter train-from-code --repo https://github.com/acme/monorepo.git --adapter-id acme_monorepo"
+    )]
+    TrainFromCode(adapter_train_from_code::TrainFromCodeArgs),
 }
 
 /// Get adapter command name for telemetry
@@ -464,6 +471,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Pin { .. } => "adapter_pin".to_string(),
         AdapterCommand::Unpin { .. } => "adapter_unpin".to_string(),
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
+        AdapterCommand::TrainFromCode { .. } => "adapter_train_from_code".to_string(),
     }
 }
 
@@ -477,6 +485,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Pin { tenant, .. } => tenant.clone(),
         AdapterCommand::Unpin { tenant, .. } => tenant.clone(),
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
+        AdapterCommand::TrainFromCode { .. } => None,
     }
 }
 
@@ -518,6 +527,7 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             activate,
             base_url,
         } => directory_upsert(&tenant, &root, &path, activate, &base_url, output).await,
+        AdapterCommand::TrainFromCode(args) => adapter_train_from_code::run(&args, output).await,
     }
 }
 

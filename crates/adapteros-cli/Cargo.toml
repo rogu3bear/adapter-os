@@ -37,6 +37,7 @@ adapteros-trace = { path = "../adapteros-trace" }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
+adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-cdp = { path = "../adapteros-cdp" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
@@ -75,6 +76,9 @@ bytemuck = { workspace = true }
 rand = { workspace = true }
 half = "2.0"
 tokenizers = { workspace = true }
+
+[dev-dependencies]
+git2 = "0.18"
 
 [features]
 experimental-backends = []

@@ -74,6 +74,21 @@ impl QwenTokenizer {
     pub fn eos_token_id(&self) -> u32 {
         self.eos_token_id
     }
+
+    /// Create a tokenizer from an existing tokenizers::Tokenizer instance.
+    ///
+    /// This is primarily intended for tests where we want to avoid loading
+    /// tokenizer JSON files from disk. The token IDs for special tokens
+    /// mirror the defaults used in `from_file`.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn from_tokenizer_instance(tokenizer: Tokenizer) -> Self {
+        Self {
+            tokenizer,
+            eos_token_id: 151645,
+            _im_start_id: 151644,
+            _im_end_id: 151645,
+        }
+    }
 }
 
 #[cfg(test)]

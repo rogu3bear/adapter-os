@@ -9,7 +9,13 @@
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MploraConfig, MploraKernels, RouterRing};
 use metal::*;
-use std::sync::Arc;
+use safetensors::{tensor::TensorView, Dtype, SafeTensors};
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, RwLock,
+};
 
 /// MPLoRA Metal kernel implementation
 pub struct MploraKernel {
@@ -19,6 +25,26 @@ pub struct MploraKernel {
     shared_downsample_buffer: Option<Buffer>,
     orthogonal_history_buffer: Option<Buffer>,
     compression_buffer: Option<Buffer>,
+    loaded_adapters: RwLock<HashMap<u16, LoadedAdapter>>,
+    gpu_memory_bytes: AtomicU64,
+}
+
+#[derive(Debug)]
+struct AdapterModuleBuffers {
+    lora_a: Buffer,
+    lora_b: Buffer,
+    input_dim: usize,
+    output_dim: usize,
+    rank: usize,
+}
+
+#[derive(Debug)]
+struct LoadedAdapter {
+    id: u16,
+    alpha: f32,
+    rank: usize,
+    total_bytes: u64,
+    modules: HashMap<String, AdapterModuleBuffers>,
 }
 
 impl MploraKernel {
@@ -48,6 +74,8 @@ impl MploraKernel {
             shared_downsample_buffer: None,
             orthogonal_history_buffer: None,
             compression_buffer: None,
+            loaded_adapters: RwLock::new(HashMap::new()),
+            gpu_memory_bytes: AtomicU64::new(0),
         })
     }
 
@@ -87,6 +115,175 @@ impl MploraKernel {
                 .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared),
         );
         Ok(())
+    }
+
+    fn parse_matrix_shape(label: &str, tensor: &TensorView) -> Result<(usize, usize)> {
+        let shape = tensor.shape();
+        if shape.len() != 2 {
+            return Err(AosError::Kernel(format!(
+                "Tensor {} expected rank 2, got {:?}",
+                label, shape
+            )));
+        }
+
+        Ok((shape[0] as usize, shape[1] as usize))
+    }
+
+    fn tensor_to_f32_vec(tensor: &TensorView, label: &str) -> Result<Vec<f32>> {
+        match tensor.dtype() {
+            Dtype::F32 => {
+                let data = tensor.data();
+                let elem_size = std::mem::size_of::<f32>();
+                if data.len() % elem_size != 0 {
+                    return Err(AosError::Kernel(format!(
+                        "Tensor {} size {} is not aligned to f32 ({} bytes)",
+                        label,
+                        data.len(),
+                        elem_size
+                    )));
+                }
+
+                let mut values = vec![0f32; data.len() / elem_size];
+                for (idx, chunk) in data.chunks_exact(elem_size).enumerate() {
+                    values[idx] = f32::from_le_bytes(chunk.try_into().expect("chunk exact"));
+                }
+                Ok(values)
+            }
+            other => Err(AosError::Kernel(format!(
+                "Tensor {} must be f32, got {:?}",
+                label, other
+            ))),
+        }
+    }
+
+    fn prepare_adapter(&self, adapter_id: u16, weights: &[u8]) -> Result<LoadedAdapter> {
+        let safetensors = SafeTensors::deserialize(weights).map_err(|err| {
+            AosError::Kernel(format!(
+                "Adapter {} weights are not valid safetensors: {}",
+                adapter_id, err
+            ))
+        })?;
+
+        let mut module_names: Vec<String> = safetensors
+            .names()
+            .iter()
+            .filter_map(|name| name.strip_prefix("lora_a.").map(|m| m.to_string()))
+            .collect();
+        module_names.sort();
+        module_names.dedup();
+
+        if module_names.is_empty() {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} contains no lora_a.* tensors",
+                adapter_id
+            )));
+        }
+
+        let mut modules = HashMap::new();
+        let mut total_bytes = 0u64;
+        let mut detected_rank: Option<usize> = None;
+
+        for module in module_names.iter() {
+            let a_label = format!("lora_a.{}", module);
+            let b_label = format!("lora_b.{}", module);
+
+            let a_tensor = safetensors.tensor(&a_label).map_err(|err| {
+                AosError::Kernel(format!(
+                    "Adapter {} missing tensor {}: {}",
+                    adapter_id, a_label, err
+                ))
+            })?;
+            let b_tensor = safetensors.tensor(&b_label).map_err(|err| {
+                AosError::Kernel(format!(
+                    "Adapter {} missing tensor {}: {}",
+                    adapter_id, b_label, err
+                ))
+            })?;
+
+            let (rank_rows, input_dim) = Self::parse_matrix_shape(&a_label, &a_tensor)?;
+            let (output_dim, rank_cols) = Self::parse_matrix_shape(&b_label, &b_tensor)?;
+
+            if rank_rows == 0 || rank_cols == 0 {
+                return Err(AosError::Kernel(format!(
+                    "Adapter {} module {} has zero-sized matrices",
+                    adapter_id, module
+                )));
+            }
+
+            if rank_rows != rank_cols {
+                return Err(AosError::Kernel(format!(
+                    "Adapter {} module {} rank mismatch: A has {}, B has {}",
+                    adapter_id, module, rank_rows, rank_cols
+                )));
+            }
+
+            let a_values = Self::tensor_to_f32_vec(&a_tensor, &a_label)?;
+            let b_values = Self::tensor_to_f32_vec(&b_tensor, &b_label)?;
+
+            let a_buffer = self.device.new_buffer_with_data(
+                a_values.as_ptr() as *const std::ffi::c_void,
+                (a_values.len() * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            );
+            let b_buffer = self.device.new_buffer_with_data(
+                b_values.as_ptr() as *const std::ffi::c_void,
+                (b_values.len() * std::mem::size_of::<f32>()) as u64,
+                MTLResourceOptions::StorageModeShared,
+            );
+
+            total_bytes += a_buffer.length();
+            total_bytes += b_buffer.length();
+
+            modules.insert(
+                module.clone(),
+                AdapterModuleBuffers {
+                    lora_a: a_buffer,
+                    lora_b: b_buffer,
+                    input_dim,
+                    output_dim,
+                    rank: rank_rows,
+                },
+            );
+
+            if let Some(existing_rank) = detected_rank {
+                if existing_rank != rank_rows {
+                    return Err(AosError::Kernel(format!(
+                        "Adapter {} has inconsistent ranks ({} vs {})",
+                        adapter_id, existing_rank, rank_rows
+                    )));
+                }
+            } else {
+                detected_rank = Some(rank_rows);
+            }
+        }
+
+        let alpha = safetensors
+            .metadata()
+            .and_then(|meta| meta.get("alpha"))
+            .and_then(|value| value.parse::<f32>().ok())
+            .unwrap_or(1.0);
+
+        let rank = detected_rank.unwrap_or(0);
+        if rank == 0 {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} resolved to rank 0",
+                adapter_id
+            )));
+        }
+
+        Ok(LoadedAdapter {
+            id: adapter_id,
+            alpha,
+            rank,
+            total_bytes,
+            modules,
+        })
+    }
+
+    fn synchronize_queue(&self) {
+        let fence = self.command_queue.new_command_buffer();
+        fence.commit();
+        fence.wait_until_completed();
     }
 }
 
@@ -144,15 +341,84 @@ impl FusedKernels for MploraKernel {
     }
 
     /// Load adapter at runtime (hot-swap)
-    fn load_adapter(&mut self, _adapter_id: u16, _weights: &[u8]) -> Result<()> {
-        // Metal adapters are loaded via shared memory
+    fn load_adapter(&mut self, adapter_id: u16, weights: &[u8]) -> Result<()> {
+        // Ensure any in-flight command buffers complete before mutating state
+        self.synchronize_queue();
+
+        let prepared = self.prepare_adapter(adapter_id, weights)?;
+        let adapter_bytes = prepared.total_bytes;
+        let module_count = prepared.modules.len();
+        let rank = prepared.rank;
+        let alpha = prepared.alpha;
+
+        {
+            let mut guard = self
+                .loaded_adapters
+                .write()
+                .expect("loaded adapter map poisoned");
+            if let Some(previous) = guard.insert(adapter_id, prepared) {
+                self.gpu_memory_bytes
+                    .fetch_sub(previous.total_bytes, Ordering::SeqCst);
+                tracing::debug!(
+                    adapter_id,
+                    previous_rank = previous.rank,
+                    "Replacing previously loaded adapter"
+                );
+            }
+        }
+
+        self.gpu_memory_bytes
+            .fetch_add(adapter_bytes, Ordering::SeqCst);
+
+        // Barrier after uploading to guarantee deterministic visibility
+        self.synchronize_queue();
+
+        tracing::info!(
+            adapter_id,
+            modules = module_count,
+            rank,
+            alpha,
+            bytes = adapter_bytes,
+            gpu_bytes = self.gpu_memory_bytes.load(Ordering::SeqCst),
+            "Hot-loaded adapter into Metal kernel"
+        );
+
         Ok(())
     }
 
     /// Unload adapter
-    fn unload_adapter(&mut self, _adapter_id: u16) -> Result<()> {
-        // Metal adapters are managed via shared memory
-        Ok(())
+    fn unload_adapter(&mut self, adapter_id: u16) -> Result<()> {
+        // Drain outstanding work before mutating adapter map
+        self.synchronize_queue();
+
+        let removed = {
+            let mut guard = self
+                .loaded_adapters
+                .write()
+                .expect("loaded adapter map poisoned");
+            guard.remove(&adapter_id)
+        };
+
+        match removed {
+            Some(adapter) => {
+                self.gpu_memory_bytes
+                    .fetch_sub(adapter.total_bytes, Ordering::SeqCst);
+
+                self.synchronize_queue();
+
+                tracing::info!(
+                    adapter_id,
+                    bytes = adapter.total_bytes,
+                    gpu_bytes = self.gpu_memory_bytes.load(Ordering::SeqCst),
+                    "Unloaded adapter from Metal kernel"
+                );
+                Ok(())
+            }
+            None => Err(AosError::Kernel(format!(
+                "Adapter {} not loaded",
+                adapter_id
+            ))),
+        }
     }
 }
 

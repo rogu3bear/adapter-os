@@ -5,10 +5,12 @@ use tracing::{debug, info, warn};
 
 pub mod api;
 pub mod db;
+pub mod service_control;
 pub mod types;
 
 use api::{AdapterInfo, ApiClient};
 use db::{DbClient, DbStatsSummary};
+use service_control::ServiceControl;
 use types::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,9 +27,6 @@ pub enum Screen {
 pub enum Mode {
     Normal,
     ServiceSelect,
-    LogView,
-    ConfigEdit,
-    Confirmation,
 }
 
 pub struct App {
@@ -45,7 +44,6 @@ pub struct App {
     // Live data
     pub metrics: SystemMetrics,
     pub recent_logs: Vec<LogEntry>,
-    pub alerts: Vec<Alert>,
     pub adapters: Vec<AdapterInfo>,
     pub db_stats: DbStatsSummary,
 
@@ -58,18 +56,24 @@ pub struct App {
     pub confirmation_message: Option<String>,
     pub error_message: Option<String>,
     pub last_update: Instant,
+    pub last_prereq_check: Instant,
+    pub setup_state: SetupState,
 
     // API Client
     api_client: ApiClient,
 
     // Database Client
     db_client: DbClient,
+
+    service_control: ServiceControl,
 }
 
 impl App {
     pub async fn new() -> Result<Self> {
         let api_client = ApiClient::new("http://localhost:3300".to_string())?;
         let db_client = DbClient::new().await?;
+        let service_control = ServiceControl::new()?;
+        let setup_state = SetupState::new(service_control.missing_prereqs());
 
         Ok(Self {
             current_screen: Screen::Dashboard,
@@ -85,10 +89,7 @@ impl App {
             },
 
             system_status: SystemStatus {
-                uptime: Duration::from_secs(0),
                 cpu_percent: 0.0,
-                memory_percent: 0.0,
-                disk_percent: 0.0,
                 network_rx_mbps: 0.0,
                 network_tx_mbps: 0.0,
             },
@@ -128,7 +129,6 @@ impl App {
 
             metrics: SystemMetrics::default(),
             recent_logs: Vec::new(),
-            alerts: Vec::new(),
             adapters: Vec::new(),
             db_stats: DbStatsSummary {
                 total_adapters: 0,
@@ -145,9 +145,13 @@ impl App {
             confirmation_message: None,
             error_message: None,
             last_update: Instant::now(),
+            last_prereq_check: Instant::now(),
+            setup_state,
 
             api_client,
             db_client,
+
+            service_control,
         })
     }
 
@@ -158,6 +162,19 @@ impl App {
         }
 
         self.last_update = Instant::now();
+
+        if self.last_prereq_check.elapsed() > Duration::from_secs(10) {
+            self.setup_state.missing_prereqs = self.service_control.missing_prereqs();
+            self.last_prereq_check = Instant::now();
+        }
+
+        if let Ok(health) = self.api_client.get_health().await {
+            let status = health.status.to_lowercase();
+            self.setup_state.infrastructure_online =
+                matches!(status.as_str(), "healthy" | "ready" | "running" | "online");
+        } else {
+            self.setup_state.infrastructure_online = false;
+        }
 
         // Try to fetch real data from API
         if let Ok(metrics) = self.api_client.get_metrics().await {
@@ -257,7 +274,6 @@ impl App {
                     self.selected_menu_item -= 1;
                 }
             }
-            _ => {}
         }
     }
 
@@ -273,7 +289,6 @@ impl App {
                     self.selected_menu_item += 1;
                 }
             }
-            _ => {}
         }
     }
 
@@ -317,11 +332,6 @@ impl App {
                 self.boot_single_service(self.selected_service).await?;
                 self.current_mode = Mode::Normal;
             }
-            Mode::Confirmation => {
-                self.confirmation_message = None;
-                self.current_mode = Mode::Normal;
-            }
-            _ => {}
         }
         Ok(())
     }
@@ -338,7 +348,7 @@ impl App {
 
     pub fn on_escape(&mut self) {
         match self.current_mode {
-            Mode::ServiceSelect | Mode::LogView | Mode::ConfigEdit | Mode::Confirmation => {
+            Mode::ServiceSelect => {
                 self.current_mode = Mode::Normal;
             }
             Mode::Normal => {
@@ -382,12 +392,41 @@ impl App {
             service.message = "Starting...".to_string();
         }
 
-        // Actually call API to start services
-        if let Err(e) = self.api_client.start_all_services().await {
-            warn!("Failed to start all services: {}", e);
-            self.error_message = Some(format!("Failed to start services: {}", e));
-        } else {
-            self.confirmation_message = Some("Services starting...".to_string());
+        match self.api_client.start_all_services().await {
+            Ok(_) => {
+                self.confirmation_message = Some("Services starting...".to_string());
+            }
+            Err(api_error) => {
+                warn!(error = %api_error, "Failed to start services via API");
+                self.error_message =
+                    Some(format!("Failed to start services via API: {}", api_error));
+
+                if self.setup_state.missing_prereqs.is_empty() {
+                    match self.service_control.start_all_services().await {
+                        Ok(result) => {
+                            self.setup_state.set_last_action(
+                                format!("Executed {}", result.command),
+                                result.combined_output(),
+                            );
+                            self.confirmation_message =
+                                Some("Launching AdapterOS stack locally...".to_string());
+                            self.error_message = None;
+                        }
+                        Err(launch_error) => {
+                            warn!(error = %launch_error, "Local launch failed");
+                            self.error_message = Some(format!(
+                                "Failed to launch services locally: {}",
+                                launch_error
+                            ));
+                        }
+                    }
+                } else {
+                    self.error_message = Some(format!(
+                        "Setup incomplete. Resolve prerequisites before launching: {}",
+                        self.setup_state.missing_prereqs.join("; ")
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -413,6 +452,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn stop_service(&mut self, index: usize) -> Result<()> {
         if let Some(service) = self.services.get_mut(index) {
             let service_name = service.name.clone();
@@ -432,6 +472,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn restart_service(&mut self, index: usize) -> Result<()> {
         if let Some(service) = self.services.get_mut(index) {
             let service_name = service.name.clone();

@@ -20,6 +20,7 @@ use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
 
 use crate::generation::Generator;
@@ -81,6 +82,23 @@ pub struct InferenceResponse {
     pub latency_ms: u64,
     /// Trace for reproducibility
     pub trace: InferenceTrace,
+}
+
+/// Streaming chunk emitted during inference
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StreamingChunk {
+    /// Control plane identifier for trace correlation
+    pub cpid: String,
+    /// Sampled token identifier
+    pub token: u32,
+    /// Absolute position of the token in the sequence
+    pub position: usize,
+    /// Decoded text fragment for this token
+    pub text: String,
+    /// Total generated tokens (excluding prompt) after emitting this chunk
+    pub cumulative_tokens: usize,
+    /// Elapsed time in milliseconds since inference start
+    pub elapsed_ms: u64,
 }
 
 /// Trace information for reproducible inference
@@ -168,89 +186,18 @@ impl InferencePipeline {
         config: InferencePipelineConfig,
         global_seed: adapteros_core::B3Hash,
     ) -> Result<Self> {
-        // Validate backend determinism before constructing pipeline
-        let report = kernels.attest_determinism()?;
-        // Create policy validator from manifest config
-        let determinism_validator = adapteros_policy::packs::determinism::DeterminismPolicy::new(
-            adapteros_policy::packs::determinism::DeterminismConfig {
-                require_metallib_embed: policy.determinism_policy().require_metallib_embed,
-                require_kernel_hash_match: policy.determinism_policy().require_kernel_hash_match,
-                rng: adapteros_policy::packs::determinism::RngSeedingMethod::HkdfSeeded,
-                retrieval_tie_break: vec![],
-                epsilon_bounds: adapteros_policy::packs::determinism::EpsilonBounds {
-                    logits_epsilon: 1e-6,
-                    embeddings_epsilon: 1e-5,
-                    attention_epsilon: 1e-6,
-                    gates_epsilon: 1e-4,
-                },
-                toolchain_requirements:
-                    adapteros_policy::packs::determinism::ToolchainRequirements {
-                        rust_version: "1.75.0".to_string(),
-                        metal_sdk_version: "3.0".to_string(),
-                        kernel_compiler_version: "1.0".to_string(),
-                        allowed_compiler_flags: vec!["-O2".to_string(), "-ffast-math".to_string()],
-                    },
-                min_router_entropy: 0.1,
-            },
-        );
-        determinism_validator.validate_backend_attestation(&report)?;
-
-        if !policy.determinism_policy().require_metallib_embed {
-            tracing::warn!("Metallib embed requirement disabled in policy");
-        }
-        if !policy.determinism_policy().require_kernel_hash_match {
-            tracing::warn!("Kernel hash match requirement disabled in policy");
-        }
-
-        info!("Backend determinism validated: {}", report.summary());
-
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
-
-        // Derive seeds hierarchically from global seed
-        let worker_seed_bytes = adapteros_core::derive_seed(&global_seed, "worker");
-        let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
-        let inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "inference");
-        let pre_inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "pre_inference");
-        let post_inference_seed_bytes =
-            adapteros_core::derive_seed(&B3Hash::from_bytes(worker_seed_bytes), "post_inference");
-
-        // Convert to B3Hash for storage
-        let worker_seed = B3Hash::from_bytes(worker_seed_bytes);
-        let router_seed = B3Hash::from_bytes(router_seed_bytes);
-        let inference_seed = B3Hash::from_bytes(inference_seed_bytes);
-        let pre_inference_seed = B3Hash::from_bytes(pre_inference_seed_bytes);
-        let post_inference_seed = B3Hash::from_bytes(post_inference_seed_bytes);
-
-        // Create deterministic generator with inference seed
-        let generator = Generator::new(inference_seed_bytes)
-            .with_temperature(config.temperature)
-            .with_top_k(config.top_k.unwrap_or(50))
-            .with_top_p(config.top_p.unwrap_or(0.9));
-
-        // Initialize quarantine manager
         let quarantine_manager = Arc::new(Mutex::new(QuarantineManager::new()));
-
-        Ok(Self {
+        Self::build_with_tokenizer(
             tokenizer,
-            generator,
             router,
             kernels,
             policy,
             telemetry,
             config,
             quarantine_manager,
-            prior_context: None,
-            recent_logits: Vec::new(),
-            entropy_window: 8,
-            determinism_validator,
-            worker_seed,
-            router_seed,
-            inference_seed,
-            pre_inference_seed,
-            post_inference_seed,
-        })
+            global_seed,
+        )
     }
 
     /// Create new inference pipeline with quarantine manager
@@ -258,6 +205,52 @@ impl InferencePipeline {
     pub fn with_quarantine(
         tokenizer_path: &Path,
         router: Router,
+        kernels: Box<dyn FusedKernels>,
+        policy: PolicyEngine,
+        telemetry: TelemetryWriter,
+        config: InferencePipelineConfig,
+        quarantine_manager: Arc<Mutex<QuarantineManager>>,
+        global_seed: adapteros_core::B3Hash,
+    ) -> Result<Self> {
+        let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
+        Self::build_with_tokenizer(
+            tokenizer,
+            router,
+            kernels,
+            policy,
+            telemetry,
+            config,
+            quarantine_manager,
+            global_seed,
+        )
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn new_with_tokenizer(
+        tokenizer: QwenTokenizer,
+        router: Router,
+        kernels: Box<dyn FusedKernels>,
+        policy: PolicyEngine,
+        telemetry: TelemetryWriter,
+        config: InferencePipelineConfig,
+        quarantine_manager: Arc<Mutex<QuarantineManager>>,
+        global_seed: adapteros_core::B3Hash,
+    ) -> Result<Self> {
+        Self::build_with_tokenizer(
+            tokenizer,
+            router,
+            kernels,
+            policy,
+            telemetry,
+            config,
+            quarantine_manager,
+            global_seed,
+        )
+    }
+
+    fn build_with_tokenizer(
+        tokenizer: QwenTokenizer,
+        mut router: Router,
         kernels: Box<dyn FusedKernels>,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
@@ -301,8 +294,6 @@ impl InferencePipeline {
 
         info!("Backend determinism validated: {}", report.summary());
 
-        let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
-
         // Derive seeds hierarchically from global seed
         let worker_seed_bytes = adapteros_core::derive_seed(&global_seed, "worker");
         let router_seed_bytes = adapteros_core::derive_seed(&global_seed, "router");
@@ -325,6 +316,11 @@ impl InferencePipeline {
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
             .with_top_p(config.top_p.unwrap_or(0.9));
+
+        // Ensure router knows adapter count if determinable from priors later
+        if router.adapter_count().is_none() {
+            router.set_k(router.get_k());
+        }
 
         Ok(Self {
             tokenizer,

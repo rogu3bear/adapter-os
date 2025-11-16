@@ -18,6 +18,7 @@ use adapteros_telemetry::TelemetryWriter;
 use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
 use tracing::{debug, info, warn};
@@ -240,6 +241,17 @@ impl MicroLoRATrainer {
         result: &SeparatedTrainingResult,
         output_path: &Path,
     ) -> Result<()> {
+        self.save_as_aos_package_with_metadata(result, output_path, &HashMap::new())
+            .await
+    }
+
+    /// Save a separated training result as a `.aos` package with custom metadata.
+    pub async fn save_as_aos_package_with_metadata(
+        &self,
+        result: &SeparatedTrainingResult,
+        output_path: &Path,
+        metadata: &HashMap<String, String>,
+    ) -> Result<()> {
         let positive_group =
             Self::build_weight_group(&result.positive_result, WeightGroupType::Positive);
         let negative_group =
@@ -276,6 +288,10 @@ impl MicroLoRATrainer {
         )?;
 
         adapter.manifest.weight_groups = self.config.weight_group_config.clone();
+        adapter
+            .manifest
+            .metadata
+            .extend(metadata.clone().into_iter());
 
         SingleFileAdapterPackager::save(&adapter, output_path)
             .await

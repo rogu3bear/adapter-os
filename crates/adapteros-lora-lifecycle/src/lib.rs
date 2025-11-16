@@ -10,12 +10,13 @@ use adapteros_aos::HotSwapManager;
 use adapteros_core::{AosError, Result};
 use adapteros_db::{sqlx, Db};
 use adapteros_deterministic_exec::spawn_deterministic;
-use adapteros_manifest::Policies;
+use adapteros_manifest::{AdapterStack, Policies};
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
 use adapteros_single_file_adapter::MmapAdapterLoader;
 use adapteros_telemetry::{MetricsCollector, TelemetryWriter};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,6 +98,24 @@ impl Default for LazyLoadMetrics {
     }
 }
 
+/// Current status of a configured adapter stack
+#[derive(Debug, Clone)]
+pub struct AdapterStackStatus {
+    pub name: String,
+    pub description: Option<String>,
+    pub adapters: Vec<String>,
+    pub active: bool,
+}
+
+/// Active stack metadata propagated to router orchestration
+#[derive(Debug, Clone)]
+pub struct ActiveStackInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub adapters: Vec<String>,
+    pub activated_at: std::time::SystemTime,
+}
+
 pub mod activation_tracker;
 pub mod category_policies;
 pub mod loader;
@@ -129,6 +148,12 @@ pub struct LifecycleManager {
     db: Option<Db>,
     /// Rolling activation tracker fed by router decisions
     activation_tracker: Arc<RwLock<ActivationTracker>>,
+    /// Adapter catalog in manifest order
+    adapter_catalog: Arc<RwLock<Vec<String>>>,
+    /// Configured named adapter stacks
+    stack_definitions: Arc<RwLock<HashMap<String, StackDefinition>>>,
+    /// Currently active adapter stack if any
+    active_stack: Arc<RwLock<Option<ActiveStackInternal>>>,
     /// Optional: mmap-based .aos adapter loader
     mmap_loader: Option<Arc<tokio::sync::Mutex<MmapAdapterLoader>>>,
     /// Optional: hot-swap manager for zero-downtime updates

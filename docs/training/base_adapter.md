@@ -55,6 +55,29 @@ The xtask now prints dataset composition (positive/negative counts, token totals
 
 The defaults align with MasterPlan Layer 2 requirements (rank=16, alpha=32, hidden_dim=3584). After completion the packaged adapter lives in `adapters/code_lang_v1/` and includes a safetensors weights file, manifest, and signature.
 
+## Train Directly From a Codebase
+
+When you want project-specific expertise without curating JSONL files, use the automated ingestion pipeline:
+
+```bash
+aosctl adapter train-from-code \
+  --repo ./path/to/repo \
+  --adapter-id tenant_repo_adapter \
+  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
+  --output-dir adapters \
+  --rank 8 --hidden-dim 512 --epochs 2
+```
+
+The command:
+
+1. Uses `adapteros-codegraph` to parse the repository and extract public symbols/docstrings.
+2. Builds positive Q&A pairs for documented APIs plus negative abstention samples for undocumented helpers.
+3. Feeds the encoded dataset into the deterministic `MicroLoRATrainer::train_separated` pipeline.
+4. Packages the result as a `.aos` bundle (via `SingleFileAdapterPackager`) and records repo/commit metadata inside the manifest.
+5. Registers the adapter in the local registry unless `--skip-register` is provided (the existing row is reused if the hash matches).
+
+You can point `--repo` at a local path or any git URL. All runs are deterministic: the adapter hash is derived from the commit, dataset hash, and training hyperparameters, so rerunning on the same commit yields the same `.aos` artifact.
+
 ## 4. Update Deployment Manifest
 
 1. Compute the BLAKE3 hash of `weights.safetensors` (the xtask command prints it).

@@ -9,10 +9,11 @@ pub mod orthogonal;
 pub mod path_routing;
 pub mod scoring;
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use adapteros_telemetry::TelemetryWriter;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
+use std::collections::HashMap;
 
 pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
@@ -180,6 +181,19 @@ pub struct Router {
     shared_downsample: bool,
     /// Deterministic sampling seed for telemetry
     seed: [u8; 32],
+    /// Adapter IDs known to the router in manifest order
+    adapter_catalog: Vec<String>,
+    /// Lookup for adapter IDs to manifest index
+    adapter_lookup: HashMap<String, usize>,
+    /// Optional active stack filter
+    active_stack: Option<StackFilter>,
+}
+
+#[derive(Debug, Clone)]
+struct StackFilter {
+    name: String,
+    adapter_ids: Vec<String>,
+    indices: Vec<usize>,
 }
 
 impl Router {
@@ -199,6 +213,9 @@ impl Router {
             compression_ratio: 0.8,
             shared_downsample: false,
             seed: [0u8; 32],
+            adapter_catalog: Vec::new(),
+            adapter_lookup: HashMap::new(),
+            active_stack: None,
         }
     }
 
@@ -209,6 +226,74 @@ impl Router {
         r.adapter_count = Some(weights.len());
         r.seed = seed;
         r
+    }
+
+    /// Provide adapter identifiers in manifest order for stack filtering
+    pub fn set_adapter_catalog(&mut self, adapter_ids: Vec<String>) {
+        self.adapter_lookup.clear();
+        for (idx, adapter_id) in adapter_ids.iter().enumerate() {
+            self.adapter_lookup.insert(adapter_id.clone(), idx);
+        }
+        self.adapter_catalog = adapter_ids;
+        self.adapter_count = Some(self.adapter_catalog.len());
+
+        // Re-apply active stack filter if present so indices stay aligned
+        if let Some(active) = self.active_stack.clone() {
+            if let Err(err) = self.activate_stack(&active.name, &active.adapter_ids) {
+                tracing::warn!(
+                    stack = %active.name,
+                    error = %err,
+                    "Active stack no longer valid after catalog update; clearing filter"
+                );
+                self.active_stack = None;
+            }
+        }
+    }
+
+    /// Activate a named stack by adapter IDs
+    pub fn activate_stack(&mut self, name: &str, adapter_ids: &[String]) -> Result<()> {
+        if self.adapter_catalog.is_empty() {
+            return Err(AosError::Config(
+                "Adapter catalog must be configured before activating a stack".to_string(),
+            ));
+        }
+
+        if adapter_ids.is_empty() {
+            return Err(AosError::Config(
+                "Adapter stack must contain at least one adapter".to_string(),
+            ));
+        }
+
+        let mut indices = Vec::with_capacity(adapter_ids.len());
+        for adapter_id in adapter_ids {
+            if let Some(idx) = self.adapter_lookup.get(adapter_id) {
+                indices.push(*idx);
+            } else {
+                return Err(AosError::Config(format!(
+                    "Stack {} references unknown adapter {}",
+                    name, adapter_id
+                )));
+            }
+        }
+        indices.sort_unstable();
+        indices.dedup();
+
+        self.active_stack = Some(StackFilter {
+            name: name.to_string(),
+            adapter_ids: adapter_ids.to_vec(),
+            indices,
+        });
+        Ok(())
+    }
+
+    /// Clear the active stack filter
+    pub fn clear_stack(&mut self) {
+        self.active_stack = None;
+    }
+
+    /// Return the currently active stack name if present
+    pub fn active_stack_name(&self) -> Option<&str> {
+        self.active_stack.as_ref().map(|s| s.name.as_str())
     }
 
     /// Set telemetry writer
@@ -337,6 +422,13 @@ impl Router {
             .map(|(i, &prior)| (i, prior))
             .collect();
 
+        if !self.restrict_scores_to_stack(&mut scores) {
+            return Decision {
+                indices: SmallVec::new(),
+                gates_q15: SmallVec::new(),
+            };
+        }
+
         // Sort by score descending, then by index for determinism
         scores.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
@@ -435,6 +527,15 @@ impl Router {
             .enumerate()
             .map(|(i, &prior)| (i, prior))
             .collect();
+
+        if !self.restrict_scores_to_stack(&mut scores) {
+            // Log k0 event because filter removed all adapters
+            let _ = self.log_k0_event("stack_filtered_all_adapters", features);
+            return Decision {
+                indices: SmallVec::new(),
+                gates_q15: SmallVec::new(),
+            };
+        }
 
         // Check if any adapter qualifies (score > threshold)
         let qualifying_count = scores.iter().filter(|(_, score)| *score > 0.1).count();
@@ -665,6 +766,22 @@ impl Router {
     /// Report adapter count if known
     pub fn adapter_count(&self) -> Option<usize> {
         self.adapter_count
+    }
+}
+
+impl Router {
+    fn restrict_scores_to_stack(&self, scores: &mut Vec<(usize, f32)>) -> bool {
+        if let Some(stack) = &self.active_stack {
+            scores.retain(|(idx, _)| stack.indices.binary_search(idx).is_ok());
+            if scores.is_empty() {
+                tracing::warn!(
+                    stack = %stack.name,
+                    "Active adapter stack filtered out all candidates"
+                );
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -904,6 +1021,38 @@ mod tests {
             (total - 1.0).abs() < 0.001,
             "Default weights should sum to 1.0, got {}",
             total
+        );
+    }
+
+    #[test]
+    fn test_stack_filter_limits_candidates() {
+        let mut router = Router::new(vec![1.0; 4], 2, 1.0, 0.02, [0u8; 32]);
+        router.set_adapter_catalog(vec![
+            "alpha".to_string(),
+            "beta".to_string(),
+            "gamma".to_string(),
+            "delta".to_string(),
+        ]);
+
+        let stack_ids = vec!["beta".to_string(), "delta".to_string()];
+        router
+            .activate_stack("beta-delta", &stack_ids)
+            .expect("stack activation should succeed");
+
+        let priors = vec![0.9, 0.8, 0.7, 0.6];
+        let decision = router.route(&[], &priors);
+
+        assert!(
+            decision.indices.iter().all(|idx| *idx == 1 || *idx == 3),
+            "only adapters within stack should be selected, got {:?}",
+            decision.indices
+        );
+
+        router.clear_stack();
+        let decision2 = router.route(&[], &priors);
+        assert!(
+            decision2.indices.iter().any(|idx| *idx == 0),
+            "without stack filter, highest-priority adapter should be selected"
         );
     }
 

@@ -34,6 +34,7 @@ members = [
     "crates/adapteros-chat",
     "crates/adapteros-metrics-exporter",
     "crates/adapteros-metrics-collector",
+    "crates/adapteros-ingest-docs",
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
     "crates/adapteros-lora-lifecycle",
@@ -202,7 +203,13 @@ lto = "thin"  # Changed from "fat" (true) for faster compilation
 codegen-units = 16  # Changed from 1 for parallel compilation
 strip = "symbols"  # Strip symbols but preserve UUID load commands
 
+[profile.release.package."mplora-fuzz"]
+opt-level = 3
+
 [profile.dev]
+opt-level = 0
+
+[profile.dev.package."mplora-fuzz"]
 opt-level = 0
 
 [profile.test]

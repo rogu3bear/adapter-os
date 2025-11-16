@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod adapter_info;
 pub mod adapter_swap;
+pub mod adapter_train_from_code;
 pub mod audit;
 pub mod audit_determinism;
 pub mod baseline;
