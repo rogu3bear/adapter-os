@@ -2,12 +2,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers::batch;
-use adapteros_server_api::state::{
-    ApiConfig, AppState, MetricsConfig, OperationRetryConfig, RepositoryPathsConfig, SecurityConfig,
-};
+use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
 use adapteros_server_api::types::{
     BatchInferItemRequest, BatchInferRequest, InferRequest, WorkerInferRequest,
 };
@@ -55,53 +52,18 @@ async fn setup_state(uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
         metrics: MetricsConfig {
             enabled: false,
             bearer_token: String::new(),
-            system_metrics_interval_secs: 0,
-            telemetry_buffer_capacity: 1000,
-            telemetry_channel_capacity: 100,
-            trace_buffer_capacity: 100,
-            server_port: 9090,
-            server_enabled: false,
         },
-        golden_gate: None,
-        bundles_root: "var/bundles".to_string(),
-        repository_paths: RepositoryPathsConfig::default(),
-        model_load_timeout_secs: 300,
-        model_unload_timeout_secs: 30,
-        operation_retry: OperationRetryConfig::default(),
-        security: SecurityConfig::default(),
-        mlx: None,
-        production_mode: false,
-        rate_limits: None,
-        path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
     };
 
     let metrics = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
         0.1, 0.5, 1.0,
     ])?);
-    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new()?);
-    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
-        metrics_collector.clone(),
-    ));
-    for name in [
-        "inference_latency_p95_ms",
-        "queue_depth",
-        "tokens_per_second",
-        "memory_usage_mb",
-    ] {
-        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
-    }
 
-    let training_service = Arc::new(TrainingService::new());
-
-    Ok(AppState::with_sqlite(
+    Ok(AppState::new(
         db,
         b"test-secret".to_vec(),
         Arc::new(RwLock::new(config)),
         metrics,
-        Some(metrics_collector),
-        Some(metrics_registry),
-        training_service,
-        [0u8; 32], // test global seed
     ))
 }
 

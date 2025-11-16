@@ -1,14 +1,10 @@
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::{
-    BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse,
-    WorkerInferRequest,
+    BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse, InferResponse,
+    InferenceTrace, WorkerInferRequest,
 };
 use crate::uds_client::{UdsClient, UdsClientError};
-use adapteros_api_types::InferResponse;
-use adapteros_api_types::InferResponse;
-use adapteros_api_types::InferenceTrace;
-use adapteros_api_types::InferenceTrace;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -76,25 +72,30 @@ pub async fn batch_infer(
         ));
     }
 
-    let workers = match state.db.list_all_workers().await {
-        Ok(ws) => ws,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to list workers (falling back to default UDS): {}",
-                e
-            );
-            Vec::new()
-        }
-    };
+    let workers = state.db.list_all_workers().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to list workers")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
-    // Resolve UDS path: prefer registered worker; otherwise fall back to per-tenant default
-    let uds_path = if let Some(worker) = workers.first() {
-        PathBuf::from(&worker.uds_path)
-    } else {
-        let fallback = std::env::var("AOS_WORKER_SOCKET")
-            .unwrap_or_else(|_| format!("/var/run/aos/{}/aos.sock", claims.tenant_id));
-        PathBuf::from(fallback)
-    };
+    if workers.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("no workers available")
+                    .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details("No active workers found for inference"),
+            ),
+        ));
+    }
+
+    let worker = &workers[0];
+    let uds_path = PathBuf::from(&worker.uds_path);
     let uds_client = UdsClient::new(WORKER_TIMEOUT);
     let deadline = Instant::now() + BATCH_TIMEOUT;
     let cpid = claims.sub.clone();
@@ -132,12 +133,8 @@ pub async fn batch_infer(
             prompt: item.request.prompt.clone(),
             max_tokens: item.request.max_tokens.unwrap_or(100),
             require_evidence: item.request.require_evidence.unwrap_or(false),
-            adapter_hints: None, // No pre-routing for batch infer endpoint
-            router_features: None,
         };
 
-        // Record batch inference latency
-        let inference_start = std::time::Instant::now();
         match timeout(
             remaining,
             uds_client.infer(uds_path.as_path(), worker_request),
@@ -145,28 +142,6 @@ pub async fn batch_infer(
         .await
         {
             Ok(Ok(worker_response)) => {
-                let inference_latency_secs = inference_start.elapsed().as_secs_f64();
-
-                // Record real inference latency metrics
-                state.metrics_collector.record_inference_latency(
-                    &claims.tenant_id,
-                    "qwen2.5-7b", // adapter_id - could be dynamic
-                    inference_latency_secs,
-                );
-
-                // Record tokens generated
-                let tokens_generated = worker_response
-                    .text
-                    .as_ref()
-                    .map(|text| text.split_whitespace().count() as u64)
-                    .unwrap_or(0);
-                if tokens_generated > 0 {
-                    state.metrics_collector.record_tokens_generated(
-                        &claims.tenant_id,
-                        "qwen2.5-7b",
-                        tokens_generated,
-                    );
-                }
                 let response = InferResponse {
                     text: worker_response.text.unwrap_or_default(),
                     tokens: vec![],

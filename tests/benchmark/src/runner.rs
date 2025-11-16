@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Benchmark runner and reporting utilities
 
 use crate::reporting::{BenchmarkResult, BenchmarkReport, SystemInfo, BenchmarkSummary};

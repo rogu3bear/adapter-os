@@ -1,4 +1,4 @@
-.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install dup tui tui-debug up server adapter-up
+.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -34,21 +34,6 @@ ui: ## Build Web UI (production)
 ui-dev: ## Start Web UI dev server
 	cd ui && pnpm dev
 
-tui: ## Run the Terminal UI control panel
-	@echo "Launching adapterOS TUI..."
-	@cargo build -p adapteros-tui 2>/dev/null || cargo build -p adapteros-tui
-	@./target/debug/adapteros-tui
-
-tui-debug: ## Run TUI with debug logging
-	RUST_LOG=debug cargo run -p adapteros-tui
-
-up: tui ## Launch the TUI (alias for 'tui')
-
-adapter-up: tui ## Launch the TUI (alias for 'tui')
-
-server: ## Start the AdapterOS server
-	cargo run -p adapteros-server
-
 codegraph-viewer: ## Build CodeGraph Viewer (Tauri desktop app)
 	cd crates/mplora-codegraph-viewer/frontend && pnpm install && pnpm build
 	cd crates/mplora-codegraph-viewer/src-tauri && cargo build --release
@@ -78,19 +63,6 @@ menu-bar-install: menu-bar ## Install menu bar app to /usr/local/bin
 	cp menu-bar-app/.build/release/AdapterOSMenu /usr/local/bin/aos-menu
 	@echo "Menu bar app installed to /usr/local/bin/aos-menu"
 
-test-menu-bar-integration: ## Test menu bar integration with status JSON
-	@echo "Testing menu bar integration..."
-	@echo "1. Creating test status JSON..."
-	@mkdir -p var
-	@echo '{"schema_version":"1.0","status":"ok","uptime_secs":3600,"adapters_loaded":2,"deterministic":true,"kernel_hash":"a84d9f1c","telemetry_mode":"local","worker_count":1,"base_model_loaded":true,"base_model_id":"qwen2.5-7b","base_model_name":"Qwen 2.5 7B","base_model_status":"ready","base_model_memory_mb":14336}' > var/adapteros_status.json
-	@echo "2. Building menu bar app..."
-	@cd menu-bar-app && swift build -c release
-	@echo "3. Testing menu bar compilation..."
-	@test -f menu-bar-app/.build/release/AdapterOSMenu && echo "✓ Menu bar app built successfully" || (echo "✗ Menu bar build failed"; exit 1)
-	@echo "4. Testing JSON parsing..."
-	@cd menu-bar-app && swift run --help >/dev/null 2>&1 && echo "✓ Menu bar app runs successfully" || (echo "✗ Menu bar app failed to run"; exit 1)
-	@echo "✓ Menu bar integration test completed successfully"
-
 sbom: ## Generate SBOM
 	cargo xtask sbom
 
@@ -105,8 +77,5 @@ openapi-docs: ## Generate OpenAPI documentation
 
 validate-openapi: ## Validate OpenAPI documentation
 	./scripts/validate_openapi_docs.sh
-
-dup: ## Scan repository for code duplication (reports under var/reports/jscpd)
-	bash scripts/run_jscpd.sh
 
 .DEFAULT_GOAL := help

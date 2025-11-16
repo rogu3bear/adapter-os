@@ -1,8 +1,8 @@
 //! aos-secd status command
 
 use adapteros_secd::{is_process_running, read_pid};
-use anyhow::Result;
-use std::path::Path;
+use anyhow::{Context, Result};
+use std::path::{Path, PathBuf};
 
 /// Display aos-secd daemon status
 pub async fn run(
@@ -77,14 +77,20 @@ pub async fn run(
     }
 
     // Check database and query stats
-    if db_path.is_some() {
+    if let Some(db_path) = db_path {
         // Calculate current time once for all age calculations
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("System time before UNIX epoch");
         let now_secs = now.as_secs() as i64;
 
-        match adapteros_db::Database::connect_env().await {
+        match adapteros_db::Db::connect(
+            db_path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+        )
+        .await
+        {
             Ok(db) => {
                 // Get operation count
                 match db.count_enclave_operations().await {

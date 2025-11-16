@@ -3,7 +3,7 @@
 use adapteros_core::B3Hash;
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_numerics::noise::{EpsilonStats, Tensor};
-use adapteros_trace::{Event, EventMetadata, LogicalTimestamp};
+use adapteros_trace::{Event, EventMetadata};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -393,13 +393,6 @@ impl DomainAdapter for VisionAdapter {
             custom: HashMap::new(),
         };
 
-        let logical_timestamp = LogicalTimestamp::new(
-            tick_id,                                              // global_tick
-            0,                                                    // op_tick
-            None,                                                 // token_position
-            B3Hash::hash(format!("vision_{}", op_id).as_bytes()), // derivation_hash
-        );
-
         Event::new(
             tick_id,
             op_id,
@@ -407,7 +400,6 @@ impl DomainAdapter for VisionAdapter {
             inputs.clone(),
             outputs.clone(),
             metadata,
-            logical_timestamp,
         )
     }
 }

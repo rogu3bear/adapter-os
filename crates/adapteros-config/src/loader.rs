@@ -78,8 +78,7 @@ impl ConfigLoader {
         builder = builder.with_manifest_path(path.to_string());
 
         // Flatten nested TOML structure
-        let mut flattened = HashMap::new();
-        Self::flatten_toml_value(&manifest, "", &mut flattened);
+        let flattened = self.flatten_toml_value(&manifest, String::new());
         let count = flattened.len();
         for (key, value) in flattened {
             builder = builder.add_value(
@@ -169,7 +168,9 @@ impl ConfigLoader {
     }
 
     /// Flatten nested TOML value into dot-notation keys
-    fn flatten_toml_value(value: &Value, prefix: &str, result: &mut HashMap<String, String>) {
+    fn flatten_toml_value(&self, value: &Value, prefix: String) -> HashMap<String, String> {
+        let mut result = HashMap::new();
+
         match value {
             Value::Object(map) => {
                 for (key, val) in map {
@@ -179,17 +180,18 @@ impl ConfigLoader {
                         format!("{}.{}", prefix, key)
                     };
 
-                    Self::flatten_toml_value(val, &new_prefix, result);
+                    let flattened = self.flatten_toml_value(val, new_prefix);
+                    result.extend(flattened);
                 }
             }
             Value::String(s) => {
-                result.insert(prefix.to_string(), s.clone());
+                result.insert(prefix, s.clone());
             }
             Value::Number(n) => {
-                result.insert(prefix.to_string(), n.to_string());
+                result.insert(prefix, n.to_string());
             }
             Value::Bool(b) => {
-                result.insert(prefix.to_string(), b.to_string());
+                result.insert(prefix, b.to_string());
             }
             Value::Array(arr) => {
                 // Convert array to comma-separated string
@@ -202,12 +204,14 @@ impl ConfigLoader {
                         _ => format!("{:?}", v),
                     })
                     .collect();
-                result.insert(prefix.to_string(), values.join(","));
+                result.insert(prefix, values.join(","));
             }
             Value::Null => {
-                result.insert(prefix.to_string(), "null".to_string());
+                result.insert(prefix, "null".to_string());
             }
         }
+
+        result
     }
 
     /// Validate configuration file format
@@ -238,47 +242,10 @@ impl Default for ConfigLoader {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::NamedTempFile;
-
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
-
-    struct EnvGuard {
-        key: &'static str,
-        previous: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let previous = std::env::var(key).ok();
-            std::env::set_var(key, value);
-            Self { key, previous }
-        }
-
-        fn remove(key: &'static str) -> Self {
-            let previous = std::env::var(key).ok();
-            std::env::remove_var(key);
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            if let Some(ref value) = self.previous {
-                std::env::set_var(self.key, value);
-            } else {
-                std::env::remove_var(self.key);
-            }
-        }
-    }
 
     #[test]
     fn test_load_manifest() {
-        let _lock = test_lock();
-        let _port_guard = EnvGuard::remove("ADAPTEROS_SERVER_PORT");
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
             temp_file,
@@ -314,24 +281,19 @@ strict_mode = true
 
     #[test]
     fn test_precedence_order() {
-        let _lock = test_lock();
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
             temp_file,
             r#"
 [server]
 port = 8080
-
-[database]
-url = "sqlite://manifest.db"
 "#
         )
         .unwrap();
         temp_file.flush().unwrap();
 
-        let _port_guard = EnvGuard::set("ADAPTEROS_SERVER_PORT", "9090");
-        // Provide database URL via environment to satisfy validation
-        let _db_guard = EnvGuard::set("ADAPTEROS_DATABASE_URL", "sqlite://env.db");
+        // Set environment variable
+        std::env::set_var("ADAPTEROS_SERVER_PORT", "9090");
 
         let loader = ConfigLoader::new();
         let config = loader
@@ -343,12 +305,13 @@ url = "sqlite://manifest.db"
 
         // CLI should win
         assert_eq!(config.get("server.port"), Some(&"7070".to_string()));
+
+        // Clean up
+        std::env::remove_var("ADAPTEROS_SERVER_PORT");
     }
 
     #[test]
     fn test_config_freeze() {
-        let _lock = test_lock();
-        let _db_guard = EnvGuard::set("ADAPTEROS_DATABASE_URL", "sqlite://freeze.db");
         let loader = ConfigLoader::new();
         let config = loader.load(vec![], None).unwrap();
 

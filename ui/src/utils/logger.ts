@@ -50,6 +50,7 @@ export interface LogEntry {
   };
 }
 
+<<<<<<< HEAD
 /**
  * Normalize unknown error-like values to proper Error instances.
  *
@@ -75,6 +76,10 @@ class Logger {
   // Track recent error toasts to prevent spam (message -> last shown timestamp)
   private errorToastHistory = new Map<string, number>();
   private readonly ERROR_TOAST_THROTTLE_MS = 10000; // 10 seconds
+=======
+class Logger {
+  private isDevelopment = import.meta.env.DEV;
+>>>>>>> integration-branch
   
   /**
    * Log a message with structured context and error information
@@ -116,6 +121,7 @@ class Logger {
       this.sendToTelemetry(logEntry);
     }
 
+<<<<<<< HEAD
     // User-facing errors: Show toast notification (with throttling to prevent spam)
     if (level === LogLevel.ERROR && error) {
       const isBackgroundOperation = context?.operation === 'fetchNotifications' || 
@@ -146,6 +152,11 @@ class Logger {
       }
       // Background operations: errors are logged but no toast shown
       // Users can see errors in NotificationCenter UI or check console logs
+=======
+    // User-facing errors: Show toast notification
+    if (level === LogLevel.ERROR && error) {
+      toast.error(message);
+>>>>>>> integration-branch
     }
   }
 
@@ -159,6 +170,7 @@ class Logger {
    */
   private async sendToTelemetry(logEntry: LogEntry) {
     try {
+<<<<<<< HEAD
       // Transform to UnifiedTelemetryEvent format expected by backend
       const telemetryEvent = {
         id: logEntry.timestamp.replace(/[:.]/g, '-'), // Create deterministic ID
@@ -191,6 +203,16 @@ class Logger {
       case LogLevel.WARN: return 'Warn';
       case LogLevel.ERROR: return 'Error';
       default: return 'Info';
+=======
+      await fetch('/api/v1/telemetry/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logEntry),
+      });
+    } catch (err) {
+      // Fallback to console in case of telemetry failure
+      console.error('Failed to send log to telemetry:', err);
+>>>>>>> integration-branch
     }
   }
 

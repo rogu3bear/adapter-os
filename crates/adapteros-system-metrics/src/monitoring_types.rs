@@ -15,8 +15,6 @@ pub use adapteros_db::process_monitoring::{
     ProcessMonitoringRule, RuleType, ThresholdOperator, TimeWindow, UpdateMonitoringRuleRequest,
 };
 
-// Dashboard types are defined below in this file
-
 // ===== API Response Types =====
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

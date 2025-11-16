@@ -13,6 +13,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 # Dependencies from main workspace for fuzzing
+adapteros-core = { path = "../crates/adapteros-core" }
 adapteros-manifest = { path = "../crates/adapteros-manifest" }
 adapteros-sbom = { path = "../crates/adapteros-sbom" }
 adapteros-policy = { path = "../crates/adapteros-policy" }
@@ -34,5 +35,17 @@ doc = false
 [[bin]]
 name = "policy_parse"
 path = "fuzz_targets/policy_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "adapter_name_parse"
+path = "fuzz_targets/adapter_name_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "stack_name_parse"
+path = "fuzz_targets/stack_name_parse.rs"
 test = false
 doc = false

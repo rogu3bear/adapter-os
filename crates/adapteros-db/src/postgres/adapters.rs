@@ -52,8 +52,8 @@ impl PostgresDb {
         Ok(id)
     }
 
-    /// Get adapter by ID (tenant-aware, returns AdapterRow)
-    pub async fn get_adapter_row(&self, id: &str) -> Result<Option<AdapterRow>> {
+    /// Get adapter by ID
+    pub async fn get_adapter(&self, id: &str) -> Result<Option<AdapterRow>> {
         let adapter = sqlx::query_as::<_, AdapterRow>(
             "SELECT id, tenant_id, name, rank, version, base_model, lora_config, weights_hash, status, created_at
              FROM adapters WHERE id = $1"
@@ -66,8 +66,8 @@ impl PostgresDb {
         Ok(adapter)
     }
 
-    /// List adapters for a tenant (tenant-aware, returns AdapterRow)
-    pub async fn list_adapters_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterRow>> {
+    /// List adapters for a tenant
+    pub async fn list_adapters(&self, tenant_id: &str) -> Result<Vec<AdapterRow>> {
         let adapters = sqlx::query_as::<_, AdapterRow>(
             "SELECT id, tenant_id, name, rank, version, base_model, lora_config, weights_hash, status, created_at
              FROM adapters WHERE tenant_id = $1 AND status = 'active'
@@ -93,8 +93,8 @@ impl PostgresDb {
         Ok(())
     }
 
-    /// Delete adapter by ID (soft delete, tenant-aware)
-    pub async fn delete_adapter_by_tenant(&self, id: &str) -> Result<()> {
+    /// Delete adapter (soft delete)
+    pub async fn delete_adapter(&self, id: &str) -> Result<()> {
         sqlx::query("UPDATE adapters SET status = 'deleted' WHERE id = $1")
             .bind(id)
             .execute(self.pool())

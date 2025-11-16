@@ -1,5 +1,4 @@
-use crate::*;
-use adapteros_api_types::telemetry::TelemetryBundleResponse;
+use crate::{types::*, AdapterOSClient};
 use anyhow::{Context, Result};
 
 pub struct NativeClient {
@@ -7,14 +6,7 @@ pub struct NativeClient {
     client: reqwest::Client,
 }
 
-impl NativeClient {
-    pub fn new(base_url: String) -> Self {
-        Self {
-            base_url,
-            client: reqwest::Client::new(),
-        }
-    }
-
+impl AdapterOSClient for NativeClient {
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse> {
         let url = format!("{}/healthz", self.base_url);
@@ -37,132 +29,6 @@ impl NativeClient {
     async fn me(&self) -> Result<UserInfoResponse> {
         let url = format!("{}/v1/auth/me", self.base_url);
         let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse user info")
-    }
-
-    // Extended Auth Methods
-    async fn refresh_token(&self, token: &str) -> Result<String> {
-        let url = format!("{}/v1/auth/refresh", self.base_url);
-        let resp = self.client.post(&url).bearer_auth(token).send().await?;
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .context("Failed to parse refresh response")?;
-        json["message"]
-            .as_str()
-            .context("Missing message in refresh response")
-            .map(|s| s.to_string())
-    }
-
-    async fn list_sessions(
-        &self,
-        token: &str,
-    ) -> Result<Vec<adapteros_api_types::auth::SessionInfo>> {
-        let url = format!("{}/v1/auth/sessions", self.base_url);
-        let resp = self.client.get(&url).bearer_auth(token).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse sessions response")
-    }
-
-    async fn revoke_session(&self, token: &str, session_id: &str) -> Result<String> {
-        let url = format!("{}/v1/auth/sessions/{}", self.base_url, session_id);
-        let resp = self.client.delete(&url).bearer_auth(token).send().await?;
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .context("Failed to parse revoke response")?;
-        json["message"]
-            .as_str()
-            .context("Missing message in revoke response")
-            .map(|s| s.to_string())
-    }
-
-    async fn logout_all(&self, token: &str) -> Result<String> {
-        let url = format!("{}/v1/auth/logout-all", self.base_url);
-        let resp = self.client.post(&url).bearer_auth(token).send().await?;
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .context("Failed to parse logout all response")?;
-        json["message"]
-            .as_str()
-            .context("Missing message in logout all response")
-            .map(|s| s.to_string())
-    }
-
-    async fn rotate_token(
-        &self,
-        token: &str,
-    ) -> Result<adapteros_api_types::auth::RotateTokenResponse> {
-        let url = format!("{}/v1/auth/token/rotate", self.base_url);
-        let resp = self.client.post(&url).bearer_auth(token).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse rotate token response")
-    }
-
-    async fn get_token_metadata(
-        &self,
-        token: &str,
-    ) -> Result<adapteros_api_types::auth::TokenMetadata> {
-        let url = format!("{}/v1/auth/token", self.base_url);
-        let resp = self.client.get(&url).bearer_auth(token).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse token metadata response")
-    }
-
-    async fn update_profile(
-        &self,
-        token: &str,
-        req: adapteros_api_types::auth::UpdateProfileRequest,
-    ) -> Result<adapteros_api_types::auth::ProfileResponse> {
-        let url = format!("{}/v1/auth/profile", self.base_url);
-        let resp = self
-            .client
-            .put(&url)
-            .bearer_auth(token)
-            .json(&req)
-            .send()
-            .await?;
-        resp.json()
-            .await
-            .context("Failed to parse profile update response")
-    }
-
-    async fn get_auth_config(
-        &self,
-        token: &str,
-    ) -> Result<adapteros_api_types::auth::AuthConfigResponse> {
-        let url = format!("{}/v1/auth/config", self.base_url);
-        let resp = self.client.get(&url).bearer_auth(token).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse auth config response")
-    }
-
-    async fn update_auth_config(
-        &self,
-        token: &str,
-        req: adapteros_api_types::auth::UpdateAuthConfigRequest,
-    ) -> Result<adapteros_api_types::auth::AuthConfigResponse> {
-        let url = format!("{}/v1/auth/config", self.base_url);
-        let resp = self
-            .client
-            .put(&url)
-            .bearer_auth(token)
-            .json(&req)
-            .send()
-            .await?;
-        resp.json()
-            .await
-            .context("Failed to parse auth config update response")
-    }
-
-    async fn get_user_info(&self, token: &str) -> Result<UserInfoResponse> {
-        let url = format!("{}/v1/auth/me", self.base_url);
-        let resp = self.client.get(&url).bearer_auth(token).send().await?;
         resp.json().await.context("Failed to parse user info")
     }
 
@@ -525,101 +391,13 @@ impl NativeClient {
             .await
             .context("Failed to parse metrics comparison")
     }
-
-    async fn infer(&self, req: InferRequest) -> Result<InferResponse> {
-        let url = format!("{}/v1/infer", self.base_url);
-        let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse inference response")
-    }
-
-    async fn get_system_metrics(&self) -> Result<SystemMetricsResponse> {
-        let url = format!("{}/v1/metrics/system", self.base_url);
-        let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse system metrics")
-    }
-
-    async fn get_journey(&self, journey_type: String, id: String) -> Result<serde_json::Value> {
-        let url = format!("{}/v1/journeys/{}/{}", self.base_url, journey_type, id);
-        let resp = self.client.get(&url).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse journey response")
-    }
 }
 
-macro_rules! forward_async_methods {
-    ($($name:ident ( $($arg:ident : $typ:ty),* ) -> $ret:ty),+ $(,)?) => {
-        $(
-            fn $name(&self, $($arg: $typ),*) -> impl std::future::Future<Output = Result<$ret>> + Send {
-                NativeClient::$name(self, $($arg),*)
-            }
-        )+
-    };
-}
-
-impl AdapterOSClient for NativeClient {
-    forward_async_methods!(
-        health() -> HealthResponse,
-        login(req: LoginRequest) -> LoginResponse,
-        logout() -> (),
-        me() -> UserInfoResponse,
-        refresh_token(token: &str) -> String,
-        list_sessions(token: &str) -> Vec<adapteros_api_types::auth::SessionInfo>,
-        revoke_session(token: &str, session_id: &str) -> String,
-        logout_all(token: &str) -> String,
-        rotate_token(token: &str) -> adapteros_api_types::auth::RotateTokenResponse,
-        get_token_metadata(token: &str) -> adapteros_api_types::auth::TokenMetadata,
-        update_profile(token: &str, req: adapteros_api_types::auth::UpdateProfileRequest) -> adapteros_api_types::auth::ProfileResponse,
-        get_auth_config(token: &str) -> adapteros_api_types::auth::AuthConfigResponse,
-        update_auth_config(token: &str, req: adapteros_api_types::auth::UpdateAuthConfigRequest) -> adapteros_api_types::auth::AuthConfigResponse,
-        get_user_info(token: &str) -> UserInfoResponse,
-        list_tenants() -> Vec<TenantResponse>,
-        create_tenant(req: CreateTenantRequest) -> TenantResponse,
-        list_adapters() -> Vec<AdapterResponse>,
-        register_adapter(req: RegisterAdapterRequest) -> AdapterResponse,
-        evict_adapter(adapter_id: &str) -> (),
-        pin_adapter(adapter_id: &str, pinned: bool) -> (),
-        get_memory_usage() -> MemoryUsageResponse,
-        start_adapter_training(req: StartTrainingRequest) -> TrainingSessionResponse,
-        get_training_session(session_id: &str) -> TrainingSessionResponse,
-        list_training_sessions() -> Vec<TrainingSessionResponse>,
-        get_telemetry_events(filters: TelemetryFilters) -> Vec<TelemetryEvent>,
-        list_nodes() -> Vec<NodeResponse>,
-        register_node(req: RegisterNodeRequest) -> NodeResponse,
-        list_plans(tenant_id: Option<String>) -> Vec<PlanResponse>,
-        build_plan(req: BuildPlanRequest) -> JobResponse,
-        list_workers(tenant_id: Option<String>) -> Vec<WorkerResponse>,
-        spawn_worker(req: SpawnWorkerRequest) -> (),
-        promote_cp(req: PromoteCPRequest) -> PromotionResponse,
-        promotion_gates(cpid: String) -> PromotionGatesResponse,
-        rollback_cp(req: RollbackCPRequest) -> RollbackResponse,
-        list_jobs(tenant_id: Option<String>) -> Vec<JobResponse>,
-        import_model(req: ImportModelRequest) -> (),
-        list_policies() -> Vec<PolicyPackResponse>,
-        get_policy(cpid: String) -> PolicyPackResponse,
-        validate_policy(req: ValidatePolicyRequest) -> PolicyValidationResponse,
-        apply_policy(req: ApplyPolicyRequest) -> PolicyPackResponse,
-        list_telemetry_bundles() -> Vec<TelemetryBundleResponse>,
-        register_repo(req: RegisterRepoRequest) -> RepoResponse,
-        scan_repo(req: ScanRepoRequest) -> JobResponse,
-        list_repos() -> Vec<RepoResponse>,
-        list_adapters_by_tenant(tenant_id: String) -> ListAdaptersResponse,
-        get_adapter_activations() -> Vec<ActivationData>,
-        create_commit_delta(req: CommitDeltaRequest) -> CommitDeltaResponse,
-        get_commit_details(repo_id: String, commit: String) -> CommitDetailsResponse,
-        extract_router_features(req: RouterFeaturesRequest) -> RouterFeaturesResponse,
-        score_adapters(req: ScoreAdaptersRequest) -> ScoreAdaptersResponse,
-        propose_patch(req: ProposePatchRequest) -> ProposePatchResponse,
-        validate_patch(req: ValidatePatchRequest) -> ValidatePatchResponse,
-        apply_patch(req: ApplyPatchRequest) -> ApplyPatchResponse,
-        get_code_policy() -> GetCodePolicyResponse,
-        update_code_policy(req: UpdateCodePolicyRequest) -> (),
-        get_code_metrics(req: CodeMetricsRequest) -> CodeMetricsResponse,
-        compare_metrics(req: CompareMetricsRequest) -> CompareMetricsResponse,
-        infer(req: InferRequest) -> InferResponse,
-        get_system_metrics() -> SystemMetricsResponse,
-        get_journey(journey_type: String, id: String) -> serde_json::Value
-    );
+impl NativeClient {
+    pub fn new(base_url: String) -> Self {
+        Self {
+            base_url,
+            client: reqwest::Client::new(),
+        }
+    }
 }

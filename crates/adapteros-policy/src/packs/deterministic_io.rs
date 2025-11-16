@@ -245,13 +245,11 @@ impl DeterministicIoPolicy {
         // Check file extension
         if let Some(extension) = path.extension() {
             let ext_str = extension.to_string_lossy().to_string();
-            let ext_variants = [ext_str.as_str(), &format!(".{}", ext_str)];
             if self
                 .config
                 .filesystem_constraints
                 .blocked_extensions
-                .iter()
-                .any(|blocked| ext_variants.contains(&blocked.as_str()))
+                .contains(&ext_str)
             {
                 return Err(AosError::PolicyViolation(format!(
                     "File extension {} is blocked by policy",

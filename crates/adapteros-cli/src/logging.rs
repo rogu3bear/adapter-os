@@ -12,18 +12,16 @@
 //!
 //! ```rust
 //! use adapteros_cli::logging::init_logging;
-//! use adapteros_core::Result;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
 //!     init_logging()?;
 //!     tracing::info!("CLI started");
 //!     // ... rest of CLI logic
-//!     Ok(())
 //! }
 //! ```
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -75,7 +73,7 @@ pub fn init_logging() -> Result<()> {
 pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>) {
     match result {
         Ok(_) => {
-            let _event = TelemetryEventBuilder::new(
+            let event = TelemetryEventBuilder::new(
                 EventType::UserAction,
                 LogLevel::Info,
                 format!("CLI command executed successfully: {}", command),
@@ -95,7 +93,7 @@ pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>
             );
         }
         Err(e) => {
-            let _event = TelemetryEventBuilder::new(
+            let event = TelemetryEventBuilder::new(
                 EventType::UserError,
                 LogLevel::Error,
                 format!("CLI command failed: {}", command),
@@ -189,7 +187,6 @@ pub fn log_debug(message: &str, context: &serde_json::Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::AosError;
 
     #[test]
     fn test_logging_initialization() {

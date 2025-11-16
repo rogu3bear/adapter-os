@@ -483,7 +483,6 @@ impl CodeGraphDb {
             "typescript" => Ok(Language::TypeScript),
             "javascript" => Ok(Language::JavaScript),
             "go" => Ok(Language::Go),
-            "adapteros" => Ok(Language::AdapterOS),
             _ => Err(AosError::Database(format!(
                 "Unknown language: {}",
                 language_str
@@ -557,7 +556,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
         let db_path = temp_dir.path().join("test.db");
 
-        CodeGraphDb::new(&db_path)
+        let db = CodeGraphDb::new(&db_path)
             .await
             .expect("Database creation should succeed");
         assert!(db_path.exists());

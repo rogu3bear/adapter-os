@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Test deterministic select branching
 //!
 //! Verifies that select operations are deterministic and reproducible.

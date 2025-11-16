@@ -78,10 +78,17 @@ impl Gate for MetricsGate {
             anyhow::bail!("Hallucination metrics failed: {}", failures.join(", "));
         }
 
-        println!("    ARR: {:.3} (threshold: {:.3})", arr, self.arr_min);
-        println!("    ECS@5: {:.3} (threshold: {:.3})", ecs5, self.ecs5_min);
-        println!("    HLR: {:.3} (threshold: {:.3})", hlr, self.hlr_max);
-        println!("    CR: {:.3} (threshold: {:.3})", cr, self.cr_max);
+        tracing::info!(
+            arr = format!("{:.3}", arr),
+            arr_threshold = format!("{:.3}", self.arr_min),
+            ecs5 = format!("{:.3}", ecs5),
+            ecs5_threshold = format!("{:.3}", self.ecs5_min),
+            hlr = format!("{:.3}", hlr),
+            hlr_threshold = format!("{:.3}", self.hlr_max),
+            cr = format!("{:.3}", cr),
+            cr_threshold = format!("{:.3}", self.cr_max),
+            "Hallucination metrics passed"
+        );
 
         Ok(())
     }

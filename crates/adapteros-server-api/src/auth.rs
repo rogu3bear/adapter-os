@@ -138,19 +138,6 @@ pub fn validate_token_ed25519(token: &str, public_key_pem: &str) -> Result<Claim
     Ok(token_data.claims)
 }
 
-/// Validate and decode a JWT token with Ed25519 using DER bytes (raw public key)
-pub fn validate_token_ed25519_der(token: &str, public_key_der: &[u8]) -> Result<Claims> {
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.validate_nbf = true; // Validate "not before" timestamp
-
-    let token_data = decode::<Claims>(
-        token,
-        &DecodingKey::from_ed_der(public_key_der),
-        &validation,
-    )?;
-    Ok(token_data.claims)
-}
-
 /// Validate and decode a JWT token (HMAC-SHA256 fallback)
 pub fn validate_token(token: &str, secret: &[u8]) -> Result<Claims> {
     let mut validation = Validation::default();

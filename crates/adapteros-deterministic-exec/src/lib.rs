@@ -18,7 +18,6 @@ pub mod channel;
 pub mod cpu_affinity;
 pub mod global_ledger;
 pub mod multi_agent;
-pub mod seed;
 pub mod select;
 
 use std::{
@@ -79,7 +78,6 @@ impl std::fmt::Display for TaskId {
 /// Cancellation token with BLAKE3-hashed cause tracking
 #[derive(Debug, Clone)]
 pub struct CancelToken {
-    #[allow(dead_code)]
     cause: String,
     cause_hash: [u8; 32],
     cancelled: Arc<AtomicU64>,
@@ -182,7 +180,6 @@ pub type Result<T> = std::result::Result<T, DeterministicExecutorError>;
 /// Handle for a spawned deterministic task
 pub struct DeterministicJoinHandle {
     task_id: TaskId,
-    #[allow(dead_code)]
     executor: Arc<DeterministicExecutor>,
 }
 
@@ -289,7 +286,6 @@ impl Default for ExecutorConfig {
 #[derive(Debug, Clone)]
 pub struct TickTimeout {
     /// Task ID this timeout belongs to
-    #[allow(dead_code)]
     task_id: TaskId,
     /// Tick when timeout should trigger
     timeout_tick: u64,
@@ -554,10 +550,7 @@ impl DeterministicExecutor {
             }
         }
 
-        while let Some(mut task) = {
-            let mut queue = self.task_queue.lock();
-            queue.pop_front()
-        } {
+        while let Some(mut task) = self.task_queue.lock().pop_front() {
             let current_tick = self.tick_counter.load(Ordering::Relaxed);
 
             // Check for timeout

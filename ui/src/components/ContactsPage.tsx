@@ -91,6 +91,22 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     };
   }, [selectedTenant]);
 
+<<<<<<< HEAD
+=======
+  const fetchContacts = async () => {
+    setLoading(true);
+    try {
+      // Citation: ui/src/api/client.ts L57-L105
+      const data = await apiClient.listContacts(selectedTenant);
+      setContacts(data);
+    } catch (error) {
+      console.error('Failed to fetch contacts:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+>>>>>>> integration-branch
   const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

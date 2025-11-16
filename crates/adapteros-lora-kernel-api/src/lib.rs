@@ -49,7 +49,7 @@ impl IoBuffers {
 }
 
 /// Trait for fused kernel implementations
-pub trait FusedKernels {
+pub trait FusedKernels: Send + Sync {
     /// Load plan and weights
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()>;
 
@@ -84,6 +84,83 @@ pub trait FusedKernels {
         Err(adapteros_core::AosError::Kernel(
             "Hot-swap not supported by this backend".to_string(),
         ))
+    }
+
+    /// Verify GPU adapter buffers and compute fingerprint
+    ///
+    /// Samples buffer contents at checkpoints (first/last/mid 4KB) and returns
+    /// a fingerprint for integrity verification. This enables cross-layer validation
+    /// without full GPU-to-CPU buffer readback.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID to verify
+    ///
+    /// # Returns
+    /// * Buffer size in bytes
+    /// * Checkpoint samples (first 4KB, last 4KB, mid 4KB)
+    ///
+    /// Default implementation returns error for backends without GPU verification
+    fn verify_adapter_buffers(&self, _id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        Err(adapteros_core::AosError::Kernel(
+            "GPU buffer verification not supported by this backend".to_string(),
+        ))
+    }
+
+    /// Store GPU buffer fingerprint for adapter
+    ///
+    /// Stores a BLAKE3 hash of GPU buffer checkpoint samples for later verification.
+    /// Used after adapter load to establish baseline.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID
+    /// * `buffer_size` - Buffer size in bytes
+    /// * `checkpoint_hash_hex` - BLAKE3 hash of checkpoint samples as hex string
+    ///
+    /// Default implementation is no-op for backends without GPU tracking
+    fn store_gpu_fingerprint(&mut self, _id: u16, _buffer_size: u64, _checkpoint_hash_hex: &str) {
+        // No-op for backends without VRAM tracking
+    }
+
+    /// Verify GPU buffer fingerprint matches stored baseline
+    ///
+    /// Compares current GPU buffer fingerprint against stored baseline.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID
+    /// * `buffer_size` - Current buffer size
+    /// * `checkpoint_hash_hex` - Current BLAKE3 hash as hex string
+    ///
+    /// # Returns
+    /// * `Ok(true)` - Fingerprint matches baseline
+    /// * `Ok(false)` - No baseline stored yet (first verification)
+    /// * `Err(msg)` - Fingerprint mismatch
+    ///
+    /// Default implementation returns Ok(true) for backends without GPU tracking
+    fn verify_gpu_fingerprint(
+        &self,
+        _id: u16,
+        _buffer_size: u64,
+        _checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        Ok(true) // No verification for non-GPU backends
+    }
+
+    /// Check if memory footprint is within adaptive baseline tolerance
+    ///
+    /// Uses 2σ tolerance with adaptive baseline learning.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID
+    /// * `buffer_size` - Current buffer size
+    ///
+    /// # Returns
+    /// * within_tolerance: bool
+    /// * z_score: f64
+    /// * baseline_stats: Option<(mean, stddev, sample_count)>
+    ///
+    /// Default implementation returns (true, 0.0, None) for backends without tracking
+    fn check_memory_footprint(&self, _id: u16, _buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (true, 0.0, None) // No anomaly detection for non-GPU backends
     }
 }
 
@@ -141,129 +218,6 @@ impl Default for MockKernels {
     }
 }
 
-/// CPU fallback kernels implementing a deterministic, input-dependent
-/// scoring function without GPU acceleration. This is intended for
-/// functionality-first operation in environments without Metal/MLX.
-#[allow(dead_code)]
-pub struct CpuKernels {
-    device_name: String,
-    vocab_size: usize,
-    hidden_size: usize,
-    seed: u64,
-}
-
-impl CpuKernels {
-    /// Create a new CPU fallback with specified dimensions
-    pub fn new(vocab_size: usize, hidden_size: usize) -> Self {
-        Self {
-            device_name: "CPU Fallback (Deterministic)".to_string(),
-            vocab_size,
-            hidden_size,
-            seed: 0xA0C0FFEEDEADBEEFu64,
-        }
-    }
-
-    #[inline]
-    fn mix64(mut x: u64) -> u64 {
-        // SplitMix64-style mixer for deterministic hashing
-        x = x.wrapping_add(0x9E3779B97F4A7C15);
-        let mut z = x;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-        z ^ (z >> 31)
-    }
-
-    #[inline]
-    fn hash_to_unit(seed: u64) -> f32 {
-        // Map to [-1, 1]
-        let bits = Self::mix64(seed);
-        let v = (bits as f64) / (u64::MAX as f64);
-        (v as f32) * 2.0 - 1.0
-    }
-}
-
-impl Default for CpuKernels {
-    fn default() -> Self {
-        // Defaults to Qwen2.5-7B dimensions seen elsewhere
-        Self::new(152_064, 3_584)
-    }
-}
-
-impl FusedKernels for CpuKernels {
-    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
-        // Derive a simple seed from plan bytes for deterministic variation
-        let mut acc: u64 = self.seed;
-        for chunk in plan_bytes.chunks(8) {
-            let mut buf = [0u8; 8];
-            for (i, b) in chunk.iter().enumerate() {
-                buf[i] = *b;
-            }
-            let w = u64::from_le_bytes(buf);
-            acc ^= Self::mix64(w);
-        }
-        self.seed = acc;
-        Ok(())
-    }
-
-    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        // Compute a simple, deterministic logit for each vocab index based on
-        // the last input token, adapter gates, and position.
-        let last_token = io.input_ids.last().copied().unwrap_or(0) as u64;
-
-        // Aggregate normalized gate influence
-        let gate_sum: f32 = if !ring.gates_q15.is_empty() {
-            ring.gates_q15.iter().map(|&g| (g as f32) / 32767.0).sum()
-        } else {
-            1.0
-        };
-
-        let position = io.position as u64;
-        let limit = core::cmp::min(self.vocab_size, io.output_logits.len());
-        for (i, logit) in io.output_logits.iter_mut().enumerate().take(limit) {
-            let vocab_idx = i as u64;
-            // Mix seed with inputs to get a stable pseudo-feature
-            let seed = self.seed ^ last_token ^ vocab_idx ^ position;
-            let base = Self::hash_to_unit(seed);
-            // Incorporate adapter IDs into the pattern
-            let adapter_mix = if !ring.indices.is_empty() {
-                let mut s = 0.0f32;
-                for (j, &aid) in ring.indices.iter().enumerate() {
-                    let w = ((aid as u64) << 16) ^ (j as u64) ^ vocab_idx;
-                    s += Self::hash_to_unit(w) * 0.25;
-                }
-                s
-            } else {
-                0.0
-            };
-
-            *logit = base * (0.5 + 0.5 * gate_sum.min(1.0)) + adapter_mix;
-        }
-
-        // Zero any remaining tail of the buffer beyond vocab_size
-        for v in io.output_logits[limit..].iter_mut() {
-            *v = 0.0;
-        }
-        io.position += 1;
-        Ok(())
-    }
-
-    fn device_name(&self) -> &str {
-        &self.device_name
-    }
-
-    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
-        Ok(attestation::DeterminismReport {
-            backend_type: attestation::BackendType::Mock,
-            metallib_hash: None,
-            manifest: None,
-            rng_seed_method: attestation::RngSeedingMethod::FixedSeed(self.seed),
-            floating_point_mode: attestation::FloatingPointMode::Deterministic,
-            compiler_flags: vec!["-O2".to_string()],
-            deterministic: true,
-        })
-    }
-}
-
 /// Impl FusedKernels for Box<dyn FusedKernels> to enable dynamic dispatch
 impl FusedKernels for Box<dyn FusedKernels> {
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
@@ -288,6 +242,75 @@ impl FusedKernels for Box<dyn FusedKernels> {
 
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
         (**self).unload_adapter(id)
+    }
+
+    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        (**self).verify_adapter_buffers(id)
+    }
+
+    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+        (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn verify_gpu_fingerprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (**self).check_memory_footprint(id, buffer_size)
+    }
+}
+
+/// Impl FusedKernels for Box<dyn FusedKernels + Send + Sync> to enable dynamic dispatch with explicit bounds
+impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
+    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        (**self).load(plan_bytes)
+    }
+
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        (**self).run_step(ring, io)
+    }
+
+    fn device_name(&self) -> &str {
+        (**self).device_name()
+    }
+
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        (**self).attest_determinism()
+    }
+
+    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+        (**self).load_adapter(id, weights)
+    }
+
+    fn unload_adapter(&mut self, id: u16) -> Result<()> {
+        (**self).unload_adapter(id)
+    }
+
+    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        (**self).verify_adapter_buffers(id)
+    }
+
+    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+        (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn verify_gpu_fingerprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (**self).check_memory_footprint(id, buffer_size)
     }
 }
 

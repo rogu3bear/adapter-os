@@ -5,6 +5,7 @@
 //! Comprehensive tests for timeout, circuit breaker, resource limiting, and deadlock detection.
 //! Aligns with existing test patterns and policy enforcement requirements.
 
+<<<<<<< HEAD
 use adapteros_core::{B3Hash, Result};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::{
@@ -16,6 +17,13 @@ use adapteros_manifest::{
     IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies,
     RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg,
 };
+=======
+use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
+use adapteros_lora_worker::{
+    CircuitBreaker, InferenceRequest, ResourceLimiter, ResourceLimits, TimeoutConfig, Worker,
+};
+use adapteros_manifest::ManifestV3;
+>>>>>>> integration-branch
 use adapteros_telemetry::TelemetryWriter;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -24,6 +32,7 @@ use tokio::time::timeout;
 async fn create_test_worker() -> Worker<adapteros_lora_kernel_api::MockKernels> {
     // Create a minimal manifest for testing
     let manifest = ManifestV3 {
+<<<<<<< HEAD
         schema: "adapteros.manifest.v3".to_string(),
         base: Base {
             model_id: "test-model".to_string(),
@@ -70,66 +79,193 @@ async fn create_test_worker() -> Worker<adapteros_lora_kernel_api::MockKernels> 
         },
         policies: Policies {
             egress: EgressPolicy {
+=======
+        schema_version: "v3".to_string(),
+        cpid: "test".to_string(),
+        plan_id: "test-plan".to_string(),
+        adapters: vec![],
+        router: adapteros_manifest::RouterConfig {
+            k_sparse: 3,
+            tau: 1.0,
+            entropy_floor: 0.02,
+        },
+        policies: adapteros_manifest::Policies {
+            egress: adapteros_manifest::EgressPolicy {
+>>>>>>> integration-branch
                 mode: "deny_all".to_string(),
                 serve_requires_pf: true,
                 allow_tcp: false,
                 allow_udp: false,
                 uds_paths: vec!["/var/run/aos/test/*.sock".to_string()],
+<<<<<<< HEAD
             },
             determinism: DeterminismPolicy {
+=======
+                media_import: adapteros_manifest::MediaImportPolicy {
+                    require_signature: true,
+                    require_sbom: true,
+                },
+            },
+            determinism: adapteros_manifest::DeterminismPolicy {
+>>>>>>> integration-branch
                 require_metallib_embed: true,
                 require_kernel_hash_match: true,
                 rng: "hkdf_seeded".to_string(),
                 retrieval_tie_break: vec!["score_desc".to_string(), "doc_id_asc".to_string()],
             },
+<<<<<<< HEAD
             evidence: EvidencePolicy {
+=======
+            router: adapteros_manifest::RouterPolicy {
+                k_sparse: 3,
+                gate_quant: "q15".to_string(),
+                entropy_floor: 0.02,
+                sample_tokens_full: 128,
+            },
+            evidence: adapteros_manifest::EvidencePolicy {
+>>>>>>> integration-branch
                 require_open_book: true,
                 min_spans: 1,
                 prefer_latest_revision: true,
                 warn_on_superseded: true,
             },
+<<<<<<< HEAD
             refusal: RefusalPolicy {
                 abstain_threshold: 0.55,
                 missing_fields_templates: std::collections::HashMap::new(),
             },
             numeric: NumericPolicy {
+=======
+            refusal: adapteros_manifest::RefusalPolicy {
+                abstain_threshold: 0.55,
+                missing_fields_templates: std::collections::HashMap::new(),
+            },
+            numeric: adapteros_manifest::NumericPolicy {
+>>>>>>> integration-branch
                 canonical_units: std::collections::HashMap::new(),
                 max_rounding_error: 0.5,
                 require_units_in_trace: true,
             },
+<<<<<<< HEAD
             rag: RagPolicy {
+=======
+            rag: adapteros_manifest::RagPolicy {
+>>>>>>> integration-branch
                 index_scope: "per_tenant".to_string(),
                 doc_tags_required: vec!["doc_id".to_string(), "rev".to_string()],
                 embedding_model_hash: B3Hash::hash(b"embedding"),
                 topk: 5,
                 order: vec!["score_desc".to_string(), "doc_id_asc".to_string()],
             },
+<<<<<<< HEAD
             isolation: IsolationPolicy {
                 process_model: "per_tenant".to_string(),
                 uds_root: "/var/run/aos/test".to_string(),
                 forbid_shm: true,
             },
             performance: PerformancePolicy {
+=======
+            isolation: adapteros_manifest::IsolationPolicy {
+                process_model: "per_tenant".to_string(),
+                uds_root: "/var/run/aos/test".to_string(),
+                forbid_shm: true,
+                keys: adapteros_manifest::KeysPolicy {
+                    backend: "secure_enclave".to_string(),
+                    require_hardware: true,
+                },
+            },
+            telemetry: adapteros_manifest::TelemetryPolicy {
+                schema_hash: "b3:test".to_string(),
+                sampling: adapteros_manifest::SamplingPolicy {
+                    token: 0.05,
+                    router: 1.0,
+                    inference: 1.0,
+                },
+                router_full_tokens: 128,
+                bundle: adapteros_manifest::BundlePolicy {
+                    max_events: 500000,
+                    max_bytes: 268435456,
+                },
+            },
+            retention: adapteros_manifest::RetentionPolicy {
+                keep_bundles_per_cpid: 12,
+                keep_incident_bundles: true,
+                keep_promotion_bundles: true,
+                evict_strategy: "oldest_first_safe".to_string(),
+            },
+            performance: adapteros_manifest::PerformancePolicy {
+>>>>>>> integration-branch
                 latency_p95_ms: 24,
                 router_overhead_pct_max: 8,
                 throughput_tokens_per_s_min: 40,
             },
+<<<<<<< HEAD
             memory: MemoryPolicy {
+=======
+            memory: adapteros_manifest::MemoryPolicy {
+>>>>>>> integration-branch
                 min_headroom_pct: 15,
                 evict_order: vec!["ephemeral_ttl".to_string(), "cold_lru".to_string()],
                 k_reduce_before_evict: true,
             },
+<<<<<<< HEAD
             artifacts: ArtifactsPolicy {
+=======
+            artifacts: adapteros_manifest::ArtifactsPolicy {
+>>>>>>> integration-branch
                 require_signature: true,
                 require_sbom: true,
                 cas_only: true,
             },
+<<<<<<< HEAD
             drift: DriftPolicy::default(),
         },
         seeds: Seeds {
             global: B3Hash::hash(b"test-seed"),
             manifest_hash: B3Hash::hash(b"manifest"),
             parent_cpid: None,
+=======
+            secrets: adapteros_manifest::SecretsPolicy {
+                env_allowed: vec![],
+                keystore: "secure_enclave".to_string(),
+                rotate_on_promotion: true,
+            },
+            build_release: adapteros_manifest::BuildReleasePolicy {
+                require_replay_zero_diff: true,
+                hallucination_thresholds: adapteros_manifest::HallucinationThresholds {
+                    arr_min: 0.95,
+                    ecs5_min: 0.75,
+                    hlr_max: 0.03,
+                    cr_max: 0.01,
+                },
+                require_signed_plan: true,
+                require_rollback_plan: true,
+            },
+            compliance: adapteros_manifest::CompliancePolicy {
+                control_matrix_hash: "b3:test".to_string(),
+                require_evidence_links: true,
+                require_itar_suite_green: true,
+            },
+            incident: adapteros_manifest::IncidentPolicy {
+                memory: vec!["drop_ephemeral".to_string(), "reduce_k".to_string()],
+                router_skew: vec!["entropy_floor_on".to_string()],
+                determinism: vec!["freeze_plan".to_string()],
+                violation: vec!["isolate".to_string()],
+            },
+            output: adapteros_manifest::OutputPolicy {
+                format: "json".to_string(),
+                require_trace: true,
+                forbidden_topics: vec!["tenant_crossing".to_string()],
+            },
+            adapters: adapteros_manifest::AdaptersPolicy {
+                min_activation_pct: 2.0,
+                min_quality_delta: 0.5,
+                require_registry_admit: true,
+            },
+        },
+        seeds: adapteros_manifest::Seeds {
+            global: "test-seed".to_string(),
+>>>>>>> integration-branch
         },
     };
 
@@ -148,7 +284,10 @@ async fn create_test_worker() -> Worker<adapteros_lora_kernel_api::MockKernels> 
         "test-model.bin",
         telemetry,
     )
+<<<<<<< HEAD
     .await
+=======
+>>>>>>> integration-branch
     .unwrap()
 }
 
@@ -175,7 +314,11 @@ async fn test_circuit_breaker() {
     // Simulate failures
     for _ in 0..3 {
         let result = circuit_breaker
+<<<<<<< HEAD
             .call::<_, String>(async {
+=======
+            .call(async {
+>>>>>>> integration-branch
                 Err(adapteros_core::AosError::Worker(
                     "Simulated failure".to_string(),
                 ))
@@ -268,9 +411,20 @@ async fn test_worker_safety_mechanisms() {
     let worker = create_test_worker().await;
 
     // Verify safety mechanisms are initialized
+<<<<<<< HEAD
     // Note: These fields are private, so we test the public interface instead
     assert_eq!(worker.policy_abstain_threshold(), 0.55);
     assert!(worker.policy_requires_open_book());
+=======
+    assert_eq!(
+        worker.timeout_config.inference_timeout,
+        Duration::from_secs(30)
+    );
+    assert_eq!(worker.circuit_breaker.failure_count(), 0);
+    assert_eq!(worker.resource_limiter.get_concurrent_requests(), 0);
+    assert_eq!(worker.deadlock_detector.get_deadlock_count(), 0);
+    assert!(!worker.health_monitor.is_shutdown_requested());
+>>>>>>> integration-branch
 }
 
 #[tokio::test]
@@ -292,6 +446,7 @@ async fn test_deadlock_detector() {
         adapteros_lora_worker::DeadlockConfig::default(),
     );
 
+<<<<<<< HEAD
     assert_eq!(detector.get_deadlock_count().await, 0);
     assert!(!detector.is_recovery_in_progress().await);
 
@@ -299,6 +454,13 @@ async fn test_deadlock_detector() {
         .record_lock_acquisition("test_lock".to_string(), 1)
         .await;
     detector.record_lock_release("test_lock", 1).await;
+=======
+    assert_eq!(detector.get_deadlock_count(), 0);
+    assert!(!detector.is_recovery_in_progress());
+
+    detector.record_lock_acquisition("test_lock".to_string(), 1);
+    detector.record_lock_release("test_lock", 1);
+>>>>>>> integration-branch
 
     // Should not panic
     assert_eq!(detector.get_deadlock_count().await, 0);
@@ -330,9 +492,19 @@ async fn test_telemetry_integration() {
 async fn test_memory_pressure_handling() {
     let mut worker = create_test_worker().await;
 
+<<<<<<< HEAD
     // Test that worker was created successfully and has valid policies
     assert!(worker.policy_requires_open_book());
     assert_eq!(worker.policy_abstain_threshold(), 0.55);
+=======
+    // Test memory pressure detection
+    let memory_usage = worker.health_monitor.get_memory_usage();
+    assert!(memory_usage.is_ok());
+
+    // Test memory monitor
+    let headroom = worker.memory_monitor.headroom_pct();
+    assert!(headroom > 0.0 && headroom <= 100.0);
+>>>>>>> integration-branch
 }
 
 #[tokio::test]
@@ -343,7 +515,11 @@ async fn test_concurrent_request_limiting() -> Result<()> {
         max_memory_per_request: 1024,
         max_cpu_time_per_request: Duration::from_secs(5),
         max_requests_per_minute: 1000,
+<<<<<<< HEAD
     }));
+=======
+    });
+>>>>>>> integration-branch
 
     // Spawn multiple concurrent requests
     let mut handles = vec![];
@@ -366,6 +542,7 @@ async fn test_concurrent_request_limiting() -> Result<()> {
         handles.push(handle);
     }
 
+<<<<<<< HEAD
     // Wait for all tasks to complete
     for handle in handles {
         // DeterministicJoinHandle doesn't have unwrap, just drop it
@@ -376,4 +553,18 @@ async fn test_concurrent_request_limiting() -> Result<()> {
     // by allowing only 3 concurrent requests out of 5 attempts
 
     Ok(())
+=======
+    let results: Vec<String> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .map(|r| r.unwrap())
+        .collect();
+
+    // Should have some successes and some failures due to concurrency limit
+    let successes = results.iter().filter(|r| r.contains("completed")).count();
+    let failures = results.iter().filter(|r| r.contains("failed")).count();
+
+    assert_eq!(successes, 3, "Should have exactly 3 successful requests");
+    assert_eq!(failures, 2, "Should have exactly 2 failed requests");
+>>>>>>> integration-branch
 }

@@ -21,6 +21,7 @@ hex = { workspace = true }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-graph = { path = "../adapteros-graph" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
 
 # Schema & Validation
 schemars = "0.8"

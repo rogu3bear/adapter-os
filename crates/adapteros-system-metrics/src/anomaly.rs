@@ -9,7 +9,6 @@ use crate::monitoring_types::*;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
-use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -538,11 +537,7 @@ impl AnomalyDetector {
             limit: Some(1000), // Get last 1000 metrics
         };
 
-        ProcessHealthMetric::query(self.db.pool(), filters)
-            .await
-            .map_err(|e| {
-                adapteros_core::AosError::Database(format!("Failed to query metrics: {}", e))
-            })
+        ProcessHealthMetric::query(self.db.pool(), filters).await
     }
 
     /// Get recent metric values for rate of change calculation
@@ -604,7 +599,7 @@ impl AnomalyDetector {
 
     /// Get active tenants
     async fn get_active_tenants(&self) -> Result<Vec<TenantInfo>> {
-        let rows = sqlx::query("SELECT id FROM tenants")
+        let rows = sqlx::query!("SELECT id FROM tenants")
             .fetch_all(self.db.pool())
             .await
             .map_err(|e| {
@@ -613,7 +608,9 @@ impl AnomalyDetector {
 
         let tenants = rows
             .into_iter()
-            .map(|row| TenantInfo { id: row.get("id") })
+            .map(|row| TenantInfo {
+                id: row.id.unwrap_or_default(),
+            })
             .collect();
 
         Ok(tenants)
@@ -621,18 +618,18 @@ impl AnomalyDetector {
 
     /// Get active workers for a tenant
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query("SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'")
-            .bind(tenant_id)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|e| {
-                adapteros_core::AosError::Database(format!("Failed to get workers: {}", e))
-            })?;
+        let rows = sqlx::query!(
+            "SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'",
+            tenant_id
+        )
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get workers: {}", e)))?;
 
         let workers = rows
             .into_iter()
             .map(|row| WorkerInfo {
-                id: row.get("id"),
+                id: row.id.unwrap_or_default(),
                 tenant_id: tenant_id.to_string(),
             })
             .collect();
@@ -649,7 +646,6 @@ struct TenantInfo {
 #[derive(Debug, Clone)]
 struct WorkerInfo {
     id: String,
-    #[allow(dead_code)]
     tenant_id: String,
 }
 

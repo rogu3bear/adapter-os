@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Audit Trail Completeness Tests
 //!
 //! This module tests audit logging, trail completeness, and compliance verification

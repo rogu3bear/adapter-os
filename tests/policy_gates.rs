@@ -10,9 +10,15 @@
 //!
 //! Run with: cargo test --test policy_gates -- --ignored
 
+<<<<<<< HEAD
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_rag::{EvidenceSpan, EvidenceType};
 use adapteros_policy::RefusalResponse;
+=======
+use adapteros_core::{AosError, Result};
+use adapteros_lora_rag::EvidenceSpan;
+use adapteros_policy::{PolicyEngine, RefusalResponse};
+>>>>>>> integration-branch
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

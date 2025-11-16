@@ -9,7 +9,7 @@
 //! Per Determinism Ruleset #2: "refuse to serve if policy hashes don't match"
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_db::Database;
+use adapteros_db::Db;
 use adapteros_telemetry::{PolicyHashValidationEvent, TelemetryWriter, ValidationStatus};
 use serde::{Deserialize, Serialize};
 use sqlx::Executor;
@@ -40,8 +40,8 @@ pub struct ValidationResult {
 
 /// Policy hash watcher with hybrid persistence
 pub struct PolicyHashWatcher {
-    /// Database handle for persistence (supports both SQLite and PostgreSQL)
-    db: Arc<Database>,
+    /// Database handle for persistence
+    db: Arc<Db>,
 
     /// Telemetry writer for logging
     telemetry: Arc<TelemetryWriter>,
@@ -59,7 +59,7 @@ pub struct PolicyHashWatcher {
 
 impl PolicyHashWatcher {
     /// Create a new policy hash watcher
-    pub fn new(db: Arc<Database>, telemetry: Arc<TelemetryWriter>, cpid: Option<String>) -> Self {
+    pub fn new(db: Arc<Db>, telemetry: Arc<TelemetryWriter>, cpid: Option<String>) -> Self {
         Self {
             db,
             telemetry,
@@ -336,39 +336,21 @@ impl PolicyHashWatcher {
     pub async fn trigger_quarantine(&self, reason: &str) -> Result<()> {
         warn!(reason = %reason, "Triggering policy quarantine");
 
-        // Insert quarantine record - use backend-appropriate method
-        match self.db.backend() {
-            adapteros_db::DatabaseBackend::Sqlite(db) => {
-                db.pool()
-                    .execute(
-                        sqlx::query(
-                            r#"
-                            INSERT INTO policy_quarantine (reason, created_at, released, cpid, violation_type)
-                            VALUES (?, CURRENT_TIMESTAMP, FALSE, ?, 'policy_hash_mismatch')
-                            "#
-                        )
-                        .bind(reason)
-                        .bind(self.cpid.as_deref())
-                    )
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
-            }
-            adapteros_db::DatabaseBackend::Postgres(db) => {
-                db.pool()
-                    .execute(
-                        sqlx::query(
-                            r#"
-                            INSERT INTO policy_quarantine (reason, created_at, released, cpid, violation_type)
-                            VALUES ($1, NOW(), FALSE, $2, 'policy_hash_mismatch')
-                            "#
-                        )
-                        .bind(reason)
-                        .bind(self.cpid.as_deref())
-                    )
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
-            }
-        }
+        // Insert quarantine record
+        self.db
+            .pool()
+            .execute(
+                sqlx::query(
+                    r#"
+                    INSERT INTO policy_quarantine (reason, created_at, released, cpid, violation_type)
+                    VALUES (?, CURRENT_TIMESTAMP, FALSE, ?, 'policy_hash_mismatch')
+                    "#
+                )
+                .bind(reason)
+                .bind(self.cpid.as_deref())
+            )
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
 
         // Log telemetry event (100% sampling)
         if let Err(e) = self.telemetry.log_event(
@@ -435,7 +417,6 @@ impl PolicyHashWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_db::Database;
     use tempfile::TempDir;
     use uuid::Uuid;
 
@@ -445,7 +426,7 @@ mod tests {
         let db_path = temp_dir.path().join(format!("test-{}.db", Uuid::new_v4()));
         let db_url = format!("sqlite://{}", db_path.display());
 
-        let db = Database::connect(&db_url).await.unwrap();
+        let db = Db::connect(&db_url).await.unwrap();
         // Run migrations - each test has unique database so this should succeed
         db.migrate()
             .await

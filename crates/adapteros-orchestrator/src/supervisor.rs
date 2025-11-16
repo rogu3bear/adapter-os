@@ -174,14 +174,12 @@ pub struct SupervisorDaemon {
     /// Adapter registry
     adapter_registry: Option<Arc<Registry>>,
     /// Database
-    #[allow(dead_code)]
     db: Arc<Db>,
 }
 
 /// Health checker
 pub struct HealthChecker {
     /// Check interval
-    #[allow(dead_code)]
     interval: Duration,
 }
 
@@ -439,46 +437,42 @@ impl SupervisorDaemon {
         // Record crash in database
         self.record_crash(tenant_id, crash_reason).await?;
 
-        // Get restart state and calculate backoff
-        let (backoff, attempts) = {
-            let mut restart_states = self.restart_states.lock().unwrap();
-            let restart_state = restart_states.entry(tenant_id.to_string()).or_default();
+        // Get restart state
+        let mut restart_states = self.restart_states.lock().unwrap();
+        let restart_state = restart_states.entry(tenant_id.to_string()).or_default();
 
-            restart_state.attempts += 1;
-            restart_state.last_crash = Some(std::time::SystemTime::now());
+        restart_state.attempts += 1;
+        restart_state.last_crash = Some(std::time::SystemTime::now());
 
-            // Check if we've exceeded max attempts
-            if restart_state.attempts > restart_state.policy.max_attempts {
-                error!(
-                    "Worker {} exceeded max restart attempts ({}), marking as stopped",
-                    tenant_id, restart_state.policy.max_attempts
-                );
+        // Check if we've exceeded max attempts
+        if restart_state.attempts > restart_state.policy.max_attempts {
+            error!(
+                "Worker {} exceeded max restart attempts ({}), marking as stopped",
+                tenant_id, restart_state.policy.max_attempts
+            );
 
-                // Update worker status
-                {
-                    let mut workers = self.workers.lock().unwrap();
-                    if let Some(worker) = workers.get_mut(tenant_id) {
-                        worker.status = WorkerStatus::Stopped;
-                    }
+            // Update worker status
+            {
+                let mut workers = self.workers.lock().unwrap();
+                if let Some(worker) = workers.get_mut(tenant_id) {
+                    worker.status = WorkerStatus::Stopped;
                 }
-
-                return Err(AosError::Worker(format!(
-                    "Worker {} exceeded max restart attempts",
-                    tenant_id
-                )));
             }
 
-            // Calculate backoff delay and return attempts for logging
-            (
-                restart_state.policy.backoff_delay(restart_state.attempts),
-                restart_state.attempts,
-            )
-        }; // Lock released here
+            return Err(AosError::Worker(format!(
+                "Worker {} exceeded max restart attempts",
+                tenant_id
+            )));
+        }
+
+        // Calculate backoff delay
+        let backoff = restart_state.policy.backoff_delay(restart_state.attempts);
         info!(
-            "Restarting worker {} after {}s (attempt {})",
+            "Restarting worker {} after {}s (attempt {}/{})",
             tenant_id,
             backoff.as_secs(),
-            attempts
+            restart_state.attempts,
+            restart_state.policy.max_attempts
         );
 
         // Mark as restarting
@@ -496,14 +490,10 @@ impl SupervisorDaemon {
         self.restart_worker(tenant_id).await?;
 
         // Record restart in database
-        self.record_restart(tenant_id, attempts).await?;
+        self.record_restart(tenant_id, restart_state.attempts)
+            .await?;
 
-        {
-            let mut restart_states = self.restart_states.lock().unwrap();
-            if let Some(state) = restart_states.get_mut(tenant_id) {
-                state.last_restart = std::time::SystemTime::now();
-            }
-        }
+        restart_state.last_restart = std::time::SystemTime::now();
 
         // On successful restart, reset attempts after a grace period
         // (in production, would be triggered by successful health checks)

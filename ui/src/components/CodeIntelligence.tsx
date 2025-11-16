@@ -32,9 +32,14 @@ import apiClient from '../api/client';
 import { Repository, Commit, User, RepositoryReportResponse } from '../api/types';
 import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
+<<<<<<< HEAD
 import { logger, toError } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
+=======
+import { toast } from 'sonner';
+import { logger } from '../utils/logger';
+>>>>>>> integration-branch
 
 interface CodeIntelligenceProps {
   user: User;
@@ -209,7 +214,63 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
   const handleFolderSelect = (folderPath: string, repoInfo: any) => {
     setShowFolderPicker(false);
     setShowTrainingDialog(true);
+<<<<<<< HEAD
     showStatus(`Selected repository: ${repoInfo.name}`, 'info');
+=======
+    toast.success(`Selected repository: ${repoInfo.name}`);
+  };
+
+  const handleStartTraining = async (config: {
+    repositoryPath: string;
+    adapterName: string;
+    description: string;
+    trainingConfig: Record<string, string | number | boolean>;
+  }) => {
+    try {
+      // Replace: TODO: Implement actual training API call
+      logger.info('Starting adapter training', {
+        component: 'CodeIntelligence',
+        operation: 'startTraining',
+        repositoryPath: config.repositoryPath,
+        adapterName: config.adapterName,
+        tenantId: selectedTenant,
+        userId: user.id
+      });
+
+      // Call the training API
+      const trainingSession = await apiClient.startAdapterTraining({
+        repository_path: config.repositoryPath,
+        adapter_name: config.adapterName,
+        description: config.description,
+        training_config: config.trainingConfig,
+        tenant_id: selectedTenant
+      });
+
+      toast.success(`Adapter training started: ${trainingSession.session_id}`);
+      setShowTrainingDialog(false);
+      fetchData(); // Refresh to show new repository
+      
+      logger.info('Adapter training started successfully', {
+        component: 'CodeIntelligence',
+        operation: 'startTraining',
+        sessionId: trainingSession.session_id,
+        tenantId: selectedTenant,
+        userId: user.id
+      });
+      
+    } catch (err) {
+      toast.error('Failed to start training');
+      // Replace: console.error(err);
+      logger.error('Failed to start adapter training', {
+        component: 'CodeIntelligence',
+        operation: 'startTraining',
+        repositoryPath: config.repositoryPath,
+        adapterName: config.adapterName,
+        tenantId: selectedTenant,
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
+    }
+>>>>>>> integration-branch
   };
 
   if (loading) {

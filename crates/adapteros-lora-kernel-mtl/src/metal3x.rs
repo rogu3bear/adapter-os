@@ -6,11 +6,9 @@
 //! - Improved threadgroup memory usage
 //! - Enhanced compute shader features
 
-use adapteros_core::AosError;
 use adapteros_core::Result;
-use blake3;
+use metal::foreign_types::ForeignType;
 use metal::*;
-use std::ffi::c_void;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -319,9 +317,11 @@ impl Metal3xMemoryManager {
 
         // Find the pool containing this buffer
         for pool in &mut self.memory_pools {
-            if let Some(pos) = pool.allocated_buffers.iter().position(|b| {
-                (b.contents() as *mut c_void as u64) == (buffer.contents() as *mut c_void as u64)
-            }) {
+            if let Some(pos) = pool
+                .allocated_buffers
+                .iter()
+                .position(|b| b.as_ptr() == buffer.as_ptr())
+            {
                 pool.allocated_buffers.remove(pos);
                 pool.available_buffers.push(buffer);
 

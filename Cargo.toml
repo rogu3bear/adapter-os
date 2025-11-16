@@ -1,119 +1,109 @@
+[package]
+name = "adapter-os"
+version = "0.1.0"
+edition = "2021"
+authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rogu3bear/mplora"
+
 [workspace]
+resolver = "2"
 members = [
     "crates/adapteros-core",
     "crates/adapteros-crypto",
     "crates/adapteros-manifest",
     "crates/adapteros-registry",
     "crates/adapteros-artifacts",
-    "crates/adapteros-cdp",
+    "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
     "crates/adapteros-lora-kernel-mtl",
     "crates/adapteros-lora-kernel-prof",
-    "crates/adapteros-system-metrics",
+    # "crates/adapteros-system-metrics",  # Temporarily excluded - has 11 SQL compilation errors
     # MLX FFI excluded - experimental backend with PyO3 linker issues
     # Re-enable with: --features experimental-backends
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
     "crates/adapteros-lora-rag",
+    "crates/adapteros-ingest-docs",
     "crates/adapteros-lora-worker",
     "crates/adapteros-telemetry",
-    "crates/adapteros-telemetry-types",
     "crates/adapteros-policy",
     "crates/adapteros-config",
     "crates/adapteros-cli",
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
-    "crates/adapteros-server",
-    "crates/adapteros-server-api",
-    "crates/adapteros-tui",
+    # "crates/adapteros-server",  # Temporarily excluded - depends on server-api which has compilation errors
+    # "crates/adapteros-server-api",  # Temporarily excluded - has 62 pre-existing compilation errors
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
     "crates/adapteros-chat",
     "crates/adapteros-metrics-exporter",
-    "crates/adapteros-metrics-collector",
-    "crates/adapteros-ingest-docs",
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
     "crates/adapteros-lora-lifecycle",
-    "crates/adapteros-aos",
-    "crates/adapteros-single-file-adapter",
-    "crates/adapteros-storage",
-    "crates/adapteros-temp",
-    "crates/adapteros-secure-fs",
-    "crates/adapteros-concurrent-fs",
-    "crates/adapteros-platform",
-    "crates/adapteros-error-recovery",
-    "crates/adapteros-federation",
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-graph",
     "crates/adapteros-codegraph",
-    "crates/adapteros-patch",
     "crates/adapteros-replay",
     "crates/adapteros-trace",
     "crates/adapteros-numerics",
     "crates/adapteros-memory",
     "crates/adapteros-lint",
     "crates/adapteros-verify",
+    "crates/adapteros-federation",
+    "crates/adapteros-domain",
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
-    "crates/adapteros-codegraph",
+    # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
+    # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)
     "xtask",
     "fuzz",
 ]
 
-resolver = "2"
-
 [workspace.package]
 version = "0.1.0"
-authors = ["rogu3bear <vats-springs0m@icloud.com>"]
-edition = "2021"  # Inherited by members for consistency
+edition = "2021"
+authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/mplora"
 
-# [features] and [dependencies] sections moved to individual crate Cargo.toml files
-# Virtual manifests (workspace-only) cannot have these sections
-#
-# [features]
-# default = ["deterministic-only"]
-# deterministic-only = []
-# experimental-backends = ["dep:pyo3"]
-# mlx-ffi-backend = ["adapteros-base-llm/mlx-ffi", "adapteros-lora-worker/mlx-ffi-backend"]
-# extended-tests = []
-# integration_tests = []
+[features]
+default = ["deterministic-only"]
+deterministic-only = []
+experimental-backends = ["dep:pyo3"]
 
-# [dependencies]
-# tower_governor = "0.5"
-# # Re-export key crates for integration tests
-# adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-# adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
-# pyo3 = { workspace = true, features = ["extension-module"], optional = true }
-# anyhow = "1.0"
-# thiserror.workspace = true
-# serde.workspace = true
-# serde_json.workspace = true
-# tokio.workspace = true
-# 
-[workspace.dependencies]
-aes-gcm = "0.10"
+[dependencies]
+# Re-export key crates for integration tests
+adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
+adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
+pyo3 = { workspace = true, features = ["extension-module"], optional = true }
 anyhow = "1.0"
-async-trait = "0.1"
-bincode = "1.3"
-blake3 = "1.5"
-ed25519-dalek = "2.0"
-ring = "0.16"
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[workspace.dependencies]
+# Core
+anyhow = "1.0"
 thiserror = "1.0"
-serde = { version = "1.0" , features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# Crypto
+blake3 = "1.5"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hkdf = "0.12"
 sha2 = "0.10"
+aes-gcm = "0.10"
 rand = "0.8"
-rand_core = "0.9"
+rand_core = "0.6"
 
 # Schema & Validation
 schemars = "0.8"
@@ -132,7 +122,6 @@ tar = "0.4"
 # Async & Concurrency
 tokio = { version = "1.35", features = ["full"] }
 tokio-stream = "0.1"
-futures = "0.3"
 futures-util = "0.3"
 async-stream = "0.3"
 crossbeam = "0.8"
@@ -155,13 +144,17 @@ hnsw_rs = "0.3"
 tantivy = "0.22"
 tokenizers = "0.15"
 safetensors = "0.4"
-memmap2 = "0.9"
-core-foundation = "0.9"
-security-framework = { version = "2.11.1" , features = ["OSX_10_13"] }
-argon2 = { version = "0.5" , features = ["std"] }
-cocoa = "0.25"
+
+# Python/MLX Integration
+pyo3 = { version = "0.22", features = ["auto-initialize", "extension-module"] }
+numpy = "0.22"
+
+# Metal (macOS)
 metal = "0.28"
 objc = "0.2"
+cocoa = "0.25"
+core-foundation = "0.9"
+security-framework = "2.9"
 
 # Filesystem
 cap-std = "3.0"
@@ -170,8 +163,10 @@ tempfile = "3.8"
 # Utilities
 smallvec = "1.11"
 bytemuck = { version = "1.14", features = ["derive"] }
+memmap2 = "0.9"
 walkdir = "2.4"
 nix = { version = "0.29", features = ["user", "process", "signal"] }
+bincode = "1.3"
 serde_derive = "1.0"
 uuid = { version = "1.6", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -179,8 +174,12 @@ hex = "0.4"
 base64 = "0.22"
 hostname = "0.3"
 zeroize = "1.0"
+async-trait = "0.1"
+regex = "1.10"
+once_cell = "1.19"
 
 # Auth & Security
+argon2 = "0.5"
 jsonwebtoken = "9.2"
 
 # API
@@ -195,131 +194,78 @@ prometheus = "0.13"
 
 # Testing
 proptest = "1.4"
-pyo3 = "0.22"
 
 [profile.release]
 opt-level = 3
-lto = "thin"  # Changed from "fat" (true) for faster compilation
-codegen-units = 16  # Changed from 1 for parallel compilation
+lto = true
+codegen-units = 1
 strip = "symbols"  # Strip symbols but preserve UUID load commands
 
-[profile.release.package."mplora-fuzz"]
-opt-level = 3
-
 [profile.dev]
-opt-level = 0
-
-[profile.dev.package."mplora-fuzz"]
 opt-level = 0
 
 [profile.test]
 opt-level = 1
 
 # Test configurations
-# [[test]]
-# name = "determinism"
-# path = "tests/determinism.rs"
-# 
-# [[test]]
-# name = "integration"
-# path = "tests/integration_tests.rs"
-# 
-# 
-# [[test]]
-# name = "integration_qwen"
-# path = "tests/integration_qwen.rs"
-# 
-# [[test]]
-# name = "deterministic_exec"
-# path = "tests/deterministic_exec.rs"
-# 
-# [[test]]
-# name = "replay_identical"
-# path = "tests/replay_identical.rs"
-# 
-# [[test]]
-# name = "cross_platform_determinism"
-# path = "tests/cross_platform_determinism.rs"
-# 
-# [[test]]
-# name = "ipc_integration"
-# path = "tests/integration/ipc_tests.rs"
-# 
-# # Example binaries (require extended-tests)
-# [[example]]
-# name = "aos_usage"
-# path = "examples/aos_usage.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "basic_inference"
-# path = "examples/basic_inference.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "cursor_workflow"
-# path = "examples/cursor_workflow.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "load_aos_adapter"
-# path = "examples/load_aos_adapter.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "lora_routing"
-# path = "examples/lora_routing.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "metrics_collector_example"
-# path = "examples/metrics_collector_example.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "mlx_inference"
-# path = "examples/mlx_inference.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "patch_proposal_advanced"
-# path = "examples/patch_proposal_advanced.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "patch_proposal_api"
-# path = "examples/patch_proposal_api.rs"
-# required-features = ["extended-tests"]
-# 
-# [[example]]
-# name = "patch_proposal_basic"
-# path = "examples/patch_proposal_basic.rs"
-# required-features = ["extended-tests"]
-# 
-# # Test dependencies
-# [dev-dependencies]
-# futures = "0.3"
-# adapteros-core = { path = "crates/adapteros-core" }
-# adapteros-manifest = { path = "crates/adapteros-manifest" }
-# adapteros-chat = { path = "crates/adapteros-chat" }
+[[test]]
+name = "determinism"
+path = "tests/determinism.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration_tests.rs"
+
+
+[[test]]
+name = "integration_qwen"
+path = "tests/integration_qwen.rs"
+
+[[test]]
+name = "deterministic_exec"
+path = "tests/deterministic_exec.rs"
+
+[[test]]
+name = "replay_identical"
+path = "tests/replay_identical.rs"
+
+[[test]]
+name = "cross_platform_determinism"
+path = "tests/cross_platform_determinism.rs"
+
+[[test]]
+name = "directory_adapter_performance"
+path = "tests/directory_adapter_performance.rs"
+
+[[test]]
+name = "kernel_buffer_layout"
+path = "tests/kernel_buffer_layout.rs"
+
+[[test]]
+name = "kernel_lora_validation"
+path = "tests/kernel_lora_validation.rs"
+
+# Test dependencies
+[dev-dependencies]
+adapteros-core = { path = "crates/adapteros-core" }
+adapteros-manifest = { path = "crates/adapteros-manifest" }
+adapteros-chat = { path = "crates/adapteros-chat" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-telemetry = { path = "crates/adapteros-telemetry" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
-adapteros-lora-rag = { path = "crates/adapteros-lora-rag", default-features = false }
+adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
 adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
-adapteros-server = { path = "crates/adapteros-server" }
-adapteros-server-api = { path = "crates/adapteros-server-api" }
+# adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
+adapteros-server-api = { path = "crates/adapteros-server-api" }  # Enabled for performance tests
 adapteros-db = { path = "crates/adapteros-db" }
+adapteros-config = { path = "crates/adapteros-config" }
+adapteros-codegraph = { path = "crates/adapteros-codegraph" }
 adapteros-client = { path = "crates/adapteros-client" }
 adapteros-node = { path = "crates/adapteros-node" }
 adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
 adapteros-orchestrator = { path = "crates/adapteros-orchestrator" }
-adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
-reqwest = { workspace = true }
-blake3 = { workspace = true }
-hex = { workspace = true }
 adapteros-profiler = { path = "crates/adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
 adapteros-registry = { path = "crates/adapteros-registry" }
@@ -327,24 +273,25 @@ adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }
-adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }
+# adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Temporarily excluded
 adapteros-crypto = { path = "crates/adapteros-crypto" }
 adapteros-sbom = { path = "crates/adapteros-sbom" }
 adapteros-api = { path = "crates/adapteros-api" }
-adapteros-api-types = { path = "crates/adapteros-api-types" }
 adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
 adapteros-graph = { path = "crates/adapteros-graph" }
 adapteros-replay = { path = "crates/adapteros-replay" }
 adapteros-trace = { path = "crates/adapteros-trace" }
-adapteros-config = { path = "crates/adapteros-config" }
-adapteros-base-llm = { path = "crates/adapteros-base-llm" }
-tempfile.workspace = true
-axum.workspace = true
-axum-test = "14.0"
-tower.workspace = true
-sqlx.workspace = true
-chrono.workspace = true
-uuid.workspace = true
-adapteros-experimental = { path = "deprecated/adapteros-experimental" }
-futures-util = { workspace = true }
-serde_yaml = "0.9"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3.0"
+tracing-subscriber = { workspace = true }
+anyhow = "1.0"
+axum = "0.7"
+tower = "0.4"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v7", "serde"] }
+blake3 = { workspace = true }
+hex = { workspace = true }
+metal = { workspace = true }

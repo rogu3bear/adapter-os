@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Integration tests for advanced process monitoring
 //!
 //! Tests cover metrics collection, alerting, anomaly detection, streaming, and dashboards.
@@ -10,10 +13,13 @@ use adapteros_db::process_monitoring::{
     CreateMonitoringRuleRequest, RuleType, UpdateMonitoringRuleRequest,
 };
 use adapteros_db::Db;
+<<<<<<< HEAD
 use adapteros_system_metrics::telemetry::{
     AlertTriggeredEventBuilder, AnomalyDetectedEventBuilder, BaselineCalculatedEventBuilder,
     MetricsCollectionEvent, StatisticalMeasuresTelemetry,
 };
+=======
+>>>>>>> integration-branch
 use adapteros_system_metrics::*;
 use adapteros_telemetry::TelemetryWriter;
 use axum::{
@@ -599,6 +605,7 @@ async fn test_telemetry_integration() -> Result<()> {
     let system_telemetry = SystemMetricsTelemetry::new(telemetry_writer);
 
     // Test alert triggered event
+<<<<<<< HEAD
     let alert_event = AlertTriggeredEventBuilder::new()
         .alert_id("alert-123")
         .rule_id("rule-456")
@@ -611,10 +618,24 @@ async fn test_telemetry_integration() -> Result<()> {
         .severity("critical")
         .build_event()
         .expect("alert builder succeeds");
+=======
+    let alert_event = AlertTriggeredEvent::new(
+        "alert-123".to_string(),
+        "rule-456".to_string(),
+        "High CPU Usage".to_string(),
+        "worker-789".to_string(),
+        "tenant-001".to_string(),
+        "cpu_usage".to_string(),
+        95.0,
+        90.0,
+        "critical".to_string(),
+    );
+>>>>>>> integration-branch
 
     system_telemetry.log_alert_triggered(&alert_event)?;
 
     // Test anomaly detected event
+<<<<<<< HEAD
     let anomaly_event = AnomalyDetectedEventBuilder::new()
         .anomaly_id("anomaly-123")
         .worker_id("worker-789")
@@ -628,10 +649,22 @@ async fn test_telemetry_integration() -> Result<()> {
         .baseline_std_dev(5.0)
         .build()
         .expect("anomaly builder succeeds");
+=======
+    let anomaly_event = AnomalyDetectedEvent::new(
+        "anomaly-123".to_string(),
+        "worker-789".to_string(),
+        "tenant-001".to_string(),
+        "cpu_usage".to_string(),
+        "z_score".to_string(),
+        0.95,
+        "high".to_string(),
+    );
+>>>>>>> integration-branch
 
     system_telemetry.log_anomaly_detected(&anomaly_event)?;
 
     // Test baseline calculated event
+<<<<<<< HEAD
     let baseline_event = BaselineCalculatedEventBuilder::new()
         .worker_id("worker-789")
         .tenant_id("tenant-001")
@@ -652,11 +685,33 @@ async fn test_telemetry_integration() -> Result<()> {
         })
         .build_event()
         .expect("baseline builder succeeds");
+=======
+    let baseline_event = BaselineCalculatedEvent::new(
+        "baseline-123".to_string(),
+        "worker-789".to_string(),
+        "tenant-001".to_string(),
+        "cpu_usage".to_string(),
+        "mean".to_string(),
+        55.0,
+        5.0,
+        7,
+    );
+>>>>>>> integration-branch
 
     system_telemetry.log_baseline_calculated(&baseline_event)?;
 
     // Test metrics collection event
+<<<<<<< HEAD
     let metrics_event = MetricsCollectionEvent::new(1, 150, 250, 15, 0);
+=======
+    let metrics_event = MetricsCollectionEvent::new(
+        "worker-789".to_string(),
+        "tenant-001".to_string(),
+        vec!["cpu_usage".to_string(), "memory_usage".to_string()],
+        150,
+        2.5,
+    );
+>>>>>>> integration-branch
 
     system_telemetry.log_metrics_collection(&metrics_event)?;
 

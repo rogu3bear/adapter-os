@@ -1,12 +1,19 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! UI Federation Status Integration Tests
 //!
 //! Tests the federation status REST API endpoints and response formats.
 
 use adapteros_core::Result;
 use adapteros_crypto::Keypair;
+<<<<<<< HEAD
 use adapteros_db::{Database, Db};
+=======
+use adapteros_db::Db;
+>>>>>>> integration-branch
 use adapteros_federation::FederationManager;
 use adapteros_orchestrator::{FederationDaemon, FederationDaemonConfig};
 use adapteros_policy::PolicyHashWatcher;
@@ -23,6 +30,7 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
     let db_path = temp_dir.path().join("test.db");
     let db_url = format!("sqlite://{}", db_path.display());
 
+<<<<<<< HEAD
     // Use Database wrapper for consistency
     let db = Database::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
@@ -32,12 +40,22 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
     let db_inner = db.inner().clone();
     let keypair = Keypair::generate();
     let federation = FederationManager::new(db_inner, keypair).unwrap();
+=======
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+
+    let keypair = Keypair::generate();
+    let federation = FederationManager::new(db.clone(), keypair).unwrap();
+>>>>>>> integration-branch
 
     let telemetry_dir = temp_dir.path().join("telemetry");
     std::fs::create_dir_all(&telemetry_dir).unwrap();
     let telemetry = TelemetryWriter::new(&telemetry_dir, 1000, 1024 * 1024).unwrap();
 
+<<<<<<< HEAD
     // PolicyHashWatcher expects Arc<Database>
+=======
+>>>>>>> integration-branch
     let policy_watcher = PolicyHashWatcher::new(
         Arc::new(db.clone()),
         Arc::new(telemetry.clone()),
@@ -50,7 +68,10 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
         enable_quarantine: true,
     };
 
+<<<<<<< HEAD
     // FederationDaemon now expects Arc<Database>
+=======
+>>>>>>> integration-branch
     let daemon = FederationDaemon::new(
         Arc::new(federation),
         Arc::new(policy_watcher),
@@ -59,11 +80,17 @@ async fn setup_api_state() -> (Arc<FederationApiState>, TempDir) {
         config,
     );
 
+<<<<<<< HEAD
     // FederationApiState needs Arc<Db>, so extract from Database wrapper
     let db_for_state = db.into_inner();
     let state = FederationApiState {
         daemon: Arc::new(daemon),
         db: Arc::new(db_for_state),
+=======
+    let state = FederationApiState {
+        daemon: Arc::new(daemon),
+        db: Arc::new(db),
+>>>>>>> integration-branch
     };
 
     (Arc::new(state), temp_dir)

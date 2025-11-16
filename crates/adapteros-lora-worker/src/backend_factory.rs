@@ -18,7 +18,7 @@ use rand_chacha::ChaCha20Rng;
 pub enum BackendChoice {
     /// Metal backend (macOS GPU)
     Metal,
-    /// MLX backend (C++ FFI/MLX)
+    /// MLX backend (Python/MLX)
     Mlx { model_path: PathBuf },
     /// CoreML backend (macOS Neural Engine)
     CoreML,
@@ -47,31 +47,8 @@ pub enum BackendChoice {
 /// # Ok::<(), adapteros_core::AosError>(())
 /// ```
 pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
-    // Create backend based on choice; fallback to CPU if unavailable
-    let backend = match create_backend_internal(choice.clone()) {
-        Ok(b) => b,
-        // Do not silently bypass policy/determinism violations with a fallback
-        Err(e @ AosError::PolicyViolation(_)) | Err(e @ AosError::DeterminismViolation(_)) => {
-            tracing::error!(error = %e, "Backend creation failed due to policy/determinism violation; refusing fallback");
-            return Err(e);
-        }
-        Err(e) => {
-            // For explicit MLX selection with missing real FFI, refuse fallback
-            if matches!(choice, BackendChoice::Mlx { .. }) {
-                if let AosError::FeatureDisabled { .. } = e {
-                    tracing::error!(error = %e, "MLX backend requested but FFI is stub; refusing fallback");
-                    return Err(e);
-                }
-            }
-            tracing::warn!(
-                error = %e,
-                requested_backend = ?choice,
-                "Falling back to CPU fallback backend due to backend initialization error"
-            );
-            let cpu = adapteros_lora_kernel_api::CpuKernels::default();
-            Box::new(cpu)
-        }
-    };
+    // Create backend based on choice
+    let backend = create_backend_internal(choice)?;
 
     // Validate determinism attestation (runtime guard)
     let report = backend.attest_determinism()?;
@@ -105,32 +82,19 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
         }
 
         BackendChoice::Mlx { model_path } => {
-            // Compile-time guard: MLX backend requires mlx-ffi-backend or experimental-backends feature
-            #[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
+            // Compile-time guard: MLX backend requires experimental-backends feature
+            #[cfg(not(feature = "experimental-backends"))]
             {
                 let _ = model_path;
                 Err(AosError::PolicyViolation(
-                    "MLX backend requires --features mlx-ffi-backend (not enabled in deterministic-only build)".to_string(),
+                    "MLX backend requires --features experimental-backends (not enabled in deterministic-only build)".to_string(),
                 ))
             }
 
-            #[cfg(any(feature = "mlx-ffi-backend", feature = "experimental-backends"))]
+            #[cfg(feature = "experimental-backends")]
             {
-                // Ensure real MLX FFI is available; do not silently fallback to placeholders
-                if !adapteros_lora_mlx_ffi::ffi_is_real() {
-                    return Err(AosError::FeatureDisabled {
-                        feature: "MLX backend".to_string(),
-                        reason: "FFI is stub (no real MLX C++ API detected)".to_string(),
-                        alternative: Some(
-                            "Install MLX C++ headers/libs or use Metal backend".to_string(),
-                        ),
-                    });
-                }
-
-                // Load the real MLX model via FFI and construct the backend
-                let model = adapteros_lora_mlx_ffi::MLXFFIModel::load(&model_path)?;
-                let backend = adapteros_lora_mlx_ffi::MLXFFIBackend::new(model);
-                tracing::info!("Created MLX FFI backend (real): {}", backend.device_name());
+                let backend = MlxBackend::new(model_path)?;
+                tracing::info!("Created MLX backend: {}", backend.device_name());
                 Ok(Box::new(backend))
             }
         }

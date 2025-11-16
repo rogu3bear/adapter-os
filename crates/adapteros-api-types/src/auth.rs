@@ -24,6 +24,7 @@ pub struct UserInfoResponse {
     pub user_id: String,
     pub email: String,
     pub role: String,
+<<<<<<< HEAD
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -39,6 +40,9 @@ pub struct UserInfoResponse {
     /// Legacy field - kept for backwards compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+=======
+    pub created_at: String,
+>>>>>>> integration-branch
 }
 
 /// Logout request (empty for now, but extensible)
@@ -46,6 +50,7 @@ pub struct UserInfoResponse {
 pub struct LogoutRequest {
     // Future: could include session invalidation details
 }
+<<<<<<< HEAD
 
 /// Session information for active authentication sessions
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -135,3 +140,5 @@ pub struct UpdateAuthConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_expiry_hours: Option<u32>,
 }
+=======
+>>>>>>> integration-branch

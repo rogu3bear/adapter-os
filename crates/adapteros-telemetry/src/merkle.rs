@@ -171,22 +171,19 @@ fn collect_siblings(
         return;
     }
 
-    let left = node.left.as_ref().expect("Merkle node missing left child");
-    let right = node
-        .right
-        .as_ref()
-        .expect("Merkle node missing right child");
+    let left = node.left.as_ref().unwrap();
+    let right = node.right.as_ref().unwrap();
 
     let mid = total_leaves.div_ceil(2);
 
     if target_index < mid {
         // Target is in left subtree
-        collect_siblings(left, target_index, mid, siblings);
         siblings.push(right.hash);
+        collect_siblings(left, target_index, mid, siblings);
     } else {
         // Target is in right subtree
-        collect_siblings(right, target_index - mid, total_leaves - mid, siblings);
         siblings.push(left.hash);
+        collect_siblings(right, target_index - mid, total_leaves - mid, siblings);
     }
 }
 

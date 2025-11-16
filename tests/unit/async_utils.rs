@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Async Component Testing Utilities
 //!
 //! This module provides utilities for testing async components and futures

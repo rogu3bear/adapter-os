@@ -164,7 +164,10 @@ async fn test_end_to_end_training_and_quantization() {
         input: vec![1, 2, 3],
         target: vec![4, 5, 6],
         metadata: HashMap::new(),
+<<<<<<< HEAD
         weight: 1.0,
+=======
+>>>>>>> integration-branch
     }];
 
     // Train

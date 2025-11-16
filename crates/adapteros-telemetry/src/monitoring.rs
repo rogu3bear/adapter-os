@@ -1,8 +1,5 @@
 use crate::{
-    alerting::{
-        AlertComparator, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
-        NotificationChannel,
-    },
+    alerting::{AlertComparator, AlertSeverity},
     health_monitoring::HealthStatus,
     unified_events::{
         EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
@@ -12,10 +9,7 @@ use crate::{
 use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 const HEALTH_CHECK_EVENT: &str = "monitoring.health_check";
 const POLICY_VIOLATION_EVENT: &str = "monitoring.policy_violation_alert";
@@ -259,150 +253,11 @@ fn severity_for_less(value: f64, warning: f64, critical: f64) -> Option<AlertSev
     }
 }
 
-/// Lightweight threat detection engine built atop AlertingEngine.
-///
-/// Rules implemented:
-/// - High frequency policy violations (>10/min)
-/// - Memory spikes (>50% increase within 30s)
-/// - Queue depth runaway (monotonic increase and >1000)
-#[derive(Debug)]
-pub struct ThreatDetectionEngine {
-    engine: AlertingEngine,
-    // Timestamps of recent policy violations per tenant/policy
-    policy_violations: HashMap<String, Vec<SystemTime>>, // key: tenant_id|policy
-    // Sliding window buffer for memory usage percent
-    memory_samples: Vec<(SystemTime, f64)>,
-    // Recent queue depths
-    queue_depth_samples: Vec<(SystemTime, f64)>,
-}
-
-impl ThreatDetectionEngine {
-    pub fn new() -> Self {
-        let mut engine = AlertingEngine::new(256);
-        // Register default rules
-        engine.register_rule(AlertRule {
-            name: "policy_violation_rate".into(),
-            metric: "policy_violation_rate_per_min".into(),
-            comparator: AlertComparator::GreaterThan,
-            threshold: 10.0, // >10 per minute
-            severity: AlertSeverity::Warning,
-            escalation: EscalationPolicy {
-                repeat_interval: Duration::from_secs(300),
-                channels: vec![NotificationChannel {
-                    channel_type: "telemetry".into(),
-                    target: "alerts".into(),
-                }],
-            },
-        });
-        engine.register_rule(AlertRule {
-            name: "memory_spike_30s".into(),
-            metric: "memory_spike_pct_30s".into(),
-            comparator: AlertComparator::GreaterThan,
-            threshold: 50.0, // >50% increase within 30s
-            severity: AlertSeverity::Critical,
-            escalation: EscalationPolicy {
-                repeat_interval: Duration::from_secs(300),
-                channels: vec![NotificationChannel {
-                    channel_type: "telemetry".into(),
-                    target: "alerts".into(),
-                }],
-            },
-        });
-        engine.register_rule(AlertRule {
-            name: "queue_depth_runaway".into(),
-            metric: "queue_depth_runaway".into(),
-            comparator: AlertComparator::GreaterThan,
-            threshold: 1000.0,
-            severity: AlertSeverity::Warning,
-            escalation: EscalationPolicy {
-                repeat_interval: Duration::from_secs(120),
-                channels: vec![NotificationChannel {
-                    channel_type: "telemetry".into(),
-                    target: "alerts".into(),
-                }],
-            },
-        });
-
-        Self {
-            engine,
-            policy_violations: HashMap::new(),
-            memory_samples: Vec::with_capacity(64),
-            queue_depth_samples: Vec::with_capacity(64),
-        }
-    }
-}
-
-impl Default for ThreatDetectionEngine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ThreatDetectionEngine {
-    /// Record a policy violation for rate tracking (per-tenant, per-policy)
-    pub fn ingest_policy_violation(&mut self, tenant_id: &str, policy: &str) {
-        let key = format!("{}|{}", tenant_id, policy);
-        let now = SystemTime::now();
-        let entries = self.policy_violations.entry(key).or_default();
-        entries.push(now);
-        // Retain last 60s
-        let cutoff = now - Duration::from_secs(60);
-        entries.retain(|&t| t >= cutoff);
-        let rate_per_min = entries.len() as f64; // count in last minute
-        let _ = self
-            .engine
-            .evaluate_metric("policy_violation_rate_per_min", rate_per_min);
-    }
-
-    /// Record a memory usage sample as a percentage (0..100)
-    pub fn ingest_memory_usage_pct(&mut self, percent: f64) {
-        let now = SystemTime::now();
-        self.memory_samples.push((now, percent));
-        let cutoff = now - Duration::from_secs(30);
-        self.memory_samples.retain(|(t, _)| *t >= cutoff);
-        if let Some((_, min_recent)) = self
-            .memory_samples
-            .iter()
-            .cloned()
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-        {
-            let spike = (percent - min_recent).max(0.0);
-            let _ = self.engine.evaluate_metric("memory_spike_pct_30s", spike);
-        }
-    }
-
-    /// Record a queue depth sample
-    pub fn ingest_queue_depth(&mut self, depth: f64) {
-        let now = SystemTime::now();
-        self.queue_depth_samples.push((now, depth));
-        let cutoff = now - Duration::from_secs(30);
-        self.queue_depth_samples.retain(|(t, _)| *t >= cutoff);
-        // Simple runaway heuristic: last 5 samples strictly increasing and current depth > 1000
-        if self.queue_depth_samples.len() >= 5 && depth > 1000.0 {
-            let n = self.queue_depth_samples.len();
-            let mut increasing = true;
-            for i in (n.saturating_sub(5))..(n - 1) {
-                if self.queue_depth_samples[i].1 >= self.queue_depth_samples[i + 1].1 {
-                    increasing = false;
-                    break;
-                }
-            }
-            if increasing {
-                let _ = self.engine.evaluate_metric("queue_depth_runaway", depth);
-            }
-        }
-    }
-
-    pub fn recent_alerts(&self) -> Vec<crate::alerting::AlertRecord> {
-        self.engine.recent_alerts().cloned().collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde::de::DeserializeOwned;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     #[derive(Debug, Clone, Default)]
     struct TestSink(Arc<Mutex<Vec<UnifiedTelemetryEvent>>>);

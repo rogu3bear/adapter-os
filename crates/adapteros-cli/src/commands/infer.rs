@@ -13,8 +13,6 @@ pub async fn run(
     require_evidence: bool,
     socket: PathBuf,
     timeout_ms: u64,
-    show_citations: bool,
-    show_trace: bool,
 ) -> Result<()> {
     // Build request
     let request = json!({
@@ -38,7 +36,7 @@ pub async fn run(
         }))?;
 
         let _ = client
-            .send_request(socket.as_path(), "POST", "/adapter", Some(&preload_body))
+            .send_request(&socket, "POST", "/adapter", Some(&preload_body))
             .await
             .context("Failed to preload adapter")?;
 
@@ -46,63 +44,30 @@ pub async fn run(
         let swap_body = serde_json::to_string(&json!({
             "type": "swap",
             "add_ids": [adapter_id],
-            "remove_ids": Vec::<String>::new(),
+            "remove_ids": [] as [String; 0],
         }))?;
 
         let _ = client
-            .send_request(socket.as_path(), "POST", "/adapter", Some(&swap_body))
+            .send_request(&socket, "POST", "/adapter", Some(&swap_body))
             .await
             .context("Failed to swap adapter")?;
     }
 
     let body = serde_json::to_string(&request)?;
     let resp = client
-        .send_request(socket.as_path(), "POST", "/inference", Some(&body))
+        .send_request(&socket, "POST", "/inference", Some(&body))
         .await
         .context("Inference request failed")?;
 
     // Parse worker response and print text only
-    let v: serde_json::Value =
-        serde_json::from_str(&resp).context("Failed to parse response JSON")?;
-    // Print primary text when present
+    let v: serde_json::Value = serde_json::from_str(&resp).context("Failed to parse response JSON")?;
     if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
         println!("{}", text);
     } else {
         println!("{}", resp);
     }
 
-    // Optional: show citations from trace.evidence
-    if show_citations {
-        if let Some(evs) = v
-            .get("trace")
-            .and_then(|t| t.get("evidence"))
-            .and_then(|e| e.as_array())
-        {
-            if !evs.is_empty() {
-                eprintln!("\nCitations:");
-                for ev in evs {
-                    let doc_id = ev.get("doc_id").and_then(|x| x.as_str()).unwrap_or("?");
-                    let rev = ev.get("rev").and_then(|x| x.as_str()).unwrap_or("?");
-                    let span = ev
-                        .get("span_hash")
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| "?".to_string());
-                    let score = ev.get("score").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                    eprintln!("- {}@{} [{}] score={:.3}", doc_id, rev, span, score);
-                }
-            } else {
-                eprintln!("\nCitations: none");
-            }
-        }
-    }
-
-    // Optional: show full trace
-    if show_trace {
-        if let Some(trace) = v.get("trace") {
-            let pretty = serde_json::to_string_pretty(trace).unwrap_or_else(|_| "{}".into());
-            eprintln!("\nTrace:\n{}", pretty);
-        }
-    }
-
     Ok(())
 }
+
+

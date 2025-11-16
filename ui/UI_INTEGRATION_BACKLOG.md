@@ -107,6 +107,7 @@ WorkersTab.tsx, TrainingWizard.tsx, Telemetry.tsx, and 24 others
 
 **Status**: ⚠ **REQUIRES BACKEND CHANGES**
 
+<<<<<<< HEAD
 **SSE Authentication**: SSE endpoints use cookie-based session authentication.
 
 **Implementation Status**:
@@ -128,6 +129,49 @@ WorkersTab.tsx, TrainingWizard.tsx, Telemetry.tsx, and 24 others
 The `/v1/stream/telemetry` endpoint emits:
 - `telemetry` - Activity events (backlog + realtime)
 - `bundles` - Telemetry bundle updates (backlog of latest 50 + realtime)
+=======
+**Issue**: UI now passes token as query parameter for SSE endpoints:
+```typescript
+const url = token ? `${baseUrl}${endpoint}?token=${encodeURIComponent(token)}` : `${baseUrl}${endpoint}`;
+```
+
+**Required Backend Changes**:
+All SSE streaming endpoints must:
+1. Extract token from query parameter: `?token=xxx`
+2. Validate JWT token
+3. Reject unauthenticated connections
+
+**Affected Endpoints**:
+- `/v1/stream/metrics`
+- `/v1/stream/telemetry`
+- `/v1/stream/adapters`
+- `/v1/streams/training`
+- `/v1/streams/discovery`
+- `/v1/streams/contacts`
+- `/v1/streams/file-changes`
+
+**Example Rust Handler**:
+```rust
+use axum::extract::Query;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct SseQuery {
+    token: Option<String>,
+}
+
+async fn system_metrics_stream(
+    Query(query): Query<SseQuery>,
+    State(state): State<AppState>,
+) -> Result<Sse<impl Stream<Item = Event>>, StatusCode> {
+    // Validate token from query parameter
+    let token = query.token.ok_or(StatusCode::UNAUTHORIZED)?;
+    let claims = verify_jwt(&token)?;
+
+    // Continue with SSE stream...
+}
+```
+>>>>>>> integration-branch
 
 ## Testing Recommendations
 

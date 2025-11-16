@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Platform validation tests for AdapterOS determinism
 //!
 //! Ensures that deterministic behavior is consistent across different platforms,

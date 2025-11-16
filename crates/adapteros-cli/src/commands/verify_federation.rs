@@ -1,6 +1,7 @@
 //! Verify federation bundle signatures
 
 use crate::output::OutputWriter;
+use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_verify::verify_cross_host;
 use anyhow::{Context, Result};

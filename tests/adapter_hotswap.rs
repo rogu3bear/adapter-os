@@ -9,6 +9,7 @@
 //! - Memory leak detection
 //! - Mmap-based atomic swaps (Phase 3)
 
+<<<<<<< HEAD
 use adapteros_aos::HotSwapManager;
 use adapteros_core::B3Hash;
 use adapteros_crypto::Keypair;
@@ -22,6 +23,10 @@ use adapteros_single_file_adapter::{
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tempfile::TempDir;
+=======
+use adapteros_core::B3Hash;
+use adapteros_lora_worker::adapter_hotswap::{AdapterCommand, AdapterTable, HotSwapManager};
+>>>>>>> integration-branch
 
 #[test]
 fn test_preload_and_swap_basic() {

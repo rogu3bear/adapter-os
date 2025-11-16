@@ -16,7 +16,6 @@ pub enum Language {
     TypeScript,
     JavaScript,
     Go,
-    AdapterOS,
 }
 
 impl Language {
@@ -28,7 +27,6 @@ impl Language {
             "ts" | "tsx" => Some(Language::TypeScript),
             "js" | "jsx" => Some(Language::JavaScript),
             "go" => Some(Language::Go),
-            "aos" => Some(Language::AdapterOS),
             _ => None,
         }
     }
@@ -48,7 +46,6 @@ impl Language {
             Language::TypeScript => &["ts", "tsx"],
             Language::JavaScript => &["js", "jsx"],
             Language::Go => &["go"],
-            Language::AdapterOS => &["aos"],
         }
     }
 }
@@ -61,7 +58,6 @@ impl fmt::Display for Language {
             Language::TypeScript => write!(f, "typescript"),
             Language::JavaScript => write!(f, "javascript"),
             Language::Go => write!(f, "go"),
-            Language::AdapterOS => write!(f, "adapteros"),
         }
     }
 }
@@ -122,7 +118,6 @@ pub enum SymbolKind {
     Static,
     Macro,
     Module,
-    Class,
     Field,
     Variant,
     Method,
@@ -143,7 +138,6 @@ impl fmt::Display for SymbolKind {
             SymbolKind::Static => write!(f, "static"),
             SymbolKind::Macro => write!(f, "macro"),
             SymbolKind::Module => write!(f, "module"),
-            SymbolKind::Class => write!(f, "class"),
             SymbolKind::Field => write!(f, "field"),
             SymbolKind::Variant => write!(f, "variant"),
             SymbolKind::Method => write!(f, "method"),
@@ -197,16 +191,9 @@ impl TypeAnnotation {
     pub fn primary_type(&self) -> Option<&String> {
         self.declared_type.as_ref().or(self.inferred_type.as_ref())
     }
-}
 
-impl Default for TypeAnnotation {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl fmt::Display for TypeAnnotation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// Convert to string representation
+    pub fn to_string(&self) -> String {
         let mut parts = Vec::new();
 
         if let Some(ref declared) = self.declared_type {
@@ -229,7 +216,13 @@ impl fmt::Display for TypeAnnotation {
             parts.push(format!("params: [{}]", self.parameter_types.join(", ")));
         }
 
-        write!(f, "{}", parts.join("; "))
+        parts.join("; ")
+    }
+}
+
+impl Default for TypeAnnotation {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -291,12 +284,10 @@ impl Span {
             byte_length,
         }
     }
-}
 
-impl fmt::Display for Span {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
+    /// Convert to string representation
+    pub fn to_string(&self) -> String {
+        format!(
             "{}:{}:{}:{}",
             self.start_line, self.start_column, self.end_line, self.end_column
         )

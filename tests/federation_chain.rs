@@ -1,11 +1,17 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Federation Chain Tests
 //!
 //! Tests for cross-host signature chain verification
 
+<<<<<<< HEAD
 #![cfg(feature = "federation")]
 
+=======
+>>>>>>> integration-branch
 use adapteros_core::{B3Hash, Result};
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;

@@ -120,7 +120,33 @@ impl ScoringFunction for EntropyFloorScorer {
 
         let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
 
-        Decision { indices, gates_q15 }
+        // Compute entropy
+        let entropy: f32 = gates
+            .iter()
+            .filter(|&&g| g > 0.0)
+            .map(|&g| -g * g.log2())
+            .sum();
+
+        // Build candidates with raw scores
+        let candidates: Vec<super::DecisionCandidate> = top_k
+            .iter()
+            .zip(gates.iter())
+            .zip(gates_q15.iter())
+            .map(
+                |(((idx, score), _gate_f32), gate_q15)| super::DecisionCandidate {
+                    adapter_idx: *idx as u16,
+                    raw_score: *score,
+                    gate_q15: *gate_q15,
+                },
+            )
+            .collect();
+
+        Decision {
+            indices,
+            gates_q15,
+            entropy,
+            candidates,
+        }
     }
 }
 

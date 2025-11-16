@@ -1,0 +1,6 @@
+# Python requirements for MLX integration
+# Install with: pip install -r requirements-mlx.txt
+
+mlx>=0.10.0
+numpy>=1.24.0
+safetensors>=0.4.0

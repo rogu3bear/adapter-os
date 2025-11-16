@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Comprehensive RNG determinism test suite
 //!
 //! Covers all critical scenarios for Phase 1 determinism requirements.

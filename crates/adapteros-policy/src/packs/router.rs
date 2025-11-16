@@ -24,12 +24,6 @@ pub struct RouterConfig {
     pub feature_config: FeatureConfig,
     /// Tie-breaking rules
     pub tie_break_rules: Vec<TieBreakRule>,
-    /// Safe mode enabled - forces routing through safety adapter only
-    #[serde(default)]
-    pub safe_mode: bool,
-    /// Enable automatic parent adapter loading for lineage stacking
-    #[serde(default = "default_enable_lineage")]
-    pub enable_lineage_loading: bool,
 }
 
 /// Gate quantization method
@@ -92,16 +86,12 @@ pub enum TieBreakRule {
     MemoryUsageAsc,
 }
 
-fn default_enable_lineage() -> bool {
-    true
-}
-
 impl Default for RouterConfig {
     fn default() -> Self {
         Self {
             k_sparse: 3,
             gate_quant: GateQuantization::Q15,
-            entropy_floor: 0.7,
+            entropy_floor: 0.02,
             sample_tokens_full: 128,
             overhead_budget_pct: 8.0,
             feature_config: FeatureConfig {
@@ -124,8 +114,6 @@ impl Default for RouterConfig {
                 TieBreakRule::ActivationScoreDesc,
                 TieBreakRule::AdapterIdAsc,
             ],
-            safe_mode: false,
-            enable_lineage_loading: true,
         }
     }
 }
@@ -270,36 +258,6 @@ impl RouterPolicy {
             Ok(())
         }
     }
-
-    /// Check if safe mode is enabled
-    pub fn is_safe_mode_enabled(&self) -> bool {
-        self.config.safe_mode
-    }
-
-    /// Check if lineage loading is enabled
-    pub fn is_lineage_loading_enabled(&self) -> bool {
-        self.config.enable_lineage_loading
-    }
-
-    /// Enable safe mode
-    pub fn enable_safe_mode(&mut self) {
-        self.config.safe_mode = true;
-    }
-
-    /// Disable safe mode
-    pub fn disable_safe_mode(&mut self) {
-        self.config.safe_mode = false;
-    }
-
-    /// Get configuration
-    pub fn config(&self) -> &RouterConfig {
-        &self.config
-    }
-
-    /// Update configuration
-    pub fn set_config(&mut self, config: RouterConfig) {
-        self.config = config;
-    }
 }
 
 impl Policy for RouterPolicy {
@@ -346,7 +304,7 @@ mod tests {
     fn test_router_config_default() {
         let config = RouterConfig::default();
         assert_eq!(config.k_sparse, 3);
-        assert_eq!(config.entropy_floor, 0.7);
+        assert_eq!(config.entropy_floor, 0.02);
         assert_eq!(config.sample_tokens_full, 128);
         assert_eq!(config.overhead_budget_pct, 8.0);
     }

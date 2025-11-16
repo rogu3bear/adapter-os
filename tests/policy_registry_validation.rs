@@ -6,12 +6,19 @@ use serde_json::Value;
 /// Test that the policy registry contains exactly 22 policies
 #[test]
 fn test_policy_registry_count() {
+<<<<<<< HEAD
     let expected_total = PolicyId::all().len();
     assert_eq!(
         POLICY_INDEX.len(),
         expected_total,
         "Policy registry must contain exactly {} policies",
         expected_total
+=======
+    assert_eq!(
+        POLICY_INDEX.len(),
+        20,
+        "Policy registry must contain exactly 20 policies"
+>>>>>>> integration-branch
     );
 }
 
@@ -31,7 +38,38 @@ fn test_policy_ids_unique() {
 /// Test that all canonical policy names are present
 #[test]
 fn test_canonical_policy_names() {
+<<<<<<< HEAD
     let expected_policies = PolicyId::all();
+=======
+    let expected_policies = [
+        PolicyId::Egress,
+        PolicyId::Determinism,
+        PolicyId::Router,
+        PolicyId::Evidence,
+        PolicyId::Refusal,
+        PolicyId::Numeric,
+        PolicyId::Rag,
+        PolicyId::Isolation,
+        PolicyId::Telemetry,
+        PolicyId::Retention,
+        PolicyId::Performance,
+        PolicyId::Memory,
+        PolicyId::Artifacts,
+        PolicyId::Secrets,
+        PolicyId::BuildRelease,
+        PolicyId::Compliance,
+        PolicyId::Incident,
+        PolicyId::Output,
+        PolicyId::Adapters,
+        PolicyId::DeterministicIo,
+    ];
+
+    assert_eq!(
+        expected_policies.len(),
+        20,
+        "Expected exactly 20 canonical policies"
+    );
+>>>>>>> integration-branch
 
     for expected_id in expected_policies.iter() {
         assert!(
@@ -86,6 +124,7 @@ fn test_policy_severities_valid() {
     use adapteros_policy::registry::Severity;
 
     for policy in POLICY_INDEX.iter() {
+<<<<<<< HEAD
         assert!(
             matches!(
                 policy.severity,
@@ -95,6 +134,19 @@ fn test_policy_severities_valid() {
             policy.id,
             policy.severity
         );
+=======
+        match policy.severity {
+            Severity::Critical | Severity::High | Severity::Medium | Severity::Low => {
+                // Valid severity
+            }
+            _ => {
+                panic!(
+                    "Invalid severity for policy {:?}: {:?}",
+                    policy.id, policy.severity
+                );
+            }
+        }
+>>>>>>> integration-branch
     }
 }
 
@@ -123,6 +175,7 @@ fn test_policy_id_string_consistency() {
 
     for policy in POLICY_INDEX.iter() {
         let id_string = format!("{:?}", policy.id);
+<<<<<<< HEAD
         let normalized_name = normalize(policy.name);
         let normalized_id = normalize(&id_string);
 
@@ -130,6 +183,19 @@ fn test_policy_id_string_consistency() {
             normalized_name, normalized_id,
             "Policy ID {:?} and name '{}' should map to the same normalized value",
             policy.id, policy.name
+=======
+        assert!(
+            policy
+                .name
+                .to_lowercase()
+                .contains(&id_string.to_lowercase())
+                || id_string
+                    .to_lowercase()
+                    .contains(&policy.name.to_lowercase()),
+            "Policy ID {:?} and name '{}' should be consistent",
+            policy.id,
+            policy.name
+>>>>>>> integration-branch
         );
     }
 }
@@ -141,14 +207,22 @@ fn test_policy_registry_serialization() {
 
     // Test that we can serialize the registry
     let serialized =
+<<<<<<< HEAD
         serde_json::to_string(&*POLICY_INDEX).expect("Failed to serialize policy registry");
+=======
+        serde_json::to_string(&POLICY_INDEX).expect("Failed to serialize policy registry");
+>>>>>>> integration-branch
     assert!(
         !serialized.is_empty(),
         "Serialized policy registry should not be empty"
     );
 
     // Test that we can deserialize it back
+<<<<<<< HEAD
     let deserialized: Vec<Value> =
+=======
+    let deserialized: Vec<_> =
+>>>>>>> integration-branch
         serde_json::from_str(&serialized).expect("Failed to deserialize policy registry");
     assert_eq!(
         deserialized.len(),
@@ -158,6 +232,7 @@ fn test_policy_registry_serialization() {
 
     // Test that the content is the same
     for (original, deserialized) in POLICY_INDEX.iter().zip(deserialized.iter()) {
+<<<<<<< HEAD
         let json_id = deserialized
             .get("id")
             .and_then(Value::as_str)
@@ -191,6 +266,22 @@ fn test_policy_registry_serialization() {
         assert_eq!(
             json_severity,
             format!("{:?}", original.severity),
+=======
+        assert_eq!(
+            original.id, deserialized.id,
+            "Policy ID should match after deserialization"
+        );
+        assert_eq!(
+            original.name, deserialized.name,
+            "Policy name should match after deserialization"
+        );
+        assert_eq!(
+            original.description, deserialized.description,
+            "Policy description should match after deserialization"
+        );
+        assert_eq!(
+            original.severity, deserialized.severity,
+>>>>>>> integration-branch
             "Policy severity should match after deserialization"
         );
     }
@@ -281,7 +372,11 @@ fn test_policy_registry_production_ready() {
         "Should have at least one High severity policy"
     );
 
+<<<<<<< HEAD
     // Total should match the canonical registry size
+=======
+    // Total should be exactly 20
+>>>>>>> integration-branch
     let total: usize = severity_counts.values().sum();
     assert_eq!(
         total,

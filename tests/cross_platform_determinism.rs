@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Cross-platform determinism tests
 //!
 //! Verify that builds are bitwise identical across different Apple Silicon generations

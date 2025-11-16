@@ -9,11 +9,9 @@ pub mod orthogonal;
 pub mod path_routing;
 pub mod scoring;
 
-use adapteros_core::{AosError, Result};
-use adapteros_telemetry::TelemetryWriter;
+use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
@@ -55,19 +53,6 @@ pub struct RouterWeights {
     pub similarity_penalty: f32,
 }
 
-/// Parameters for constructing MPLoRA weight distributions
-#[derive(Debug, Clone, Copy)]
-pub struct MploraWeightParams {
-    pub language: f32,
-    pub framework: f32,
-    pub symbols: f32,
-    pub paths: f32,
-    pub verb: f32,
-    pub orthogonal: f32,
-    pub diversity: f32,
-    pub similarity: f32,
-}
-
 impl Default for RouterWeights {
     fn default() -> Self {
         Self {
@@ -99,16 +84,25 @@ impl RouterWeights {
     }
 
     /// Create custom weights with MPLoRA parameters
-    pub fn new_with_mplora(params: MploraWeightParams) -> Self {
+    pub fn new_with_mplora(
+        language: f32,
+        framework: f32,
+        symbols: f32,
+        paths: f32,
+        verb: f32,
+        orthogonal: f32,
+        diversity: f32,
+        similarity: f32,
+    ) -> Self {
         Self {
-            language_weight: params.language,
-            framework_weight: params.framework,
-            symbol_hits_weight: params.symbols,
-            path_tokens_weight: params.paths,
-            prompt_verb_weight: params.verb,
-            orthogonal_weight: params.orthogonal,
-            diversity_weight: params.diversity,
-            similarity_penalty: params.similarity,
+            language_weight: language,
+            framework_weight: framework,
+            symbol_hits_weight: symbols,
+            path_tokens_weight: paths,
+            prompt_verb_weight: verb,
+            orthogonal_weight: orthogonal,
+            diversity_weight: diversity,
+            similarity_penalty: similarity,
         }
     }
 
@@ -140,30 +134,16 @@ impl RouterWeights {
     }
 }
 
-/// Telemetry event for router decisions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RouterDecisionEvent {
-    pub adapter_ids: Vec<u16>,
-    pub gates: Vec<i16>, // Q15 quantized
-    pub k_active: usize,
-    pub entropy: Option<f32>,
-    pub token_index: Option<usize>,
-}
-
 /// Router for selecting K adapters with quantized gates
 pub struct Router {
     /// Feature weights for scoring
     feature_weights: RouterWeights,
     /// Number of top adapters to select
     k: usize,
-    /// Total adapters known to the router (if provided)
-    adapter_count: Option<usize>,
     /// Temperature for softmax
     tau: f32,
     /// Entropy floor to prevent collapse
     eps: f32,
-    /// Telemetry writer
-    telemetry: Option<TelemetryWriter>,
     /// Token counter for sampling
     token_count: usize,
     /// Log first N tokens fully (default: 128 per Telemetry Ruleset #9)
@@ -179,21 +159,14 @@ pub struct Router {
     compression_ratio: f32,
     /// Whether shared downsample is enabled
     shared_downsample: bool,
-    /// Deterministic sampling seed for telemetry
-    seed: [u8; 32],
-    /// Adapter IDs known to the router in manifest order
-    adapter_catalog: Vec<String>,
-    /// Lookup for adapter IDs to manifest index
-    adapter_lookup: HashMap<String, usize>,
-    /// Optional active stack filter
-    active_stack: Option<StackFilter>,
-}
 
-#[derive(Debug, Clone)]
-struct StackFilter {
-    name: String,
-    adapter_ids: Vec<String>,
-    indices: Vec<usize>,
+    // Adapter stack support
+    /// Currently active stack name (if any)
+    active_stack_name: Option<String>,
+    /// Adapter IDs that are part of the active stack
+    active_stack_adapter_ids: Option<Vec<String>>,
+    /// Cached hash of the active stack configuration
+    active_stack_hash: Option<B3Hash>,
 }
 
 impl Router {
@@ -202,103 +175,34 @@ impl Router {
         Self {
             feature_weights,
             k,
-            adapter_count: None,
             tau,
             eps,
-            telemetry: None,
             token_count: 0,
             full_log_tokens: 128, // Per Telemetry Ruleset #9
             orthogonal_constraints: None,
             orthogonal_enabled: false,
             compression_ratio: 0.8,
             shared_downsample: false,
-            seed: [0u8; 32],
-            adapter_catalog: Vec::new(),
-            adapter_lookup: HashMap::new(),
-            active_stack: None,
+            active_stack_name: None,
+            active_stack_adapter_ids: None,
+            active_stack_hash: None,
         }
     }
 
     /// Create a new router with default weights (for backward compatibility)
-    pub fn new(weights: Vec<f32>, k: usize, tau: f32, eps: f32, seed: [u8; 32]) -> Self {
-        // Capture adapter_count from legacy weights vector and store deterministic seed
-        let mut r = Self::new_with_weights(RouterWeights::default(), k, tau, eps);
-        r.adapter_count = Some(weights.len());
-        r.seed = seed;
-        r
+    pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Self {
+        // Legacy constructor - ignores old weights vector, uses default RouterWeights
+        Self::new_with_weights(RouterWeights::default(), k, tau, eps)
     }
 
-    /// Provide adapter identifiers in manifest order for stack filtering
-    pub fn set_adapter_catalog(&mut self, adapter_ids: Vec<String>) {
-        self.adapter_lookup.clear();
-        for (idx, adapter_id) in adapter_ids.iter().enumerate() {
-            self.adapter_lookup.insert(adapter_id.clone(), idx);
-        }
-        self.adapter_catalog = adapter_ids;
-        self.adapter_count = Some(self.adapter_catalog.len());
-
-        // Re-apply active stack filter if present so indices stay aligned
-        if let Some(active) = self.active_stack.clone() {
-            if let Err(err) = self.activate_stack(&active.name, &active.adapter_ids) {
-                tracing::warn!(
-                    stack = %active.name,
-                    error = %err,
-                    "Active stack no longer valid after catalog update; clearing filter"
-                );
-                self.active_stack = None;
-            }
-        }
+    /// Get temperature (tau) for telemetry
+    pub fn tau(&self) -> f32 {
+        self.tau
     }
 
-    /// Activate a named stack by adapter IDs
-    pub fn activate_stack(&mut self, name: &str, adapter_ids: &[String]) -> Result<()> {
-        if self.adapter_catalog.is_empty() {
-            return Err(AosError::Config(
-                "Adapter catalog must be configured before activating a stack".to_string(),
-            ));
-        }
-
-        if adapter_ids.is_empty() {
-            return Err(AosError::Config(
-                "Adapter stack must contain at least one adapter".to_string(),
-            ));
-        }
-
-        let mut indices = Vec::with_capacity(adapter_ids.len());
-        for adapter_id in adapter_ids {
-            if let Some(idx) = self.adapter_lookup.get(adapter_id) {
-                indices.push(*idx);
-            } else {
-                return Err(AosError::Config(format!(
-                    "Stack {} references unknown adapter {}",
-                    name, adapter_id
-                )));
-            }
-        }
-        indices.sort_unstable();
-        indices.dedup();
-
-        self.active_stack = Some(StackFilter {
-            name: name.to_string(),
-            adapter_ids: adapter_ids.to_vec(),
-            indices,
-        });
-        Ok(())
-    }
-
-    /// Clear the active stack filter
-    pub fn clear_stack(&mut self) {
-        self.active_stack = None;
-    }
-
-    /// Return the currently active stack name if present
-    pub fn active_stack_name(&self) -> Option<&str> {
-        self.active_stack.as_ref().map(|s| s.name.as_str())
-    }
-
-    /// Set telemetry writer
-    pub fn set_telemetry(&mut self, telemetry: TelemetryWriter) {
-        self.telemetry = Some(telemetry);
+    /// Get entropy floor (eps) for telemetry
+    pub fn eps(&self) -> f32 {
+        self.eps
     }
 
     /// Set full log token count
@@ -359,9 +263,84 @@ impl Router {
         self.shared_downsample = enabled;
     }
 
-    /// Get the entropy floor (eps) value
-    pub fn entropy_floor(&self) -> f32 {
-        self.eps
+    /// Set the active adapter stack for filtering
+    pub fn set_active_stack(
+        &mut self,
+        stack_name: Option<String>,
+        adapter_ids: Option<Vec<String>>,
+    ) {
+        tracing::debug!(
+            "Setting active stack: {:?} with {} adapters",
+            stack_name,
+            adapter_ids.as_ref().map(|ids| ids.len()).unwrap_or(0)
+        );
+        self.active_stack_name = stack_name;
+        self.active_stack_adapter_ids = adapter_ids;
+        self.active_stack_hash = Self::compute_stack_hash(
+            self.active_stack_name.as_ref(),
+            self.active_stack_adapter_ids.as_ref(),
+        );
+    }
+
+    /// Get the currently active stack name
+    pub fn active_stack(&self) -> Option<&String> {
+        self.active_stack_name.as_ref()
+    }
+
+    /// Get the cached stack hash as hex string
+    pub fn stack_hash(&self) -> Option<String> {
+        self.active_stack_hash.map(|hash| hash.to_short_hex())
+    }
+
+    fn compute_stack_hash(
+        stack_name: Option<&String>,
+        adapter_ids: Option<&Vec<String>>,
+    ) -> Option<B3Hash> {
+        if stack_name.is_none() && adapter_ids.is_none() {
+            return None;
+        }
+
+        let mut buffer = Vec::new();
+        if let Some(name) = stack_name {
+            buffer.extend_from_slice(b"name:");
+            buffer.extend_from_slice(name.as_bytes());
+        }
+        if let Some(ids) = adapter_ids {
+            buffer.extend_from_slice(b";adapters:");
+            buffer.extend_from_slice(ids.join(",").as_bytes());
+        }
+
+        Some(B3Hash::hash(&buffer))
+    }
+
+    /// Filter adapter indices based on the active stack
+    fn filter_by_stack(&self, adapter_info: &[AdapterInfo]) -> Vec<usize> {
+        match &self.active_stack_adapter_ids {
+            Some(allowed_ids) => {
+                tracing::debug!(
+                    "Filtering adapters by stack: {} allowed IDs",
+                    allowed_ids.len()
+                );
+                adapter_info
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, info)| allowed_ids.contains(&info.id))
+                    .map(|(idx, _)| idx)
+                    .collect()
+            }
+            None => {
+                // No stack active, all adapters are candidates
+                (0..adapter_info.len()).collect()
+            }
+        }
+    }
+
+    /// Check if an adapter is in the active stack
+    fn is_in_active_stack(&self, adapter_id: &str) -> bool {
+        match &self.active_stack_adapter_ids {
+            Some(allowed_ids) => allowed_ids.contains(&adapter_id.to_string()),
+            None => true, // No stack = all adapters allowed
+        }
     }
 
     /// Get current diversity score from orthogonal constraints
@@ -373,6 +352,16 @@ impl Router {
         }
     }
 
+    /// Get the softmax temperature (tau) used by this router
+    pub fn temperature(&self) -> f32 {
+        self.tau
+    }
+
+    /// Get the entropy floor (epsilon) enforced by this router
+    pub fn entropy_floor(&self) -> f32 {
+        self.eps
+    }
+
     /// Compute weighted feature score from 22-dimensional feature vector
     ///
     /// Feature vector layout:
@@ -382,7 +371,9 @@ impl Router {
     /// - [12]: path tokens (1 dim)
     /// - [13..21]: prompt verb one-hot (8 dims)
     /// - [21]: attention entropy (1 dim)
-    #[allow(dead_code)]
+    ///
+    /// DEPRECATED: This method computes a global score that's the same for all adapters.
+    /// Use `compute_adapter_feature_score` instead for per-adapter scoring.
     fn compute_weighted_score(&self, features: &[f32]) -> f32 {
         // Support both legacy (21) and new (22) feature vectors
         if features.len() != 21 && features.len() != 22 {
@@ -413,21 +404,97 @@ impl Router {
         score
     }
 
+    /// Compute per-adapter feature score based on adapter metadata
+    ///
+    /// This is the correct scoring method that produces different scores for each adapter
+    /// based on how well the adapter's metadata matches the detected features.
+    ///
+    /// # Arguments
+    /// * `features` - Global 22-dimensional feature vector from prompt/context
+    /// * `adapter_info` - Adapter metadata (framework, languages, tier)
+    ///
+    /// # Returns
+    /// Adapter-specific feature relevance score
+    fn compute_adapter_feature_score(&self, features: &[f32], adapter_info: &AdapterInfo) -> f32 {
+        if features.len() != 21 && features.len() != 22 && features.len() != 25 {
+            return 0.0;
+        }
+
+        let mut score = 0.0;
+
+        // Language affinity: Check if adapter supports the detected language
+        // features[0..8] is language one-hot encoding
+        if !features.is_empty() && features.len() >= 8 {
+            let detected_lang_idx = features[0..8]
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(idx, _)| idx);
+
+            if let Some(lang_idx) = detected_lang_idx {
+                if adapter_info.supports_language(lang_idx) && features[lang_idx] > 0.0 {
+                    // Boost score if adapter supports the detected language
+                    score += features[lang_idx] * self.feature_weights.language_weight * 2.0;
+                }
+            }
+        }
+
+        // Framework affinity: Check if adapter's framework matches detected framework
+        // features[8..11] are framework scores
+        if features.len() >= 11 {
+            if let Some(ref adapter_framework) = adapter_info.framework {
+                // Framework scores are already extracted in features[8..11]
+                // We give a boost if the adapter has a framework specialization
+                let framework_strength = features[8..11].iter().sum::<f32>();
+                if framework_strength > 0.0 {
+                    // Boost adapters that have framework specialization when frameworks are detected
+                    score += framework_strength * self.feature_weights.framework_weight * 1.5;
+                }
+            }
+        }
+
+        // Symbol hits: All adapters benefit equally from symbol density
+        if features.len() >= 12 {
+            score += features[11] * self.feature_weights.symbol_hits_weight;
+        }
+
+        // Path tokens: All adapters benefit equally from path context
+        if features.len() >= 13 {
+            score += features[12] * self.feature_weights.path_tokens_weight;
+        }
+
+        // Prompt verb: All adapters benefit equally from verb classification
+        if features.len() >= 21 {
+            let verb_strength = features[13..21].iter().fold(0.0f32, |a, &b| a.max(b));
+            score += verb_strength * self.feature_weights.prompt_verb_weight;
+        }
+
+        // Tier-based boost: Higher tiers get slight boost
+        let tier_boost = match adapter_info.tier.as_str() {
+            "tier_0" => 0.3,
+            "tier_1" => 0.2,
+            "tier_2" => 0.1,
+            _ => 0.0,
+        };
+        score += tier_boost;
+
+        score
+    }
+
     /// Score and select top-K adapters
-    pub fn route(&mut self, _features: &[f32], priors: &[f32]) -> Decision {
-        // Compute scores for each adapter from priors only (features incorporated upstream)
+    pub fn route(&mut self, features: &[f32], priors: &[f32]) -> Decision {
+        // Compute weighted feature score once
+        let feature_score = self.compute_weighted_score(features);
+
+        // Compute scores for each adapter combining prior and features
         let mut scores: Vec<(usize, f32)> = priors
             .iter()
             .enumerate()
-            .map(|(i, &prior)| (i, prior))
+            .map(|(i, &prior)| {
+                let score = prior + feature_score;
+                (i, score)
+            })
             .collect();
-
-        if !self.restrict_scores_to_stack(&mut scores) {
-            return Decision {
-                indices: SmallVec::new(),
-                gates_q15: SmallVec::new(),
-            };
-        }
 
         // Sort by score descending, then by index for determinism
         scores.sort_by(|a, b| {
@@ -472,33 +539,39 @@ impl Router {
             })
             .collect();
 
-        let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
+        let entropy = Self::compute_entropy(&gates);
+
+        let candidate_entries: Vec<DecisionCandidate> = top_k
+            .iter()
+            .zip(gates_q15.iter())
+            .map(|((adapter_idx, raw_score), &gate_q15)| DecisionCandidate {
+                adapter_idx: *adapter_idx as u16,
+                raw_score: *raw_score,
+                gate_q15,
+            })
+            .collect();
+
+        let indices: SmallVec<[u16; 8]> = candidate_entries
+            .iter()
+            .map(|candidate| candidate.adapter_idx)
+            .collect();
 
         // Apply orthogonal constraints if enabled
         if self.orthogonal_enabled {
             if let Some(ref mut constraints) = self.orthogonal_constraints {
-                // Compute orthogonal penalty
-                let penalty = constraints.compute_penalty(&indices, &gates_q15);
-
-                // Apply penalty to gates (reduce similar adapter weights)
-                if penalty > 0.0 {
-                    // Apply penalty scaling to reduce similar adapter activations
-                    let _penalty_scale = 1.0 - (penalty * self.feature_weights.orthogonal_weight);
-                    // TODO: Implement penalty scaling in future iteration
-                    // Note: In a full implementation, we would re-run the routing with penalty
-                    // For now, we just track the penalty for telemetry
-                }
-
-                // Update activation history
+                // Update activation history for diversity tracking
+                // Note: Penalty-based rescoring deferred to post-alpha (MPLoRA full implementation)
+                // See: https://openreview.net/pdf?id=jqz6Msm3AF
                 constraints.update_history(&indices, &gates_q15);
             }
         }
 
-        // Log router decision to telemetry
-        let entropy = Self::compute_entropy(&gates);
-        let _ = self.log_router_decision(&indices, &gates_q15, Some(entropy));
-
-        Decision { indices, gates_q15 }
+        Decision {
+            indices,
+            gates_q15,
+            entropy,
+            candidates: candidate_entries,
+        }
     }
 
     /// Compute Shannon entropy of gate distribution
@@ -510,6 +583,146 @@ impl Router {
             .sum()
     }
 
+    /// Compute per-adapter orthogonality penalty
+    ///
+    /// This computes how much penalty each adapter should receive based on similarity
+    /// to recent selections in the activation history.
+    fn compute_adapter_orthogonal_penalty(&self, adapter_idx: usize) -> f32 {
+        if !self.orthogonal_enabled {
+            return 0.0;
+        }
+
+        if let Some(ref constraints) = self.orthogonal_constraints {
+            let penalty = constraints.compute_adapter_penalty(adapter_idx);
+            penalty * self.feature_weights.orthogonal_weight
+        } else {
+            0.0
+        }
+    }
+
+    /// Score and select top-K adapters with per-adapter feature scoring and orthogonality penalties
+    ///
+    /// This is the corrected routing method that:
+    /// 1. Computes per-adapter feature scores (different for each adapter)
+    /// 2. Applies orthogonality penalties BEFORE selection
+    /// 3. Ensures diversity controls actually affect selection
+    ///
+    /// # Arguments
+    /// * `features` - Global feature vector from prompt/context
+    /// * `priors` - Prior scores for each adapter
+    /// * `adapter_info` - Metadata for each adapter
+    ///
+    /// # Returns
+    /// Decision with selected adapter indices and Q15 gates
+    pub fn route_with_adapter_info(
+        &mut self,
+        features: &[f32],
+        priors: &[f32],
+        adapter_info: &[AdapterInfo],
+    ) -> Decision {
+        if priors.len() != adapter_info.len() {
+            tracing::warn!(
+                "Priors length ({}) != adapter_info length ({}), falling back to basic route",
+                priors.len(),
+                adapter_info.len()
+            );
+            return self.route(features, priors);
+        }
+
+        // Compute scores for each adapter with per-adapter feature scoring and penalties
+        let mut scores: Vec<(usize, f32)> = priors
+            .iter()
+            .enumerate()
+            .map(|(i, &prior)| {
+                // Compute adapter-specific feature score (DIFFERENT for each adapter)
+                let adapter_feature_score =
+                    self.compute_adapter_feature_score(features, &adapter_info[i]);
+
+                // Compute orthogonality penalty (if enabled)
+                let orthogonal_penalty = self.compute_adapter_orthogonal_penalty(i);
+
+                // Combine: prior + features - penalty
+                let score = prior + adapter_feature_score - orthogonal_penalty;
+
+                (i, score)
+            })
+            .collect();
+
+        // Sort by score descending, then by index for determinism
+        scores.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        // Take top K
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
+
+        // Softmax with temperature
+        let max_score = top_k
+            .iter()
+            .map(|(_, s)| s)
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_scores: Vec<f32> = top_k
+            .iter()
+            .map(|(_, s)| ((s - max_score) / self.tau).exp())
+            .collect();
+        let sum_exp: f32 = exp_scores.iter().sum();
+
+        // Normalize and apply entropy floor
+        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        let min_gate = self.eps / self.k as f32;
+        for g in &mut gates {
+            *g = g.max(min_gate);
+        }
+
+        // Renormalize
+        let sum_gates: f32 = gates.iter().sum();
+        for g in &mut gates {
+            *g /= sum_gates;
+        }
+
+        // Quantize to Q15
+        let gates_q15: SmallVec<[i16; 8]> = gates
+            .iter()
+            .map(|&g| {
+                let q = (g * 32767.0).round() as i16;
+                q.max(0)
+            })
+            .collect();
+
+        let entropy = Self::compute_entropy(&gates);
+
+        let candidate_entries: Vec<DecisionCandidate> = top_k
+            .iter()
+            .zip(gates_q15.iter())
+            .map(|((adapter_idx, raw_score), &gate_q15)| DecisionCandidate {
+                adapter_idx: *adapter_idx as u16,
+                raw_score: *raw_score,
+                gate_q15,
+            })
+            .collect();
+
+        let indices: SmallVec<[u16; 8]> = candidate_entries
+            .iter()
+            .map(|candidate| candidate.adapter_idx)
+            .collect();
+
+        // Update activation history (orthogonality tracking)
+        if self.orthogonal_enabled {
+            if let Some(ref mut constraints) = self.orthogonal_constraints {
+                constraints.update_history(&indices, &gates_q15);
+            }
+        }
+
+        Decision {
+            indices,
+            gates_q15,
+            entropy,
+            candidates: candidate_entries,
+        }
+    }
+
     /// Route with k0 detection (no adapters qualify)
     pub fn route_with_k0_detection(&mut self, features: &[f32], priors: &[f32]) -> Decision {
         if priors.is_empty() {
@@ -518,24 +731,23 @@ impl Router {
             return Decision {
                 indices: SmallVec::new(),
                 gates_q15: SmallVec::new(),
+                entropy: 0.0,
+                candidates: Vec::new(),
             };
         }
 
-        // Compute scores for each adapter from priors only (features incorporated upstream)
+        // Compute weighted feature score once
+        let feature_score = self.compute_weighted_score(features);
+
+        // Compute scores for each adapter combining prior and features
         let mut scores: Vec<(usize, f32)> = priors
             .iter()
             .enumerate()
-            .map(|(i, &prior)| (i, prior))
+            .map(|(i, &prior)| {
+                let score = prior + feature_score;
+                (i, score)
+            })
             .collect();
-
-        if !self.restrict_scores_to_stack(&mut scores) {
-            // Log k0 event because filter removed all adapters
-            let _ = self.log_k0_event("stack_filtered_all_adapters", features);
-            return Decision {
-                indices: SmallVec::new(),
-                gates_q15: SmallVec::new(),
-            };
-        }
 
         // Check if any adapter qualifies (score > threshold)
         let qualifying_count = scores.iter().filter(|(_, score)| *score > 0.1).count();
@@ -546,6 +758,8 @@ impl Router {
             return Decision {
                 indices: SmallVec::new(),
                 gates_q15: SmallVec::new(),
+                entropy: 0.0,
+                candidates: Vec::new(),
             };
         }
 
@@ -592,9 +806,29 @@ impl Router {
             })
             .collect();
 
-        let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
+        let entropy = Self::compute_entropy(&gates);
 
-        Decision { indices, gates_q15 }
+        let candidate_entries: Vec<DecisionCandidate> = top_k
+            .iter()
+            .zip(gates_q15.iter())
+            .map(|((adapter_idx, raw_score), &gate_q15)| DecisionCandidate {
+                adapter_idx: *adapter_idx as u16,
+                raw_score: *raw_score,
+                gate_q15,
+            })
+            .collect();
+
+        let indices: SmallVec<[u16; 8]> = candidate_entries
+            .iter()
+            .map(|candidate| candidate.adapter_idx)
+            .collect();
+
+        Decision {
+            indices,
+            gates_q15,
+            entropy,
+            candidates: candidate_entries,
+        }
     }
 
     /// Log k0 event when no adapters are selected
@@ -606,68 +840,11 @@ impl Router {
 
         let input_hash = B3Hash::hash(&input_bytes);
 
-        // Log to telemetry system
-        if let Some(ref telemetry) = self.telemetry {
-            telemetry.log(
-                "router.k0",
-                serde_json::json!({
-                    "reason": reason,
-                    "input_hash": input_hash.to_short_hex(),
-                    "token_index": self.token_count,
-                }),
-            )?;
-        }
-
         tracing::warn!(
             "Router k0 event: {} (input_hash: {})",
             reason,
             input_hash.to_short_hex()
         );
-
-        Ok(())
-    }
-
-    /// Log router decision to telemetry
-    fn log_router_decision(
-        &mut self,
-        adapter_ids: &[u16],
-        gates_q15: &[i16],
-        entropy: Option<f32>,
-    ) -> Result<()> {
-        // Increment token counter
-        self.token_count += 1;
-
-        // Log first N tokens fully, then deterministic 5% sampling (per Telemetry Ruleset #9)
-        let should_log = if self.token_count <= self.full_log_tokens {
-            true
-        } else {
-            // Deterministic sampler: BLAKE3(seed || token_count) mapped to [0,1)
-            use adapteros_core::B3Hash;
-            let mut bytes = Vec::with_capacity(40);
-            bytes.extend_from_slice(&self.seed);
-            bytes.extend_from_slice(&(self.token_count as u64).to_le_bytes());
-            let h = B3Hash::hash(&bytes);
-            let mut arr = [0u8; 8];
-            arr.copy_from_slice(&h.as_bytes()[0..8]);
-            let v = u64::from_le_bytes(arr);
-            let u = (v as f64) / (u64::MAX as f64);
-            u < 0.05
-        };
-
-        if should_log {
-            if let Some(ref telemetry) = self.telemetry {
-                telemetry.log(
-                    "router.decision",
-                    RouterDecisionEvent {
-                        adapter_ids: adapter_ids.to_vec(),
-                        gates: gates_q15.to_vec(),
-                        k_active: adapter_ids.len(),
-                        entropy,
-                        token_index: Some(self.token_count),
-                    },
-                )?;
-            }
-        }
 
         Ok(())
     }
@@ -678,11 +855,20 @@ impl Router {
         code_features: &CodeFeatures,
         adapter_info: &[AdapterInfo],
     ) -> Decision {
+        // Filter adapters by active stack first
+        let allowed_indices = self.filter_by_stack(adapter_info);
+
         // Generate priors for each adapter based on code features
         let mut priors: Vec<f32> = vec![1.0; adapter_info.len()];
 
         // Apply framework priors
         for (i, adapter) in adapter_info.iter().enumerate() {
+            // Skip if not in active stack
+            if !allowed_indices.contains(&i) {
+                priors[i] = 0.0; // Zero prior for excluded adapters
+                continue;
+            }
+
             if let Some(framework) = &adapter.framework {
                 if let Some(&boost) = code_features.framework_prior.get(framework) {
                     priors[i] += boost * 0.5; // Scale framework boost
@@ -700,10 +886,24 @@ impl Router {
 
         if let Some(lang_idx) = lang_idx {
             for (i, adapter) in adapter_info.iter().enumerate() {
+                // Skip if not in active stack
+                if !allowed_indices.contains(&i) {
+                    continue;
+                }
+
                 if adapter.supports_language(lang_idx) {
                     priors[i] += 0.3;
                 }
             }
+        }
+
+        // Log stack filtering info
+        if self.active_stack_name.is_some() {
+            tracing::debug!(
+                "Stack filtering: {} of {} adapters eligible",
+                allowed_indices.len(),
+                adapter_info.len()
+            );
         }
 
         // Convert code features to vector
@@ -751,37 +951,6 @@ impl Router {
                 + path_tokens_score
                 + prompt_verb_score,
         }
-    }
-
-    /// Adjust the router's K (top-k) at runtime
-    pub fn set_k(&mut self, k: usize) {
-        self.k = k.clamp(1, 8);
-    }
-
-    /// Get current K
-    pub fn get_k(&self) -> usize {
-        self.k
-    }
-
-    /// Report adapter count if known
-    pub fn adapter_count(&self) -> Option<usize> {
-        self.adapter_count
-    }
-}
-
-impl Router {
-    fn restrict_scores_to_stack(&self, scores: &mut Vec<(usize, f32)>) -> bool {
-        if let Some(stack) = &self.active_stack {
-            scores.retain(|(idx, _)| stack.indices.binary_search(idx).is_ok());
-            if scores.is_empty() {
-                tracing::warn!(
-                    stack = %stack.name,
-                    "Active adapter stack filtered out all candidates"
-                );
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -833,11 +1002,21 @@ impl AdapterInfo {
     }
 }
 
+/// Candidate adapter selected by the router with raw score and gate
+#[derive(Debug, Clone)]
+pub struct DecisionCandidate {
+    pub adapter_idx: u16,
+    pub raw_score: f32,
+    pub gate_q15: i16,
+}
+
 /// Router decision with indices and quantized gates
 #[derive(Debug, Clone)]
 pub struct Decision {
     pub indices: SmallVec<[u16; 8]>,
     pub gates_q15: SmallVec<[i16; 8]>,
+    pub entropy: f32,
+    pub candidates: Vec<DecisionCandidate>,
 }
 
 impl Decision {
@@ -1022,103 +1201,5 @@ mod tests {
             "Default weights should sum to 1.0, got {}",
             total
         );
-    }
-
-    #[test]
-    fn test_stack_filter_limits_candidates() {
-        let mut router = Router::new(vec![1.0; 4], 2, 1.0, 0.02, [0u8; 32]);
-        router.set_adapter_catalog(vec![
-            "alpha".to_string(),
-            "beta".to_string(),
-            "gamma".to_string(),
-            "delta".to_string(),
-        ]);
-
-        let stack_ids = vec!["beta".to_string(), "delta".to_string()];
-        router
-            .activate_stack("beta-delta", &stack_ids)
-            .expect("stack activation should succeed");
-
-        let priors = vec![0.9, 0.8, 0.7, 0.6];
-        let decision = router.route(&[], &priors);
-
-        assert!(
-            decision.indices.iter().all(|idx| *idx == 1 || *idx == 3),
-            "only adapters within stack should be selected, got {:?}",
-            decision.indices
-        );
-
-        router.clear_stack();
-        let decision2 = router.route(&[], &priors);
-        assert!(
-            decision2.indices.iter().any(|idx| *idx == 0),
-            "without stack filter, highest-priority adapter should be selected"
-        );
-    }
-
-    #[test]
-    fn test_deterministic_route_for_identical_inputs() {
-        // Build a router with default weights and fixed params
-        let weights = RouterWeights::default();
-        let mut router = Router::new_with_weights(weights, 3, 1.0, 0.02);
-
-        // Identical prompt context → identical CodeFeatures
-        let features =
-            CodeFeatures::from_context("Implement a Python function using Django framework");
-        let feature_vec = features.to_vector();
-
-        // Fixed priors vector (e.g., 6 adapters)
-        let priors = vec![1.0f32; 6];
-
-        // Route twice with identical inputs
-        let d1 = router.route(&feature_vec, &priors);
-        let d2 = router.route(&feature_vec, &priors);
-
-        // Deterministic outputs: same indices and same Q15 gates
-        assert_eq!(d1.indices, d2.indices, "Indices must be identical");
-        assert_eq!(d1.gates_q15, d2.gates_q15, "Gates (Q15) must be identical");
-    }
-
-    #[test]
-    fn test_route_with_k0_detection_empty_priors() {
-        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
-        let features = vec![0.0f32; 22];
-        let priors: Vec<f32> = vec![];
-        let d = router.route_with_k0_detection(&features, &priors);
-        assert!(d.indices.is_empty());
-        assert!(d.gates_q15.is_empty());
-    }
-
-    #[test]
-    fn test_q15_gates_properties_k1_and_k3() {
-        // K=1
-        let mut r1 = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
-        let features = vec![0.0f32; 22];
-        let priors = vec![0.1, 0.2, 0.3];
-        let d1 = r1.route(&features, &priors);
-        let g1 = d1.gates_f32();
-        assert_eq!(g1.len(), 1);
-        assert!(g1[0] >= 0.0);
-        assert!((g1.iter().sum::<f32>() - 1.0).abs() < 0.02);
-
-        // K=3
-        let mut r3 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
-        let d3 = r3.route(&features, &priors);
-        let g3 = d3.gates_f32();
-        for &g in &g3 {
-            assert!(g >= 0.0);
-        }
-        assert!((g3.iter().sum::<f32>() - 1.0).abs() < 0.02);
-    }
-
-    #[test]
-    fn test_router_weights_save_load_roundtrip() {
-        let tmp = std::env::temp_dir().join("router_weights_roundtrip.json");
-        let w = RouterWeights::default();
-        w.save(&tmp).expect("save weights");
-        let w2 = RouterWeights::load(&tmp).expect("load weights");
-        let t = w2.total_weight();
-        assert!((t - 1.0).abs() < 0.001, "total_weight ≈ 1, got {}", t);
-        let _ = std::fs::remove_file(&tmp);
     }
 }

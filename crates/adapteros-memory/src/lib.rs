@@ -24,7 +24,6 @@
 pub mod buffer_relocation;
 pub mod heap_observer;
 pub mod memory_map;
-pub mod model_cache;
 pub mod optimization;
 pub mod pointer_canonicalizer;
 pub mod replay_integration;
@@ -35,7 +34,6 @@ pub mod watchdog;
 pub use buffer_relocation::BufferRelocationDetector;
 pub use heap_observer::MetalHeapObserver;
 pub use memory_map::MemoryMapHasher;
-pub use model_cache::{ModelCache, ModelCacheConfig, ModelCacheMetrics, ModelEntry};
 pub use optimization::{MemoryOptimizationPlan, MemoryOptimizer, MemoryPressureReport};
 pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use replay_integration::ReplayMemoryLogger;

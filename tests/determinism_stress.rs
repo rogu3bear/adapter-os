@@ -8,11 +8,17 @@
 //! code relies on.
 
 use adapteros_core::B3Hash;
+<<<<<<< HEAD
 use adapteros_lora_worker::{InferenceRequest, PatchProposalRequest, RequestType};
+=======
+use adapteros_lora_worker::Worker;
+use std::sync::Arc;
+>>>>>>> integration-branch
 
 #[derive(Debug, Clone)]
 struct MockDeterministicWorker;
 
+<<<<<<< HEAD
 #[derive(Debug, Clone)]
 struct MockInferenceResponse {
     text: String,
@@ -46,6 +52,17 @@ impl MockDeterministicWorker {
 fn create_test_request() -> InferenceRequest {
     InferenceRequest {
         cpid: "determinism-test".to_string(),
+=======
+    let manifest: adapteros_manifest::Manifest =
+        serde_yaml::from_str(&manifest).expect("Failed to parse manifest");
+
+    Worker::new(Arc::new(manifest)).expect("Failed to create worker")
+}
+
+/// Create a deterministic test request
+fn create_test_request() -> adapteros_core::InferenceRequest {
+    adapteros_core::InferenceRequest {
+>>>>>>> integration-branch
         prompt: "What is the capital of France?".to_string(),
         max_tokens: 50,
         require_evidence: false,

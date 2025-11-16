@@ -2,8 +2,10 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
-use adapteros_policy::{explain_policy, list_policies, PolicyId};
-use clap::Subcommand;
+use adapteros_policy::{
+    explain_policy, list_policies, PolicyHashWatcher, PolicyId, QuarantineManager,
+};
+use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use std::sync::Arc;
 
@@ -103,7 +105,7 @@ pub enum PolicyCommand {
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
-pub enum OutputFormat {
+enum OutputFormat {
     Table,
     Json,
     Yaml,
@@ -193,16 +195,7 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
         }
     }
 
-    let total = policies.len();
-    let implemented_count = policies.iter().filter(|p| p.implemented).count();
-    if only_implemented {
-        println!(
-            "\nTotal: {} / {} policies (implemented)",
-            implemented_count, total
-        );
-    } else {
-        println!("\nTotal: {} / {} policies", filtered.len(), total);
-    }
+    println!("\nTotal: {} / 20 policies", filtered.len());
 
     Ok(())
 }
@@ -210,7 +203,7 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
 fn explain_policy_pack(policy_ref: &str) -> Result<()> {
     // Try to parse as ID number first, then as name
     let policy_id = if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=20).contains(&id) {
+        if id < 1 || id > 20 {
             return Err(adapteros_core::AosError::Validation(
                 "Policy ID must be between 1 and 20".to_string(),
             ));
@@ -257,7 +250,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
     };
 
     let mut passed = 0;
-    let failed = 0;
+    let mut failed = 0;
     let mut skipped = 0;
 
     for policy_id in policies_to_check {
@@ -293,7 +286,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
     // Try to parse as ID number first, then as name
     if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=20).contains(&id) {
+        if id < 1 || id > 20 {
             return Err(adapteros_core::AosError::Validation(
                 "Policy ID must be between 1 and 20".to_string(),
             ));
@@ -580,11 +573,7 @@ mod tests {
     #[test]
     fn test_list_policies_count() {
         let policies = list_policies();
-        assert!(
-            policies.len() >= 20,
-            "Must have at least 20 policies (found {})",
-            policies.len()
-        );
+        assert_eq!(policies.len(), 20, "Must have exactly 20 policies");
     }
 
     #[test]

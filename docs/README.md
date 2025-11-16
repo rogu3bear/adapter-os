@@ -30,12 +30,15 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - API stack with all routes, handlers, and middleware
   - Worker architecture with UDS server and safety mechanisms
 
+<<<<<<< HEAD
 - **[Branch Reconciliation Report](../BRANCH_RECONCILIATION_REPORT.md)** - Repository maintenance and verification
   - Complete branch cleanup documentation
   - Feature implementation verification
   - Deterministic reconciliation process
   - Exact source citations for all changes
 
+=======
+>>>>>>> integration-branch
 - **[Diagram Reference Guide](DIAGRAM_REFERENCE.md)** - Quick lookup and navigation
   - Diagram locations and quick links
   - Search by topic or role

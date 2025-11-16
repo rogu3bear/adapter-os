@@ -115,6 +115,7 @@ Visual guide to navigating all AdapterOS documentation.
 
 **You are**: Need to deploy, monitor, and maintain AdapterOS
 
+<<<<<<< HEAD
 **Start**: [Operational Runbooks](OPERATIONAL_RUNBOOKS.md)
 
 **Path**:
@@ -134,6 +135,25 @@ Visual guide to navigating all AdapterOS documentation.
 
 **Time**: 3-4 hours  
 **Goal**: Operational readiness and issue resolution
+=======
+**Start**: [Control Plane](control-plane.md)
+
+**Path**:
+```
+1. Control Plane API
+   ↓
+2. Monitoring Flow Workflow
+   ↓
+3. Promotion Pipeline
+   ↓
+4. Incident Response
+   ↓
+5. Performance Dashboard
+```
+
+**Time**: 2-3 hours  
+**Goal**: Operational readiness
+>>>>>>> integration-branch
 
 ---
 
@@ -186,10 +206,14 @@ Visual guide to navigating all AdapterOS documentation.
 | Document | Audience | Content |
 |----------|----------|---------|
 | **[Control Plane](control-plane.md)** | Operators, Developers | API docs, operations |
+<<<<<<< HEAD
 | **[API Spec](api.md)** | Developers | OpenAPI specification with comprehensive examples |
 | **[Operational Runbooks](OPERATIONAL_RUNBOOKS.md)** | Operators, SREs | Step-by-step operational procedures |
 | **[Troubleshooting Guide](TROUBLESHOOTING.md)** | Operators, SREs | Common issues and solutions |
 | **[Documentation Maintenance](DOCUMENTATION_MAINTENANCE.md)** | Contributors | Processes to keep docs synchronized |
+=======
+| **[API Spec](api.md)** | Developers | OpenAPI specification |
+>>>>>>> integration-branch
 | **[Swagger UI](http://localhost:8080/swagger-ui)** | Developers | Interactive API |
 
 ### Database
@@ -285,15 +309,22 @@ Visual guide to navigating all AdapterOS documentation.
 |----------|----------|
 | "How does it work?" | [Getting Started](GETTING_STARTED_WITH_DIAGRAMS.md) |
 | "How do I install it?" | [Quick Start](QUICKSTART.md) |
+<<<<<<< HEAD
 | "How do I operate it?" | [Operational Runbooks](OPERATIONAL_RUNBOOKS.md) |
 | "Something is broken, help!" | [Troubleshooting Guide](TROUBLESHOOTING.md) |
+=======
+>>>>>>> integration-branch
 | "How does inference work?" | [Precision Diagrams §2](architecture/precision-diagrams.md#2-inference-pipeline-flow) |
 | "How are adapters selected?" | [Precision Diagrams §3](architecture/precision-diagrams.md#3-router-scoring--selection) |
 | "How is memory managed?" | [Precision Diagrams §5](architecture/precision-diagrams.md#5-memory-management-system) |
 | "What's the database schema?" | [Schema Diagram](database-schema/schema-diagram.md) |
 | "How do promotions work?" | [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md) |
+<<<<<<< HEAD
 | "What API endpoints exist?" | [API Spec with Examples](api.md) or [Swagger](http://localhost:8080/swagger-ui) |
 | "How do I integrate the API?" | [API Examples](api.md#api-examples) (Python, JS, Go clients) |
+=======
+| "What API endpoints exist?" | [Control Plane](control-plane.md) or [Swagger](http://localhost:8080/swagger-ui) |
+>>>>>>> integration-branch
 | "How do I contribute?" | [CONTRIBUTING.md](../CONTRIBUTING.md) + [CLAUDE.md](../CLAUDE.md) |
 
 ### By Component
@@ -306,7 +337,11 @@ Visual guide to navigating all AdapterOS documentation.
 | **Worker** | Precision Diagrams §8, CLAUDE.md |
 | **Database** | Schema Diagram, Database README |
 | **Git** | Git Workflow, Code Intelligence |
+<<<<<<< HEAD
 | **Policy** | CLAUDE.md (22 policy packs) |
+=======
+| **Policy** | CLAUDE.md (20 policy packs) |
+>>>>>>> integration-branch
 | **Telemetry** | Precision Diagrams §1-2, Monitoring Flow |
 
 ### By File Type
@@ -383,6 +418,7 @@ Total: 4 hours
 
 ```
 1. Quick Start (10 min)
+<<<<<<< HEAD
 2. Operational Runbooks (1 hour)
 3. Troubleshooting Guide (45 min)
 4. Control Plane (45 min)
@@ -392,12 +428,22 @@ Total: 4 hours
 8. Practice deployment (2 hours)
 
 Total: 6 hours
+=======
+2. Control Plane (1 hour)
+3. Promotion Pipeline (30 min)
+4. Monitoring Flow (30 min)
+5. Incident Response (30 min)
+6. Practice deployment (2 hours)
+
+Total: 5 hours
+>>>>>>> integration-branch
 ```
 
 ---
 
 ## 📊 Documentation Statistics
 
+<<<<<<< HEAD
 **Total Files**: 54+ documentation files
 **Total Diagrams**: 26 (18 code-verified)
 **Total Workflows**: 9 animated sequences
@@ -406,6 +452,15 @@ Total: 6 hours
 **Database Tables**: 30+ documented
 **Coverage**: 100% of system components
 **Operational Docs**: Complete runbooks, troubleshooting, and maintenance guides  
+=======
+**Total Files**: 50+ documentation files  
+**Total Diagrams**: 26 (18 code-verified)  
+**Total Workflows**: 9 animated sequences  
+**Code References**: 50+ file paths with line numbers  
+**API Endpoints**: 60+ documented  
+**Database Tables**: 30+ documented  
+**Coverage**: 100% of system components  
+>>>>>>> integration-branch
 
 ---
 
@@ -422,9 +477,12 @@ Total: 6 hours
 
 - 🔍 **[Diagram Reference](DIAGRAM_REFERENCE.md)** - Quick lookup
 - 📖 **[Architecture Index](ARCHITECTURE_INDEX.md)** - Complete index
+<<<<<<< HEAD
 - 🛠️ **[Operational Runbooks](OPERATIONAL_RUNBOOKS.md)** - System operations
 - 🔧 **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Issue resolution
 - 📚 **[Documentation Maintenance](DOCUMENTATION_MAINTENANCE.md)** - Keep docs synced
+=======
+>>>>>>> integration-branch
 - 🗄️ **[Database Schema](database-schema/schema-diagram.md)** - Data model
 - 🔄 **[Workflows](database-schema/workflows/)** - Operations
 
@@ -487,7 +545,12 @@ Happy learning! 🚀
 
 ---
 
+<<<<<<< HEAD
 **Last Updated**: 2025-01-15
 **Version**: 2.2
+=======
+**Last Updated**: 2025-01-14  
+**Version**: 2.0  
+>>>>>>> integration-branch
 **Maintained By**: AdapterOS Documentation Team
 

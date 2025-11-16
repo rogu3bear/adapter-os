@@ -134,8 +134,6 @@ impl Default for TelemetryConfig {
 pub struct TelemetryEvent {
     /// Event type
     pub event_type: String,
-    /// Structured namespace
-    pub kind: Option<String>,
     /// Event timestamp
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Event data
@@ -431,7 +429,6 @@ mod tests {
         large_bundle.events = vec![
             TelemetryEvent {
                 event_type: "test".to_string(),
-                kind: None,
                 timestamp: Utc::now(),
                 data: serde_json::Value::Null,
                 hash: "hash".to_string(),
@@ -532,7 +529,6 @@ mod tests {
 
         let event = TelemetryEvent {
             event_type: "test".to_string(),
-            kind: None,
             timestamp: Utc::now(),
             data: serde_json::Value::Null,
             hash: "hash".to_string(),

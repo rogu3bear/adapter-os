@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! # AdapterOS Unit Testing Framework
 //!
 //! A comprehensive unit testing framework designed specifically for the unique

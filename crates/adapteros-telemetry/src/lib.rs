@@ -1,21 +1,18 @@
 //! Telemetry with canonical JSON and BLAKE3 hashing
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_crypto::Keypair;
+use adapteros_crypto::{generate_signing_key, load_signing_key, sign_bundle, Keypair};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::thread;
-use tracing::error;
 
 pub mod alerting;
 pub mod audit_log;
 pub mod bundle;
 pub mod bundle_store;
-pub mod crash_journal;
 pub mod event;
 pub mod events;
 pub mod health_monitoring;
@@ -40,28 +37,20 @@ pub use bundle_store::{
     BundleMetadata as StoredBundleMetadata, BundleStore, ChainVerificationReport, EvictionStrategy,
     GarbageCollectionReport, RetentionPolicy, StorageStats,
 };
-pub use crash_journal::{install_panic_hook, CrashJournal};
 pub use event::Event;
 pub use events::{
     InferenceEvent, PolicyHashValidationEvent, RngSnapshot, RouterDecisionEvent, ValidationStatus,
 };
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
-// TelemetrySystemMetricsProvider is now implemented in binaries/servers to avoid circular dependencies
-// Re-export metric types from types crate for backward compatibility
-pub use adapteros_telemetry_types::{
-    AdapterMetrics, DeterminismMetrics, DiskMetrics, LatencyMetrics, LifecycleMetrics,
-    MetricDataPoint, MetricsSnapshot, NetworkMetrics, PolicyMetrics, QueueDepthMetrics,
-    SystemMetrics, ThroughputMetrics,
+pub use metrics::{
+    AdapterMetrics, LatencyMetrics, MetricsCollector, MetricsServer, MetricsSnapshot,
+    PolicyMetrics, QueueDepthMetrics, SystemMetrics, ThroughputMetrics,
 };
-// Re-export metrics collector and registry (implementation, not types)
-pub use metrics::{MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer};
-// Re-export metrics collector and registry (implementation, not types)
-pub use metrics::{MetricTimeSeries, MetricsCollector, MetricsRegistry, MetricsServer};
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
     PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor,
-    PolicyViolationAlertPayload, TelemetrySink, ThreatDetectionEngine, ThresholdRange,
+    PolicyViolationAlertPayload, TelemetrySink, ThresholdRange,
 };
 pub use performance_monitoring::{
     LatencySample, PerformanceMonitoringService, PerformanceSnapshot, ThroughputSample,
@@ -69,119 +58,67 @@ pub use performance_monitoring::{
 pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
-pub use report::{
-    generate_html_report, generate_signed_performance_report, PerformanceReportMetadata,
-};
+pub use report::generate_html_report;
 pub use uds_exporter::{MetricMetadata, MetricValue, UdsMetricsExporter};
 pub use unified_events::{
     EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
-    TelemetryEventKind, TelemetryFilters,
+    TelemetryFilters,
 };
 
 /// Telemetry writer with background thread
 pub struct TelemetryWriter {
     sender: Sender<UnifiedTelemetryEvent>,
     _handle: thread::JoinHandle<()>,
-    /// Shared state for bundle finalization (attestation and policy hash)
-    bundle_state: Arc<std::sync::RwLock<BundleFinalizationState>>,
-    /// Optional broadcast sender for live streaming
-    broadcast_tx: Option<tokio::sync::broadcast::Sender<UnifiedTelemetryEvent>>,
-}
-
-/// State for bundle finalization (attestation and policy hash)
-#[derive(Clone, Debug)]
-struct BundleFinalizationState {
-    provider_attestation: Option<adapteros_crypto::ProviderAttestation>,
-    policy_hash: Option<String>,
 }
 
 impl Clone for TelemetryWriter {
     fn clone(&self) -> Self {
-        // Clone the sender channel and bundle state, but we can't clone the thread handle
+        // Clone the sender channel, but we can't clone the thread handle
         // Create a dummy handle that does nothing
         let sender = self.sender.clone();
-        let bundle_state = self.bundle_state.clone();
-        let broadcast_tx = self.broadcast_tx.clone();
         let handle = thread::spawn(|| {
             // Dummy thread that immediately exits
         });
         Self {
             sender,
             _handle: handle,
-            bundle_state,
-            broadcast_tx,
         }
     }
 }
 
 impl TelemetryWriter {
-    /// Create a new telemetry writer with optional live streaming
-    pub fn new_with_broadcast<P: AsRef<Path>>(
-        output_dir: P,
-        max_events: usize,
-        max_bytes: usize,
-        broadcast_tx: Option<tokio::sync::broadcast::Sender<UnifiedTelemetryEvent>>,
-    ) -> Result<Self> {
+    /// Create a new telemetry writer
+    ///
+    /// Per Artifacts Ruleset #13: All bundles signed with persistent Ed25519 key
+    pub fn new<P: AsRef<Path>>(output_dir: P, max_events: usize, max_bytes: usize) -> Result<Self> {
         let (sender, receiver) = unbounded();
         let output_dir = output_dir.as_ref().to_path_buf();
-        let bundle_state = Arc::new(std::sync::RwLock::new(BundleFinalizationState {
-            provider_attestation: None,
-            policy_hash: None,
-        }));
 
-        let bundle_state_clone = bundle_state.clone();
+        // Load or generate persistent signing key using adapteros-crypto
+        let key_path = PathBuf::from("var/keys/telemetry_signing.key");
+        let signing_keypair = if key_path.exists() {
+            load_signing_key(&key_path)?
+        } else {
+            generate_signing_key(&key_path)?
+        };
+
         let handle = thread::spawn(move || {
-            if let Err(e) = run_writer(
-                receiver,
-                output_dir,
-                max_events,
-                max_bytes,
-                bundle_state_clone,
-            ) {
-                eprintln!("Telemetry writer error: {}", e);
+            if let Err(e) = run_writer(receiver, output_dir, max_events, max_bytes, signing_keypair) {
+                tracing::error!(error = %e, "Telemetry writer thread failed");
             }
         });
 
         Ok(Self {
             sender,
             _handle: handle,
-            bundle_state,
-            broadcast_tx,
         })
-    }
-
-    /// Create a new telemetry writer (backwards compatible)
-    pub fn new<P: AsRef<Path>>(output_dir: P, max_events: usize, max_bytes: usize) -> Result<Self> {
-        Self::new_with_broadcast(output_dir, max_events, max_bytes, None)
-    }
-
-    /// Set provider attestation for bundle finalization
-    pub fn set_provider_attestation(&self, attestation: adapteros_crypto::ProviderAttestation) {
-        if let Ok(mut state) = self.bundle_state.write() {
-            state.provider_attestation = Some(attestation);
-        }
-    }
-
-    /// Set policy hash for bundle finalization
-    pub fn set_policy_hash(&self, policy_hash: String) {
-        if let Ok(mut state) = self.bundle_state.write() {
-            state.policy_hash = Some(policy_hash);
-        }
     }
 
     /// Log an event using the unified event schema
     pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
-        // Send to file writer
         self.sender
-            .send(event.clone())
+            .send(event)
             .map_err(|_| AosError::Io("Failed to send telemetry event".to_string()))?;
-
-        // Broadcast to live streaming if available
-        if let Some(tx) = &self.broadcast_tx {
-            // Ignore send errors (receiver may be gone)
-            let _ = tx.send(event);
-        }
-
         Ok(())
     }
 
@@ -281,66 +218,6 @@ impl TelemetryWriter {
         self.log("kernel.step", event)
     }
 
-    /// Log seed collision metrics
-    pub fn log_seed_collision(&self, thread_id: &str, collision_count: u64) -> Result<()> {
-        let event = TelemetryEventBuilder::new(
-            EventType::Custom("determinism.seed_collision".to_string()),
-            LogLevel::Warn,
-            format!("Seed collision detected on thread {}", thread_id),
-        )
-        .metadata(serde_json::json!({
-            "thread_id": thread_id,
-            "collision_count": collision_count,
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        }))
-        .build();
-
-        self.log_event(event)
-    }
-
-    /// Log seed propagation failure metrics
-    pub fn log_seed_propagation_failure(
-        &self,
-        failure_reason: &str,
-        failure_count: u64,
-    ) -> Result<()> {
-        let event = TelemetryEventBuilder::new(
-            EventType::Custom("determinism.seed_propagation_failure".to_string()),
-            LogLevel::Error,
-            format!("Seed propagation failure: {}", failure_reason),
-        )
-        .metadata(serde_json::json!({
-            "failure_reason": failure_reason,
-            "failure_count": failure_count,
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        }))
-        .build();
-
-        self.log_event(event)
-    }
-
-    /// Log determinism metrics snapshot
-    pub fn log_determinism_metrics(
-        &self,
-        metrics: &adapteros_telemetry_types::DeterminismMetrics,
-    ) -> Result<()> {
-        let event = TelemetryEventBuilder::new(
-            EventType::Custom("determinism.metrics".to_string()),
-            LogLevel::Info,
-            "Determinism metrics snapshot".to_string(),
-        )
-        .metadata(serde_json::to_value(metrics)?)
-        .build();
-
-        self.log_event(event)
-    }
-
     /// Log an inference event with RNG state tracking (Ruleset #2)
     pub fn log_inference(&self, event: crate::events::InferenceEvent) -> Result<()> {
         self.log("inference", event)
@@ -393,7 +270,7 @@ fn run_writer(
     output_dir: PathBuf,
     max_events: usize,
     max_bytes: usize,
-    bundle_state: Arc<std::sync::RwLock<BundleFinalizationState>>,
+    signing_keypair: Keypair,
 ) -> Result<()> {
     std::fs::create_dir_all(&output_dir)?;
 
@@ -427,17 +304,8 @@ fn run_writer(
             writer.flush()?;
             drop(writer);
 
-            // Get current attestation and policy hash
-            let (attestation, policy_hash) = {
-                let state = bundle_state.read().unwrap();
-                (
-                    state.provider_attestation.clone(),
-                    state.policy_hash.clone(),
-                )
-            };
-
-            // Sign bundle with Merkle root
-            finalize_bundle(&bundle_path, &event_hashes, attestation, policy_hash)?;
+            // Sign bundle with Merkle root using persistent keypair
+            finalize_bundle(&bundle_path, &event_hashes, &signing_keypair)?;
 
             // Start new bundle
             bundle_idx += 1;
@@ -452,29 +320,10 @@ fn run_writer(
 
     // Flush final bundle
     writer.flush()?;
-    drop(writer);
-
-    // Finalize final bundle
-    if !event_hashes.is_empty() {
-        let (attestation, policy_hash) = {
-            let state = bundle_state.read().unwrap();
-            (
-                state.provider_attestation.clone(),
-                state.policy_hash.clone(),
-            )
-        };
-        finalize_bundle(&bundle_path, &event_hashes, attestation, policy_hash)?;
-    }
-
     Ok(())
 }
 
-fn finalize_bundle(
-    path: &Path,
-    event_hashes: &[B3Hash],
-    provider_attestation: Option<adapteros_crypto::ProviderAttestation>,
-    policy_hash: Option<String>,
-) -> Result<()> {
+fn finalize_bundle(path: &Path, event_hashes: &[B3Hash], signing_keypair: &Keypair) -> Result<()> {
     // Compute Merkle root (simplified but deterministic)
     let merkle_root = if event_hashes.is_empty() {
         B3Hash::hash(b"empty")
@@ -486,37 +335,26 @@ fn finalize_bundle(
         B3Hash::hash(&combined)
     };
 
-    // Sign bundle with Merkle root (per Artifacts Ruleset #13)
-    let signature = sign_bundle_merkle_root(&merkle_root)?;
+    // Compute bundle hash (content-addressed)
+    let bundle_bytes = fs::read(path)?;
+    let bundle_hash = B3Hash::hash(&bundle_bytes);
+
+    // Sign bundle using adapteros-crypto (per Artifacts Ruleset #13)
+    let bundle_signature = sign_bundle(&bundle_hash, &merkle_root, signing_keypair)?;
 
     // Write metadata file
     let meta_path = path.with_extension("meta.json");
     let metadata = BundleMetadata {
         event_count: event_hashes.len(),
         merkle_root,
-        signature: Some(hex::encode(&signature)),
-        provider_attestation,
-        policy_hash,
+        signature: Some(hex::encode(bundle_signature.signature.to_bytes())),
+        public_key: Some(hex::encode(bundle_signature.public_key.to_bytes())),
     };
 
     let meta_file = File::create(meta_path)?;
     serde_json::to_writer_pretty(meta_file, &metadata)?;
 
     Ok(())
-}
-
-/// Sign bundle Merkle root with Ed25519 keypair
-/// Per Artifacts Ruleset #13: Sign with Ed25519, store signature in bundle metadata
-fn sign_bundle_merkle_root(merkle_root: &B3Hash) -> Result<Vec<u8>> {
-    // In production, this would use a key from Secure Enclave
-    // For now, generate an ephemeral keypair for development
-    // Integrate with Secure Enclave for production - placeholder implementation
-    let keypair = Keypair::generate();
-
-    // Sign the Merkle root bytes
-    let signature = keypair.sign(merkle_root.as_bytes());
-
-    Ok(signature.to_bytes().to_vec())
 }
 
 /// Verify bundle signature (for audit/validation)
@@ -557,13 +395,8 @@ pub fn verify_bundle_signature(
 struct BundleMetadata {
     event_count: usize,
     merkle_root: B3Hash,
-    signature: Option<String>, // Ed25519 signature in hex format
-    /// Provider attestation proving key provider identity and policy compliance
-    #[serde(skip_serializing_if = "Option::is_none")]
-    provider_attestation: Option<adapteros_crypto::ProviderAttestation>,
-    /// BLAKE3 hash of active policy packs (for integrity verification)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    policy_hash: Option<String>,
+    signature: Option<String>,  // Ed25519 signature in hex format
+    public_key: Option<String>, // Ed25519 public key in hex format (for verification)
 }
 
 /// Security events (always logged at 100% sampling per Telemetry Ruleset #9)
@@ -633,141 +466,4 @@ pub struct NodeSyncEvent {
     pub duration_ms: u64,
     pub result: String, // "success", "failed", "partial"
     pub verified: bool,
-}
-
-// ============================================================
-// In-memory bounded buffers (Logs) for offline dashboard
-// ============================================================
-
-use std::collections::VecDeque;
-use std::sync::RwLock;
-
-/// Bounded ring buffer for unified telemetry events (logs)
-#[derive(Debug, Clone)]
-pub struct LogBuffer {
-    capacity: usize,
-    inner: Arc<RwLock<VecDeque<UnifiedTelemetryEvent>>>,
-}
-
-impl LogBuffer {
-    /// Create a new log buffer with the given maximum number of events
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            inner: Arc::new(RwLock::new(VecDeque::with_capacity(capacity))),
-        }
-    }
-
-    /// Push a new event, evicting the oldest if over capacity
-    pub fn push(&self, event: UnifiedTelemetryEvent) {
-        let mut guard = self.inner.write().expect("log buffer poisoned");
-        if guard.len() >= self.capacity {
-            guard.pop_front();
-        }
-        guard.push_back(event);
-    }
-
-    /// Return the most recent events up to `limit`, newest first, with optional filters
-    pub fn query(&self, filters: &TelemetryFilters) -> Vec<UnifiedTelemetryEvent> {
-        let limit = filters.limit.unwrap_or(100);
-        let guard = self.inner.read().expect("log buffer poisoned");
-        // Iterate from back (newest) to front (oldest), apply simple filters
-        let mut results = Vec::with_capacity(limit.min(guard.len()));
-        for ev in guard.iter().rev() {
-            if let Some(ref tenant) = filters.tenant_id {
-                if ev.tenant_id.as_ref() != Some(tenant) {
-                    continue;
-                }
-            }
-            if let Some(ref et) = filters.event_type {
-                if &ev.event_type != et {
-                    continue;
-                }
-            }
-            if let Some(ref lvl) = filters.level {
-                if &ev.level != lvl {
-                    continue;
-                }
-            }
-            if let Some(ref comp) = filters.component {
-                if ev.component.as_ref() != Some(comp) {
-                    continue;
-                }
-            }
-            if let Some(ref tid) = filters.trace_id {
-                if ev.trace_id.as_ref() != Some(tid) {
-                    continue;
-                }
-            }
-            // Start/end time filtering (inclusive)
-            if let Some(start) = filters.start_time {
-                if ev.timestamp < start {
-                    continue;
-                }
-            }
-            if let Some(end) = filters.end_time {
-                if ev.timestamp > end {
-                    continue;
-                }
-            }
-
-            results.push(ev.clone());
-            if results.len() >= limit {
-                break;
-            }
-        }
-        results
-    }
-
-    /// Current number of events retained
-    pub fn len(&self) -> usize {
-        let guard = self.inner.read().expect("log buffer poisoned");
-        guard.len()
-    }
-
-    /// Whether the buffer is empty
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-/// High-level logger that writes to the in-memory buffer and optional disk writer
-#[derive(Clone)]
-pub struct TelemetryLogger {
-    buffer: Arc<LogBuffer>,
-    writer: Option<TelemetryWriter>,
-}
-
-impl TelemetryLogger {
-    /// Create a new logger using the provided in-memory buffer and an optional disk writer
-    pub fn new(buffer: Arc<LogBuffer>, writer: Option<TelemetryWriter>) -> Self {
-        Self { buffer, writer }
-    }
-
-    /// Log a unified event into memory and persist if configured
-    pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
-        self.buffer.push(event.clone());
-        if let Some(ref w) = self.writer {
-            // Best-effort; propagate error
-            w.log_event(event)?;
-        }
-        Ok(())
-    }
-
-    /// Convenience: build and log an event using builder inputs
-    pub fn log(
-        &self,
-        event_type: EventType,
-        level: LogLevel,
-        message: impl Into<String>,
-    ) -> Result<UnifiedTelemetryEvent> {
-        let ev = TelemetryEventBuilder::new(event_type, level, message.into()).build();
-        self.log_event(ev.clone())?;
-        Ok(ev)
-    }
-
-    /// Access the underlying in-memory buffer
-    pub fn buffer(&self) -> Arc<LogBuffer> {
-        self.buffer.clone()
-    }
 }

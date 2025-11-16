@@ -12,7 +12,6 @@ description = "Base LLM integration for AdapterOS Layer 1"
 adapteros-core = { path = "../adapteros-core" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-trace = { path = "../adapteros-trace" }
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 
 # Workspace dependencies
 anyhow.workspace = true
@@ -26,13 +25,3 @@ tracing = "0.1"
 uuid = { version = "1.6", features = ["v7"] }
 chrono = "0.4"
 parking_lot = "0.12"
-pyo3 = { version = "0.22", optional = true }
-bytemuck = { workspace = true }
-
-[features]
-default = []
-# MLX backend support options (opt-in)
-# - mlx: PyO3 + Python mlx_lm integration (developer convenience)
-# - mlx-ffi: Native C++ FFI via adapteros-lora-mlx-ffi (no Python at runtime)
-mlx = ["pyo3"]
-mlx-ffi = ["adapteros-lora-mlx-ffi"]

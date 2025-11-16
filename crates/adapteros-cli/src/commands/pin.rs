@@ -1,5 +1,5 @@
 use crate::output::OutputWriter;
-use adapteros_db::Database;
+use adapteros_db::Db;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use serde::Serialize;
@@ -22,7 +22,7 @@ struct PinnedAdapter {
 
 /// Pin an adapter to prevent eviction
 pub async fn pin_adapter(
-    db: &Database,
+    db: &Db,
     tenant_id: &str,
     adapter_id: &str,
     ttl_hours: Option<u64>,
@@ -64,7 +64,7 @@ pub async fn pin_adapter(
 
 /// Unpin an adapter to allow eviction
 pub async fn unpin_adapter(
-    db: &Database,
+    db: &Db,
     tenant_id: &str,
     adapter_id: &str,
     output: &OutputWriter,
@@ -88,7 +88,7 @@ pub async fn unpin_adapter(
 }
 
 /// List pinned adapters for a tenant
-pub async fn list_pinned(db: &Database, tenant_id: &str, output: &OutputWriter) -> Result<()> {
+pub async fn list_pinned(db: &Db, tenant_id: &str, output: &OutputWriter) -> Result<()> {
     let pinned = db.list_pinned_adapters(tenant_id).await?;
 
     if pinned.is_empty() {

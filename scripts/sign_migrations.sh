@@ -87,10 +87,16 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
     fi
 
     # Sign the file hash
+<<<<<<< HEAD
     echo -n "$file_hash" > /tmp/migration_hash.txt
     openssl pkeyutl -sign -inkey "$KEY_FILE" -rawin -in /tmp/migration_hash.txt -out /tmp/migration.sig 2>/dev/null
     signature=$(base64 < /tmp/migration.sig | tr -d '\n')
     rm -f /tmp/migration.sig /tmp/migration_hash.txt
+=======
+    echo -n "$file_hash" | openssl pkeyutl -sign -inkey "$KEY_FILE" -rawin -out /tmp/migration.sig 2>/dev/null
+    signature=$(base64 < /tmp/migration.sig | tr -d '\n')
+    rm -f /tmp/migration.sig
+>>>>>>> integration-branch
 
     # Add to JSON (with comma handling)
     if [ "$first" = true ]; then
@@ -150,13 +156,21 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
 
     # Verify signature
     echo "$signature" | base64 -d > /tmp/migration.sig
+<<<<<<< HEAD
     echo -n "$file_hash" > /tmp/migration_hash.txt
     if openssl pkeyutl -verify -pubin -inkey "$PUBLIC_KEY_FILE" -rawin -in /tmp/migration_hash.txt -sigfile /tmp/migration.sig 2>/dev/null; then
+=======
+    if echo -n "$file_hash" | openssl pkeyutl -verify -pubin -inkey "$PUBLIC_KEY_FILE" -rawin -sigfile /tmp/migration.sig 2>/dev/null; then
+>>>>>>> integration-branch
         verify_count=$((verify_count + 1))
     else
         echo -e "${RED}✗ Signature verification failed for $filename${NC}"
     fi
+<<<<<<< HEAD
     rm -f /tmp/migration.sig /tmp/migration_hash.txt
+=======
+    rm -f /tmp/migration.sig
+>>>>>>> integration-branch
 done
 
 echo -e "${GREEN}✓ Verified $verify_count/$migration_count signatures${NC}"

@@ -8,86 +8,29 @@ fn main() {
     // Tell cargo to re-run this build script if wrapper files change
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=src/mlx_cpp_wrapper.cpp");
-    println!("cargo:rerun-if-env-changed=MLX_PATH");
-    println!("cargo:rerun-if-env-changed=MLX_INCLUDE_DIR");
-    println!("cargo:rerun-if-env-changed=MLX_LIB_DIR");
-    println!("cargo:rerun-if-env-changed=MLX_FORCE_STUB");
 
-    // Declare custom cfgs to the compiler so `unexpected_cfgs` lint is happy
-    println!("cargo:rustc-check-cfg=cfg(mlx_stub)");
-    println!("cargo:rustc-check-cfg=cfg(mlx_real)");
+    // Get the MLX installation path
+    let mlx_path = env::var("MLX_PATH").unwrap_or_else(|_| "/opt/homebrew".to_string()); // Default to Homebrew path
 
-    // Determine include/lib dirs with env precedence:
-    // 1) MLX_INCLUDE_DIR / MLX_LIB_DIR
-    // 2) MLX_PATH/{include,lib}
-    // 3) Default Homebrew path /opt/homebrew/{include,lib}
-    let (include_dir, lib_dir, source_note) = determine_mlx_paths();
+    let include_dir = Path::new(&mlx_path).join("include");
+    let lib_dir = Path::new(&mlx_path).join("lib");
 
     let use_stub = should_use_stub(&include_dir);
 
     if use_stub {
-        println!("cargo:rustc-cfg=mlx_stub");
-        println!("cargo:warning=MLX FFI build: STUB");
-        println!(
-            "cargo:warning=Reason: MLX headers not found at: {} (source: {})",
-            include_dir.display(),
-            source_note
-        );
-        println!(
-            "cargo:warning=Hint: set MLX_INCLUDE_DIR and MLX_LIB_DIR, or MLX_PATH, or export MLX_FORCE_STUB=1 to force stub"
-        );
+        println!("cargo:warning=Using stub MLX implementation (MLX is Python-first framework)");
+        println!("cargo:warning=Falling back to stub C++ wrapper - real MLX headers not found");
 
         compile_stub_wrapper();
         generate_stub_bindings();
     } else {
-        println!("cargo:rustc-cfg=mlx_real");
-        println!("cargo:warning=MLX FFI build: REAL");
-        println!(
-            "cargo:warning=Using includes: {} | libs: {} (source: {})",
-            include_dir.display(),
-            lib_dir.display(),
-            source_note
-        );
-
         compile_real_wrapper(&include_dir, &lib_dir);
         generate_real_bindings(&include_dir);
     }
 }
 
-fn determine_mlx_paths() -> (PathBuf, PathBuf, String) {
-    // Highest precedence explicit dirs
-    let inc_env = env::var("MLX_INCLUDE_DIR").ok();
-    let lib_env = env::var("MLX_LIB_DIR").ok();
-    if let (Some(inc), Some(lib)) = (inc_env.clone(), lib_env.clone()) {
-        return (
-            PathBuf::from(inc),
-            PathBuf::from(lib),
-            "MLX_INCLUDE_DIR/MLX_LIB_DIR".into(),
-        );
-    }
-
-    // Next precedence: MLX_PATH
-    let mlx_path = env::var("MLX_PATH").ok();
-    if let Some(base) = mlx_path.clone() {
-        let include_dir = Path::new(&base).join("include");
-        let lib_dir = Path::new(&base).join("lib");
-        return (include_dir, lib_dir, "MLX_PATH".into());
-    }
-
-    // Fallback: Homebrew default on Apple Silicon
-    (
-        PathBuf::from("/opt/homebrew/include"),
-        PathBuf::from("/opt/homebrew/lib"),
-        "default:/opt/homebrew".into(),
-    )
-}
-
 fn should_use_stub(include_dir: &Path) -> bool {
-    if env::var("MLX_FORCE_STUB")
-        .ok()
-        .filter(|v| v != "0")
-        .is_some()
-    {
+    if env::var("MLX_FORCE_STUB").is_ok() {
         return true;
     }
 
@@ -139,8 +82,7 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         .std("c++17")
         .file("src/mlx_cpp_wrapper.cpp")
         .include(include_dir)
-        .include(".")
-        .define("MLX_HAVE_REAL_API", None);
+        .include(".");
 
     if cfg!(target_env = "msvc") {
         build.flag("/EHsc");
@@ -177,32 +119,6 @@ fn generate_real_bindings(include_dir: &Path) {
         .header("wrapper.h")
         .clang_arg(format!("-I{}", include))
         .clang_arg("-I.")
-        .clang_arg("-DMLX_HAVE_REAL_API")
-        // Suppress warnings from system headers that we can't control
-        .clang_arg("-Wno-non-camel-case-types")
-        .clang_arg("-Wno-non-upper-case-globals")
-        .clang_arg("-Wno-non-snake-case")
-        // Only generate bindings for our wrapper types and functions
-        .allowlist_type("mlx_.*")
-        .allowlist_function("mlx_.*")
-        // Allow system types that are explicitly used in our wrapper
-        .allowlist_type("wchar_t")
-        .allowlist_type("max_align_t")
-        .allowlist_type("int_least.*_t")
-        .allowlist_type("uint_least.*_t")
-        .allowlist_type("int_fast.*_t")
-        .allowlist_type("uint_fast.*_t")
-        .allowlist_type("__int.*_t")
-        .allowlist_type("__uint.*_t")
-        .allowlist_type("__darwin_.*_t")
-        .allowlist_type("intmax_t")
-        .allowlist_type("uintmax_t")
-        .allowlist_type("__builtin_va_list")
-        // Allow system constants that are needed
-        .allowlist_var("__darwin_.*")
-        .allowlist_var("__bool_true_false_are_defined")
-        .allowlist_var("true_")
-        .allowlist_var("false_")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
@@ -265,7 +181,6 @@ extern "C" {
         hidden_states: *mut *mut mlx_array_t, 
         num_hidden: *mut c_int
     ) -> *mut mlx_array_t;
-    pub fn mlx_free_hidden_states(hidden_states: *mut *mut mlx_array_t, num_hidden: c_int);
     pub fn mlx_model_free(model: *mut mlx_model_t);
     
     pub fn mlx_add(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
@@ -298,9 +213,6 @@ extern "C" {
     
     pub fn mlx_gc_collect();
     pub fn mlx_memory_usage() -> usize;
-
-    // Build-mode probe: returns 1 if compiled with real MLX API, 0 if stub
-    pub fn mlx_wrapper_is_real() -> c_int;
 }
 "#;
 

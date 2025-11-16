@@ -24,12 +24,18 @@ import {
   BarChart3
 } from 'lucide-react';
 import apiClient from '../api/client';
+<<<<<<< HEAD
 import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsResponse } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+=======
+import { TrainingJob, TrainingMetrics } from '../api/types';
+import { logger } from '../utils/logger';
+import { toast } from 'sonner';
+>>>>>>> integration-branch
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -95,6 +101,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         // Not all jobs produce artifacts; keep null
       }
 
+<<<<<<< HEAD
       return {
         session: null,
         job: jobData,
@@ -102,6 +109,12 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         logs: logsData,
         artifacts: artifactsData
       };
+=======
+    fetchJobData();
+
+    if (isPolling && job?.status === 'running') {
+      intervalRef.current = window.setInterval(fetchJobData, 1000); // Poll every 1 second for instant updates
+>>>>>>> integration-branch
     }
     
     throw new Error('Either sessionId or jobId must be provided');
@@ -161,6 +174,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
     
     setPauseError(null);
     try {
+<<<<<<< HEAD
       logger.info('Pausing training session', {
         component: 'TrainingMonitor',
         operation: 'handlePause',
@@ -228,6 +242,31 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
       });
       setResumeError(error);
       toast.error(`Failed to resume training: ${error.message}`);
+=======
+      // TODO: Backend implementation required - POST /v1/training/sessions/:id/pause
+      // This endpoint doesn't exist yet. For now, we can only stop (cancel) training.
+      logger.warn('Pause functionality not implemented', {
+        component: 'TrainingMonitor',
+        operation: 'handlePause',
+        jobId,
+        note: 'Backend endpoint POST /v1/training/sessions/:id/pause needed'
+      });
+      toast.info('Pause functionality coming soon. Use Stop to cancel training for now.');
+
+      // When backend is ready, use:
+      // await apiClient.pauseTrainingSession(jobId);
+      // setIsPolling(false);
+      // toast.success('Training paused successfully');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to pause training';
+      logger.error('Failed to pause training', {
+        component: 'TrainingMonitor',
+        operation: 'handlePause',
+        jobId,
+        error: errorMessage
+      });
+      toast.error(`Failed to pause training: ${errorMessage}`);
+>>>>>>> integration-branch
     }
   };
 
@@ -250,14 +289,24 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         jobId
       });
     } catch (err) {
+<<<<<<< HEAD
       const error = err instanceof Error ? err : new Error('Failed to cancel training');
+=======
+      const errorMessage = err instanceof Error ? err.message : 'Failed to cancel training';
+>>>>>>> integration-branch
       logger.error('Failed to cancel training', {
         component: 'TrainingMonitor',
         operation: 'handleStop',
         jobId,
+<<<<<<< HEAD
         error: error.message
       });
       setStopError(error);
+=======
+        error: errorMessage
+      });
+      toast.error(`Failed to cancel training: ${errorMessage}`);
+>>>>>>> integration-branch
     }
   };
 

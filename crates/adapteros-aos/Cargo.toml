@@ -1,5 +1,6 @@
 [package]
 name = "adapteros-aos"
+<<<<<<< HEAD
 version = "0.1.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
@@ -26,3 +27,36 @@ tempfile = "3.0"
 [dev-dependencies]
 tokio-test = "0.4"
 criterion = { version = "0.5", features = ["async_tokio"] }
+=======
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "AOS 2.0 archive format for AdapterOS"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# File mapping (optional - for loader)
+memmap2 = { version = "0.9", optional = true }
+metal = { workspace = true, optional = true }
+safetensors = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+rand_chacha = "0.3"
+hex = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[features]
+default = []
+mmap = ["memmap2", "metal", "safetensors", "rand"]
+>>>>>>> integration-branch

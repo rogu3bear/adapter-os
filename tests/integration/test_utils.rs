@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Reusable test utilities for AdapterOS integration tests
 //!
 //! Provides common functionality for multi-tenant testing, resource monitoring,

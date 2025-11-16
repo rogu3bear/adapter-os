@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Tenant Isolation Tests
 //!
 //! Tests to verify complete data and resource separation between tenants,

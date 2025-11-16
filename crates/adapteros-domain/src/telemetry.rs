@@ -3,7 +3,7 @@
 use adapteros_core::B3Hash;
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_numerics::noise::{EpsilonStats, Tensor};
-use adapteros_trace::{Event, EventMetadata, LogicalTimestamp};
+use adapteros_trace::{Event, EventMetadata};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -207,7 +207,7 @@ impl TelemetryAdapter {
     ///
     /// Returns a mask tensor with 1.0 for anomalies, 0.0 for normal values.
     fn detect_anomalies(&self, signal: &Tensor, threshold: f32) -> Tensor {
-        let _state = self.state.read();
+        let state = self.state.read();
         let batch_size = signal.shape[0];
         let channels = signal.shape[1];
         let time_steps = signal.shape[2];
@@ -437,13 +437,6 @@ impl DomainAdapter for TelemetryAdapter {
             custom: HashMap::new(),
         };
 
-        let logical_timestamp = LogicalTimestamp::new(
-            tick_id,                                                 // global_tick
-            0,                                                       // op_tick
-            None,                                                    // token_position
-            B3Hash::hash(format!("telemetry_{}", op_id).as_bytes()), // derivation_hash
-        );
-
         Event::new(
             tick_id,
             op_id,
@@ -451,7 +444,6 @@ impl DomainAdapter for TelemetryAdapter {
             inputs.clone(),
             outputs.clone(),
             metadata,
-            logical_timestamp,
         )
     }
 }

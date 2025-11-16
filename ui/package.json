@@ -32,9 +32,12 @@
         "@radix-ui/react-toggle-group": "^1.1.2",
         "@radix-ui/react-tooltip": "^1.1.8",
         "@tanstack/react-query": "^5.90.5",
+<<<<<<< HEAD
         "@tanstack/react-virtual": "^3.13.12",
         "@types/cors": "^2.8.19",
         "@types/express": "^5.0.5",
+=======
+>>>>>>> integration-branch
         "class-variance-authority": "^0.7.1",
         "clsx": "*",
         "cmdk": "^1.1.1",
@@ -79,6 +82,7 @@
         "jsdom": "^22.0.0",
         "jsdom-global": "^3.0.2",
         "playwright": "^1.56.0",
+<<<<<<< HEAD
         "postcss": "^8.5.6",
         "start-server-and-test": "^2.0.2",
         "tailwindcss": "^3.4.15",
@@ -86,6 +90,10 @@
         "typescript": "^5.9.3",
         "vite": "6.3.6",
         "vitest": "^0.34.0"
+=======
+        "terser": "^5.44.0",
+        "vite": "6.3.6"
+>>>>>>> integration-branch
     },
     "scripts": {
         "dev": "node scripts/dev-server.mjs",

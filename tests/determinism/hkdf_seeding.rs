@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! HKDF seeding verification tests for AdapterOS determinism
 //!
 //! Verifies that HKDF-based seeding produces deterministic, isolated randomness

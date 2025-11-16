@@ -6,7 +6,8 @@
 use super::{BaseLLM, BaseLLMMetadata, ModelState};
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
-use adapteros_trace::{Event, LogicalTimestamp};
+use adapteros_trace::Event;
+// use serde::{Deserialize, Serialize}; // Not used in current implementation
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -15,20 +16,13 @@ use tracing::{debug, info, warn};
 pub struct QwenBaseLLM {
     metadata: BaseLLMMetadata,
     state: Arc<RwLock<QwenState>>,
-    #[cfg(feature = "mlx")]
-    py_model: Option<pyo3::PyObject>,
-    #[cfg(feature = "mlx")]
-    py_tokenizer: Option<pyo3::PyObject>,
-    #[cfg(feature = "mlx")]
-    py_generate: Option<pyo3::PyObject>,
-    #[cfg(feature = "mlx")]
-    mlx_active: bool,
 }
 
 /// Internal state for Qwen model
 #[derive(Debug)]
 struct QwenState {
     initialized: bool,
+    executor: Option<DeterministicExecutor>,
     model_loaded: bool,
     current_sequence: Vec<u32>,
     checkpoint_counter: u64,
@@ -39,6 +33,7 @@ impl QwenBaseLLM {
     pub fn new(metadata: BaseLLMMetadata) -> Result<Self> {
         let state = Arc::new(RwLock::new(QwenState {
             initialized: false,
+            executor: None,
             model_loaded: false,
             current_sequence: Vec::new(),
             checkpoint_counter: 0,
@@ -46,22 +41,11 @@ impl QwenBaseLLM {
 
         info!("Created Qwen base LLM: {}", metadata.model_id);
 
-        Ok(Self {
-            metadata,
-            state,
-            #[cfg(feature = "mlx")]
-            py_model: None,
-            #[cfg(feature = "mlx")]
-            py_tokenizer: None,
-            #[cfg(feature = "mlx")]
-            py_generate: None,
-            #[cfg(feature = "mlx")]
-            mlx_active: false,
-        })
+        Ok(Self { metadata, state })
     }
 
     /// Initialize the model with deterministic executor
-    fn initialize_model(&mut self, executor: &mut DeterministicExecutor) -> Result<()> {
+    fn initialize_model(&self, executor: &mut DeterministicExecutor) -> Result<()> {
         let mut state = self.state.write();
 
         if state.initialized {
@@ -84,44 +68,6 @@ impl QwenBaseLLM {
         // 3. Set up GPU/CPU compute resources
         // 4. Verify model integrity
 
-        // Attempt MLX backend init if enabled
-        #[cfg(feature = "mlx")]
-        {
-            use crate::mlx_backend::load_qwen_via_mlx;
-            // Use env var for model reference; default to MLX community Qwen 4-bit build
-            let model_ref = std::env::var("AOS_MLX_MODEL")
-                .unwrap_or_else(|_| "mlx-community/Qwen2.5-7B-Instruct-4bit".to_string());
-            let seed64 = u64::from_le_bytes([
-                model_seed[0],
-                model_seed[1],
-                model_seed[2],
-                model_seed[3],
-                model_seed[4],
-                model_seed[5],
-                model_seed[6],
-                model_seed[7],
-            ]);
-            match load_qwen_via_mlx(&model_ref, seed64) {
-                Ok((m, t, g)) => {
-                    self.py_model = Some(m);
-                    self.py_tokenizer = Some(t);
-                    self.py_generate = Some(g);
-                    self.mlx_active = true;
-                    info!(
-                        "MLX backend initialized for {} via {}",
-                        self.metadata.model_id, model_ref
-                    );
-                }
-                Err(err) => {
-                    warn!(
-                        "MLX backend initialization failed: {}. Falling back to mock forward.",
-                        err
-                    );
-                    self.mlx_active = false;
-                }
-            }
-        }
-
         state.initialized = true;
         state.model_loaded = true;
         // Note: DeterministicExecutor doesn't implement Clone
@@ -143,49 +89,31 @@ impl QwenBaseLLM {
             return Err(AosError::BaseLLM("Model not initialized".to_string()));
         }
 
-        // If MLX backend is initialized, attempt to use generate() to produce next token
-        #[cfg(feature = "mlx")]
-        if self.mlx_active {
-            if let (Some(ref model), Some(ref tokenizer), Some(ref generate)) =
-                (&self.py_model, &self.py_tokenizer, &self.py_generate)
-            {
-                // Decode input_ids to a prompt string
-                if let Ok(prompt) = crate::mlx_backend::decode_ids(tokenizer, input_ids) {
-                    // Generate one token deterministically (temperature 0)
-                    if let Ok(gen_text) =
-                        crate::mlx_backend::generate_text(model, tokenizer, generate, &prompt, 1)
-                    {
-                        // Encode combined text and extract next token id
-                        if let Ok(encoded) = crate::mlx_backend::encode_ids(tokenizer, &gen_text) {
-                            let output_size = self.metadata.vocab_size;
-                            let mut output = vec![0.0; output_size];
-                            let next_idx = input_ids.len();
-                            if next_idx < encoded.len() {
-                                let next_token = encoded[next_idx] as usize;
-                                if next_token < output_size {
-                                    output[next_token] = 1.0;
-                                    debug!(
-                                        "MLX forward pass (one-step) for '{}' (prompt_len={}, next_token={})",
-                                        self.metadata.model_id,
-                                        input_ids.len(),
-                                        next_token
-                                    );
-                                    return Ok(output);
-                                }
-                            }
-                        }
-                    }
-                }
+        // In a real implementation, this would:
+        // 1. Convert input IDs to embeddings
+        // 2. Pass through transformer layers
+        // 3. Apply attention mechanisms
+        // 4. Generate output logits
+
+        // For now, return mock output
+        let output_size = self.metadata.vocab_size;
+        let mut output = vec![0.0; output_size];
+
+        // Simple mock: set probability for first token
+        if !input_ids.is_empty() {
+            let first_token = input_ids[0] as usize;
+            if first_token < output_size {
+                output[first_token] = 1.0;
             }
         }
 
-        // Fallback deterministic vector
-        let output_size = self.metadata.vocab_size;
-        let mut output = vec![0.0; output_size];
-        if !input_ids.is_empty() {
-            let idx = (input_ids[0] as usize).min(output_size.saturating_sub(1));
-            output[idx] = 1.0;
-        }
+        debug!(
+            "Forward pass completed for Qwen model '{}' (input_len={}, output_len={})",
+            self.metadata.model_id,
+            input_ids.len(),
+            output.len()
+        );
+
         Ok(output)
     }
 
@@ -324,13 +252,6 @@ impl BaseLLM for QwenBaseLLM {
             custom: HashMap::new(),
         };
 
-        let logical_timestamp = LogicalTimestamp::new(
-            0,                                                      // global_tick
-            0,                                                      // op_tick
-            None,                                                   // token_position
-            B3Hash::hash(format!("qwen_{}", operation).as_bytes()), // derivation_hash
-        );
-
         Event::new(
             0,                             // tick_id
             format!("qwen_{}", operation), // op_id
@@ -338,7 +259,6 @@ impl BaseLLM for QwenBaseLLM {
             inputs,
             outputs,
             metadata,
-            logical_timestamp,
         )
     }
 }

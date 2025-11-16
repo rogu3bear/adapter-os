@@ -6,23 +6,18 @@
 //! - Hot-swap loading/unloading
 //! - Memory pressure eviction
 
-use adapteros_aos::HotSwapManager;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::{sqlx, Db};
 use adapteros_deterministic_exec::spawn_deterministic;
-use adapteros_manifest::{AdapterStack, Policies};
+use adapteros_manifest::Policies;
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
-use adapteros_single_file_adapter::MmapAdapterLoader;
-use adapteros_telemetry::{MetricsCollector, TelemetryWriter};
+use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
-
-const METRICS_TENANT_DEFAULT: &str = "default";
 
 /// Telemetry event for adapter state transitions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,69 +46,39 @@ pub struct AdapterEvictionEvent {
     pub memory_freed: usize,
 }
 
-/// Telemetry event for lazy loading operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterLazyLoadEvent {
+/// Telemetry event emitted when adapter load hash validation fails
+#[derive(Debug, Clone, Serialize)]
+pub struct AdapterLoadHashMismatchEvent {
     pub adapter_id: String,
     pub adapter_idx: u16,
-    pub load_time_ms: u64,
-    pub memory_bytes: usize,
+    pub expected_hash: String,
+    pub actual_hash: String,
 }
 
-/// Lazy loading statistics
+/// Telemetry event for GPU buffer integrity verification
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LazyLoadingStats {
-    pub total_adapters: usize,
-    pub loaded_adapters: usize,
-    pub load_ratio: f32,
+pub struct GpuIntegrityVerificationEvent {
+    pub adapter_id: String,
+    pub adapter_idx: u16,
+    pub verified: bool,
+    pub buffer_bytes: u64,
+    pub checkpoint_hash: String,
+    pub memory_footprint_within_tolerance: bool,
+    pub z_score: Option<f64>,
+    pub baseline_mean: Option<f64>,
+    pub timestamp: u64,
 }
 
-/// Lazy loading metrics for monitoring and analytics
+/// Telemetry event for GPU integrity violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LazyLoadMetrics {
-    /// Total number of lazy load requests
-    pub total_requests: u64,
-    /// Number of successful lazy loads
-    pub successful_loads: u64,
-    /// Number of failed lazy loads
-    pub failed_loads: u64,
-    /// Total time spent on lazy loading (microseconds)
-    pub total_load_time_us: u64,
-    /// Cache hit rate (requests that were already loaded)
-    pub cache_hit_rate: f32,
-    /// Average load time per adapter (microseconds)
-    pub avg_load_time_us: u64,
-}
-
-impl Default for LazyLoadMetrics {
-    fn default() -> Self {
-        Self {
-            total_requests: 0,
-            successful_loads: 0,
-            failed_loads: 0,
-            total_load_time_us: 0,
-            cache_hit_rate: 0.0,
-            avg_load_time_us: 0,
-        }
-    }
-}
-
-/// Current status of a configured adapter stack
-#[derive(Debug, Clone)]
-pub struct AdapterStackStatus {
-    pub name: String,
-    pub description: Option<String>,
-    pub adapters: Vec<String>,
-    pub active: bool,
-}
-
-/// Active stack metadata propagated to router orchestration
-#[derive(Debug, Clone)]
-pub struct ActiveStackInfo {
-    pub name: String,
-    pub description: Option<String>,
-    pub adapters: Vec<String>,
-    pub activated_at: std::time::SystemTime,
+pub struct GpuIntegrityViolationEvent {
+    pub adapter_id: String,
+    pub adapter_idx: u16,
+    pub violation_type: String, // "fingerprint_mismatch", "memory_anomaly", "verification_error"
+    pub details: String,
+    pub buffer_bytes: Option<u64>,
+    pub z_score: Option<f64>,
+    pub timestamp: u64,
 }
 
 pub mod activation_tracker;
@@ -122,6 +87,7 @@ pub mod loader;
 pub mod policy;
 pub mod state;
 pub mod ttl_manager;
+pub mod workflow_executor;
 
 pub use activation_tracker::ActivationTracker;
 pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
@@ -129,6 +95,10 @@ pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
 pub use state::{AdapterState, AdapterStateRecord, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
+pub use workflow_executor::{
+    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, KernelAdapterBackend,
+    MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
+};
 
 /// Enhanced lifecycle manager for adapters with category-aware state management
 pub struct LifecycleManager {
@@ -148,26 +118,15 @@ pub struct LifecycleManager {
     db: Option<Db>,
     /// Rolling activation tracker fed by router decisions
     activation_tracker: Arc<RwLock<ActivationTracker>>,
-    /// Adapter catalog in manifest order
-    adapter_catalog: Arc<RwLock<Vec<String>>>,
-    /// Configured named adapter stacks
-    stack_definitions: Arc<RwLock<HashMap<String, StackDefinition>>>,
-    /// Currently active adapter stack if any
-    active_stack: Arc<RwLock<Option<ActiveStackInternal>>>,
-    /// Optional: mmap-based .aos adapter loader
-    mmap_loader: Option<Arc<tokio::sync::Mutex<MmapAdapterLoader>>>,
-    /// Optional: hot-swap manager for zero-downtime updates
-    hot_swap: Option<Arc<HotSwapManager>>,
-    /// Lazy loading metrics
-    lazy_load_metrics: Arc<RwLock<LazyLoadMetrics>>,
-    /// Metrics collector for lifecycle operations
-    metrics_collector: Option<Arc<MetricsCollector>>,
+    /// Currently active stack (if any)
+    active_stack: Arc<RwLock<Option<(String, Vec<String>)>>>, // (name, adapter_ids)
 }
 
 impl LifecycleManager {
     /// Create a new lifecycle manager
     pub fn new(
         adapter_names: Vec<String>,
+        adapter_hashes: HashMap<String, B3Hash>,
         policies: &Policies,
         adapters_base_path: PathBuf,
         telemetry: Option<TelemetryWriter>,
@@ -184,16 +143,16 @@ impl LifecycleManager {
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
-            loader: Arc::new(RwLock::new(AdapterLoader::new(adapters_base_path))),
+            loader: Arc::new(RwLock::new(AdapterLoader::new(
+                adapters_base_path,
+                adapter_hashes,
+            ))),
             telemetry,
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
             db: None,
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
-            mmap_loader: None,
-            hot_swap: None,
-            lazy_load_metrics: Arc::new(RwLock::new(LazyLoadMetrics::default())),
-            metrics_collector: None,
+            active_stack: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -205,6 +164,7 @@ impl LifecycleManager {
     /// Create a new lifecycle manager with database integration
     pub fn new_with_db(
         adapter_names: Vec<String>,
+        adapter_hashes: HashMap<String, B3Hash>,
         policies: &Policies,
         adapters_base_path: PathBuf,
         telemetry: Option<TelemetryWriter>,
@@ -222,67 +182,17 @@ impl LifecycleManager {
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
-            loader: Arc::new(RwLock::new(AdapterLoader::new(adapters_base_path))),
+            loader: Arc::new(RwLock::new(AdapterLoader::new(
+                adapters_base_path,
+                adapter_hashes,
+            ))),
             telemetry,
             current_k: Arc::new(RwLock::new(initial_k)),
             category_policies: CategoryPolicyManager::new(),
             db: Some(db),
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
-            mmap_loader: None,
-            hot_swap: None,
-            lazy_load_metrics: Arc::new(RwLock::new(LazyLoadMetrics::default())),
-            metrics_collector: None,
+            active_stack: Arc::new(RwLock::new(None)),
         }
-    }
-
-    /// Enable memory-mapped loading for .aos files
-    pub fn with_mmap_loader(
-        mut self,
-        _base_path: std::path::PathBuf,
-        _max_cache_mb: usize,
-    ) -> Self {
-        // Current MmapAdapterLoader does not require base path or cache config.
-        // Keep the signature for forward compatibility and policy-level configuration.
-        let loader =
-            MmapAdapterLoader::with_capacity_bytes(_max_cache_mb.saturating_mul(1024 * 1024));
-        let arc_loader = Arc::new(tokio::sync::Mutex::new(loader));
-        self.mmap_loader = Some(arc_loader.clone());
-        // Also surface to AdapterLoader
-        {
-            let mut l = self.loader.write();
-            l.set_mmap_loader(Some(arc_loader));
-        }
-        self
-    }
-
-    /// Enable hot-swap capabilities (requires mmap loader)
-    pub fn with_hot_swap(mut self) -> Self {
-        if let Some(ref _mmap_loader) = self.mmap_loader {
-            let hs = HotSwapManager::new();
-            self.hot_swap = Some(Arc::new(hs));
-        }
-        self
-    }
-
-    /// Attach metrics collector for lifecycle instrumentation (builder style)
-    pub fn with_metrics_collector(mut self, metrics: Arc<MetricsCollector>) -> Self {
-        self.metrics_collector = Some(metrics);
-        self
-    }
-
-    /// Set metrics collector after construction
-    pub fn set_metrics_collector(&mut self, metrics: Arc<MetricsCollector>) {
-        self.metrics_collector = Some(metrics);
-    }
-
-    /// Expose hot-swap manager to external callers (e.g., server API)
-    pub fn hot_swap_manager(&self) -> Option<Arc<HotSwapManager>> {
-        self.hot_swap.clone()
-    }
-
-    /// Get reference to adapter loader for testing
-    pub fn loader(&self) -> Arc<RwLock<AdapterLoader>> {
-        self.loader.clone()
     }
 
     /// Update rolling activation tracker window size (primarily for tests).
@@ -321,8 +231,8 @@ impl LifecycleManager {
         if let Some(ref db) = self.db {
             for (_, adapter_id, _, _, pct) in updates.iter().cloned() {
                 let db_clone = db.clone();
-                let _ = spawn_deterministic("Activation pct update".to_string(), async move {
-                    let _ = sqlx::query(
+                spawn_deterministic("Activation pct update".to_string(), async move {
+                    if let Err(e) = sqlx::query(
                         "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
                          WHERE adapter_id = ?",
                     )
@@ -330,9 +240,9 @@ impl LifecycleManager {
                     .bind(&adapter_id)
                     .execute(db_clone.pool())
                     .await
-                    .map_err(|e| {
+                    {
                         warn!("Failed to update activation_pct for {}: {}", adapter_id, e);
-                    });
+                    }
                 });
             }
         }
@@ -352,36 +262,15 @@ impl LifecycleManager {
     }
 
     /// Fetch activation percentage tracked for an adapter.
-    pub async fn activation_pct(&self, adapter_idx: u16) -> f32 {
+    pub fn activation_pct(&self, adapter_idx: u16) -> f32 {
         let tracker = self.activation_tracker.read();
         tracker.activation_pct(adapter_idx)
     }
 
     /// Get current state of an adapter
-    pub async fn get_state(&self, adapter_id: u16) -> Option<AdapterState> {
+    pub fn get_state(&self, adapter_id: u16) -> Option<AdapterState> {
         let states = self.states.read();
         states.get(&adapter_id).map(|r| r.state)
-    }
-
-    /// Check if an adapter is currently loaded.
-    ///
-    /// This verifies both the lifecycle state and the loader's tracking map to
-    /// guard against divergence between in-memory metadata and loader reality.
-    pub async fn is_loaded(&self, adapter_id: u16) -> bool {
-        let state_loaded = {
-            let states = self.states.read();
-            states
-                .get(&adapter_id)
-                .map(|record| record.state.is_loaded())
-                .unwrap_or(false)
-        };
-
-        if !state_loaded {
-            return false;
-        }
-
-        let loader = self.loader.read();
-        loader.is_loaded(adapter_id)
     }
 
     /// Get all adapter states
@@ -586,115 +475,74 @@ impl LifecycleManager {
     }
 
     /// Handle memory pressure by evicting adapters
-    pub async fn handle_memory_pressure(&self, profiler: &AdapterProfiler) -> Result<()> {
+    pub fn handle_memory_pressure(&self, profiler: &AdapterProfiler) -> Result<()> {
         warn!("Handling memory pressure");
 
         let metrics = profiler.get_all_metrics();
-        let mut candidates_to_evict = Vec::new();
+        let mut states = self.states.write();
 
-        // Collect candidates without holding the lock
-        {
-            let states = self.states.read();
-
-            // Sort adapters by eviction priority (cold, low activation first)
-            let mut candidates: Vec<(u16, &AdapterMetrics)> = states
-                .iter()
-                .filter_map(|(id, record)| {
-                    if record.pinned {
-                        return None; // Never evict pinned
-                    }
-                    metrics
-                        .iter()
-                        .find(|m| m.adapter_id == record.adapter_id)
-                        .map(|m| (*id, m))
-                })
-                .collect();
-
-            // Sort by activation percentage (lowest first)
-            candidates.sort_by(|a, b| {
-                a.1.activation_pct
-                    .partial_cmp(&b.1.activation_pct)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-            // Collect adapter IDs to evict
-            for (adapter_id, metric) in candidates {
-                if let Some(record) = states.get(&adapter_id) {
-                    if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
-                        candidates_to_evict.push(adapter_id);
-                        break; // Just evict one for now
-                    }
+        // Sort adapters by eviction priority (cold, low activation first)
+        let mut candidates: Vec<(u16, &AdapterMetrics)> = states
+            .iter()
+            .filter_map(|(id, record)| {
+                if record.pinned {
+                    return None; // Never evict pinned
                 }
-            }
-        }
+                metrics
+                    .iter()
+                    .find(|m| m.adapter_id == record.adapter_id)
+                    .map(|m| (*id, m))
+            })
+            .collect();
 
-        // Now perform eviction without holding the states lock
-        for adapter_id in candidates_to_evict {
-            let mut states = self.states.write();
+        // Sort by activation percentage (lowest first)
+        candidates.sort_by(|a, b| {
+            a.1.activation_pct
+                .partial_cmp(&b.1.activation_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Try evicting cold adapters first
+        for (adapter_id, metric) in candidates {
             if let Some(record) = states.get_mut(&adapter_id) {
-                let _old_state = record.state;
-                record.state = AdapterState::Unloaded;
+                if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
+                    let _old_state = record.state;
+                    record.state = AdapterState::Unloaded;
 
-                info!(
-                    "Evicted adapter {} due to memory pressure",
-                    record.adapter_id
-                );
+                    info!(
+                        "Evicted adapter {} due to memory pressure",
+                        record.adapter_id
+                    );
 
-                if let Some(ref telemetry) = self.telemetry {
-                    telemetry.log(
-                        "adapter_evicted",
-                        AdapterEvictionEvent {
-                            adapter_id: record.adapter_id.clone(),
-                            from_state: record.state.to_string(),
-                            category: record.category.clone(),
-                            memory_freed: record.memory_bytes,
-                        },
-                    )?;
-                }
+                    if let Some(ref telemetry) = self.telemetry {
+                        telemetry.log(
+                            "adapter_evicted",
+                            AdapterEvictionEvent {
+                                adapter_id: record.adapter_id.clone(),
+                                from_state: record.state.to_string(),
+                                category: record.category.clone(),
+                                memory_freed: record.memory_bytes,
+                            },
+                        )?;
+                    }
 
-                // Unload from memory
-                let unload_start = std::time::Instant::now();
-                let unload_result = {
+                    // Unload from memory
                     let mut loader = self.loader.write();
-                    loader.unload_adapter(adapter_id)
-                };
+                    loader.unload_adapter(adapter_id)?;
 
-                match unload_result {
-                    Ok(_) => {
-                        if let Some(ref metrics) = self.metrics_collector {
-                            metrics.record_adapter_unload_latency(
-                                &record.adapter_id,
-                                METRICS_TENANT_DEFAULT,
-                                unload_start.elapsed().as_secs_f64(),
-                                "success",
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        if let Some(ref metrics) = self.metrics_collector {
-                            metrics.record_adapter_unload_latency(
-                                &record.adapter_id,
-                                METRICS_TENANT_DEFAULT,
-                                unload_start.elapsed().as_secs_f64(),
-                                "failure",
-                            );
-                        }
-                        return Err(err);
-                    }
+                    return Ok(()); // Evicted one, check if enough
                 }
-
-                return Ok(()); // Evicted one, check if enough
             }
         }
 
         // If still under pressure, reduce K
-        self.reduce_k().await?;
+        self.reduce_k()?;
 
         Ok(())
     }
 
     /// Reduce K value for router
-    async fn reduce_k(&self) -> Result<()> {
+    fn reduce_k(&self) -> Result<()> {
         let mut k = self.current_k.write();
 
         if *k > 1 {
@@ -723,11 +571,11 @@ impl LifecycleManager {
     }
 
     /// Warm up cache by preloading specified adapters
-    pub async fn warmup_cache(&mut self, adapter_ids: &[String]) -> Result<()> {
+    pub fn warmup_cache(&mut self, adapter_ids: &[String]) -> Result<()> {
         info!("Warming up cache with {} adapters", adapter_ids.len());
 
         for adapter_id in adapter_ids {
-            if let Err(e) = self.preload_adapter(adapter_id).await {
+            if let Err(e) = self.preload_adapter(adapter_id) {
                 warn!("Failed to preload adapter {}: {}", adapter_id, e);
                 // Continue with other adapters
             }
@@ -737,14 +585,20 @@ impl LifecycleManager {
     }
 
     /// Preload a specific adapter into cache
-    async fn preload_adapter(&mut self, adapter_id: &str) -> Result<()> {
+    fn preload_adapter(&mut self, adapter_id: &str) -> Result<()> {
         let mut states = self.states.write();
 
         // Find record by adapter_id
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterState::Unloaded {
                 let mut loader = self.loader.write();
-                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id, None)?;
+                let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
+                    Ok(handle) => handle,
+                    Err(err) => {
+                        self.report_adapter_hash_mismatch(adapter_id, record.adapter_idx, &err);
+                        return Err(err);
+                    }
+                };
 
                 record.state = AdapterState::Cold;
 
@@ -763,7 +617,13 @@ impl LifecycleManager {
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
             if record.state == AdapterState::Unloaded {
                 let mut loader = self.loader.write();
-                let _adapter = loader.load_adapter(record.adapter_idx, adapter_id, None)?;
+                let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
+                    Ok(handle) => handle,
+                    Err(err) => {
+                        self.report_adapter_hash_mismatch(adapter_id, record.adapter_idx, &err);
+                        return Err(err);
+                    }
+                };
 
                 record.state = AdapterState::Cold;
 
@@ -772,6 +632,32 @@ impl LifecycleManager {
         }
 
         Ok(())
+    }
+
+    fn report_adapter_hash_mismatch(&self, adapter_id: &str, adapter_idx: u16, err: &AosError) {
+        if let AosError::AdapterHashMismatch {
+            adapter_id: mismatch_id,
+            expected,
+            actual,
+        } = err
+        {
+            if let Some(ref telemetry) = self.telemetry {
+                let event = AdapterLoadHashMismatchEvent {
+                    adapter_id: mismatch_id.clone(),
+                    adapter_idx,
+                    expected_hash: expected.to_hex(),
+                    actual_hash: actual.to_hex(),
+                };
+
+                if let Err(log_err) = telemetry.log("adapter_load_failed_hash_mismatch", event) {
+                    warn!(
+                        adapter_id = adapter_id,
+                        error = %log_err,
+                        "Failed to log adapter hash mismatch telemetry"
+                    );
+                }
+            }
+        }
     }
 
     /// Get current K value
@@ -834,20 +720,18 @@ impl LifecycleManager {
 
     /// Auto-promote adapter based on category policy
     pub async fn auto_promote_adapter(&self, adapter_id: u16) -> Result<()> {
-        // Get data and release lock before any async operations
-        let (category, current_state) = {
-            let states = self.states.read();
-            if let Some(record) = states.get(&adapter_id) {
-                (record.category.clone(), record.state)
-            } else {
-                return Ok(()); // No record found, nothing to do
-            }
-        }; // Lock released here
+        let states = self.states.read();
 
-        if current_state.can_promote(&category) {
-            if let Some(next_state) = current_state.promote() {
-                self.update_adapter_state(adapter_id, next_state, "auto_promotion")
-                    .await?;
+        if let Some(record) = states.get(&adapter_id) {
+            let category = &record.category;
+            let current_state = record.state;
+
+            if current_state.can_promote(category) {
+                if let Some(next_state) = current_state.promote() {
+                    drop(states); // Release read lock before write
+                    self.update_adapter_state(adapter_id, next_state, "auto_promotion")
+                        .await?;
+                }
             }
         }
 
@@ -856,25 +740,23 @@ impl LifecycleManager {
 
     /// Auto-demote adapter based on category policy and inactivity
     pub async fn auto_demote_adapter(&self, adapter_id: u16) -> Result<()> {
-        // Get data and release lock before any async operations
-        let (category, current_state, last_activated) = {
-            let states = self.states.read();
-            if let Some(record) = states.get(&adapter_id) {
-                (record.category.clone(), record.state, record.last_activated)
-            } else {
-                return Ok(()); // No record found, nothing to do
-            }
-        }; // Lock released here
+        let states = self.states.read();
 
-        // Check if we should demote based on last activation time
-        if let Some(last_activated) = last_activated {
-            let time_since_activation = last_activated
-                .elapsed()
-                .unwrap_or(std::time::Duration::from_secs(0));
-            if current_state.should_demote(&category, time_since_activation) {
-                if let Some(next_state) = current_state.demote() {
-                    self.update_adapter_state(adapter_id, next_state, "auto_demotion")
-                        .await?;
+        if let Some(record) = states.get(&adapter_id) {
+            let category = &record.category;
+            let current_state = record.state;
+
+            // Check if we should demote based on last activation time
+            if let Some(last_activated) = record.last_activated {
+                let time_since_activation = last_activated
+                    .elapsed()
+                    .unwrap_or(std::time::Duration::from_secs(0));
+                if current_state.should_demote(category, time_since_activation) {
+                    if let Some(next_state) = current_state.demote() {
+                        drop(states); // Release read lock before write
+                        self.update_adapter_state(adapter_id, next_state, "auto_demotion")
+                            .await?;
+                    }
                 }
             }
         }
@@ -987,21 +869,17 @@ impl LifecycleManager {
             );
 
             // Get adapters sorted by eviction priority
-            let eviction_candidates = {
-                let states = self.states.read();
-                let mut candidates: Vec<_> = states
-                    .values()
-                    .filter(|record| record.should_evict(memory_pressure))
-                    .cloned() // Clone to avoid holding reference
-                    .collect();
+            let states = self.states.read();
+            let mut eviction_candidates: Vec<_> = states
+                .values()
+                .filter(|record| record.should_evict(memory_pressure))
+                .collect();
 
-                candidates.sort_by(|a, b| {
-                    b.eviction_priority()
-                        .numeric_value()
-                        .cmp(&a.eviction_priority().numeric_value())
-                });
-                candidates
-            }; // Lock released here
+            eviction_candidates.sort_by(|a, b| {
+                b.eviction_priority()
+                    .numeric_value()
+                    .cmp(&a.eviction_priority().numeric_value())
+            });
 
             // Evict adapters starting with highest priority
             for record in eviction_candidates {
@@ -1053,35 +931,8 @@ impl LifecycleManager {
             record.memory_bytes = 0;
 
             // Unload from loader
-            let unload_start = std::time::Instant::now();
-            let unload_result = {
-                let mut loader = self.loader.write();
-                loader.unload_adapter(adapter_id)
-            };
-
-            match unload_result {
-                Ok(_) => {
-                    if let Some(ref metrics) = self.metrics_collector {
-                        metrics.record_adapter_unload_latency(
-                            &record.adapter_id,
-                            METRICS_TENANT_DEFAULT,
-                            unload_start.elapsed().as_secs_f64(),
-                            "success",
-                        );
-                    }
-                }
-                Err(err) => {
-                    if let Some(ref metrics) = self.metrics_collector {
-                        metrics.record_adapter_unload_latency(
-                            &record.adapter_id,
-                            METRICS_TENANT_DEFAULT,
-                            unload_start.elapsed().as_secs_f64(),
-                            "failure",
-                        );
-                    }
-                    return Err(err);
-                }
-            }
+            let mut loader = self.loader.write();
+            loader.unload_adapter(adapter_id)?;
 
             // Update database if available
             if let Some(ref db) = self.db {
@@ -1144,7 +995,7 @@ impl LifecycleManager {
     }
 
     /// Get available adapters for routing
-    pub async fn get_available_adapters(&self) -> Vec<u16> {
+    pub fn get_available_adapters(&self) -> Vec<u16> {
         let states = self.states.read();
         states
             .iter()
@@ -1154,7 +1005,7 @@ impl LifecycleManager {
     }
 
     /// Get state-based priority boosts for routing
-    pub async fn get_priority_boosts(&self) -> HashMap<u16, f32> {
+    pub fn get_priority_boosts(&self) -> HashMap<u16, f32> {
         let states = self.states.read();
         states
             .iter()
@@ -1162,459 +1013,259 @@ impl LifecycleManager {
             .collect()
     }
 
-    /// Ensure adapters are loaded for inference (lazy loading)
-    ///
-    /// This method respects tenant isolation by only loading adapters that belong
-    /// to the tenant associated with this LifecycleManager instance. The adapter
-    /// registry and file system access are already tenant-scoped.
-    ///
-    /// Returns true if all adapters were already loaded, false if any were lazy-loaded
-    pub async fn ensure_adapters_loaded(&self, adapter_ids: &[u16]) -> Result<bool> {
-        let mut all_loaded = true;
-        let mut to_load = Vec::new();
-        let mut failed_loads = Vec::new();
+    /// Load and activate an adapter stack
+    pub async fn activate_stack(&self, stack_name: String, adapter_ids: Vec<String>) -> Result<()> {
+        use tracing::{debug, info};
 
-        // Update metrics: increment total requests
-        {
-            let mut metrics = self.lazy_load_metrics.write();
-            metrics.total_requests += 1;
-        }
+        info!(
+            "Activating adapter stack '{}' with {} adapters",
+            stack_name,
+            adapter_ids.len()
+        );
 
-        // Check which adapters need loading
-        {
-            let states = self.states.read();
-            for &adapter_id in adapter_ids {
-                if let Some(record) = states.get(&adapter_id) {
-                    if record.state == AdapterState::Unloaded {
-                        to_load.push((adapter_id, record.adapter_id.clone()));
-                        all_loaded = false;
-                    }
-                } else {
-                    return Err(AosError::Lifecycle(format!(
-                        "Adapter {} not found in lifecycle manager",
-                        adapter_id
-                    )));
-                }
-            }
-        }
+        // Ensure all adapters in the stack are loaded
+        for adapter_id in &adapter_ids {
+            debug!("Checking if adapter {} is loaded", adapter_id);
 
-        // Load adapters that need loading
-        let to_load_count = to_load.len();
-        if to_load_count > 0 {
-            info!(
-                "Lazy loading {} adapters: {:?}",
-                to_load_count,
-                to_load
+            // Find the adapter index by ID
+            let adapter_idx = {
+                let states = self.states.read();
+                states
                     .iter()
-                    .map(|(id, name)| format!("{}({})", name, id))
-                    .collect::<Vec<_>>()
-            );
+                    .find(|(_, record)| record.adapter_id == *adapter_id)
+                    .map(|(idx, _)| *idx)
+            };
 
-            for (adapter_id, adapter_name) in &to_load {
-                let load_start = std::time::Instant::now();
-
-                // Load adapter using the loader with error handling
-                let load_result = {
-                    #[allow(clippy::await_holding_lock)]
-                    let mut loader = self.loader.write();
-                    loader
-                        .load_adapter_async(*adapter_id, adapter_name, None)
-                        .await
+            if let Some(idx) = adapter_idx {
+                // Check if adapter is loaded
+                let is_loaded = {
+                    let states = self.states.read();
+                    states
+                        .get(&idx)
+                        .map_or(false, |record| record.state.is_loaded())
                 };
 
-                match load_result {
-                    Ok(_) => {
-                        // Update state to Cold (loaded but not active)
-                        {
-                            let mut states = self.states.write();
-                            if let Some(record) = states.get_mut(adapter_id) {
-                                record.state = AdapterState::Cold;
-                                record.memory_bytes = 50 * 1024 * 1024; // Estimate 50MB per adapter
-                            }
-                        }
-
-                        // Automatically load parent adapters if lineage loading is enabled
-                        // Note: This is opportunistic - if parent loading fails, we log but don't fail the whole operation
-                        if let Err(e) = self.load_parent_adapter(*adapter_id).await {
-                            warn!(
-                                adapter_id = *adapter_id,
-                                error = %e,
-                                "Failed to load parent adapter, continuing with child only"
-                            );
-                        }
-
-                        let load_duration = load_start.elapsed();
-                        let load_time_us = load_duration.as_micros() as u64;
-
-                        // Update metrics
-                        {
-                            let mut metrics = self.lazy_load_metrics.write();
-                            metrics.successful_loads += 1;
-                            metrics.total_load_time_us += load_time_us;
-                            metrics.avg_load_time_us =
-                                metrics.total_load_time_us / metrics.successful_loads.max(1);
-                        }
-
-                        if let Some(ref metrics) = self.metrics_collector {
-                            metrics.record_adapter_load_latency(
-                                adapter_name.as_str(),
-                                METRICS_TENANT_DEFAULT,
-                                load_duration.as_secs_f64(),
-                                "success",
-                            );
-                        }
-
-                        // Log telemetry event
-                        if let Some(ref telemetry) = self.telemetry {
-                            let _ = telemetry.log(
-                                "adapter.lazy_loaded",
-                                AdapterLazyLoadEvent {
-                                    adapter_id: adapter_name.clone(),
-                                    adapter_idx: *adapter_id,
-                                    load_time_ms: load_duration.as_millis() as u64,
-                                    memory_bytes: 50 * 1024 * 1024, // Estimated
-                                },
-                            );
-                        }
-
-                        info!(
-                            "Lazy loaded adapter {} ({}) in {}ms",
-                            adapter_name,
-                            adapter_id,
-                            load_duration.as_millis()
-                        );
-                    }
-                    Err(e) => {
-                        // Log failure but don't fail the entire operation
-                        warn!(
-                            "Failed to lazy load adapter {} ({}): {}",
-                            adapter_name, adapter_id, e
-                        );
-
-                        failed_loads.push((adapter_id, adapter_name.clone(), e.to_string()));
-
-                        // Update metrics
-                        {
-                            let mut metrics = self.lazy_load_metrics.write();
-                            metrics.failed_loads += 1;
-                        }
-
-                        if let Some(ref metrics) = self.metrics_collector {
-                            metrics.record_adapter_load_latency(
-                                adapter_name.as_str(),
-                                METRICS_TENANT_DEFAULT,
-                                load_start.elapsed().as_secs_f64(),
-                                "failure",
-                            );
-                        }
-
-                        // Log telemetry event for failed load
-                        if let Some(ref telemetry) = self.telemetry {
-                            let _ = telemetry.log(
-                                "adapter.lazy_load_failed",
-                                AdapterLazyLoadEvent {
-                                    adapter_id: adapter_name.clone(),
-                                    adapter_idx: *adapter_id,
-                                    load_time_ms: load_start.elapsed().as_millis() as u64,
-                                    memory_bytes: 0, // Failed load
-                                },
-                            );
-                        }
-                    }
+                if !is_loaded {
+                    info!(
+                        "Adapter {} needs to be loaded for stack {}",
+                        adapter_id, stack_name
+                    );
+                    // In a real implementation, we would load the adapter here
+                    // For now, we just log that it needs loading
                 }
-            }
-        }
-
-        // If some adapters failed to load, this is still considered a "lazy load" operation
-        // but we should warn about the failures
-        if !failed_loads.is_empty() {
-            warn!(
-                "Lazy loading completed with {} failures: {:?}",
-                failed_loads.len(),
-                failed_loads
-                    .iter()
-                    .map(|(id, name, err)| format!("{}({}): {}", name, id, err))
-                    .collect::<Vec<_>>()
-            );
-        }
-
-        // Update cache hit rate
-        {
-            let mut metrics = self.lazy_load_metrics.write();
-            let total_adapters_requested = adapter_ids.len() as u64;
-            let adapters_already_loaded = total_adapters_requested - to_load_count as u64;
-            if metrics.total_requests > 0 {
-                metrics.cache_hit_rate =
-                    (adapters_already_loaded as f32) / (total_adapters_requested as f32);
-            }
-        }
-
-        Ok(all_loaded && failed_loads.is_empty())
-    }
-
-    /// Check if adapters are loaded without loading them
-    pub fn check_adapters_loaded(&self, adapter_ids: &[u16]) -> Vec<bool> {
-        let states = self.states.read();
-        adapter_ids
-            .iter()
-            .map(|&adapter_id| {
-                states
-                    .get(&adapter_id)
-                    .map(|record| record.state.is_loaded())
-                    .unwrap_or(false)
-            })
-            .collect()
-    }
-
-    /// Get lazy loading statistics
-    pub fn get_lazy_loading_stats(&self) -> LazyLoadingStats {
-        let states = self.states.read();
-        let total_adapters = states.len();
-        let loaded_adapters = states.values().filter(|r| r.state.is_loaded()).count();
-
-        LazyLoadingStats {
-            total_adapters,
-            loaded_adapters,
-            load_ratio: if total_adapters > 0 {
-                loaded_adapters as f32 / total_adapters as f32
             } else {
-                0.0
-            },
-        }
-    }
-
-    /// Get lazy loading metrics for monitoring
-    pub fn get_lazy_load_metrics(&self) -> LazyLoadMetrics {
-        self.lazy_load_metrics.read().clone()
-    }
-
-    /// Load parent adapter if lineage loading is enabled
-    ///
-    /// This method checks if an adapter has a parent_adapter_id and recursively
-    /// loads the parent adapter chain. Parent adapters are loaded into a Warm state
-    /// to make them available for combination but not promote them excessively.
-    ///
-    /// Returns Ok(true) if parent was loaded, Ok(false) if no parent or already loaded
-    pub async fn load_parent_adapter(&self, adapter_idx: u16) -> Result<bool> {
-        self.load_parent_adapter_internal(adapter_idx, &mut std::collections::HashSet::new())
-            .await
-    }
-
-    /// Internal helper for load_parent_adapter with cycle detection
-    async fn load_parent_adapter_internal(
-        &self,
-        adapter_idx: u16,
-        visited: &mut std::collections::HashSet<u16>,
-    ) -> Result<bool> {
-        // Cycle detection
-        if visited.contains(&adapter_idx) {
-            return Err(AosError::Lifecycle(format!(
-                "Circular parent relationship detected at adapter {}",
-                adapter_idx
-            )));
-        }
-        visited.insert(adapter_idx);
-        // Get parent adapter ID from the state record
-        let parent_id = {
-            let states = self.states.read();
-            states
-                .get(&adapter_idx)
-                .and_then(|record| record.parent_adapter_id.clone())
-        };
-
-        // If no parent, nothing to do
-        let parent_id = match parent_id {
-            Some(id) => id,
-            None => return Ok(false),
-        };
-
-        info!(
-            adapter_idx = adapter_idx,
-            parent_adapter_id = %parent_id,
-            "Loading parent adapter for lineage stacking"
-        );
-
-        // Find parent adapter index
-        let parent_idx = {
-            let states = self.states.read();
-            states
-                .iter()
-                .find(|(_, record)| record.adapter_id == parent_id)
-                .map(|(idx, _)| *idx)
-        };
-
-        let parent_idx = match parent_idx {
-            Some(idx) => idx,
-            None => {
-                warn!(
-                    adapter_idx = adapter_idx,
-                    parent_adapter_id = %parent_id,
-                    "Parent adapter not found in registry"
-                );
-                return Err(AosError::Lifecycle(format!(
-                    "Parent adapter {} not found for adapter {}",
-                    parent_id, adapter_idx
-                )));
-            }
-        };
-
-        // Check if parent is already loaded
-        let parent_state = {
-            let states = self.states.read();
-            states.get(&parent_idx).map(|record| record.state)
-        };
-
-        if let Some(state) = parent_state {
-            if state.is_loaded() {
-                info!(
-                    parent_adapter_id = %parent_id,
-                    parent_idx = parent_idx,
-                    state = %state,
-                    "Parent adapter already loaded"
-                );
-                return Ok(false);
+                return Err(AosError::NotFound(format!(
+                    "Adapter {} not found in lifecycle manager",
+                    adapter_id
+                ))
+                .into());
             }
         }
 
-        // Load parent adapter
-        info!(
-            parent_adapter_id = %parent_id,
-            parent_idx = parent_idx,
-            "Loading parent adapter"
-        );
-
-        // Use ensure_adapters_loaded to load the parent
-        self.ensure_adapters_loaded(&[parent_idx]).await?;
-
-        // Promote parent to Warm state (available but not hot)
+        // Update the active stack
         {
-            let mut states = self.states.write();
-            if let Some(record) = states.get_mut(&parent_idx) {
-                if record.state == AdapterState::Cold {
-                    record.state = AdapterState::Warm;
-                }
-            }
+            let mut active_stack = self.active_stack.write();
+            *active_stack = Some((stack_name.clone(), adapter_ids.clone()));
         }
 
-        // Recursively load grandparent if parent has a parent
-        self.load_parent_adapter_internal(parent_idx, visited)
-            .await?;
-
-        info!(
-            parent_adapter_id = %parent_id,
-            parent_idx = parent_idx,
-            "Parent adapter loaded successfully"
-        );
-
-        Ok(true)
-    }
-
-    /// Get adapter lineage chain (from root to current adapter)
-    ///
-    /// Returns a vector of adapter indices in order from the root ancestor
-    /// to the given adapter. The first element is the oldest ancestor,
-    /// the last element is the given adapter.
-    ///
-    /// Returns an error if a cycle is detected in the lineage chain.
-    pub fn get_adapter_lineage(&self, adapter_idx: u16) -> Vec<u16> {
-        let mut lineage = vec![adapter_idx];
-        let states = self.states.read();
-        let mut visited = std::collections::HashSet::new();
-        visited.insert(adapter_idx);
-
-        let mut current_idx = adapter_idx;
-        loop {
-            let parent_id = states
-                .get(&current_idx)
-                .and_then(|record| record.parent_adapter_id.clone());
-
-            match parent_id {
-                Some(parent_id) => {
-                    // Find parent index
-                    let parent_idx = states
-                        .iter()
-                        .find(|(_, record)| record.adapter_id == parent_id)
-                        .map(|(idx, _)| *idx);
-
-                    match parent_idx {
-                        Some(idx) => {
-                            // Cycle detection
-                            if visited.contains(&idx) {
-                                warn!(
-                                    adapter_idx = adapter_idx,
-                                    cycle_at = idx,
-                                    "Detected cycle in adapter lineage"
-                                );
-                                break;
-                            }
-
-                            visited.insert(idx);
-                            lineage.insert(0, idx);
-                            current_idx = idx;
-                        }
-                        None => break,
-                    }
-                }
-                None => break,
-            }
+        // Log telemetry event
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "lifecycle.stack_activated",
+                serde_json::json!({
+                    "stack_name": stack_name,
+                    "adapter_count": adapter_ids.len(),
+                    "adapter_ids": adapter_ids,
+                }),
+            )?;
         }
 
-        lineage
+        info!("Stack '{}' activated successfully", stack_name);
+        Ok(())
     }
 
-    /// Get all safety adapters
-    pub fn get_safety_adapters(&self) -> Vec<u16> {
-        let states = self.states.read();
-        states
-            .iter()
-            .filter(|(_, record)| record.is_safety_adapter)
-            .map(|(idx, _)| *idx)
-            .collect()
-    }
+    /// Deactivate the current stack
+    pub async fn deactivate_stack(&self) -> Result<()> {
+        let stack_info = {
+            let mut active_stack = self.active_stack.write();
+            active_stack.take()
+        };
 
-    /// Get adapters by domain
-    pub fn get_adapters_by_domain(&self, domain: &str) -> Vec<u16> {
-        let states = self.states.read();
-        states
-            .iter()
-            .filter(|(_, record)| record.domains.contains(&domain.to_string()))
-            .map(|(idx, _)| *idx)
-            .collect()
-    }
-
-    /// Update adapter metadata from manifest
-    ///
-    /// This should be called after loading manifests to populate lineage and safety metadata.
-    /// Pass the adapter list from the manifest to update state records.
-    pub fn update_adapter_metadata(&self, adapters: &[adapteros_manifest::Adapter]) -> Result<()> {
-        let mut states = self.states.write();
-
-        for adapter in adapters {
-            // Find the state record by adapter ID
-            let record = states.values_mut().find(|r| r.adapter_id == adapter.id);
-
-            if let Some(record) = record {
-                record.parent_adapter_id = adapter.parent_adapter_id.clone();
-                record.is_safety_adapter = adapter.is_safety_adapter;
-                record.domains = adapter.domains.clone();
-
-                info!(
-                    adapter_id = %adapter.id,
-                    parent = ?adapter.parent_adapter_id,
-                    is_safety = adapter.is_safety_adapter,
-                    domains = ?adapter.domains,
-                    "Updated adapter metadata from manifest"
-                );
-            } else {
-                warn!(
-                    adapter_id = %adapter.id,
-                    "Adapter in manifest not found in lifecycle manager"
-                );
+        if let Some((name, _)) = stack_info {
+            // Log telemetry event
+            if let Some(ref telemetry) = self.telemetry {
+                telemetry.log(
+                    "lifecycle.stack_deactivated",
+                    serde_json::json!({
+                        "stack_name": name,
+                    }),
+                )?;
             }
+
+            info!("Stack '{}' deactivated", name);
         }
 
         Ok(())
     }
+
+    /// Get the currently active stack
+    pub fn get_active_stack(&self) -> Option<(String, Vec<String>)> {
+        let active_stack = self.active_stack.read();
+        active_stack.clone()
+    }
+
+    /// Load a stack from database and activate it
+    pub async fn load_and_activate_stack(&self, stack_id: &str) -> Result<()> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AosError::Database("Database not configured".to_string()))?;
+
+        // Query the stack from database
+        let row = sqlx::query_as::<_, (String, String, Option<String>)>(
+            r#"
+            SELECT name, adapter_ids_json, workflow_type
+            FROM adapter_stacks
+            WHERE id = ?
+            "#,
+        )
+        .bind(stack_id)
+        .fetch_optional(db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?
+        .ok_or_else(|| AosError::NotFound(format!("Stack {} not found", stack_id)))?;
+
+        let adapter_ids: Vec<String> =
+            serde_json::from_str(&row.1).map_err(|e| AosError::Serialization(e))?;
+
+        self.activate_stack(row.0, adapter_ids).await
+    }
+
+    /// Execute the current stack's workflow
+    pub async fn execute_stack_workflow(&self, context: WorkflowContext) -> Result<WorkflowResult> {
+        let stack_info = {
+            let active_stack = self.active_stack.read();
+            active_stack.clone()
+        };
+
+        let (stack_name, adapter_ids) =
+            stack_info.ok_or_else(|| AosError::Lifecycle("No active stack".to_string()))?;
+
+        info!("Executing workflow for stack '{}'", stack_name);
+
+        // Get workflow type from database if available
+        let workflow_type = if let Some(ref db) = self.db {
+            let row = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT workflow_type FROM adapter_stacks WHERE name = ?",
+            )
+            .bind(&stack_name)
+            .fetch_optional(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to fetch workflow type: {}", e)))?;
+
+            match row.and_then(|wt| wt) {
+                Some(wt) => match wt.as_str() {
+                    "parallel" => WorkflowType::Parallel,
+                    "upstream_downstream" => WorkflowType::UpstreamDownstream,
+                    "sequential" => WorkflowType::Sequential,
+                    _ => WorkflowType::Parallel, // Default
+                },
+                None => WorkflowType::Parallel, // Default if not specified
+            }
+        } else {
+            WorkflowType::Parallel // Default if no database
+        };
+
+        // Create and execute workflow
+        // Note: Uses MockAdapterBackend for workflow coordination/testing.
+        // For real kernel execution with LoRA transformations, use Worker::execute_workflow()
+        // which creates KernelAdapterBackend with shared kernel access.
+        let backend = Arc::new(MockAdapterBackend);
+        let executor = WorkflowExecutor::new(workflow_type, adapter_ids, backend);
+        let result = executor.execute(context).await?;
+
+        // Log telemetry
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "lifecycle.workflow_executed",
+                serde_json::json!({
+                    "stack_name": stack_name,
+                    "adapters_executed": result.stats.adapters_executed,
+                    "total_time_ms": result.stats.total_time_ms,
+                    "phases": result.stats.phases.len(),
+                }),
+            )?;
+        }
+
+        Ok(result)
+    }
+
+    // ===== GPU Integrity Verification API =====
+
+    /// Get current adapter state for GPU verification
+    ///
+    /// Returns list of (adapter_id, adapter_name, state) for adapters that should
+    /// have GPU buffers loaded. Used by external GPU verification code.
+    pub fn get_loaded_adapters(&self) -> Vec<(u16, String, AdapterState)> {
+        let states = self.states.read();
+        states
+            .iter()
+            .filter_map(|(id, record)| {
+                // Only adapters in Cold, Warm, Hot, or Resident states have GPU buffers
+                if !matches!(record.state, AdapterState::Unloaded) {
+                    Some((*id, record.adapter_id.clone(), record.state))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Mark adapter state as verified with GPU
+    ///
+    /// Called by external GPU verification code after successful buffer verification.
+    /// This is an integration point for cross-layer integrity checks.
+    ///
+    /// # Arguments
+    /// * `adapter_id` - Adapter that was verified
+    /// * `gpu_fingerprint_hash` - BLAKE3 hash of GPU buffer fingerprint
+    ///
+    /// # Usage
+    /// ```no_run
+    /// // In Worker or orchestrator layer with both lifecycle and GPU access:
+    /// let (buffer_size, first, last, mid) = kernels.verify_adapter_buffers(adapter_id)?;
+    /// let fingerprint = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
+    /// lifecycle.mark_gpu_verified(adapter_id, fingerprint.checkpoint_hash)?;
+    /// ```
+    pub fn mark_gpu_verified(&self, adapter_id: u16, _gpu_fingerprint_hash: B3Hash) -> Result<()> {
+        // For now, just log verification (future: store verification timestamp in state record)
+        let states = self.states.read();
+        if let Some(record) = states.get(&adapter_id) {
+            info!(
+                "GPU verification passed for adapter {} ({})",
+                adapter_id, record.adapter_id
+            );
+        }
+        Ok(())
+    }
+}
+
+/// GPU integrity verification report
+///
+/// Returned by external verification code to indicate which adapters passed/failed
+/// GPU buffer integrity checks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuIntegrityReport {
+    /// Adapters that passed verification
+    pub verified: Vec<(u16, String)>,
+    /// Adapters that failed verification (id, name, reason)
+    pub failed: Vec<(u16, String, String)>,
+    /// Adapters that were skipped (not in GPU)
+    pub skipped: Vec<(u16, String)>,
+    /// Total adapters checked
+    pub total_checked: usize,
+    /// Verification timestamp
+    pub timestamp: u64,
 }
 
 /// K reduction event for telemetry
@@ -1628,139 +1279,80 @@ pub struct KReductionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::B3Hash;
     use adapteros_manifest::Policies;
+    use std::collections::HashMap;
 
     fn test_policies() -> Policies {
         Policies::default()
     }
 
-    #[tokio::test]
-    async fn test_lifecycle_basic() {
+    fn build_adapter_hashes(names: &[String]) -> HashMap<String, B3Hash> {
+        names
+            .iter()
+            .map(|name| (name.clone(), B3Hash::hash(name.as_bytes())))
+            .collect()
+    }
+
+    #[test]
+    fn test_lifecycle_basic() {
         let adapter_names = vec!["adapter_0".to_string(), "adapter_1".to_string()];
         let temp_dir = std::env::temp_dir().join("mplora_test_lifecycle");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            3,
+        );
 
         // Initial state should be unloaded
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Unloaded));
+        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
 
         // Promote adapter
         manager
             .promote_adapter(0)
             .expect("Test adapter promotion should succeed");
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Cold));
+        assert_eq!(manager.get_state(0), Some(AdapterState::Cold));
 
         // Demote adapter
         manager
             .demote_adapter(0)
             .expect("Test adapter demotion should succeed");
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Unloaded));
+        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
 
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
-    #[tokio::test]
-    async fn test_is_loaded_reflects_state_and_loader() {
-        let adapter_names = vec!["test_adapter".to_string()];
-        let temp_dir_raw = std::env::temp_dir().join("mplora_is_loaded");
-        std::fs::create_dir_all(&temp_dir_raw)
-            .expect("Test temp directory creation should succeed");
-        let temp_dir = temp_dir_raw
-            .canonicalize()
-            .expect("Test temp directory canonicalization should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 1);
-
-        // Create a fake adapter file so the loader can succeed.
-        let adapter_path = temp_dir.join("test_adapter.safetensors");
-        std::fs::write(&adapter_path, b"dummy adapter data")
-            .expect("Test file write should succeed");
-
-        // Load the adapter and mark its state as loaded.
-        {
-            let mut loader = manager.loader.write();
-            loader
-                .load_adapter(0, "test_adapter", None)
-                .expect("Adapter load should succeed");
-        }
-        {
-            let mut states = manager.states.write();
-            let record = states.get_mut(&0).expect("adapter exists");
-            record.state = AdapterState::Cold;
-            record.memory_bytes = 50 * 1024 * 1024;
-        }
-        assert!(
-            manager.is_loaded(0).await,
-            "Adapter should report as loaded"
-        );
-
-        // Simulate divergence: loader unloaded but state still warm.
-        {
-            let mut loader = manager.loader.write();
-            loader
-                .unload_adapter(0)
-                .expect("Adapter unload should succeed");
-        }
-        {
-            let mut states = manager.states.write();
-            let record = states.get_mut(&0).expect("adapter exists");
-            record.state = AdapterState::Warm;
-        }
-        {
-            let loader = manager.loader.read();
-            assert!(!loader.is_loaded(0), "Loader should not track adapter");
-        }
-        assert!(
-            !manager.is_loaded(0).await,
-            "State loaded but loader missing entry should be treated as unloaded"
-        );
-
-        // Reload adapter but reset state to Unloaded.
-        {
-            let mut loader = manager.loader.write();
-            loader
-                .load_adapter(0, "test_adapter", None)
-                .expect("Adapter reload should succeed");
-        }
-        {
-            let mut states = manager.states.write();
-            let record = states.get_mut(&0).expect("adapter exists");
-            record.state = AdapterState::Unloaded;
-            record.memory_bytes = 0;
-        }
-        {
-            let loader = manager.loader.read();
-            assert!(loader.is_loaded(0), "Loader should still track adapter");
-        }
-        assert!(
-            !manager.is_loaded(0).await,
-            "Unloaded state should report as not loaded even if loader still tracks entry"
-        );
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_pinning() {
+    #[test]
+    fn test_pinning() {
         let adapter_names = vec!["adapter_0".to_string()];
         let temp_dir = std::env::temp_dir().join("mplora_test_pinning");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            3,
+        );
 
         // Pin adapter
         manager
             .pin_adapter(0)
             .expect("Test adapter pinning should succeed");
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Resident));
+        assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
 
         // Cannot demote pinned adapter
         assert!(manager.demote_adapter(0).is_err());
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Resident));
+        assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
 
         // Unpin and then demote
         manager
@@ -1769,7 +1361,7 @@ mod tests {
         manager
             .demote_adapter(0)
             .expect("Test adapter demotion should succeed");
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Hot));
+        assert_eq!(manager.get_state(0), Some(AdapterState::Hot));
 
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
@@ -1780,8 +1372,15 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("mplora_activation_tracker");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            2,
+        );
 
         manager.set_activation_window(3);
         manager
@@ -1795,7 +1394,7 @@ mod tests {
             .record_router_decision(&[0])
             .await
             .expect("record should succeed");
-        assert!((manager.activation_pct(0).await - 100.0).abs() < 1e-3);
+        assert!((manager.activation_pct(0) - 100.0).abs() < 1e-3);
 
         manager
             .record_router_decision(&[1])
@@ -1807,271 +1406,7 @@ mod tests {
             .expect("record should succeed");
 
         // Adapter 0 should fall below activation threshold and be evicted
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Unloaded));
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_lazy_loading_functionality() {
-        let adapter_names = vec!["test_adapter_a".to_string(), "test_adapter_b".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_lazy_loading_test");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
-
-        // Initially all adapters should be unloaded
-        assert_eq!(manager.get_state(0).await, Some(AdapterState::Unloaded));
-        assert_eq!(manager.get_state(1).await, Some(AdapterState::Unloaded));
-
-        // Check loading status
-        let loaded_status = manager.check_adapters_loaded(&[0, 1]);
-        assert_eq!(loaded_status, vec![false, false]);
-
-        // For testing purposes, we'll manually set adapter 0 to loaded state
-        // to simulate successful loading without dealing with file I/O
-        {
-            let mut states = manager.states.write();
-            if let Some(record) = states.get_mut(&0) {
-                record.state = AdapterState::Cold;
-                record.memory_bytes = 50 * 1024 * 1024;
-            }
-        }
-
-        // Check loading status again
-        let loaded_status = manager.check_adapters_loaded(&[0, 1]);
-        assert_eq!(loaded_status, vec![true, false]);
-
-        // Get lazy loading stats
-        let stats = manager.get_lazy_loading_stats();
-        assert_eq!(stats.total_adapters, 2);
-        assert_eq!(stats.loaded_adapters, 1);
-        assert!((stats.load_ratio - 0.5).abs() < 1e-6);
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_lazy_loading_nonexistent_adapter() {
-        let adapter_names = vec!["existent_adapter".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_lazy_loading_error_test");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
-
-        // Try to lazy load a non-existent adapter
-        let result = manager.ensure_adapters_loaded(&[999]).await;
-        assert!(result.is_err(), "Should fail for non-existent adapter");
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_adapter_lineage_metadata() {
-        use adapteros_manifest::Adapter;
-
-        let adapter_names = vec![
-            "parent".to_string(),
-            "child".to_string(),
-            "safety".to_string(),
-        ];
-        let temp_dir = std::env::temp_dir().join("mplora_lineage_metadata");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
-
-        // Create manifest adapters with lineage metadata
-        let adapters = vec![
-            Adapter {
-                id: "parent".to_string(),
-                hash: "b3:parent123".to_string(),
-                tier: "persistent".to_string(),
-                rank: 16,
-                alpha: 32.0,
-                target_modules: vec!["q_proj".to_string()],
-                parent_adapter_id: None,
-                domains: vec!["code".to_string()],
-                is_safety_adapter: false,
-            },
-            Adapter {
-                id: "child".to_string(),
-                hash: "b3:child456".to_string(),
-                tier: "persistent".to_string(),
-                rank: 16,
-                alpha: 32.0,
-                target_modules: vec!["q_proj".to_string()],
-                parent_adapter_id: Some("parent".to_string()),
-                domains: vec!["code".to_string(), "python".to_string()],
-                is_safety_adapter: false,
-            },
-            Adapter {
-                id: "safety".to_string(),
-                hash: "b3:safety789".to_string(),
-                tier: "persistent".to_string(),
-                rank: 8,
-                alpha: 16.0,
-                target_modules: vec!["q_proj".to_string()],
-                parent_adapter_id: None,
-                domains: vec!["safety".to_string()],
-                is_safety_adapter: true,
-            },
-        ];
-
-        // Update metadata from manifests
-        manager
-            .update_adapter_metadata(&adapters)
-            .expect("Metadata update should succeed");
-
-        // Verify metadata was set correctly
-        {
-            let states = manager.states.read();
-
-            let parent = states.get(&0).expect("Parent adapter should exist");
-            assert_eq!(parent.parent_adapter_id, None);
-            assert_eq!(parent.domains, vec!["code"]);
-            assert!(!parent.is_safety_adapter);
-
-            let child = states.get(&1).expect("Child adapter should exist");
-            assert_eq!(child.parent_adapter_id, Some("parent".to_string()));
-            assert_eq!(child.domains, vec!["code", "python"]);
-            assert!(!child.is_safety_adapter);
-
-            let safety = states.get(&2).expect("Safety adapter should exist");
-            assert_eq!(safety.parent_adapter_id, None);
-            assert_eq!(safety.domains, vec!["safety"]);
-            assert!(safety.is_safety_adapter);
-        }
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_get_adapter_lineage() {
-        let adapter_names = vec![
-            "grandparent".to_string(),
-            "parent".to_string(),
-            "child".to_string(),
-        ];
-        let temp_dir = std::env::temp_dir().join("mplora_get_lineage");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
-
-        // Set up lineage: child -> parent -> grandparent
-        {
-            let mut states = manager.states.write();
-
-            states.get_mut(&0).unwrap().parent_adapter_id = None; // grandparent
-            states.get_mut(&1).unwrap().parent_adapter_id = Some("grandparent".to_string()); // parent
-            states.get_mut(&2).unwrap().parent_adapter_id = Some("parent".to_string());
-            // child
-        }
-
-        // Get lineage for child
-        let lineage = manager.get_adapter_lineage(2);
-        assert_eq!(lineage, vec![0, 1, 2]); // Should be [grandparent, parent, child]
-
-        // Get lineage for parent
-        let lineage = manager.get_adapter_lineage(1);
-        assert_eq!(lineage, vec![0, 1]); // Should be [grandparent, parent]
-
-        // Get lineage for grandparent
-        let lineage = manager.get_adapter_lineage(0);
-        assert_eq!(lineage, vec![0]); // Should be just [grandparent]
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_lineage_cycle_detection() {
-        let adapter_names = vec!["a".to_string(), "b".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_lineage_cycle");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
-
-        // Create a cycle: a -> b -> a
-        {
-            let mut states = manager.states.write();
-            states.get_mut(&0).unwrap().parent_adapter_id = Some("b".to_string());
-            states.get_mut(&1).unwrap().parent_adapter_id = Some("a".to_string());
-        }
-
-        // get_adapter_lineage should detect the cycle and break
-        let lineage = manager.get_adapter_lineage(0);
-        // Should stop when cycle detected, not infinite loop
-        assert!(lineage.len() <= 2);
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_get_safety_adapters() {
-        let adapter_names = vec![
-            "normal1".to_string(),
-            "safety1".to_string(),
-            "normal2".to_string(),
-            "safety2".to_string(),
-        ];
-        let temp_dir = std::env::temp_dir().join("mplora_safety_adapters");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 4);
-
-        // Mark some as safety adapters
-        {
-            let mut states = manager.states.write();
-            states.get_mut(&1).unwrap().is_safety_adapter = true;
-            states.get_mut(&3).unwrap().is_safety_adapter = true;
-        }
-
-        // Get safety adapters
-        let mut safety = manager.get_safety_adapters();
-        safety.sort(); // Sort for deterministic comparison
-        assert_eq!(safety, vec![1, 3]);
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
-    }
-
-    #[tokio::test]
-    async fn test_get_adapters_by_domain() {
-        let adapter_names = vec![
-            "code1".to_string(),
-            "vision1".to_string(),
-            "code2".to_string(),
-        ];
-        let temp_dir = std::env::temp_dir().join("mplora_domain_adapters");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
-
-        let manager =
-            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
-
-        // Set domains
-        {
-            let mut states = manager.states.write();
-            states.get_mut(&0).unwrap().domains = vec!["code".to_string()];
-            states.get_mut(&1).unwrap().domains = vec!["vision".to_string()];
-            states.get_mut(&2).unwrap().domains = vec!["code".to_string(), "python".to_string()];
-        }
-
-        // Get code adapters
-        let mut code = manager.get_adapters_by_domain("code");
-        code.sort();
-        assert_eq!(code, vec![0, 2]);
-
-        // Get vision adapters
-        let vision = manager.get_adapters_by_domain("vision");
-        assert_eq!(vision, vec![1]);
-
-        // Get python adapters
-        let python = manager.get_adapters_by_domain("python");
-        assert_eq!(python, vec![2]);
+        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
 
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }

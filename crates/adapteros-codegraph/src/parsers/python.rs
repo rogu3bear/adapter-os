@@ -14,7 +14,6 @@ pub struct PythonParser {
     /// Tree-sitter parser
     parser: Parser,
     /// Python language
-    #[allow(dead_code)]
     python_lang: TSLanguage,
     /// Query for function definitions
     function_query: Query,
@@ -39,12 +38,12 @@ impl PythonParser {
         let python_lang = tree_sitter_python::language();
 
         parser
-            .set_language(&python_lang)
+            .set_language(python_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Python language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (function_definition
                 name: (identifier) @name
@@ -56,7 +55,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let async_function_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (async_function_definition
                 name: (identifier) @name
@@ -68,7 +67,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create async function query: {}", e)))?;
 
         let class_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (class_definition
                 name: (identifier) @name
@@ -79,7 +78,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let import_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (import_statement
                 (dotted_name) @module_name
@@ -89,7 +88,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let import_from_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (import_from_statement
                 module_name: (dotted_name)? @module_name
@@ -100,7 +99,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import from query: {}", e)))?;
 
         let assignment_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (assignment
                 left: (identifier) @name
@@ -111,7 +110,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create assignment query: {}", e)))?;
 
         let method_query = Query::new(
-            &python_lang,
+            python_lang,
             r#"
             (class_definition
                 name: (identifier) @class_name

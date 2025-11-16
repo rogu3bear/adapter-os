@@ -21,10 +21,17 @@ async fn setup_test_db() -> Result<(Db, TempDir)> {
 
 #[tokio::test]
 async fn test_training_service_lifecycle() -> Result<()> {
+<<<<<<< HEAD
     let (db, _temp_dir) = setup_test_db().await?;
     let db_arc = Arc::new(db);
     let service = TrainingService::new_with_db(db_arc.clone(), "qwen2.5-7b");
 
+=======
+    // This test requires the orchestrator to be running
+    // For now, we'll create a minimal test structure
+
+    // Test: Create training service
+>>>>>>> integration-branch
     // Test: List templates
     let templates = service.list_templates().await?;
     assert!(templates.len() >= 4);
@@ -60,6 +67,7 @@ async fn test_training_service_lifecycle() -> Result<()> {
     assert!(jobs.iter().any(|j| j.id == job.id));
 
     // Test: Cancel job
+<<<<<<< HEAD
     service.cancel_job(&job.id).await?;
     let cancelled_job = service.get_job(&job.id).await?;
     assert_eq!(cancelled_job.status, TrainingJobStatus::Cancelled);
@@ -69,6 +77,9 @@ async fn test_training_service_lifecycle() -> Result<()> {
     assert!(db_job.is_some());
     let db_job = db_job.unwrap();
     assert_eq!(db_job.status, "cancelled");
+=======
+    // Test: Verify job status
+>>>>>>> integration-branch
 
     Ok(())
 }
@@ -94,6 +105,7 @@ async fn test_training_template_loading() -> Result<()> {
     assert_eq!(ephemeral_quick.config.epochs, 1);
 
     // Test: Apply template to new job
+<<<<<<< HEAD
     let template_config = general_code.config.clone();
     let params = TrainingJobBuilder::new()
         .adapter_name("template-test")
@@ -105,6 +117,8 @@ async fn test_training_template_loading() -> Result<()> {
     assert_eq!(job.template_id, Some("general-code".to_string()));
     assert_eq!(job.config.rank, 16);
     assert_eq!(job.config.alpha, 32);
+=======
+>>>>>>> integration-branch
 
     Ok(())
 }
@@ -116,6 +130,7 @@ async fn test_training_metrics_collection() -> Result<()> {
     let service = TrainingService::new_with_db(db_arc.clone(), "qwen2.5-7b");
 
     // Test: Start training
+<<<<<<< HEAD
     let config = TrainingConfig {
         rank: 4,
         alpha: 8,
@@ -153,6 +168,11 @@ async fn test_training_metrics_collection() -> Result<()> {
     let logs = service.get_logs(&job.id).await?;
     assert!(!logs.is_empty());
     assert!(logs.iter().any(|l| l.contains("Training job")));
+=======
+    // Test: Collect metrics at intervals
+    // Test: Verify metrics accuracy
+    // Test: Check telemetry emission
+>>>>>>> integration-branch
 
     Ok(())
 }
@@ -176,6 +196,7 @@ async fn test_training_error_handling() -> Result<()> {
     let job = service.start_training(params).await?;
 
     // Test: Cancellation cleanup
+<<<<<<< HEAD
     service.cancel_job(&job.id).await?;
     let cancelled_job = service.get_job(&job.id).await?;
     assert_eq!(cancelled_job.status, TrainingJobStatus::Cancelled);
@@ -276,3 +297,9 @@ async fn test_training_logs_persistence() -> Result<()> {
 
     Ok(())
 }
+=======
+    // Test: Recovery from failures
+
+    Ok(())
+}
+>>>>>>> integration-branch

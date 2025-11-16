@@ -5,47 +5,10 @@
 //! Pattern: Database schema for training jobs
 
 use crate::Db;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
-
-/// Builder for creating training job parameters
-#[derive(Debug, Default)]
-pub struct TrainingJobBuilder {
-    adapter_name: Option<String>,
-    config: Option<Value>,
-    repo_id: Option<String>,
-    dataset_path: Option<String>,
-    tenant_id: Option<String>,
-    template_id: Option<String>,
-    directory_root: Option<String>,
-    directory_path: Option<String>,
-    adapters_root: Option<String>,
-    package: Option<bool>,
-    register: Option<bool>,
-    adapter_id: Option<String>,
-    tier: Option<i32>,
-}
-
-/// Parameters for training job creation
-#[derive(Debug)]
-pub struct TrainingJobParams {
-    pub adapter_name: String,
-    pub config: Value,
-    pub repo_id: Option<String>,
-    pub dataset_path: Option<String>,
-    pub tenant_id: Option<String>,
-    pub template_id: Option<String>,
-    pub directory_root: Option<String>,
-    pub directory_path: Option<String>,
-    pub adapters_root: Option<String>,
-    pub package: Option<bool>,
-    pub register: Option<bool>,
-    pub adapter_id: Option<String>,
-    pub tier: Option<i32>,
-}
 
 /// Training job record from database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -58,10 +21,6 @@ pub struct TrainingJobRecord {
     pub started_at: String,
     pub completed_at: Option<String>,
     pub created_by: String,
-    pub adapter_name: Option<String>,
-    pub template_id: Option<String>,
-    pub created_at: Option<String>,
-    pub metadata_json: Option<String>,
 }
 
 /// Training progress data
@@ -76,112 +35,6 @@ pub struct TrainingProgress {
     pub error_message: Option<String>,
 }
 
-impl TrainingJobBuilder {
-    /// Create a new training job builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the adapter name (required)
-    pub fn adapter_name(mut self, adapter_name: impl Into<String>) -> Self {
-        self.adapter_name = Some(adapter_name.into());
-        self
-    }
-
-    /// Set the training configuration as JSON (required)
-    pub fn config(mut self, config: Value) -> Self {
-        self.config = Some(config);
-        self
-    }
-
-    /// Set the repository ID (optional)
-    pub fn repo_id(mut self, repo_id: Option<impl Into<String>>) -> Self {
-        self.repo_id = repo_id.map(|s| s.into());
-        self
-    }
-
-    /// Set the dataset path (optional)
-    pub fn dataset_path(mut self, dataset_path: Option<impl Into<String>>) -> Self {
-        self.dataset_path = dataset_path.map(|s| s.into());
-        self
-    }
-
-    /// Set the tenant ID (optional)
-    pub fn tenant_id(mut self, tenant_id: Option<impl Into<String>>) -> Self {
-        self.tenant_id = tenant_id.map(|s| s.into());
-        self
-    }
-
-    /// Set the template ID (optional)
-    pub fn template_id(mut self, template_id: Option<impl Into<String>>) -> Self {
-        self.template_id = template_id.map(|s| s.into());
-        self
-    }
-
-    /// Set the directory root (optional)
-    pub fn directory_root(mut self, directory_root: Option<impl Into<String>>) -> Self {
-        self.directory_root = directory_root.map(|s| s.into());
-        self
-    }
-
-    /// Set the directory path (optional)
-    pub fn directory_path(mut self, directory_path: Option<impl Into<String>>) -> Self {
-        self.directory_path = directory_path.map(|s| s.into());
-        self
-    }
-
-    /// Set the adapters root (optional)
-    pub fn adapters_root(mut self, adapters_root: Option<impl Into<String>>) -> Self {
-        self.adapters_root = adapters_root.map(|s| s.into());
-        self
-    }
-
-    /// Set the package flag (optional)
-    pub fn package(mut self, package: Option<bool>) -> Self {
-        self.package = package;
-        self
-    }
-
-    /// Set the register flag (optional)
-    pub fn register(mut self, register: Option<bool>) -> Self {
-        self.register = register;
-        self
-    }
-
-    /// Set the adapter ID (optional)
-    pub fn adapter_id(mut self, adapter_id: Option<impl Into<String>>) -> Self {
-        self.adapter_id = adapter_id.map(|s| s.into());
-        self
-    }
-
-    /// Set the tier (optional)
-    pub fn tier(mut self, tier: Option<i32>) -> Self {
-        self.tier = tier;
-        self
-    }
-
-    /// Build the training job parameters
-    pub fn build(self) -> Result<TrainingJobParams> {
-        Ok(TrainingJobParams {
-            adapter_name: self
-                .adapter_name
-                .ok_or_else(|| anyhow!("adapter_name is required"))?,
-            config: self.config.ok_or_else(|| anyhow!("config is required"))?,
-            repo_id: self.repo_id,
-            dataset_path: self.dataset_path,
-            tenant_id: self.tenant_id,
-            template_id: self.template_id,
-            directory_root: self.directory_root,
-            directory_path: self.directory_path,
-            adapters_root: self.adapters_root,
-            package: self.package,
-            register: self.register,
-            adapter_id: self.adapter_id,
-            tier: self.tier,
-        })
-    }
-}
-
 impl Db {
     /// Create a new training job
     ///
@@ -192,29 +45,6 @@ impl Db {
         repo_id: &str,
         training_config_json: &str,
         created_by: &str,
-    ) -> Result<String> {
-        self.create_training_job_with_metadata(
-            repo_id,
-            training_config_json,
-            created_by,
-            None, // adapter_name
-            None, // template_id
-            None, // metadata_json
-        )
-        .await
-    }
-
-    /// Create a new training job with extended metadata
-    ///
-    /// Evidence: migrations/0050_training_jobs_extensions.sql
-    pub async fn create_training_job_with_metadata(
-        &self,
-        repo_id: &str,
-        training_config_json: &str,
-        created_by: &str,
-        adapter_name: Option<&str>,
-        template_id: Option<&str>,
-        metadata_json: Option<&str>,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         let progress = TrainingProgress {
@@ -227,13 +57,11 @@ impl Db {
             error_message: None,
         };
         let progress_json = serde_json::to_string(&progress)?;
-        let created_at = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
             "INSERT INTO repository_training_jobs 
-             (id, repo_id, training_config_json, status, progress_json, created_by, 
-              adapter_name, template_id, created_at, metadata_json) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, repo_id, training_config_json, status, progress_json, created_by) 
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(repo_id)
@@ -241,10 +69,6 @@ impl Db {
         .bind("pending")
         .bind(&progress_json)
         .bind(created_by)
-        .bind(adapter_name)
-        .bind(template_id)
-        .bind(&created_at)
-        .bind(metadata_json)
         .execute(self.pool())
         .await?;
 
@@ -258,8 +82,7 @@ impl Db {
     pub async fn get_training_job(&self, job_id: &str) -> Result<Option<TrainingJobRecord>> {
         let job = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by, adapter_name, template_id, 
-                    created_at, metadata_json
+                    started_at, completed_at, created_by 
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -325,11 +148,10 @@ impl Db {
     pub async fn list_training_jobs(&self, repo_id: &str) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by, adapter_name, template_id, 
-                    created_at, metadata_json
+                    started_at, completed_at, created_by 
              FROM repository_training_jobs 
              WHERE repo_id = ? 
-             ORDER BY COALESCE(created_at, started_at) DESC",
+             ORDER BY started_at DESC",
         )
         .bind(repo_id)
         .fetch_all(self.pool())
@@ -348,93 +170,12 @@ impl Db {
     ) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by, adapter_name, template_id, 
-                    created_at, metadata_json
+                    started_at, completed_at, created_by 
              FROM repository_training_jobs 
              WHERE status = ? 
-             ORDER BY COALESCE(created_at, started_at) DESC",
+             ORDER BY started_at DESC",
         )
         .bind(status)
-        .fetch_all(self.pool())
-        .await?;
-
-        Ok(jobs)
-    }
-
-    /// List all training jobs (for TrainingService integration)
-    ///
-    /// Evidence: migrations/0050_training_jobs_extensions.sql
-    pub async fn list_all_training_jobs(&self) -> Result<Vec<TrainingJobRecord>> {
-        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by, adapter_name, template_id, 
-                    created_at, metadata_json
-             FROM repository_training_jobs 
-             ORDER BY COALESCE(created_at, started_at) DESC",
-        )
-        .fetch_all(self.pool())
-        .await?;
-
-        Ok(jobs)
-    }
-
-    /// Update training job metadata (for artifact tracking)
-    ///
-    /// Evidence: migrations/0050_training_jobs_extensions.sql
-    pub async fn update_training_job_metadata(
-        &self,
-        job_id: &str,
-        metadata_json: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            "UPDATE repository_training_jobs 
-             SET metadata_json = ? 
-             WHERE id = ?",
-        )
-        .bind(metadata_json)
-        .bind(job_id)
-        .execute(self.pool())
-        .await?;
-
-        Ok(())
-    }
-
-    /// List training jobs with artifacts (completed jobs with artifact_path)
-    ///
-    /// Evidence: migrations/0050_training_jobs_extensions.sql
-    pub async fn list_training_jobs_with_artifacts(&self) -> Result<Vec<TrainingJobRecord>> {
-        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by, adapter_name, template_id, 
-                    created_at, metadata_json
-             FROM repository_training_jobs 
-             WHERE status = 'completed' AND metadata_json IS NOT NULL
-             ORDER BY COALESCE(completed_at, created_at) DESC",
-        )
-        .fetch_all(self.pool())
-        .await?;
-
-        Ok(jobs)
-    }
-
-    /// Get training jobs older than specified days (for cleanup)
-    ///
-    /// Evidence: migrations/0050_training_jobs_extensions.sql
-    pub async fn get_old_training_jobs(&self, days: i64) -> Result<Vec<TrainingJobRecord>> {
-        let cutoff_date = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::days(days))
-            .unwrap_or_else(|| chrono::Utc::now())
-            .to_rfc3339();
-
-        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by, adapter_name, template_id, 
-                    created_at, metadata_json
-             FROM repository_training_jobs 
-             WHERE COALESCE(completed_at, created_at) < ?
-             ORDER BY COALESCE(completed_at, created_at) ASC",
-        )
-        .bind(&cutoff_date)
         .fetch_all(self.pool())
         .await?;
 
@@ -452,60 +193,5 @@ impl Db {
             .await?;
 
         Ok(())
-    }
-
-    /// Start a training session with complex parameters
-    ///
-    /// Use [`TrainingJobBuilder`] to construct complex parameter sets:
-    /// ```no_run
-    /// use adapteros_db::training_jobs::TrainingJobBuilder;
-    /// use serde_json::json;
-    /// use adapteros_db::Db;
-    ///
-    /// # async fn example(db: &Db) {
-    /// let config = json!({
-    ///     "rank": 16,
-    ///     "alpha": 32,
-    ///     "targets": ["q_proj"],
-    ///     "epochs": 3,
-    ///     "learning_rate": 0.001,
-    ///     "batch_size": 4,
-    ///     "warmup_steps": 100,
-    ///     "max_seq_length": 512,
-    ///     "gradient_accumulation_steps": 2
-    /// });
-    ///
-    /// let params = TrainingJobBuilder::new()
-    ///     .adapter_name("my_adapter")
-    ///     .config(config)
-    ///     .repo_id(Some("github.com/org/repo"))
-    ///     .dataset_path(Some("/path/to/dataset"))
-    ///     .tenant_id(Some("tenant-123"))
-    ///     .template_id(Some("template-456"))
-    ///     .directory_root(Some("/repo/root"))
-    ///     .directory_path(Some("src/"))
-    ///     .adapters_root(Some("/adapters/"))
-    ///     .package(Some(true))
-    ///     .register(Some(true))
-    ///     .adapter_id(Some("adapter-789"))
-    ///     .tier(Some(1))
-    ///     .build()
-    ///     .expect("required fields");
-    ///
-    /// db.start_training_session(params).await.expect("training session started");
-    /// # }
-    /// ```
-    pub async fn start_training_session(&self, params: TrainingJobParams) -> Result<String> {
-        let training_config_json = serde_json::to_string(&params.config)?;
-        let created_by = params
-            .tenant_id
-            .clone()
-            .unwrap_or_else(|| "system".to_string());
-
-        // Use repo_id from params if available, otherwise use a default
-        let repo_id = params.repo_id.unwrap_or_else(|| "default-repo".to_string());
-
-        self.create_training_job(&repo_id, &training_config_json, &created_by)
-            .await
     }
 }

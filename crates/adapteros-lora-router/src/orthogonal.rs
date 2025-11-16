@@ -65,17 +65,13 @@ impl OrthogonalConstraints {
     /// Convert Q15 gates to normalized activation vector
     fn gates_to_activation_vector(&self, adapter_indices: &[u16], gates: &[i16]) -> Vec<f32> {
         // Convert Q15 gates to normalized activation vector
-        let max_index = adapter_indices
-            .iter()
-            .copied()
-            .map(|v| v as usize)
-            .max()
-            .unwrap_or(0);
-        let mut activation = vec![0.0; max_index + 1];
+        let mut activation = vec![0.0; 256]; // Assume max 256 adapters
 
         for (idx, gate) in adapter_indices.iter().zip(gates.iter()) {
-            let value = *gate as f32 / 32767.0;
-            activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
+            if *idx < 256 {
+                let value = *gate as f32 / 32767.0;
+                activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
+            }
         }
 
         activation
@@ -83,19 +79,9 @@ impl OrthogonalConstraints {
 
     /// Compute cosine similarity between two activation vectors
     fn compute_cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
-        // Compare over common length; treat missing tail as zeros
-        let n = core::cmp::min(a.len(), b.len());
-        if n == 0 {
-            return 0.0;
-        }
-        let dot_product: f32 = a
-            .iter()
-            .take(n)
-            .zip(b.iter().take(n))
-            .map(|(x, y)| x * y)
-            .sum();
-        let norm_a: f32 = a.iter().take(n).map(|x| x * x).sum::<f32>().sqrt();
-        let norm_b: f32 = b.iter().take(n).map(|x| x * x).sum::<f32>().sqrt();
+        let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         if norm_a == 0.0 || norm_b == 0.0 {
             0.0
@@ -144,6 +130,36 @@ impl OrthogonalConstraints {
 
         Ok(())
     }
+
+    /// Compute penalty for a single adapter based on activation history
+    ///
+    /// This computes how much an individual adapter should be penalized
+    /// based on its recent activation pattern.
+    ///
+    /// # Arguments
+    /// * `adapter_idx` - Index of the adapter to compute penalty for
+    ///
+    /// # Returns
+    /// Penalty value (0.0 = no penalty, higher = more similar to recent selections)
+    pub fn compute_adapter_penalty(&self, adapter_idx: usize) -> f32 {
+        if self.activation_history.is_empty() || adapter_idx >= 256 {
+            return 0.0;
+        }
+
+        let mut total_penalty = 0.0;
+
+        for historical_activation in &self.activation_history {
+            // Check if this adapter was active in history
+            if historical_activation[adapter_idx] > 0.0 {
+                let similarity = historical_activation[adapter_idx];
+                if similarity > self.similarity_threshold {
+                    total_penalty += self.penalty_weight * similarity;
+                }
+            }
+        }
+
+        total_penalty
+    }
 }
 
 #[cfg(test)]
@@ -170,9 +186,9 @@ mod tests {
         let constraints = OrthogonalConstraints::new(0.7, 0.1, 10);
         let activation = constraints.gates_to_activation_vector(&[0, 1], &[16383, 16383]);
 
-        assert_eq!(activation.len(), 2);
         assert_eq!(activation[0], 0.5); // 16383 / 32767 ≈ 0.5
         assert_eq!(activation[1], 0.5);
+        assert_eq!(activation[2], 0.0);
     }
 
     #[test]

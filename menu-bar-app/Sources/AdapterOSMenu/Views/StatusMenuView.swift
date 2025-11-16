@@ -1,4 +1,5 @@
 import SwiftUI
+<<<<<<< HEAD
 import Combine
 import AppKit
 
@@ -1028,6 +1029,14 @@ struct ConcreteStatusMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.spacingMD) {
+=======
+
+struct StatusMenuView: View {
+    @ObservedObject var viewModel: StatusViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+>>>>>>> integration-branch
             if let error = viewModel.lastError {
                 ProblemsView(error: error) {
                     Task { await viewModel.refresh() }
@@ -1052,12 +1061,20 @@ struct ConcreteStatusMenuView: View {
 
             footer
         }
+<<<<<<< HEAD
         .padding(DesignTokens.spacingMD)
+=======
+        .padding(12)
+>>>>>>> integration-branch
         .frame(minWidth: 300)
     }
 
     private var header: some View {
+<<<<<<< HEAD
         HStack(spacing: DesignTokens.spacingSM) {
+=======
+        HStack(spacing: 8) {
+>>>>>>> integration-branch
             Image(systemName: viewModel.iconName)
                 .foregroundColor(iconColor)
             Text("AdapterOS")
@@ -1072,9 +1089,15 @@ struct ConcreteStatusMenuView: View {
     }
 
     private func infoSections(status: AdapterOSStatus) -> some View {
+<<<<<<< HEAD
         VStack(alignment: .leading, spacing: DesignTokens.spacingSM) {
             // Chips line
             HStack(spacing: DesignTokens.spacingSM) {
+=======
+        VStack(alignment: .leading, spacing: 8) {
+            // Chips line
+            HStack(spacing: 8) {
+>>>>>>> integration-branch
                 Label(status.deterministic ? "Deterministic On" : "Deterministic Off", systemImage: status.deterministic ? "checkmark.seal.fill" : "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundColor(status.deterministic ? DesignTokens.okColor : DesignTokens.degradedColor)
@@ -1090,11 +1113,19 @@ struct ConcreteStatusMenuView: View {
             // Primary rows
             StatusRow(label: "Adapters", value: String(status.adapters_loaded), systemImage: "puzzlepiece.extension", color: .secondary)
             StatusRow(label: "Workers", value: String(status.worker_count), systemImage: "person.3", color: .secondary)
+<<<<<<< HEAD
             StatusRow(label: "Base Model", value: status.base_model_name ?? ((status.base_model_loaded ?? false) ? "Loaded" : "Not Loaded"), systemImage: "cube", color: .secondary)
             StatusRow(label: "Telemetry", value: status.telemetry_mode, systemImage: "antenna.radiowaves.left.and.right", color: .secondary)
 
             // Kernel hash short + copy full
             HStack(spacing: DesignTokens.spacingSM) {
+=======
+            StatusRow(label: "Base Model", value: status.base_model_name ?? (status.base_model_loaded ? "Loaded" : "Not Loaded"), systemImage: "cube", color: .secondary)
+            StatusRow(label: "Telemetry", value: status.telemetry_mode, systemImage: "antenna.radiowaves.left.and.right", color: .secondary)
+
+            // Kernel hash short + copy full
+            HStack(spacing: 8) {
+>>>>>>> integration-branch
                 Text("Kernel")
                     .foregroundColor(.secondary)
                 Spacer()
@@ -1107,6 +1138,7 @@ struct ConcreteStatusMenuView: View {
                 .help("Copy full kernel hash")
             }
             .font(DesignTokens.metricsFont)
+<<<<<<< HEAD
             
             // Design tokens checksum + copy full
             if !DesignTokens.checksum.isEmpty {
@@ -1132,6 +1164,49 @@ struct ConcreteStatusMenuView: View {
     }
 
 
+=======
+        }
+    }
+
+    private var actionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                if let url = URL(string: "http://localhost:3200") { NSWorkspace.shared.open(url) }
+            } label: {
+                Label("Open Dashboard", systemImage: "safari")
+            }
+
+            Button {
+                Task { await viewModel.refresh() }
+            } label: {
+                Label("Reload Now", systemImage: "arrow.clockwise")
+            }
+
+            #if DEBUG
+            Divider()
+            Text("Debug").font(.caption).foregroundColor(.secondary)
+            Button("Load Sample OK JSON") {
+                // no-op placeholder for UI testing; real samples can be added later
+            }
+            Button("Load Sample Degraded JSON") {
+                // no-op placeholder for UI testing; real samples can be added later
+            }
+            Button("Simulate Missing File") {
+                // no-op placeholder for UI testing; real samples can be added later
+            }
+            #endif
+
+            Button {
+                if let status = viewModel.status, let data = try? JSONEncoder().encode(status), let str = String(data: data, encoding: .utf8) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(str, forType: .string)
+                }
+            } label: {
+                Label("Copy Status JSON", systemImage: "doc.on.doc")
+            }
+        }
+    }
+>>>>>>> integration-branch
 
     private var footer: some View {
         HStack {
@@ -1144,6 +1219,7 @@ struct ConcreteStatusMenuView: View {
         }
     }
 
+<<<<<<< HEAD
     // MARK: - Helper Functions
 
     private func openDashboard() {
@@ -1293,6 +1369,8 @@ struct ConcreteStatusMenuView: View {
         }
     }
 
+=======
+>>>>>>> integration-branch
     private var iconColor: Color {
         guard let status = viewModel.status?.status else { return .gray }
         switch status {

@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use adapteros_benchmarks::*;
 use adapteros_memory::{MemoryPool, MemoryTracker, AllocationStrategy};

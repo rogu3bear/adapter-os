@@ -40,8 +40,6 @@ pub struct NoiseTracker {
     global_report: GlobalStabilityReport,
     telemetry: Option<Arc<TelemetryWriter>>,
     step_count: u64,
-    /// Optional adapter prefix to tag per-adapter epsilon keys
-    adapter_prefix: Option<String>,
 }
 
 impl NoiseTracker {
@@ -52,19 +50,7 @@ impl NoiseTracker {
             global_report: GlobalStabilityReport::new(),
             telemetry,
             step_count: 0,
-            adapter_prefix: None,
         }
-    }
-
-    /// Set an adapter prefix used to tag layer IDs in epsilon events and stats.
-    /// Example: set_adapter_prefix("a1") will emit keys like "adapter:a1/<layer>".
-    pub fn set_adapter_prefix<S: Into<String>>(&mut self, adapter_id: S) {
-        self.adapter_prefix = Some(adapter_id.into());
-    }
-
-    /// Clear any adapter prefix.
-    pub fn clear_adapter_prefix(&mut self) {
-        self.adapter_prefix = None;
     }
 
     pub fn track_buffers(
@@ -106,28 +92,12 @@ impl NoiseTracker {
         }
 
         let quantized_tensor = Tensor::new(quantized_output.to_vec(), vec![quantized_output.len()]);
-        // Optionally prefix the layer ID with adapter information to support per-adapter ε stats.
-        let effective_layer_id = if let Some(ref ap) = self.adapter_prefix {
-            format!("adapter:{}/{}", ap, layer_id)
-        } else {
-            layer_id.to_string()
-        };
         let epsilon_stats = if let Some(reference) = reference_output {
             let reference_tensor = Tensor::new(reference.to_vec(), vec![reference.len()]);
-            measure_error(
-                &reference_tensor,
-                &quantized_tensor,
-                effective_layer_id.clone(),
-            )
-            .map_err(|e| AosError::Kernel(format!("Noise tracking error: {}", e)))?
+            measure_error(&reference_tensor, &quantized_tensor, layer_id.to_string())
+                .map_err(|e| AosError::Kernel(format!("Noise tracking error: {}", e)))?
         } else {
-            EpsilonStats::new(
-                effective_layer_id.clone(),
-                0.0,
-                0.0,
-                0.0,
-                quantized_output.len(),
-            )
+            EpsilonStats::new(layer_id.to_string(), 0.0, 0.0, 0.0, quantized_output.len())
         };
 
         if epsilon_stats.exceeds_threshold(self.config.error_threshold) {
@@ -149,7 +119,7 @@ impl NoiseTracker {
         if let Some(ref telemetry) = self.telemetry {
             use adapteros_telemetry::event::KernelNoiseEvent;
             let event = KernelNoiseEvent::new(
-                effective_layer_id.clone(),
+                layer_id.to_string(),
                 epsilon_stats.l2_error,
                 epsilon_stats.max_error,
                 epsilon_stats.mean_error,
@@ -161,11 +131,11 @@ impl NoiseTracker {
         }
 
         self.layer_stats
-            .insert(effective_layer_id.clone(), epsilon_stats.clone());
+            .insert(layer_id.to_string(), epsilon_stats.clone());
 
         debug!(
             "Tracked noise for layer {}: L2={:.2e}, max={:.2e}",
-            effective_layer_id, epsilon_stats.l2_error, epsilon_stats.max_error
+            layer_id, epsilon_stats.l2_error, epsilon_stats.max_error
         );
 
         Ok(())

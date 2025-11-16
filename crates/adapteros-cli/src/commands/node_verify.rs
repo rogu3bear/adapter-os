@@ -3,6 +3,7 @@
 use adapteros_core::B3Hash;
 use adapteros_db::Db;
 use anyhow::{Context, Result};
+use comfy_table::{presets::UTF8_FULL, Table};
 use std::collections::HashMap;
 
 /// Verify determinism across nodes
@@ -49,7 +50,7 @@ pub async fn run(all: bool, node_ids: Option<Vec<String>>) -> Result<()> {
                 for (component, hash) in hashes {
                     hash_map
                         .entry(component)
-                        .or_default()
+                        .or_insert_with(Vec::new)
                         .push((node.hostname.clone(), hash));
                 }
             }

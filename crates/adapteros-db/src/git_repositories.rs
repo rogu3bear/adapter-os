@@ -17,7 +17,6 @@ pub struct GitRepository {
     pub status: String,
     pub created_at: String,
     pub created_by: String,
-    pub last_scan: Option<String>,
 }
 
 impl Db {
@@ -60,8 +59,8 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn get_git_repository(&self, repo_id: &str) -> Result<Option<GitRepository>> {
         let repository = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
-                    security_scan_json, status, created_at, created_by, last_scan
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
+                    security_scan_json, status, created_at, created_by 
              FROM git_repositories WHERE repo_id = ?",
         )
         .bind(repo_id)
@@ -76,8 +75,8 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn list_git_repositories(&self) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
-                    security_scan_json, status, created_at, created_by, last_scan
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
+                    security_scan_json, status, created_at, created_by 
              FROM git_repositories ORDER BY created_at DESC",
         )
         .fetch_all(self.pool())
@@ -141,8 +140,8 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn get_repositories_by_status(&self, status: &str) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
-                    security_scan_json, status, created_at, created_by, last_scan
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
+                    security_scan_json, status, created_at, created_by 
              FROM git_repositories WHERE status = ? ORDER BY created_at DESC",
         )
         .bind(status)
@@ -160,25 +159,13 @@ impl Db {
         created_by: &str,
     ) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
-                    security_scan_json, status, created_at, created_by, last_scan
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
+                    security_scan_json, status, created_at, created_by 
              FROM git_repositories WHERE created_by = ? ORDER BY created_at DESC",
         )
         .bind(created_by)
         .fetch_all(self.pool())
         .await?;
         Ok(repositories)
-    }
-
-    /// Update repository last scan timestamp
-    ///
-    /// Evidence: migrations/0054_add_git_repository_last_scan.sql:1-5
-    /// Pattern: Database schema extension for git repository tracking
-    pub async fn update_repository_last_scan(&self, repo_id: &str) -> Result<()> {
-        sqlx::query("UPDATE git_repositories SET last_scan = CURRENT_TIMESTAMP WHERE repo_id = ?")
-            .bind(repo_id)
-            .execute(self.pool())
-            .await?;
-        Ok(())
     }
 }

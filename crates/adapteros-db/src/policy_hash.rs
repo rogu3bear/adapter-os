@@ -229,9 +229,15 @@ mod tests {
     use super::*;
 
     async fn setup_test_db() -> Db {
-        // Use in-memory SQLite for hermetic tests
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db_url = format!("sqlite://{}", db_path.display());
+
+        let db = Db::connect(&db_url).await.unwrap();
+
+        // Run migrations
         db.migrate().await.unwrap();
+
         db
     }
 

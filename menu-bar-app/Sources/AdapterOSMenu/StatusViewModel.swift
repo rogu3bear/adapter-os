@@ -18,6 +18,7 @@ class StatusViewModel: ObservableObject {
     @Published var tooltip: String = "AdapterOS OFFLINE"
     @Published var lastError: StatusReadError?
     @Published var lastUpdate: Date?
+<<<<<<< HEAD
     @Published var appStatus: AppStatusViewState?
     @Published var tenants: [TenantViewState] = []
     @Published var activeOperations: [ActiveOperationViewState] = []
@@ -35,12 +36,21 @@ class StatusViewModel: ObservableObject {
     private let metricsCollector = SystemMetricsCollector()
     private let serviceClient = ServicePanelClient()
     private let notificationManager = NotificationManager.shared
+=======
+    
+    // MARK: - Private State
+    
+    private let statusPath = "/var/run/adapteros_status.json"
+    private let reader = StatusReader()
+    private let metricsCollector = SystemMetricsCollector()
+>>>>>>> integration-branch
     private var pollTimerCancellable: AnyCancellable?
     private var metricsTimerCancellable: AnyCancellable?
     private var vnodeSource: DispatchSourceFileSystemObject?
     private var lastHash: Data?
     private var transientErrorSuppressed = false
     private var sleepWakeObservers: [NSObjectProtocol] = []
+<<<<<<< HEAD
     private var currentStatusPath: String?
     private var watcherFailureCount: Int = 0
     private let maxWatcherFailures = 3
@@ -75,6 +85,76 @@ class StatusViewModel: ObservableObject {
         startPolling()
         startMetricsSampling()
         Task { await refresh() }
+=======
+    
+    // MARK: - Lifecycle
+    
+    init() {
+        setupWatcher()
+        setupSleepWake()
+        startPolling()
+        startMetricsSampling()
+        Task { await refresh() }
+    }
+    
+    deinit {
+        vnodeSource?.cancel()
+        vnodeSource = nil
+        pollTimerCancellable?.cancel()
+        metricsTimerCancellable?.cancel()
+        let nc = NSWorkspace.shared.notificationCenter
+        for obs in sleepWakeObservers { nc.removeObserver(obs) }
+        sleepWakeObservers.removeAll()
+    }
+    
+    // MARK: - Polling
+    
+    func startPolling() {
+        pollTimerCancellable = Timer.publish(every: 5, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.vnodeSource == nil { self.setupWatcher() }
+                Task { @MainActor in await self.refresh() }
+            }
+    }
+
+    func stopPolling() {
+        pollTimerCancellable?.cancel()
+        pollTimerCancellable = nil
+    }
+    
+    // MARK: - Refresh
+    
+    func refresh() async {
+        await readStatusAndUpdate()
+        updateIconAndTooltip()
+    }
+    
+    // MARK: - Status Reading
+    
+    private func readStatusAndUpdate() async {
+        switch await reader.readNow() {
+        case .success(let (newStatus, hash, _)):
+            lastError = nil
+            isOffline = false
+            if lastHash != hash {
+                lastHash = hash
+                status = newStatus
+                lastUpdate = Date()
+            }
+            transientErrorSuppressed = false
+        case .failure(let error):
+            // Suppress transient errors for one cycle
+            if transientErrorSuppressed {
+                lastError = error
+                isOffline = true
+                status = nil
+            } else {
+                transientErrorSuppressed = true
+            }
+        }
+>>>>>>> integration-branch
     }
     
     deinit {
@@ -212,17 +292,24 @@ class StatusViewModel: ObservableObject {
             return
         }
 
+<<<<<<< HEAD
         // Determine icon based on state, prioritizing service failures
         if let metrics = metrics, metrics.cpuUsage > 80 {
             iconName = "flame.fill"
         } else if status.hasServiceFailures {
             iconName = "bolt.trianglebadge.exclamationmark"
+=======
+        // Determine icon based on state
+        if let metrics = metrics, metrics.cpuUsage > 80 {
+            iconName = "flame.fill"
+>>>>>>> integration-branch
         } else if status.status == "error" {
             iconName = "bolt.slash.circle.fill"
         } else if status.status == "degraded" {
             iconName = "bolt.badge.exclamationmark"
         } else {
             iconName = "bolt.circle.fill"
+<<<<<<< HEAD
         }
 
         // Build tooltip
@@ -246,6 +333,19 @@ class StatusViewModel: ObservableObject {
         }
 
         tooltip = tooltipComponents.joined(separator: " · ")
+=======
+        }
+
+        // Build tooltip (CPU/mem only)
+        if let metrics = metrics {
+            let statusText = status.status.uppercased()
+            let cpu = String(format: "%.0f%%", metrics.cpuUsage)
+            let mem = String(format: "%.0fGB", metrics.memoryUsedGB)
+            tooltip = "AdapterOS \(statusText) · \(cpu) CPU · \(mem) RAM"
+        } else {
+            tooltip = "AdapterOS \(status.status.uppercased())"
+        }
+>>>>>>> integration-branch
     }
     
     // MARK: - Actions
@@ -307,6 +407,7 @@ class StatusViewModel: ObservableObject {
         NSApplication.shared.terminate(nil)
     }
 
+<<<<<<< HEAD
     // MARK: - Request Tracking
 
     func incrementRequestCount() {
@@ -428,10 +529,15 @@ class StatusViewModel: ObservableObject {
         isSettingUpWatcher = true
         defer { isSettingUpWatcher = false }
 
+=======
+    // MARK: - VNODE watcher
+    private func setupWatcher() {
+>>>>>>> integration-branch
         // Cancel any existing watcher first
         vnodeSource?.cancel()
         vnodeSource = nil
 
+<<<<<<< HEAD
         // Exponential backoff: if we've failed recently, wait before retrying
         if let lastRetry = lastWatcherRetryTime, watcherFailureCount > 0 {
             let timeSinceRetry = Date().timeIntervalSince(lastRetry)
@@ -479,6 +585,11 @@ class StatusViewModel: ObservableObject {
             print("StatusViewModel: Successfully set up watcher for '\(statusPath)' after \(watcherFailureCount) previous failures")
             watcherFailureCount = 0
         }
+=======
+        guard FileManager.default.fileExists(atPath: statusPath) else { return }
+        let fd = open(statusPath, O_EVTONLY)
+        guard fd >= 0 else { return }
+>>>>>>> integration-branch
 
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: DispatchQueue.main)
         source.setEventHandler { [weak self, weak source] in
@@ -492,7 +603,10 @@ class StatusViewModel: ObservableObject {
         source.setCancelHandler {
             close(fd)
         }
+<<<<<<< HEAD
         
+=======
+>>>>>>> integration-branch
         source.resume()
         vnodeSource = source
     }
@@ -513,22 +627,29 @@ class StatusViewModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.metrics = self.metricsCollector.collect()
+<<<<<<< HEAD
                 if let status = self.status {
                     self.appStatus = AppStatusViewState(status: status, metrics: self.metrics, lastUpdated: self.lastUpdate)
                 }
+=======
+>>>>>>> integration-branch
                 self.updateIconAndTooltip()
             }
         // initial sample
         metrics = metricsCollector.collect()
+<<<<<<< HEAD
         if let status = status {
             appStatus = AppStatusViewState(status: status, metrics: metrics, lastUpdated: lastUpdate)
         }
+=======
+>>>>>>> integration-branch
     }
 
     // MARK: - Sleep/Wake handling
     private func setupSleepWake() {
         let nc = NSWorkspace.shared.notificationCenter
         let will = nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+<<<<<<< HEAD
             Task { @MainActor in
                 self?.stopPolling()
             }
@@ -540,6 +661,15 @@ class StatusViewModel: ObservableObject {
                 self.startPolling()
                 await self.refresh()
             }
+=======
+            self?.stopPolling()
+        }
+        let did = nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.setupWatcher()
+            self.startPolling()
+            Task { @MainActor in await self.refresh() }
+>>>>>>> integration-branch
         }
         sleepWakeObservers.append(contentsOf: [will, did])
     }

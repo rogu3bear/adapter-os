@@ -148,7 +148,7 @@ impl KernelOptimizer {
         if config.shared_downsample {
             utilization += 5.0;
         }
-        utilization = utilization.clamp(10.0, 100.0);
+        utilization = utilization.max(10.0).min(100.0);
         utilization
     }
 
@@ -230,13 +230,13 @@ mod tests {
     }
 
     #[test]
-    fn optimizer_clamps_invalid_history_window() {
+    fn optimizer_rejects_invalid_configs() {
         let optimizer = KernelOptimizer::new(250.0, 80.0, 2_000_000);
         let mut config = MploraConfig::default();
         config.history_window = 0;
         let metrics = KernelPerformanceMetrics::default();
 
-        let plan = optimizer.optimize(&config, &metrics).expect("plan");
-        assert!(plan.updated_config.history_window >= 2);
+        let err = optimizer.optimize(&config, &metrics).unwrap_err();
+        assert!(format!("{}", err).contains("History window"));
     }
 }

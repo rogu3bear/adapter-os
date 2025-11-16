@@ -59,6 +59,7 @@ pub enum BranchOperation {
 #[derive(Clone)]
 pub struct BranchManager {
     config: BranchManagerConfig,
+    #[allow(dead_code)] // TODO: Implement database integration in future iteration
     db: adapteros_db::Db,
     active_sessions: Arc<RwLock<HashMap<String, GitSession>>>,
     repositories: Arc<RwLock<HashMap<String, PathBuf>>>,

@@ -8,14 +8,13 @@ license.workspace = true
 [features]
 default = []
 experimental-backends = ["adapteros-lora-mlx-ffi"]
-mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-aos = { path = "../adapteros-aos" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-manifest = { path = "../adapteros-manifest" }
-adapteros-memory = { path = "../adapteros-memory" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
@@ -27,8 +26,6 @@ adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 pyo3 = { workspace = true, optional = true }
 tokio = { workspace = true }
@@ -60,9 +57,8 @@ smallvec = "1.13"
 
 [dev-dependencies]
 tempfile = "3.8"
-criterion = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nix = { version = "0.28", features = ["user"] }
+nix = { workspace = true }
 mach = "0.3"
 metal = "0.27"

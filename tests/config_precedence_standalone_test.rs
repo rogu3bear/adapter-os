@@ -228,7 +228,11 @@ level = "debug"
 
         let violations = ConfigGuards::get_violations().unwrap();
         assert_eq!(violations.len(), 1);
+<<<<<<< HEAD
         assert!(violations[0].message.contains("test_rule: test_message"));
+=======
+        assert!(violations[0].contains("test_rule: test_message"));
+>>>>>>> integration-branch
 
         // Recording the same violation again should not increase count
         ConfigGuards::record_violation("test_rule", "test_message").unwrap();

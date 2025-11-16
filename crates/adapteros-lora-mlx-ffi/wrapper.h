@@ -45,8 +45,6 @@ void mlx_array_free(mlx_array_t* array);
 mlx_model_t* mlx_model_load(const char* path);
 mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input);
 mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_t* input, mlx_array_t** hidden_states, int* num_hidden);
-// Free the container allocated for hidden state array pointers
-void mlx_free_hidden_states(mlx_array_t** arrays, int num_hidden);
 void mlx_model_free(mlx_model_t* model);
 
 // Core operations
@@ -74,9 +72,6 @@ void mlx_clear_error(void);
 // Memory management
 void mlx_gc_collect(void);
 size_t mlx_memory_usage(void);
-
-// Build-mode probe: returns 1 if compiled with real MLX API, 0 if stub
-int mlx_wrapper_is_real(void);
 
 #ifdef __cplusplus
 }

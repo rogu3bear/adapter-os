@@ -8,7 +8,11 @@ final class StatusReaderTests: XCTestCase {
         """.data(using: .utf8)!
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         FileManager.default.createFile(atPath: tmp.path, contents: json)
+<<<<<<< HEAD
         let reader = StatusReader(filePaths: [tmp.path])
+=======
+        let reader = StatusReader(filePath: tmp.path)
+>>>>>>> integration-branch
         let result = await reader.readNow()
         switch result {
         case .success(let tuple):
@@ -24,12 +28,17 @@ final class StatusReaderTests: XCTestCase {
         """.data(using: .utf8)!
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         FileManager.default.createFile(atPath: tmp.path, contents: json)
+<<<<<<< HEAD
         let reader = StatusReader(filePaths: [tmp.path])
+=======
+        let reader = StatusReader(filePath: tmp.path)
+>>>>>>> integration-branch
         let result = await reader.readNow()
         if case .success(let tuple) = result { XCTAssertEqual(tuple.0.status, "degraded") } else { XCTFail("Expected success") }
     }
 
     func testMissingFileMapsToError() async throws {
+<<<<<<< HEAD
         let reader = StatusReader(filePaths: ["/path/does/not/exist.json"])
         let result = await reader.readNow()
         if case .failure(let err) = result { XCTAssertEqual(err, .fileMissing) } else { XCTFail("Expected fileMissing") }
@@ -359,6 +368,12 @@ final class StatusReaderTests: XCTestCase {
         """
         return Data(json.utf8)
     }
+=======
+        let reader = StatusReader(filePath: "/path/does/not/exist.json")
+        let result = await reader.readNow()
+        if case .failure(let err) = result { XCTAssertEqual(err, .fileMissing) } else { XCTFail("Expected fileMissing") }
+    }
+>>>>>>> integration-branch
 }
 
 

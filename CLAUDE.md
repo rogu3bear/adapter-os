@@ -1,633 +1,455 @@
 # AdapterOS Developer Guide
 
-**Purpose:** Developer-focused guide with code examples, architecture patterns, and coding standards.  
-**For contribution process:** See [CONTRIBUTING.md](CONTRIBUTING.md)  
-**Last Updated:** 2025-01-15
+**Purpose:** Technical reference for developers. For contribution process, see [CONTRIBUTING.md](CONTRIBUTING.md)
+**Last Updated:** 2025-01-16
+**Maintained by:** James KC Auchterlonie
 
 ---
 
-## Table of Contents
+## Standards & Conventions
 
-- [Code Standards](#code-standards)
-- [Error Handling](#error-handling)
-- [Logging](#logging)
-- [Policy Packs](#policy-packs)
-- [Architecture Patterns](#architecture-patterns)
-- [Common Patterns](#common-patterns)
-- [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
-
----
-
-## Code Standards
-
-### Rust Style
-
+### Code Style
 ```rust
-// ✅ GOOD: Use cargo fmt for formatting
-// Run: cargo fmt --all
-
-// Use standard Rust naming conventions:
-// - Types: PascalCase
-// - Functions: snake_case
-// - Constants: SCREAMING_SNAKE_CASE
-// - Modules: snake_case
-```
-
-### Linting
-
-```bash
-# Always run clippy before committing
-cargo clippy --workspace -- -D warnings
-
-# Check for unused dependencies
-cargo udeps
+// Standard Rust conventions: PascalCase (types), snake_case (functions/modules), SCREAMING_SNAKE_CASE (constants)
+// Run: cargo fmt --all && cargo clippy --workspace -- -D warnings
 ```
 
 ### Documentation
-
 ```rust
-// ✅ GOOD: Document all public APIs
-/// Loads an adapter from the specified path.
-///
-/// # Arguments
-/// * `path` - Path to the adapter file
-///
-/// # Errors
-/// Returns `AosError::NotFound` if the file doesn't exist.
-/// Returns `AosError::InvalidManifest` if the manifest is malformed.
-///
-/// # Example
-/// ```no_run
-/// use adapteros_lora_lifecycle::AdapterLoader;
-/// let loader = AdapterLoader::new();
-/// let adapter = loader.load_from_path("./adapters/my_adapter.aos").await?;
-/// ```
-pub async fn load_from_path(path: &Path) -> Result<Adapter> {
-    // Implementation
-}
+/// Brief description. Args: `path` - description. Errors: `AosError::NotFound` if missing.
+pub async fn load_from_path(path: &Path) -> Result<Adapter> { /* ... */ }
 ```
 
----
-
-## Error Handling
-
-### Error Type: `AosError`
-
-All errors use the `AosError` enum from `adapteros-core`:
-
+### Error Handling
 ```rust
 use adapteros_core::{AosError, Result};
 
-// ✅ GOOD: Use Result<T> for error handling
-pub async fn process_request(&self, req: Request) -> Result<Response> {
-    let data = load_data(&req.id)
-        .await
-        .map_err(|e| AosError::NotFound(format!("Failed to load {}: {}", req.id, e)))?;
-    
-    Ok(Response::new(data))
-}
-
-// ❌ BAD: Using Option<T> for errors
-pub fn get_value(&self, key: &str) -> Option<String> {
-    // Should return Result<String, AosError>
+// Use Result<T>, never Option<T> for errors. Add context with map_err.
+pub async fn load(&self, path: &Path) -> Result<Data> {
+    std::fs::read(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => AosError::NotFound(format!("File not found: {}", path.display())),
+        _ => AosError::Io(format!("Failed to read {}: {}", path.display(), e))
+    })?;
+    // ...
 }
 ```
 
-### Error Propagation
+**Common `AosError` variants:** `PolicyViolation`, `DeterminismViolation`, `EgressViolation`, `IsolationViolation`, `Validation`, `Config`, `Io`, `Database`, `Crypto`, `Network`
 
-```rust
-// ✅ GOOD: Proper error propagation
-use adapteros_core::Result;
-
-pub async fn complex_operation(&self) -> Result<()> {
-    // Use ? operator for error propagation
-    let config = load_config().await?;
-    let data = process_data(&config).await?;
-    validate_data(&data)?;
-    
-    Ok(())
-}
-
-// ✅ GOOD: Adding context to errors
-pub async fn load_adapter(path: &Path) -> Result<Adapter> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| AosError::Io(format!("Failed to read {}: {}", path.display(), e)))?;
-    
-    // Further processing...
-}
-```
-
-### Error Variants
-
-Common error variants in `AosError`:
-
-```rust
-// Domain-specific errors
-AosError::PolicyViolation("reason")          // Policy enforcement
-AosError::DeterminismViolation("reason")    // Non-deterministic behavior
-AosError::EgressViolation("reason")         // Network egress blocked
-AosError::IsolationViolation("reason")     // Tenant isolation
-AosError::Validation("reason")              // Input validation
-AosError::Config("reason")                  // Configuration errors
-
-// Infrastructure errors
-AosError::Io("reason")                      // I/O errors
-AosError::Database("reason")                // Database errors
-AosError::Crypto("reason")                  // Cryptographic errors
-AosError::Network("reason")                 // Network errors
-```
-
----
-
-## Logging
-
-### Use `tracing` (Not `println!`)
-
+### Logging (Use `tracing`, never `println!`)
 ```rust
 use tracing::{info, warn, error, debug, trace};
-
-// ✅ GOOD: Structured logging with tracing
-pub async fn process_request(&self, req: Request) -> Result<Response> {
-    info!(request_id = %req.id, "Processing request");
-    
-    let result = self.handle(req).await?;
-    
-    info!(
-        request_id = %req.id,
-        duration_ms = ?result.duration,
-        "Request processed successfully"
-    );
-    
-    Ok(result)
-}
-
-// ❌ BAD: Using println! for logging
-pub fn log_event(&self, event: &str) {
-    println!("Event: {}", event); // DON'T DO THIS
-}
+info!(tenant_id = %tenant.id, adapter_id = %adapter.id, "Loading adapter");
 ```
 
-### Log Levels
-
-```rust
-// Use appropriate log levels
-trace!("Detailed debugging information");
-debug!("Debug information for development");
-info!("General informational messages");
-warn!("Warning messages that may need attention");
-error!("Error messages that require action");
-```
-
-### Structured Fields
-
-```rust
-// ✅ GOOD: Use structured fields for querying
-info!(
-    tenant_id = %tenant.id,
-    adapter_id = %adapter.id,
-    request_size = req.len(),
-    "Loading adapter for tenant"
-);
-
-// Fields can be queried in log aggregation systems
-```
+**Log levels:** `trace!` (detailed debug) → `debug!` (dev info) → `info!` (general) → `warn!` (attention) → `error!` (action required)
 
 ---
 
 ## Policy Packs
 
-AdapterOS enforces 20 canonical policy packs. All code must comply with these policies.
+23 canonical policies enforced. Core policies:
 
-### Core Policy Packs
+| Policy | Purpose | Implementation |
+|--------|---------|----------------|
+| **Egress** | Zero network egress in production | `production_mode` requires `uds_socket` only |
+| **Determinism** | Reproducible execution | All randomness seeded via HKDF (no `rand::thread_rng()`) |
+| **Router** | K-sparse LoRA routing | Q15 quantized gates for adapter selection |
+| **Evidence** | Audit trail with quality thresholds | Min relevance/confidence scores, source validation |
+| **Telemetry** | Structured event logging | Canonical JSON events with signatures |
+| **Naming** | Semantic adapter names | `{tenant}/{domain}/{purpose}/{revision}` format |
 
-1. **Egress Policy** - Zero network egress during inference
-   ```rust
-   // Production mode enforces UDS-only serving
-   if cfg.server.production_mode {
-       if cfg.server.uds_socket.is_none() {
-           return Err(AosError::Config(
-               "Production mode requires uds_socket".to_string()
-           ));
-       }
-   }
-   ```
+**Naming conventions:**
+- Adapters: `tenant-a/engineering/code-review/r001`
+- Stacks: `stack.production-env`
+- Reserved: `system`, `admin`, `root`, `default`, `test` (tenants); `core`, `internal`, `deprecated` (domains)
+- Max revision gap: 5
 
-2. **Determinism Policy** - Reproducible execution
-   ```rust
-   // All randomness must be seeded
-   use adapteros_deterministic_exec::GlobalSeed;
-   let seed = GlobalSeed::get_or_init(seed_hash);
-   let mut rng = seed.rng();
-   ```
+**Policy compliance checklist:**
+- [ ] UDS-only in production, [ ] Seeded randomness, [ ] Q15 quantization, [ ] Evidence tracking, [ ] Canonical JSON telemetry, [ ] Semantic naming, [ ] Input validation, [ ] Tenant isolation, [ ] Typed errors
 
-3. **Router Policy** - K-sparse LoRA routing with Q15 gates
-   ```rust
-   // Router uses Q15 quantized gates
-   let gate_value = quantize_to_q15(feature_value);
-   ```
+See `crates/adapteros-policy/src/packs/` for implementations.
 
-4. **Evidence Policy** - Audit trail for policy decisions
-   ```rust
-   use adapteros_policy::evidence_tracker::EvidenceTracker;
-   evidence_tracker.record(policy_decision).await?;
-   ```
+---
 
-5. **Telemetry Policy** - Structured event logging
-   ```rust
-   // All events logged as canonical JSON
-   telemetry.log_event("event_type", metadata).await?;
-   ```
+## RBAC (5 Roles, 20+ Permissions)
 
-### Policy Compliance Checklist
+**Roles:** Admin (full), Operator (runtime ops), SRE (infra debug), Compliance (audit-only), Viewer (read-only)
 
-- [ ] No network egress in production (UDS-only)
-- [ ] All randomness is seeded and deterministic
-- [ ] Router uses Q15 quantization
-- [ ] Evidence tracked for policy decisions
-- [ ] Telemetry events use canonical JSON
-- [ ] Input validation on all user inputs
-- [ ] Tenant isolation enforced
-- [ ] Error handling with typed errors
+**Permission matrix (condensed):**
+- **All roles:** AdapterList, AdapterView, TrainingView, PolicyView, MetricsView
+- **Admin only:** AdapterDelete, PolicyApply, PolicySign, TenantManage, NodeManage, AuditView
+- **Operator+Admin:** AdapterRegister, AdapterLoad/Unload, TrainingStart/Cancel, InferenceExecute
+- **SRE+Compliance+Admin:** AuditView
+- **Compliance+Admin:** PolicyValidate
 
-See `crates/adapteros-policy/src/packs/` for complete policy implementations.
+**Usage:**
+```rust
+use adapteros_server_api::permissions::{require_permission, Permission};
+require_permission(&claims, Permission::AdapterRegister)?;
+```
+
+**Audit logging:**
+```rust
+use adapteros_server_api::audit_helper::{log_success, actions, resources};
+log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&id)).await;
+```
+
+**Auth flow:** Login → JWT (Ed25519, 8hr TTL) → Middleware validation → Permission check → Audit log
+
+**Query logs:** `GET /v1/audit/logs?action=adapter.register&status=success&limit=50`
 
 ---
 
 ## Architecture Patterns
 
-### K-Sparse LoRA Routing
+### Core Patterns (Consolidated)
 
-```rust
-// Router selects top K adapters using Q15 quantized gates
-use adapteros_lora_router::{Router, RouterRequest};
+| Pattern | Location | Key Concept |
+|---------|----------|-------------|
+| **K-Sparse Routing** | `adapteros-lora-router` | Top-K adapters via Q15 gates |
+| **Metal Kernels** | `adapteros-lora-kernel-mtl` | Precompiled deterministic Metal kernels |
+| **Configuration** | `adapteros-config` | Precedence: CLI > Env > File > Defaults |
+| **Memory Mgmt** | `adapteros-memory` | Auto-eviction maintains ≥15% headroom |
+| **Hot-Swap** | `adapteros-lora-worker/adapter_hotswap.rs` | Two-phase atomic swap with rollback |
+| **Content Addressing** | `adapteros-core/hash.rs` | BLAKE3 hashing for all artifacts |
+| **Deterministic Exec** | `adapteros-deterministic-exec` | Serial FIFO task execution, no concurrency |
+| **HKDF Seeding** | `adapteros-core/hash.rs` | Domain-separated seeds (router, dropout, sampling, etc.) |
 
-let router = Router::new(config);
-let request = RouterRequest {
-    prompt_tokens: tokens,
-    model_id: model.id.clone(),
-    tenant_id: tenant.id.clone(),
-};
-
-// Returns top K adapters (typically K=3)
-let selected = router.select_adapters(request, k_sparse: 3).await?;
+### Adapter Lifecycle State Machine
+```
+Unloaded → Cold → Warm → Hot → Resident
+    ↑                              ↓
+    └──────── (eviction) ──────────┘
 ```
 
-### Metal Kernel Pattern
+**Transitions:** Promotion (activation % ↑), Demotion (activation % ↓ + timeout), Eviction (memory pressure + lowest %), Pinning (→ Resident)
 
 ```rust
-// Metal kernels use deterministic compilation
-use adapteros_lora_kernel_mtl::{FusedKernels, KernelParams};
-
-let kernels = FusedKernels::load_from_metallib("./target/kernels.metallib")?;
-
-let params = KernelParams {
-    hidden_size: 4096,
-    seq_len: 128,
-    // ... other parameters
-};
-
-// Kernels are precompiled for deterministic execution
-kernels.execute(&params, buffers)?;
+use adapteros_lora_lifecycle::LifecycleManager;
+let manager = LifecycleManager::new_with_db(adapter_names, &policies, path, telemetry, k, db);
+manager.record_router_decision(&selected).await?; // Auto-promote
+manager.check_memory_pressure(total_mem, 0.85).await?; // Auto-evict
 ```
 
-### Configuration Pattern
+### Deterministic Executor Seeding
+**Critical:** Seed derived from base model manifest hash via HKDF
 
 ```rust
-// Configuration uses precedence rules
-use adapteros_config::{Config, ConfigSource};
+use adapteros_core::{B3Hash, derive_seed};
+use adapteros_manifest::ManifestV3;
 
-// Precedence: CLI > Environment > Config File > Defaults
-let config = Config::load()
-    .with_file("configs/cp.toml")?
-    .with_env()?
-    .with_cli(&args)?
-    .build()?;
+let manifest = serde_json::from_str::<ManifestV3>(&std::fs::read_to_string(&cli.manifest_path)?)?;
+manifest.validate()?;
+let manifest_hash = manifest.compute_hash()?;
+let global_seed = derive_seed(&manifest_hash, "executor");
+init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, ..Default::default() })?;
 ```
 
-### Memory Management Pattern
+**Env var:** `AOS_MANIFEST_PATH` (CLI `--manifest-path` overrides)
+**Production enforcement:** Requires manifest when `require_pf_deny=true`
+**Why:** Identical manifest = identical execution, enables replay/verification
+
+### .aos Archive Format
+```
+[0-3]   manifest_offset (u32 LE)
+[4-7]   manifest_len (u32 LE)
+[offset] manifest (JSON)
+[offset] weights (safetensors)
+```
+
+Zero-copy loading with memory-mapped files → GPU VRAM direct transfer.
+
+### HKDF Hierarchy
+```
+Global Seed (BLAKE3) → derive_seed(seed, label)
+  ├─ "router" (K-sparse tie-breaking)
+  ├─ "dropout" (LoRA dropout masks)
+  ├─ "sampling" (token sampling)
+  ├─ "lora_trainer" (weight init)
+  └─ "gate_noise", "executor", etc.
+```
 
 ```rust
-// Adapter eviction maintains ≥15% headroom
-use adapteros_memory::{MemoryManager, EvictionPolicy};
-
-let memory = MemoryManager::new(
-    EvictionPolicy::default()
-        .with_min_headroom_pct(15)
-        .with_evict_order(["ephemeral_ttl", "cold_lru"])
-);
-
-// Automatically evicts adapters when memory pressure detected
-memory.ensure_headroom().await?;
+let global = B3Hash::hash(b"seed_material");
+let router_seed = derive_seed(&global, "router");
+let mut rng = ChaCha20Rng::from_seed(router_seed.try_into().unwrap());
 ```
+
+### Hot-Swap Protocol
+1. **Preload** adapter into staging area
+2. **Swap** atomic pointer flip (mutex-guarded)
+3. **Verify** effective-stack hash recomputation
+4. **Rollback** on failure to last verified state
+
+```rust
+use adapteros_lora_worker::adapter_hotswap::AdapterTable;
+let table = AdapterTable::new();
+table.preload("new".to_string(), hash, vram_mb)?;
+table.swap(&["new"], &["old"]).or_else(|e| { table.rollback()?; Err(e) })?;
+```
+
+**Architecture:** `active` (current) | `staged` (preloaded) | `rollback_state` (recovery)
+
+---
+
+## Document Processing & Training
+
+### Pipeline (5 Steps)
+1. **Ingest:** `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
+2. **Generate:** `generate_training_data(&doc, &tokenizer, &config)?`
+3. **Dataset:** `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
+4. **Train:** `MicroLoRATrainer::new(cfg)?.train(examples, adapter_id).await?`
+5. **Package:** `AdapterPackager::new().package(weights, manifest)?` → `registry.register_adapter(...)?`
+
+**Training strategies:** Identity (unsupervised), QuestionAnswer, MaskedLM
+
+**Core modules:** `adapteros-ingest-docs` (ingestion), `adapteros-orchestrator/training_dataset_integration.rs` (dataset mgmt), `adapteros-lora-worker/training/` (trainer, quantizer, packager)
+
+**Dataset schema:** `training_datasets`, `dataset_files`, `dataset_statistics` (BLAKE3 content-addressed, JSONL format)
+
+### Training Templates
+- `general-code`: rank=16, alpha=32 (multi-language)
+- `framework-specific`: rank=12, alpha=24
+
+**Job tracking:** Pending → Running → Completed/Failed/Cancelled (progress %, loss, tokens/sec)
+
+---
+
+## Workflow Execution
+
+**Types:** Sequential (serial), Parallel (concurrent merge), UpstreamDownstream (2-phase)
+
+```rust
+use adapteros_lora_lifecycle::{WorkflowExecutor, WorkflowType, KernelAdapterBackend};
+let backend = Arc::new(KernelAdapterBackend::new(kernels_arc, names, 152064));
+let executor = WorkflowExecutor::new(WorkflowType::UpstreamDownstream, vec!["a", "b"], backend);
+let result = executor.execute(WorkflowContext { input_tokens, model_state, metadata }).await?;
+```
+
+**Backends:** `KernelAdapterBackend` (real Metal), `MockAdapterBackend` (testing)
+
+---
+
+## Database Schema (Core Tables)
+
+| Table | Purpose | Key Fields |
+|-------|---------|------------|
+| `adapters` | Adapter metadata | id, hash, tier, rank, acl, activation_% |
+| `tenants` | Tenant isolation | id, uid, gid, isolation_metadata |
+| `adapter_stacks` | Reusable combos | id, name, adapter_ids_json, workflow_type |
+| `training_datasets` | Dataset metadata | id, hash_b3, validation_status |
+| `dataset_files` | Individual files | path, size, hash, ingestion_metadata |
+| `dataset_statistics` | Cached stats | num_examples, total_tokens, distributions |
+| `training_jobs` | Job tracking | id, dataset_id, status, progress_pct, loss |
+| `audit_logs` | Immutable audit trail | user_id, action, resource, status, timestamp |
+
+**Registry usage:**
+```rust
+use adapteros_registry::Registry;
+let registry = Registry::open("./registry.db")?;
+registry.register_adapter("id", &hash, "tier_1", rank, &["tenant_a"])?;
+let allowed = registry.check_acl("id", "tenant_a")?;
+```
+
+---
+
+## Streaming Architecture
+
+**Modes:**
+1. Batch (complete response)
+2. Streaming (OpenAI-compatible SSE, token-by-token)
+
+```rust
+use adapteros_api::streaming::{StreamingInferenceRequest, streaming_inference_handler};
+let request = StreamingInferenceRequest { prompt, model, max_tokens, temperature, stream: true, adapter_stack, ..Default::default() };
+let stream = streaming_inference_handler(State(api_state), Json(request)).await;
+// Format: data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hi"},...}]}
+// Final: data: [DONE]
+```
+
+**Features:** Keep-alive, client disconnect detection, OpenAI SDK compatible
 
 ---
 
 ## Common Patterns
 
 ### Database Access
-
 ```rust
-use adapteros_db::Db;
-use sqlx::query;
-
-// ✅ GOOD: Parameterized queries
-let results = query("SELECT * FROM adapters WHERE tenant_id = ?")
-    .bind(&tenant_id)
-    .fetch_all(&db.pool)
-    .await
+query("SELECT * FROM adapters WHERE tenant_id = ?").bind(&tenant_id).fetch_all(&db.pool).await
     .map_err(|e| AosError::Database(format!("Query failed: {}", e)))?;
 ```
 
 ### Async Task Spawning
-
 ```rust
-use tokio::spawn;
-
-// ✅ GOOD: Proper error handling for spawned tasks
-let handle = spawn(async move {
-    if let Err(e) = do_work().await {
-        error!(error = %e, "Background task failed");
-        // Don't panic - log and continue
-    }
-});
-
-// Store handle for cancellation if needed
-```
-
-### CLI Command Pattern
-
-```rust
-use adapteros_cli::{Command, Context};
-use tracing::info;
-
-#[derive(Args)]
-pub struct LoadArgs {
-    path: PathBuf,
-}
-
-pub async fn execute(args: LoadArgs, ctx: &Context) -> Result<()> {
-    info!(path = %args.path.display(), "Loading adapter");
-    
-    let loader = ctx.adapter_loader();
-    let adapter = loader.load_from_path(&args.path).await?;
-    
-    info!(adapter_id = %adapter.id, "Adapter loaded");
-    Ok(())
-}
+spawn(async move { if let Err(e) = do_work().await { error!(error = %e, "Task failed"); } });
 ```
 
 ### Production Mode Enforcement
-
 ```rust
-// Production mode enforces M1 security requirements
 if config.server.production_mode {
-    // UDS-only serving
-    if config.server.uds_socket.is_none() {
-        return Err(AosError::Config(
-            "Production mode requires uds_socket".to_string()
-        ));
-    }
-    
-    // Ed25519 JWTs only (no HMAC)
-    if config.security.jwt_mode.as_deref() != Some("eddsa") {
-        return Err(AosError::Config(
-            "Production mode requires jwt_mode='eddsa'".to_string()
-        ));
-    }
-    
-    // Zero egress enforced
-    if !config.security.require_pf_deny {
-        return Err(AosError::Config(
-            "Production mode requires require_pf_deny=true".to_string()
-        ));
-    }
+    if config.server.uds_socket.is_none() { return Err(AosError::Config("Requires uds_socket".into())); }
+    if config.security.jwt_mode.as_deref() != Some("eddsa") { return Err(AosError::Config("Requires jwt_mode='eddsa'".into())); }
+    if !config.security.require_pf_deny { return Err(AosError::Config("Requires require_pf_deny=true".into())); }
 }
 ```
 
 ---
 
-## Anti-Patterns to Avoid
+## Anti-Patterns (Avoid)
 
-### ❌ TODO Comments Without Plans
+| Anti-Pattern | Issue | Fix |
+|--------------|-------|-----|
+| TODO comments | No completion plan | Complete implementation or explicit error |
+| Placeholder logic | Fake functionality | Real implementation |
+| `Option<T>` for errors | Loses error context | Use `Result<T, AosError>` |
+| `println!` logging | Not queryable | Use `tracing` macros |
+| Unsafe in app crates | Security risk | Isolate to FFI crates (Metal, PyO3) |
+| Blocking in async | Blocks executor | Use `tokio::time::sleep`, not `std::thread::sleep` |
+| Unlocked kernel refs | Won't compile | `self.kernels.lock().await` before use |
+| Unvalidated datasets | Training fails | Check `validation_status = 'valid'` |
 
-```rust
-// ❌ BAD: TODO with no completion plan
-pub async fn start(&mut self) -> Result<()> {
-    // TODO: Implement start logic
-    Ok(())
-}
-
-// ✅ GOOD: Complete implementation or explicit error
-pub async fn start(&mut self) -> Result<()> {
-    self.watcher.start().await?;
-    self.daemon.start().await?;
-    Ok(())
-}
-```
-
-### ❌ Placeholder Logic
-
-```rust
-// ❌ BAD: Placeholder that doesn't perform intended function
-pub fn process(&self, data: &[u8]) -> Result<Processed> {
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    Ok(Processed::default())
-}
-
-// ✅ GOOD: Real implementation
-pub fn process(&self, data: &[u8]) -> Result<Processed> {
-    let parsed = parse_data(data)?;
-    let validated = validate(&parsed)?;
-    Ok(Processed::new(validated))
-}
-```
-
-### ❌ Missing Error Handling
-
-```rust
-// ❌ BAD: No error handling for edge cases
-pub async fn load(&self, path: &Path) -> Result<Data> {
-    let bytes = std::fs::read(path)?;
-    Ok(deserialize(&bytes)?)
-}
-
-// ✅ GOOD: Comprehensive error handling
-pub async fn load(&self, path: &Path) -> Result<Data> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                AosError::NotFound(format!("File not found: {}", path.display()))
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                AosError::Io(format!("Permission denied: {}", path.display()))
-            }
-            _ => AosError::Io(format!("Failed to read {}: {}", path.display(), e))
-        })?;
-    
-    deserialize(&bytes)
-        .map_err(|e| AosError::Serialization(format!("Invalid data: {}", e)))
-}
-```
-
-### ❌ Using `println!` for Logging
-
-```rust
-// ❌ BAD: println! for logging
-pub fn log_event(&self, event: &str) {
-    println!("Event: {}", event);
-}
-
-// ✅ GOOD: Use tracing
-pub fn log_event(&self, event: &str) {
-    info!(event = %event, "Event occurred");
-}
-```
-
-### ❌ Unsafe Code in Production Crates
-
-```rust
-// ❌ BAD: Unsafe code in application crates
-pub unsafe fn manipulate_data(ptr: *mut u8) {
-    *ptr = 42;
-}
-
-// ✅ GOOD: Keep unsafe code isolated to designated crates
-// Only use unsafe in:
-// - adapteros-lora-kernel-mtl (Metal FFI)
-// - adapteros-lora-mlx-ffi (PyO3 bindings)
-// With extensive documentation and tests
-```
-
-See [docs/DEPRECATED_PATTERNS.md](docs/DEPRECATED_PATTERNS.md) for more anti-patterns found in deprecated code.
+See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 ---
 
-## Key Subsystems
+## Key Subsystems (Locations)
 
-### Router (K-Sparse Selection)
-
-**Location:** `crates/adapteros-lora-router/src/`
-
-```rust
-use adapteros_lora_router::Router;
-
-// Q15 quantized gates for selection
-let router = Router::new(config);
-let top_k = router.select_adapters(request, k: 3).await?;
-```
-
-### Metal Kernels
-
-**Location:** `crates/adapteros-lora-kernel-mtl/src/`
-
-```rust
-use adapteros_lora_kernel_mtl::FusedKernels;
-
-// Deterministic precompiled kernels
-let kernels = FusedKernels::load("./target/kernels.metallib")?;
-```
-
-### Policy Enforcement
-
-**Location:** `crates/adapteros-policy/src/`
-
-```rust
-use adapteros_policy::{PolicyEngine, PolicyPack};
-
-let engine = PolicyEngine::new(policy_packs);
-engine.enforce(request).await?;
-```
-
-### Memory Management
-
-**Location:** `crates/adapteros-memory/src/`
-
-```rust
-use adapteros_memory::MemoryManager;
-
-// Automatic eviction maintains headroom
-let memory = MemoryManager::new(eviction_policy);
-memory.ensure_headroom().await?;
-```
+| Subsystem | Crate | Purpose |
+|-----------|-------|---------|
+| Router | `adapteros-lora-router` | K-sparse adapter selection |
+| Metal Kernels | `adapteros-lora-kernel-mtl` | Deterministic GPU kernels |
+| Policy Engine | `adapteros-policy` | 23-pack policy enforcement |
+| Memory Mgmt | `adapteros-memory` | Auto-eviction, headroom maintenance |
+| Lifecycle | `adapteros-lora-lifecycle` | State machine (Unloaded→Resident) |
+| Hot-Swap | `adapteros-lora-worker/adapter_hotswap.rs` | Live adapter replacement |
+| Deterministic Exec | `adapteros-deterministic-exec` | Serial FIFO task execution |
+| HKDF | `adapteros-core/hash.rs` | Domain-separated seeding |
+| Training | `adapteros-lora-worker/training/` | Trainer, quantizer, packager |
+| Registry | `adapteros-registry` | SQLite WAL mode, adapter/tenant mgmt |
+| Web UI | `adapteros-server-api`, `ui/` | React/TypeScript REST API |
 
 ---
 
-## Citation Standards
+## REST API Endpoints
 
-When referencing code, use deterministic citations:
-
-```markdown
-[source: crates/adapteros-server/src/main.rs L173-L218]
-```
-
-Format: `[source: <path> L<start>-L<end>]`
-
-See [CITATIONS.md](CITATIONS.md) for complete citation standards.
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/adapters` | GET | List adapters with lifecycle state |
+| `/api/adapters/load` | POST | Load adapter into lifecycle |
+| `/api/adapters/swap` | POST | Hot-swap adapters |
+| `/api/router/config` | GET | Router configuration |
+| `/api/training/start` | POST | Start training job |
+| `/api/training/datasets` | POST | Create dataset from documents |
+| `/api/training/jobs/:id` | GET | Get job status |
+| `/api/chat/completions` | POST | OpenAI inference (streaming/batch) |
+| `/api/adapter-stacks` | GET/POST | List/create adapter stacks |
+| `/v1/audit/logs` | GET | Query audit logs (Admin/SRE/Compliance) |
 
 ---
 
 ## Quick Reference
 
 ### Build Commands
-
 ```bash
-# Build workspace
-cargo build --release
+cargo build --release              # Production build
+cargo test --workspace             # All tests
+cargo fmt --all && cargo clippy --workspace -- -D warnings  # Lint
+make build test check clean        # Makefile shortcuts
+make metal                         # Compile Metal shaders
+make ui / ui-dev                   # React build / dev server
+make installer                     # macOS installer
+```
 
-# Run tests
-cargo test --workspace
-
-# Format code
-cargo fmt --all
-
-# Lint code
-cargo clippy --workspace -- -D warnings
-
-# Check specific crate
-cargo check -p adapteros-server
+### Database
+```bash
+./target/release/aosctl db migrate
+./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
+sqlite3 var/aos-cp.sqlite3 "SELECT * FROM tenants;"
+# Reset (dev only): rm var/aos-cp.sqlite3 && ./target/release/aosctl db migrate
 ```
 
 ### Testing
-
 ```bash
-# Run all tests
-cargo test --workspace
-
-# Run with output
-cargo test --workspace -- --nocapture
-
-# Run specific test
-cargo test test_adapter_loading
-
-# Integration tests
-cargo test --test integration_tests
+cargo test test_adapter_loading    # Specific test
+cargo test --workspace -- --nocapture  # With output
+cargo test --test integration_tests    # Integration tests only
 ```
 
-### Common Debugging
-
+### Debugging
 ```bash
-# Check compilation errors
 cargo check --workspace --message-format=short
-
-# Find dead code
 cargo clippy --workspace -- -W dead_code
-
-# Find unused dependencies
-cargo udeps
+cargo udeps                        # Unused dependencies
 ```
+
+---
+
+## Known Build Issues (Alpha v0.01-1)
+
+**Status:** 40+ crates building successfully
+
+**Disabled crates:**
+1. `adapteros-server-api` (62 errors) - REST handlers need refactor. Priority: High
+2. `adapteros-system-metrics` (11 SQL errors) - sqlx validation failures. Priority: Medium
+3. `adapteros-lora-mlx-ffi` (PyO3 linker) - Experimental. Use Metal backend. Priority: Low
+4. `adapteros-codegraph` (SQLite conflict) - Version conflict. Priority: Low
+
+**Impact:** Core inference pipeline (Worker, Router, Kernels, Lifecycle, Policy, Telemetry) fully functional. CLI (`aosctl`) operational.
+
+---
+
+## Integration Testing Patterns
+
+```rust
+// Streaming
+#[tokio::test]
+async fn test_streaming() {
+    let worker = create_test_worker().await?;
+    let request = ChatCompletionRequest { messages: vec![ChatMessage { role: "user".into(), content: "Hi".into() }], stream: Some(true), ..Default::default() };
+    let mut stream = worker.infer_streaming(request).await?;
+    let chunks: Vec<_> = stream.collect().await;
+    assert!(!chunks.is_empty() && chunks[0].object == "chat.completion.chunk");
+}
+
+// Workflow
+#[tokio::test]
+async fn test_workflow() {
+    let kernels = MetalKernels::new()?;
+    let backend = Arc::new(KernelAdapterBackend::new(Arc::new(Mutex::new(kernels)), names, 152064));
+    let executor = WorkflowExecutor::new(WorkflowType::UpstreamDownstream, names, backend);
+    let result = executor.execute(context).await?;
+    assert_eq!(result.stats.phases.len(), 2);
+}
+
+// Policy Evidence
+#[test]
+fn test_evidence() {
+    let policy = EvidencePolicy::new(config);
+    let span = EvidenceSpan { relevance: 0.9, confidence: 0.95, evidence_type: EvidenceType::CodeDoc, ..Default::default() };
+    assert!(policy.validate_evidence_spans(&[span]).is_ok());
+}
+```
+
+---
+
+## Citations
+
+Format: `[source: crates/adapteros-server/src/main.rs L173-L218]`
+
+See [CITATIONS.md](CITATIONS.md) for standards.
 
 ---
 
 ## References
 
-- **CONTRIBUTING.md** - Contribution process and PR guidelines
-- **README.md** - Project overview and quick start
-- **docs/DEPRECATED_PATTERNS.md** - Anti-patterns to avoid
-- **docs/ARCHITECTURE_INDEX.md** - Complete architecture reference
-- **crates/adapteros-policy/** - Policy pack implementations
-- **crates/adapteros-core/src/error.rs** - Error type definitions
+- [CONTRIBUTING.md](CONTRIBUTING.md) - PR guidelines
+- [README.md](README.md) - Quick start
+- [docs/DEPRECATED_PATTERNS.md](docs/DEPRECATED_PATTERNS.md) - Anti-patterns
+- [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) - Full architecture
+- `crates/adapteros-policy/` - Policy implementations
+- `crates/adapteros-core/src/error.rs` - Error definitions
 
 ---
 
-**Remember:** When in doubt, check existing code patterns in `crates/` and follow established conventions.
-
+**Rule:** When in doubt, follow patterns in `crates/`. All documentation and code signed by **James KC Auchterlonie**.

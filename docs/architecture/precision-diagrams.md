@@ -88,7 +88,11 @@ graph TB
             
             Router["Router<br/>adapteros-lora-router/lib.rs<br/>K-sparse selection<br/>Q15 gates"]
             
+<<<<<<< HEAD
             Policy["PolicyEngine<br/>adapteros-policy<br/>22 policy packs"]
+=======
+            Policy["PolicyEngine<br/>adapteros-policy<br/>20 policy packs"]
+>>>>>>> integration-branch
             
             Kernels["FusedKernels<br/>adapteros-lora-kernel-mtl<br/>Metal backend<br/>Precompiled metallib"]
             
@@ -999,7 +1003,11 @@ graph TB
         end
         
         subgraph "Inference Components"
+<<<<<<< HEAD
             PolicyEng["PolicyEngine<br/>adapteros-policy<br/>22 policy packs<br/>Gate enforcement"]
+=======
+            PolicyEng["PolicyEngine<br/>adapteros-policy<br/>20 policy packs<br/>Gate enforcement"]
+>>>>>>> integration-branch
             RouterComp["Router<br/>adapteros-lora-router<br/>K-sparse selection<br/>Feature weights"]
             RAGComp["RAG Engine<br/>adapteros-lora-rag<br/>HNSW index<br/>Evidence retrieval"]
             KernelsComp["FusedKernels<br/>adapteros-lora-kernel-mtl<br/>Metal backend<br/>Attention+MLP+LoRA"]
@@ -1170,10 +1178,17 @@ All diagrams have been verified against the codebase:
 
 ## Related Documentation
 
+<<<<<<< HEAD
 - [System Architecture](../architecture.md) - High-level overview
 - [Database Schema](../database-schema/README.md) - Complete database structure
 - [Code Intelligence](../code-intelligence/README.md) - Code analysis pipeline
 - [Control Plane](../control-plane.md) - API and operations
+=======
+- [System Architecture](architecture.md) - High-level overview
+- [Database Schema](../database-schema/README.md) - Complete database structure
+- [Code Intelligence](../code-intelligence/README.md) - Code analysis pipeline
+- [Control Plane](control-plane.md) - API and operations
+>>>>>>> integration-branch
 - [CLAUDE.md](../../CLAUDE.md) - Developer guide
 
 ---
@@ -1182,3 +1197,7 @@ All diagrams have been verified against the codebase:
 **Codebase Version**: 0.1.0  
 **Total Crates**: 44  
 **Diagram Count**: 8
+<<<<<<< HEAD
+=======
+
+>>>>>>> integration-branch

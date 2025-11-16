@@ -91,6 +91,7 @@ pub struct AdapterHealthResponse {
     pub policy_violations: Vec<String>,
     pub recent_activations: Vec<AdapterActivationResponse>,
 }
+<<<<<<< HEAD
 
 /// Hot-swap request for updating an adapter to a new .aos path
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -110,3 +111,5 @@ pub struct HotSwapResponse {
 }
 
 // (duplication removed)
+=======
+>>>>>>> integration-branch

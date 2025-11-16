@@ -1,17 +1,26 @@
+<<<<<<< HEAD
 @preconcurrency import Foundation
+=======
+import Foundation
+>>>>>>> integration-branch
 import CryptoKit
 
 enum StatusReadError: Error, Equatable {
     case fileMissing
     case permissionDenied
+<<<<<<< HEAD
     case decodeFailed(String)
     case validationFailed(String)
     case readError(String)
+=======
+    case decodeFailed
+>>>>>>> integration-branch
     case unknown
 }
 
 /// Reads AdapterOS status from the JSON snapshot file without blocking the main thread.
 final class StatusReader {
+<<<<<<< HEAD
     private let filePaths: [String]
     private let decoder: JSONDecoder
     private let readTimeout: TimeInterval
@@ -111,6 +120,14 @@ final class StatusReader {
         } else {
             self.init(filePaths: ["/var/run/adapteros_status.json"])
         }
+=======
+    private let filePath: String
+    private let decoder: JSONDecoder
+
+    init(filePath: String = "/var/run/adapteros_status.json") {
+        self.filePath = filePath
+        self.decoder = JSONDecoder()
+>>>>>>> integration-branch
     }
 
     /// Read and decode status. Throws mapped StatusReadError.
@@ -121,6 +138,7 @@ final class StatusReader {
 
     /// Read and decode status, capturing raw hash for de-jittering and a short snippet for copy.
     /// Returns .success(AdapterOSStatus) or .failure(StatusReadError).
+<<<<<<< HEAD
     /// On validation failure, attempts to return last valid status if available.
     func readNow() async -> Result<(AdapterOSStatus, Data, String), StatusReadError> {
         do {
@@ -158,12 +176,22 @@ final class StatusReader {
                 consecutiveFailures += 1
                 return .success((cached, metadata.hash, metadata.snippet))
             }
+=======
+    func readNow() async -> Result<(AdapterOSStatus, Data, String), StatusReadError> {
+        do {
+            let (status, meta) = try await readInternal()
+            return .success((status, meta.hash, meta.snippet))
+        } catch let error as StatusReadError {
+            return .failure(error)
+        } catch {
+>>>>>>> integration-branch
             return .failure(.unknown)
         }
     }
 
     // MARK: - Internal read
     private func readInternal() async throws -> (AdapterOSStatus, (hash: Data, snippet: String)) {
+<<<<<<< HEAD
         // Capture only the properties we need to avoid Sendable issues
         let decoder = self.decoder
 
@@ -220,6 +248,19 @@ final class StatusReader {
                         resumeFailure(error)
                         return
                     }
+=======
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    guard FileManager.default.fileExists(atPath: self.filePath) else {
+                        throw StatusReadError.fileMissing
+                    }
+
+                    let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: self.filePath))
+                    defer { try? handle.close() }
+                    let data = try handle.readToEnd() ?? Data()
+                    if data.isEmpty { throw StatusReadError.decodeFailed }
+>>>>>>> integration-branch
 
                     // Compute hash for de-jittering
                     let digest = SHA256.hash(data: data)
@@ -227,6 +268,7 @@ final class StatusReader {
 
                     // Decode JSON
                     do {
+<<<<<<< HEAD
                         let status = try decoder.decode(AdapterOSStatus.self, from: data)
                         let snippet = Self.makeSnippet(from: data)
                         
@@ -272,6 +314,26 @@ final class StatusReader {
                     resumeFailure(timeoutError)
                 }
             }
+=======
+                        let status = try self.decoder.decode(AdapterOSStatus.self, from: data)
+                        let snippet = Self.makeSnippet(from: data)
+                        continuation.resume(returning: (status, (hashData, snippet)))
+                    } catch {
+                        continuation.resume(throwing: StatusReadError.decodeFailed)
+                    }
+                } catch let error as StatusReadError {
+                    continuation.resume(throwing: error)
+                } catch let error as NSError {
+                    if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+                        continuation.resume(throwing: .fileMissing)
+                    } else if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+                        continuation.resume(throwing: .permissionDenied)
+                    } else {
+                        continuation.resume(throwing: .unknown)
+                    }
+                }
+            }
+>>>>>>> integration-branch
         }
     }
 
@@ -285,6 +347,7 @@ final class StatusReader {
         // Fallback to hex if not UTF-8
         return slice.map { String(format: "%02x", $0) }.joined()
     }
+<<<<<<< HEAD
     
     /// Validate that decoded status has all required fields with valid values
     private static func validateStatus(_ status: AdapterOSStatus) -> String? {
@@ -376,6 +439,8 @@ final class StatusReader {
         lastValidStatus = status
         lastValidMetadata = metadata
     }
+=======
+>>>>>>> integration-branch
 }
 
 

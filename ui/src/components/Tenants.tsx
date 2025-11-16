@@ -50,9 +50,14 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
+<<<<<<< HEAD
 import { logger, toError } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { BookmarkButton } from './ui/bookmark-button';
+=======
+import { toast } from 'sonner';
+import { logger } from '../utils/logger';
+>>>>>>> integration-branch
 
 interface TenantsProps {
   user: User;
@@ -97,6 +102,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       setStatusMessage(null);
       setErrorRecovery(null);
     } catch (err) {
+<<<<<<< HEAD
       logger.error('Failed to fetch tenants', {
         component: 'Tenants',
         operation: 'fetchTenants',
@@ -109,6 +115,15 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           () => fetchTenants()
         )
       );
+=======
+      // Replace: console.error('Failed to fetch tenants:', err);
+      logger.error('Failed to fetch tenants', {
+        component: 'Tenants',
+        operation: 'fetchTenants',
+        userId: user.id
+      }, err instanceof Error ? err : new Error(String(err)));
+      toast.error('Failed to load tenants');
+>>>>>>> integration-branch
     } finally {
       setLoading(false);
     }
@@ -128,10 +143,18 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         setPolicies(policiesData);
         setAdapters(adaptersData);
       } catch (err) {
+<<<<<<< HEAD
         logger.error('Failed to fetch policies/adapters', {
           component: 'Tenants',
           operation: 'fetchPoliciesAdapters',
           userId
+=======
+        // Replace: console.error('Failed to fetch policies/adapters:', err);
+        logger.error('Failed to fetch policies/adapters', {
+          component: 'Tenants',
+          operation: 'fetchPoliciesAdapters',
+          userId: user.id
+>>>>>>> integration-branch
         }, err instanceof Error ? err : new Error(String(err)));
       }
     };
@@ -493,7 +516,11 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       case 'maintenance':
         return <div className="status-indicator status-warning"><Settings className="h-3 w-3" />Maintenance</div>;
       case 'paused':
+<<<<<<< HEAD
         return <div className="status-indicator status-neutral"><Lock className="h-3 w-3" />Inactive</div>;
+=======
+        return <div className="status-indicator status-neutral"><Lock className="icon-small" />Inactive</div>;
+>>>>>>> integration-branch
       case 'archived':
         return <div className="status-indicator status-neutral"><Database className="h-3 w-3" />Archived</div>;
       default:
@@ -748,6 +775,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           </div>
         </CardHeader>
         <CardContent>
+<<<<<<< HEAD
           <div className="max-h-[600px] overflow-auto" data-virtual-container>
             <Table className="border-collapse w-full" role="table" aria-label="Tenant management">
               <TableHeader>
@@ -782,6 +810,105 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                   <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">ITAR</TableHead>
                   <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Activity</TableHead>
                   <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
+=======
+          <Table className="table-standard">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="table-cell-standard">Tenant</TableHead>
+                <TableHead className="table-cell-standard">Status</TableHead>
+                <TableHead className="table-cell-standard">Classification</TableHead>
+                <TableHead className="table-cell-standard">Users</TableHead>
+                <TableHead className="table-cell-standard">Adapters</TableHead>
+                <TableHead className="table-cell-standard">Policies</TableHead>
+                <TableHead className="table-cell-standard">ITAR</TableHead>
+                <TableHead className="table-cell-standard">Last Activity</TableHead>
+                <TableHead className="table-cell-standard">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tenants.map((tenant) => (
+                <TableRow key={tenant.id}>
+                  <TableCell className="table-cell-standard">
+                    <div>
+                      <p className="font-medium">{tenant.name}</p>
+                      <p className="text-sm text-muted-foreground">{tenant.description || 'No description'}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="table-cell-standard">{getStatusBadge(tenant.status)}</TableCell>
+                  <TableCell className="table-cell-standard">{getClassificationBadge(tenant.data_classification)}</TableCell>
+                  <TableCell className="table-cell-standard">
+                    <div className="flex-center">
+                      <UserCheck className="icon-small text-muted-foreground" />
+                      <span>{tenant.users || 0}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="table-cell-standard">
+                    <div className="flex-center">
+                      <Network className="icon-small text-muted-foreground" />
+                      <span>{tenant.adapters || 0}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="table-cell-standard">
+                    <div className="flex-center">
+                      <Shield className="icon-small text-muted-foreground" />
+                      <span>{tenant.policies || 0}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="table-cell-standard">
+                    {tenant.itar_compliant ? (
+                      <div className="status-indicator status-success">Yes</div>
+                    ) : (
+                      <div className="status-indicator status-neutral">No</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="table-cell-standard text-sm text-muted-foreground">
+                    {tenant.last_activity || 'Unknown'}
+                  </TableCell>
+                  <TableCell className="table-cell-standard">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => {
+                          setSelectedTenantForAction(tenant);
+                          setEditName(tenant.name);
+                          setShowEditModal(true);
+                        }}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          setSelectedTenantForAction(tenant);
+                          setShowAssignPoliciesModal(true);
+                        }}>
+                          <Shield className="mr-2 h-4 w-4" />
+                          Assign Policies
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          setSelectedTenantForAction(tenant);
+                          setShowAssignAdaptersModal(true);
+                        }}>
+                          <Layers className="mr-2 h-4 w-4" />
+                          Assign Adapters
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleViewUsage(tenant)}>
+                          <BarChart3 className="mr-2 h-4 w-4" />
+                          View Usage
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          setSelectedTenantForAction(tenant);
+                          setShowArchiveModal(true);
+                        }}>
+                          <Archive className="mr-2 h-4 w-4 text-red-600" />
+                          Archive
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+>>>>>>> integration-branch
                 </TableRow>
               </TableHeader>
               <TableBody>

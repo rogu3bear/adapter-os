@@ -5,33 +5,26 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-pub mod code_ingestion;
-#[cfg(feature = "cdp")]
 pub mod code_jobs;
-pub mod codebase_ingestion;
-pub mod dataset_builder;
-#[cfg(feature = "federation")]
 pub mod federation_daemon;
 pub mod gates;
 pub mod report;
 pub mod supervisor;
 pub mod training;
+pub mod training_dataset_integration;
 
-pub use code_ingestion::{
-    CodeDatasetConfig, CodeIngestionPipeline, CodeIngestionRequest, CodeIngestionResult,
-    CodeIngestionSource,
-};
-#[cfg(feature = "cdp")]
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
-pub use codebase_ingestion::{CodebaseIngestion, IngestionConfig, IngestionResult};
-pub use dataset_builder::{build_from_directory, DatasetBuilderConfig};
-#[cfg(feature = "federation")]
 pub use federation_daemon::{
     FederationDaemon, FederationDaemonConfig, FederationVerificationReport,
 };
 pub use gates::*;
 pub use report::{GateReport, GateResult, ReportFormat};
-pub use training::TrainingService;
+pub use training::{
+    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
+};
+pub use training_dataset_integration::{
+    CreateDatasetFromDocumentsRequest, DatasetCreationResult, TrainingDatasetManager,
+};
 
 /// Gate runner configuration
 #[derive(Debug, Clone)]
@@ -46,10 +39,6 @@ pub struct OrchestratorConfig {
     pub bundles_path: String,
     /// Path to manifests
     pub manifests_path: String,
-    /// Base model path for training
-    pub base_model: String,
-    /// TTL in hours for ephemeral adapters
-    pub ephemeral_adapter_ttl_hours: i32,
 }
 
 impl Default for OrchestratorConfig {
@@ -60,8 +49,6 @@ impl Default for OrchestratorConfig {
             db_path: "var/aos-cp.sqlite3".to_string(),
             bundles_path: "/srv/aos/bundles".to_string(),
             manifests_path: "manifests".to_string(),
-            base_model: "models/qwen2.5-7b-mlx".to_string(),
-            ephemeral_adapter_ttl_hours: 24,
         }
     }
 }
@@ -93,17 +80,17 @@ impl Orchestrator {
 
         for gate in &self.gates {
             let gate_name = gate.name();
-            info!(gate_name = %gate_name, "Running gate");
+            tracing::info!(gate = %gate_name, "Running promotion gate");
 
             let result = gate.check(&self.config).await;
 
             match &result {
                 Ok(()) => {
-                    info!(gate_name = %gate_name, status = "PASSED", "Gate passed");
+                    tracing::info!(gate = %gate_name, status = "passed", "Gate check completed");
                     report.add_result(gate_name, GateResult::passed());
                 }
                 Err(e) => {
-                    info!(gate_name = %gate_name, error = %e, "Gate failed");
+                    tracing::warn!(gate = %gate_name, status = "failed", error = %e, "Gate check failed");
                     report.add_result(gate_name, GateResult::failed(e.to_string()));
 
                     if !self.config.continue_on_error {

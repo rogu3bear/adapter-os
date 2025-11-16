@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Deterministic testing for MPLoRA multi-path execution
 //!
 //! Tests orthogonal constraints and shared downsample functionality
@@ -7,7 +10,11 @@
 
 use adapteros_core::Result;
 use adapteros_lora_kernel_api::{MploraConfig, RouterRing};
+<<<<<<< HEAD
 use adapteros_lora_router::{MploraWeightParams, OrthogonalConstraints, Router, RouterWeights};
+=======
+use adapteros_lora_router::{OrthogonalConstraints, Router, RouterWeights};
+>>>>>>> integration-branch
 use adapteros_manifest::RouterCfg;
 use adapteros_policy::{MploraConfig as PolicyMploraConfig, MploraPolicy};
 use std::collections::HashMap;
@@ -45,6 +52,7 @@ fn test_orthogonal_constraints_determinism() -> Result<()> {
 /// Test router with MPLoRA features
 #[test]
 fn test_router_mplora_determinism() -> Result<()> {
+<<<<<<< HEAD
     let weights = RouterWeights::new_with_mplora(MploraWeightParams {
         language: 0.3,
         framework: 0.25,
@@ -55,6 +63,12 @@ fn test_router_mplora_determinism() -> Result<()> {
         diversity: 0.03,
         similarity: 0.02,
     });
+=======
+    let weights = RouterWeights::new_with_mplora(
+        0.3, 0.25, 0.2, 0.15, 0.1, // Original weights
+        0.05, 0.03, 0.02, // MPLoRA weights
+    );
+>>>>>>> integration-branch
 
     let mut router = Router::new_with_weights(weights, 3, 1.0, 0.02);
 
@@ -256,6 +270,7 @@ fn test_router_ring_mplora() -> Result<()> {
 #[test]
 fn test_mplora_integration() -> Result<()> {
     // Create MPLoRA router
+<<<<<<< HEAD
     let weights = RouterWeights::new_with_mplora(MploraWeightParams {
         language: 0.3,
         framework: 0.25,
@@ -266,6 +281,12 @@ fn test_mplora_integration() -> Result<()> {
         diversity: 0.03,
         similarity: 0.02,
     });
+=======
+    let weights = RouterWeights::new_with_mplora(
+        0.3, 0.25, 0.2, 0.15, 0.1, // Original weights
+        0.05, 0.03, 0.02, // MPLoRA weights
+    );
+>>>>>>> integration-branch
 
     let mut router = Router::new_with_weights(weights, 3, 1.0, 0.02);
     router.set_orthogonal_constraints(true, 0.7, 0.1, 10);
@@ -386,6 +407,7 @@ fn test_adapteros_policy_pack_integration() -> Result<()> {
 /// Test deterministic MPLoRA execution across multiple runs
 #[test]
 fn test_mplora_deterministic_execution() -> Result<()> {
+<<<<<<< HEAD
     let weights = RouterWeights::new_with_mplora(MploraWeightParams {
         language: 0.3,
         framework: 0.25,
@@ -396,6 +418,12 @@ fn test_mplora_deterministic_execution() -> Result<()> {
         diversity: 0.03,
         similarity: 0.02,
     });
+=======
+    let weights = RouterWeights::new_with_mplora(
+        0.3, 0.25, 0.2, 0.15, 0.1, // Original weights
+        0.05, 0.03, 0.02, // MPLoRA weights
+    );
+>>>>>>> integration-branch
 
     let mut router = Router::new_with_weights(weights, 3, 1.0, 0.02);
     router.set_orthogonal_constraints(true, 0.7, 0.1, 10);

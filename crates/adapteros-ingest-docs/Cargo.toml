@@ -5,8 +5,18 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+<<<<<<< HEAD
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+=======
+[features]
+default = []
+experimental-backends = ["adapteros-lora-mlx-ffi"]
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+>>>>>>> integration-branch
 tokenizers = { workspace = true }
 pulldown-cmark = "0.9"
 lopdf = "0.32"
@@ -15,3 +25,11 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
+<<<<<<< HEAD
+=======
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+>>>>>>> integration-branch

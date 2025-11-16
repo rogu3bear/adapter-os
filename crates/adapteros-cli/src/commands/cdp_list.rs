@@ -14,7 +14,7 @@ pub struct CdpListArgs {
     pub storage: PathBuf,
 }
 
-pub async fn _execute(args: CdpListArgs) -> anyhow::Result<()> {
+pub async fn execute(args: CdpListArgs) -> anyhow::Result<()> {
     // CdpStore implementation will be added when code intelligence is integrated
     println!(
         "CDP listing not yet implemented for repository: {}",

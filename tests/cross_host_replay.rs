@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Cross-Host Replay Tests
 //!
 //! Integration tests for federated replay verification across multiple hosts

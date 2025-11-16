@@ -12,6 +12,7 @@ export interface ToastAction {
   dismiss: (id: string) => void;
 }
 
+<<<<<<< HEAD
 /**
  * Hook for managing toast notifications.
  *
@@ -19,6 +20,8 @@ export interface ToastAction {
  *
  * @returns Object with toast creation and dismissal functions
  */
+=======
+>>>>>>> integration-branch
 export function useToast(): ToastAction {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
