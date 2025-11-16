@@ -1,5 +1,6 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::{sqlx, Db};
+use adapteros_db::git::FileChangeEvent;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_worker::Worker;
@@ -64,7 +65,7 @@ pub struct AppState {
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
     pub training_service: Arc<TrainingService>,
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
-    pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>>,
+    pub file_change_tx: Option<Arc<tokio::sync::broadcast::Sender<FileChangeEvent>>>,
     pub crypto: Arc<CryptoState>,
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
     pub code_job_manager: Option<Arc<CodeJobManager>>,
@@ -106,7 +107,7 @@ impl AppState {
     pub fn with_git(
         mut self,
         git_subsystem: Arc<adapteros_git::GitSubsystem>,
-        file_change_tx: Arc<tokio::sync::broadcast::Sender<adapteros_git::FileChangeEvent>>,
+        file_change_tx: Arc<tokio::sync::broadcast::Sender<FileChangeEvent>>,
     ) -> Self {
         self.git_subsystem = Some(git_subsystem);
         self.file_change_tx = Some(file_change_tx);

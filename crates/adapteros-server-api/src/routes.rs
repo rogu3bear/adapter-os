@@ -84,9 +84,6 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::delete_domain_adapter,
         // Model status handlers
         handlers::get_base_model_status,
-        // OpenAI-compatible handlers
-        handlers::openai::chat_completions,
-        handlers::openai::list_models,
         // Audit logs handler
         handlers::query_audit_logs,
     ),
