@@ -170,7 +170,13 @@ pub async fn upsert_directory_adapter(
 
     // Read timeout from config
     let timeout_secs = {
-        let config = state.config.read().unwrap();
+        let config = state.config.read().map_err(|e| {
+            error!("Failed to acquire config read lock: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Configuration unavailable").with_code("INTERNAL_ERROR")),
+            )
+        })?;
         config.directory_analysis_timeout_secs
     };
 

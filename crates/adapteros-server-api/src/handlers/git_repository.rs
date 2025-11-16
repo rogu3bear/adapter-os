@@ -743,12 +743,14 @@ fn extract_evidence_spans(
                                 || line.contains("def ")
                                 || line.contains("function ")
                             {
+                                let file_name = entry
+                                    .path()
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| "unknown".to_string());
+
                                 evidence_spans.push(EvidenceSpan {
-                                    span_id: format!(
-                                        "{}-{}",
-                                        entry.path().file_name().unwrap().to_string_lossy(),
-                                        line_num
-                                    ),
+                                    span_id: format!("{}-{}", file_name, line_num),
                                     evidence_type: "function_definition".to_string(),
                                     file_path: entry.path().to_string_lossy().to_string(),
                                     line_range: (line_num + 1, line_num + 1),
