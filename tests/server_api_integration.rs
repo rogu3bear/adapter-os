@@ -9,9 +9,9 @@
 //!
 //! Run with: `cargo test --test server_api_integration -- --ignored --nocapture`
 
-use adapteros_server_api::types::*;
 use adapteros_core::Result;
 use adapteros_db::Db;
+use adapteros_server_api::types::*;
 use adapteros_server_api::{routes, state::AppState};
 use axum::{
     body::Body,
@@ -80,10 +80,11 @@ async fn test_plan_creation_workflow() -> Result<()> {
         .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let tenant: TenantResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+    let tenant: TenantResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?)?;
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(tenant.name, "test-tenant");
 
     // 2. Build plan
@@ -107,10 +108,11 @@ async fn test_plan_creation_workflow() -> Result<()> {
         .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let job: JobResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+    let job: JobResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?)?;
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(job.kind, "plan_build");
 
     // 3. Get plan details
@@ -128,10 +130,11 @@ async fn test_plan_creation_workflow() -> Result<()> {
         .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let plan: PlanResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+    let plan: PlanResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?)?;
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(plan.tenant_id, tenant.id);
 
     println!("✓ Plan creation workflow completed successfully!");
@@ -165,10 +168,11 @@ async fn test_policy_enforcement_workflow() -> Result<()> {
         .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let tenant: TenantResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+    let tenant: TenantResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?)?;
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert!(tenant.itar_flag);
 
     // 2. Apply policy pack
@@ -227,10 +231,11 @@ async fn test_policy_enforcement_workflow() -> Result<()> {
         .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let policy: PolicyPackResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+    let policy: PolicyPackResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?)?;
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(policy.cpid, "test-cp-v1");
 
     // 4. Test policy validation
@@ -400,10 +405,11 @@ async fn test_authentication_workflow() -> Result<()> {
         .map_err(|_e| adapteros_core::AosError::Internal("infallible".to_string()))?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let health: HealthResponse =
-        serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX)
+    let health: HealthResponse = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?)?;
+            .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
+    )?;
     assert_eq!(health.status, "healthy");
 
     // 2. Test login endpoint

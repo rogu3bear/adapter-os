@@ -16,7 +16,11 @@ fn test_entropy_floor_maintained_with_stack_filtering() {
     // Set active stack (filtering enabled)
     router.set_active_stack(
         Some("test_stack".to_string()),
-        Some(vec!["adapter_1".to_string(), "adapter_2".to_string(), "adapter_3".to_string()])
+        Some(vec![
+            "adapter_1".to_string(),
+            "adapter_2".to_string(),
+            "adapter_3".to_string(),
+        ]),
     );
 
     // Create priors with one dominant prior
@@ -39,7 +43,11 @@ fn test_entropy_floor_maintained_with_stack_filtering() {
 
     // Gates should sum to approximately 1.0
     let sum: f32 = gates.iter().sum();
-    assert!((sum - 1.0).abs() < 0.01, "Gates sum to {}, expected 1.0", sum);
+    assert!(
+        (sum - 1.0).abs() < 0.01,
+        "Gates sum to {}, expected 1.0",
+        sum
+    );
 }
 
 #[test]
@@ -58,7 +66,7 @@ fn test_stack_filtering_determinism() {
     let features = vec![0.5; 22];
     let priors = vec![0.3, 0.5, 0.7];
 
-    let decision1 = router.route(&features, &priors);
+    let decision1 = router1.route(&features, &priors);
     let decision2 = router2.route(&features, &priors);
 
     // Results must be deterministic
@@ -90,7 +98,7 @@ fn test_k_sparse_selection_preserved() {
     // Set stack with 5 adapters
     router.set_active_stack(
         Some("stack".to_string()),
-        Some((0..5).map(|i| format!("adapter_{}", i)).collect())
+        Some((0..5).map(|i| format!("adapter_{}", i)).collect()),
     );
 
     let features = vec![0.5; 22];
@@ -153,7 +161,7 @@ fn test_stack_deactivation_restores_full_routing() {
     // Activate stack with 3 adapters
     router.set_active_stack(
         Some("limited_stack".to_string()),
-        Some(vec!["a1".to_string(), "a2".to_string(), "a3".to_string()])
+        Some(vec!["a1".to_string(), "a2".to_string(), "a3".to_string()]),
     );
 
     assert!(router.active_stack().is_some());
@@ -240,9 +248,16 @@ fn proof_stack_filtering_is_restriction() {
 
     // Define stack as strict subset
     let all_adapters: Vec<String> = (0..10).map(|i| format!("adapter_{}", i)).collect();
-    let stack_adapters: Vec<String> = vec!["adapter_2".to_string(), "adapter_5".to_string(), "adapter_7".to_string()];
+    let stack_adapters: Vec<String> = vec![
+        "adapter_2".to_string(),
+        "adapter_5".to_string(),
+        "adapter_7".to_string(),
+    ];
 
-    router.set_active_stack(Some("subset_stack".to_string()), Some(stack_adapters.clone()));
+    router.set_active_stack(
+        Some("subset_stack".to_string()),
+        Some(stack_adapters.clone()),
+    );
 
     // Route with full prior set
     let features = vec![0.5; 22];
