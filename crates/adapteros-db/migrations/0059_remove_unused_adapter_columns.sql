@@ -15,14 +15,11 @@
 -- so we use the standard ALTER TABLE ... DROP COLUMN syntax
 -- which works in SQLite 3.35.0+ (2021-03-12)
 
--- Drop indexes on the columns first (migration 0045 created idx_adapters_aos_file_hash)
-DROP INDEX IF EXISTS idx_adapters_aos_file_hash;
+-- Drop aos_file_path column
+ALTER TABLE adapters DROP COLUMN IF EXISTS aos_file_path;
 
--- Drop aos_file_path and aos_file_hash columns
--- Note: SQLite 3.35.0+ supports DROP COLUMN
--- Indexes must be dropped first before dropping columns they reference
-ALTER TABLE adapters DROP COLUMN aos_file_path;
-ALTER TABLE adapters DROP COLUMN aos_file_hash;
+-- Drop aos_file_hash column
+ALTER TABLE adapters DROP COLUMN IF EXISTS aos_file_hash;
 
 -- Note: If you get an error "Cannot drop column", you're on SQLite < 3.35.0
 -- In that case, use the table recreation approach:

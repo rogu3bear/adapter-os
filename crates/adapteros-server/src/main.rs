@@ -763,6 +763,37 @@ async fn main() -> Result<()> {
         info!("TTL cleanup task started (5 minute interval)");
     }
 
+    // Spawn heartbeat recovery background task
+    // Citation: Agent G Stability Reinforcement Plan - Phase 2 Heartbeat Mechanism
+    {
+        let db_clone = db.clone();
+        let _ = spawn_deterministic("Heartbeat recovery".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            loop {
+                interval.tick().await;
+
+                // Recover adapters that haven't sent heartbeat in 5 minutes
+                match db_clone.recover_stale_adapters(300).await {
+                    Ok(recovered) => {
+                        if !recovered.is_empty() {
+                            info!(
+                                count = recovered.len(),
+                                "Recovered stale adapters via heartbeat check"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Failed to recover stale adapters"
+                        );
+                    }
+                }
+            }
+        });
+        info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
+    }
+
     // Build router with UI
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();

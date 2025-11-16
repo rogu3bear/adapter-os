@@ -19,13 +19,13 @@ CREATE INDEX IF NOT EXISTS idx_tick_ledger_prev_host_hash ON tick_ledger_entries
 
 -- View for federation-linked tick entries
 CREATE VIEW IF NOT EXISTS tick_ledger_federation AS
-SELECT 
+SELECT
     tl.id,
     tl.tick,
     tl.host_id,
-    tl.recorded_at,
-    tl.tick_hash,
-    tl.prev_tick_hash,
+    tl.created_at,
+    tl.event_hash AS tick_hash,
+    tl.prev_entry_hash AS prev_tick_hash,
     tl.bundle_hash,
     tl.prev_host_hash,
     tl.federation_signature,
@@ -34,5 +34,5 @@ SELECT
 FROM tick_ledger_entries tl
 LEFT JOIN federation_bundle_signatures fbs ON tl.bundle_hash = fbs.bundle_hash
 WHERE tl.bundle_hash IS NOT NULL
-ORDER BY tl.recorded_at DESC;
+ORDER BY tl.created_at DESC;
 

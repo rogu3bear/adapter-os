@@ -1,33 +1,5 @@
 [package]
 name = "adapteros-aos"
-<<<<<<< HEAD
-version = "0.1.0"
-edition = "2021"
-authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
-license = "MIT OR Apache-2.0"
-description = "Memory-mapped .aos file loading with LRU caching and hot-swap support for AdapterOS"
-repository = "https://github.com/rogu3bear/mplora"
-
-[dependencies]
-adapteros-core = { path = "../adapteros-core" }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
-adapteros-crypto = { path = "../adapteros-crypto" }
-adapteros-telemetry = { path = "../adapteros-telemetry" }
-memmap2 = "0.9"
-parking_lot = { workspace = true }
-lru = "0.12"
-tokio = { workspace = true }
-tracing = { workspace = true }
-anyhow = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-tempfile = "3.0"
-
-[dev-dependencies]
-tokio-test = "0.4"
-criterion = { version = "0.5", features = ["async_tokio"] }
-=======
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -59,4 +31,3 @@ tempfile = "3.0"
 [features]
 default = []
 mmap = ["memmap2", "metal", "safetensors", "rand"]
->>>>>>> integration-branch

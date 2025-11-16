@@ -512,7 +512,11 @@ impl Db {
     /// This function checks if the adapter is pinned before deletion.
     /// Pinned adapters cannot be deleted until they are unpinned.
     ///
-    /// Per Agent G Stability Plan: Uses pinned_adapters table as single source of truth.
+    /// **Pin Enforcement:** Uses `active_pinned_adapters` view as the single source of truth.
+    /// The view automatically respects TTL (pinned_until) via SQL filtering, eliminating manual
+    /// expiration checks. This ensures consistent pin enforcement across all DB operations.
+    /// Implementation: crates/adapteros-db/src/pinned_adapters.rs
+    ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.3
     pub async fn delete_adapter(&self, id: &str) -> Result<()> {
         use adapteros_core::AosError;
@@ -528,7 +532,7 @@ impl Db {
 
         if let Some(adapter_id) = adapter_id {
             // Check active_pinned_adapters view (single source of truth)
-            // View automatically filters expired pins
+            // View automatically filters expired pins (pinned_until > now())
             let active_pin_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?"
             )
@@ -745,8 +749,11 @@ impl Db {
 
     /// Update adapter state with transaction protection
     ///
-    /// This version uses SELECT FOR UPDATE to prevent race conditions
-    /// when multiple operations attempt to update the same adapter concurrently.
+    /// **Concurrency Safety:** SQLite transactions provide serialization without explicit locks.
+    /// The transaction ensures atomic read-check-write, preventing lost updates in concurrent scenarios.
+    /// Multiple callers are serialized by SQLite's default isolation level - no application-level
+    /// mutexes or row locks required. This optimistic concurrency approach is tested under load
+    /// (see tests/stability_reinforcement_tests.rs::test_concurrent_state_update_race_condition).
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
     pub async fn update_adapter_state_tx(
@@ -790,7 +797,10 @@ impl Db {
 
     /// Update adapter memory usage with transaction protection
     ///
-    /// This version uses transactions to ensure atomic updates.
+    /// **Concurrency Approach:** Optimistic concurrency via SQLite transactions.
+    /// Transactions serialize updates without explicit locking. Concurrent memory updates
+    /// are handled safely by SQLite's transaction isolation, eliminating the need for
+    /// application-level synchronization primitives.
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
     pub async fn update_adapter_memory_tx(

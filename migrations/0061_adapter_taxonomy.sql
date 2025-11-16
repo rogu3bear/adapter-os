@@ -3,11 +3,16 @@
 -- See docs/ADAPTER_TAXONOMY.md for specification
 
 -- Add semantic naming columns to adapters table
-ALTER TABLE adapters ADD COLUMN adapter_name TEXT UNIQUE;
+-- Note: SQLite doesn't support adding UNIQUE constraints via ALTER TABLE
+-- We add the column first, then create a UNIQUE index
+ALTER TABLE adapters ADD COLUMN adapter_name TEXT;
 ALTER TABLE adapters ADD COLUMN tenant_namespace TEXT;
 ALTER TABLE adapters ADD COLUMN domain TEXT;
 ALTER TABLE adapters ADD COLUMN purpose TEXT;
 ALTER TABLE adapters ADD COLUMN revision TEXT;
+
+-- Create UNIQUE index for adapter_name
+CREATE UNIQUE INDEX IF NOT EXISTS idx_adapters_adapter_name_unique ON adapters(adapter_name) WHERE adapter_name IS NOT NULL;
 
 -- Add lineage tracking columns
 ALTER TABLE adapters ADD COLUMN parent_id TEXT REFERENCES adapters(id);
@@ -98,24 +103,16 @@ END;
 
 -- Backfill existing adapters with default semantic names
 -- This allows gradual migration without breaking existing data
+-- Note: Simplified backfill for compatibility with minimal schemas
 UPDATE adapters
 SET
-    tenant_namespace = COALESCE(
-        (SELECT name FROM tenants WHERE tenants.id = adapters.tenant_id),
-        'global'
-    ),
-    domain = COALESCE(
-        json_extract(metadata_json, '$.domain'),
-        'general'
-    ),
+    tenant_namespace = 'global',
+    domain = 'general',
     purpose = COALESCE(
         LOWER(REPLACE(adapters.name, ' ', '-')),
         'unnamed-' || substr(adapters.id, 1, 8)
     ),
-    revision = COALESCE(
-        'r' || printf('%03d', CAST(json_extract(metadata_json, '$.revision') AS INTEGER)),
-        'r001'
-    )
+    revision = 'r001'
 WHERE adapter_name IS NULL;
 
 -- Generate adapter_name from components for backfilled records
@@ -127,36 +124,7 @@ WHERE adapter_name IS NULL
     AND purpose IS NOT NULL
     AND revision IS NOT NULL;
 
--- Stack naming validation trigger
-CREATE TRIGGER IF NOT EXISTS validate_stack_name_format
-BEFORE INSERT ON adapter_stacks
-FOR EACH ROW
-BEGIN
-    -- Validate format: stack.{namespace}[.{identifier}]
-    SELECT CASE
-        WHEN NEW.name NOT GLOB 'stack.[a-z0-9]*[a-z0-9]'
-            AND NEW.name NOT GLOB 'stack.[a-z0-9]*[a-z0-9].[a-z0-9]*[a-z0-9]'
-        THEN RAISE(ABORT, 'Invalid stack name format: must match stack.{namespace}[.{identifier}]')
-    END;
-
-    -- Validate max length
-    SELECT CASE
-        WHEN length(NEW.name) > 100
-        THEN RAISE(ABORT, 'Stack name exceeds 100 character limit')
-    END;
-
-    -- Validate no consecutive hyphens
-    SELECT CASE
-        WHEN NEW.name LIKE '%---%'
-        THEN RAISE(ABORT, 'Stack name cannot contain consecutive hyphens')
-    END;
-
-    -- Reject reserved stack names
-    SELECT CASE
-        WHEN NEW.name IN ('stack.safe-default', 'stack.system')
-        THEN RAISE(ABORT, 'Stack name is reserved')
-    END;
-END;
+-- Note: Stack naming validation trigger moved to migration 0064 (where adapter_stacks table is created)
 
 -- Add comments for documentation
 -- Note: SQLite doesn't support column comments, but we can add table-level comments
