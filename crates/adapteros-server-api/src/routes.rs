@@ -26,6 +26,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::delete_adapter,
         handlers::load_adapter,
         handlers::unload_adapter,
+        handlers::verify_gpu_integrity,
         handlers::get_adapter_activations,
         handlers::list_repositories,
         handlers::get_quality_metrics,
@@ -86,6 +87,8 @@ use utoipa_swagger_ui::SwaggerUi;
         // OpenAI-compatible handlers
         handlers::openai::chat_completions,
         handlers::openai::list_models,
+        // Audit logs handler
+        handlers::query_audit_logs,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -132,6 +135,10 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::AuditExtended,
         crate::types::AuditsResponse,
         crate::types::PromotionRecord,
+        // Audit logs types
+        crate::types::AuditLogsQuery,
+        crate::types::AuditLogResponse,
+        crate::types::AuditLogsResponse,
         // Contacts and Streams types - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         crate::types::ContactResponse,
         crate::types::CreateContactRequest,
@@ -413,6 +420,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::unload_adapter),
         )
         .route(
+            "/v1/adapters/verify-gpu",
+            get(handlers::verify_gpu_integrity),
+        )
+        .route(
             "/v1/adapters/:adapter_id/activations",
             get(handlers::get_adapter_activations),
         )
@@ -432,16 +443,27 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
         )
+        // Semantic name validation routes
+        .route(
+            "/v1/adapters/validate-name",
+            post(handlers::validate_adapter_name),
+        )
+        .route(
+            "/v1/stacks/validate-name",
+            post(handlers::validate_stack_name),
+        )
+        .route(
+            "/v1/adapters/next-revision/:tenant/:domain/:purpose",
+            get(handlers::get_next_revision),
+        )
         // Adapter stacks routes
         .route(
             "/v1/adapter-stacks",
-            get(handlers::adapter_stacks::list_stacks)
-                .post(handlers::adapter_stacks::create_stack),
+            get(handlers::adapter_stacks::list_stacks).post(handlers::adapter_stacks::create_stack),
         )
         .route(
             "/v1/adapter-stacks/:id",
-            get(handlers::adapter_stacks::get_stack)
-                .delete(handlers::adapter_stacks::delete_stack),
+            get(handlers::adapter_stacks::get_stack).delete(handlers::adapter_stacks::delete_stack),
         )
         .route(
             "/v1/adapter-stacks/:id/activate",
@@ -587,6 +609,7 @@ pub fn build(state: AppState) -> Router {
         // Audit endpoints
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
         .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
+        .route("/v1/audit/logs", get(handlers::query_audit_logs))
         // Agent D contract endpoints
         .route("/v1/audits", get(handlers::list_audits_extended))
         .route("/v1/promotions/:id", get(handlers::get_promotion))
