@@ -44,6 +44,63 @@ info!(tenant_id = %tenant.id, adapter_id = %adapter.id, "Loading adapter");
 
 **Log levels:** `trace!` (detailed debug) → `debug!` (dev info) → `info!` (general) → `warn!` (attention) → `error!` (action required)
 
+#### Telemetry Event Catalog
+
+**Barrier Coordination Events** (`adapteros-deterministic-exec/src/multi_agent.rs`):
+- **`barrier.wait_start`** (Debug, lines 212-228) - Agent enters barrier, waiting for peers
+- **`barrier.generation_advanced`** (Info, lines 328-353) - CAS winner advances generation counter
+- **`barrier.cas_loser_proceed`** (Debug, lines 370-390) - CAS loser detects generation change, proceeds
+- **`barrier.agent.removed`** (Warn, lines 153-174) - Agent marked as dead, excluded from barrier coordination
+- **`barrier.timeout`** (Error, lines 260-282) - Barrier wait timeout (30s default), indicates coordination failure
+
+**Lifecycle Events** (`adapteros-lora-lifecycle/src/lib.rs`):
+- **`adapter_crash_detected`** (Info, lines 213-346) - Stale adapter recovered during crash recovery sweep
+- **`adapter_evicted`** - Adapter evicted due to memory pressure (cold adapters first)
+- **`adapter_promoted`** - Adapter tier promoted (activation % threshold crossed)
+- **`adapter_demoted`** - Adapter tier demoted (inactivity timeout)
+
+**Divergence Detection Events** (`adapteros-deterministic-exec/src/global_ledger.rs`):
+- **`tick_ledger.consistent`** (Info, lines 368-399) - Cross-host consistency verified, all entry hashes match
+- **`tick_ledger.inconsistent`** (Warn, lines 368-399) - Divergence detected between hosts, includes divergence_count metadata
+
+**Event Metadata Best Practices:**
+```rust
+use adapteros_telemetry::{TelemetryEventBuilder, EventType, LogLevel};
+use serde_json::json;
+
+let event = TelemetryEventBuilder::new(
+    EventType::Custom("barrier.generation_advanced".to_string()),
+    LogLevel::Info,
+    format!("Barrier generation advanced at tick {}", tick),
+)
+.component("adapteros-deterministic-exec".to_string())
+.metadata(json!({
+    "agent_id": agent_id,
+    "tick": tick,
+    "generation": new_gen,
+    "wait_duration_ms": elapsed.as_millis(),
+    "living_agents": living_count,
+    "dead_agents": dead_count,
+}))
+.build();
+
+event.emit().await?;
+```
+
+**Querying Telemetry:**
+```sql
+-- Find all barrier timeouts in last hour
+SELECT * FROM telemetry_events
+WHERE event_type = 'barrier.timeout'
+  AND timestamp >= datetime('now', '-1 hour')
+ORDER BY timestamp DESC;
+
+-- Find divergence incidents
+SELECT * FROM tick_ledger_consistency_reports
+WHERE consistent = 0
+  AND created_at >= datetime('now', '-24 hours');
+```
+
 ---
 
 ## Policy Packs
@@ -389,20 +446,23 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 ### Migration Management
 
 **Canonical Migration Directory:** `/migrations/` (root)
-**Migration Count:** 68 migrations (0001-0068, with some gaps)
+**Migration Count:** 65 migrations (0001-0065, with some gaps)
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 
 **IMPORTANT:** The crate-local migration directory (`/crates/adapteros-db/migrations/`) is **DEPRECATED** as of 2025-01-16. See `/crates/adapteros-db/migrations/DEPRECATED.md` for consolidation details.
+
+**Note:** Migration consolidation from crate directory to root is incomplete. Migrations 0066-0068 were planned but not created.
 
 **Key Migrations:**
 - **0035** - Tick ledger federation columns (bundle_hash, prev_host_hash, federation_signature) - Reserved for future use
 - **0045** - .aos file support (aos_file_path, aos_file_hash)
 - **0055** - Model backend fields (adapter_path, backend, quantization, last_error)
+- **0060** - Pinned adapters table with TTL support
 - **0061** - Semantic naming taxonomy (adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason)
 - **0062** - RBAC audit logs
-- **0066** - SQLite compatibility fixes for domain_adapters tables
-- **0067** - Cleanup 15+ unused tables
-- **0060** - Pinned adapters table with TTL support
+- **0063** - Dashboard configuration table for per-user widget customization
+- **0064** - Adapter stacks for reusable workflow combinations
+- **0065** - Heartbeat mechanism for lifecycle management (last_heartbeat column, stale_adapters view)
 
 **Creating New Migrations:**
 ```bash
@@ -654,7 +714,7 @@ async fn test_concurrent_state_update_race_condition() {
 
 **Modes:**
 1. Batch (complete response)
-2. Streaming (OpenAI-compatible SSE, token-by-token)
+2. Streaming (chat-style SSE, token-by-token)
 
 ```rust
 use adapteros_api::streaming::{StreamingInferenceRequest, streaming_inference_handler};
@@ -664,7 +724,7 @@ let stream = streaming_inference_handler(State(api_state), Json(request)).await;
 // Final: data: [DONE]
 ```
 
-**Features:** Keep-alive, client disconnect detection, OpenAI SDK compatible
+**Features:** Keep-alive, client disconnect detection
 
 ---
 
@@ -739,9 +799,106 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 | `/api/training/start` | POST | Start training job |
 | `/api/training/datasets` | POST | Create dataset from documents |
 | `/api/training/jobs/:id` | GET | Get job status |
-| `/api/chat/completions` | POST | OpenAI inference (streaming/batch) |
+| `/api/chat/completions` | POST | Chat inference (streaming/batch) |
 | `/api/adapter-stacks` | GET/POST | List/create adapter stacks |
 | `/v1/audit/logs` | GET | Query audit logs (Admin/SRE/Compliance) |
+
+---
+
+## UI Integration & Observability
+
+**Purpose:** Document how backend telemetry and status surfaces in the web UI for operator visibility.
+
+### Base Model Status Display
+
+**Component:** `ui/src/components/dashboard/BaseModelWidget.tsx`
+**API Endpoint:** `GET /v1/models/status?tenant_id={tenantId}` (client.ts:933)
+
+**Status States:**
+- `loaded` (green CheckCircle) - Model active in memory
+- `loading` (blue spinning RefreshCw) - Model initialization in progress
+- `unloading` (yellow RefreshCw) - Model being evicted
+- `unloaded` (gray XCircle) - Model not in memory
+- `error` (red XCircle) - Loading failed, see error message
+
+**Displayed Fields:**
+- `model_id` - Unique identifier
+- `model_name` - Friendly display name
+- `status` - Current lifecycle state (enum)
+- `is_loaded` - Boolean convenience flag
+- `memory_usage_mb` - VRAM consumption (if loaded)
+- `loaded_at` - Timestamp of last successful load
+
+**Implementation:** Lines 119-139 (fetchStatus), 302-314 (status badge), 85-96 (getStatusIcon)
+
+### Adapter Lifecycle State Display
+
+**Component:** `ui/src/components/AdaptersPage.tsx`
+**API Endpoints:**
+- `GET /api/adapters` - List all adapters with metadata
+- `GET /api/system-metrics` - System-wide resource metrics
+
+**Table Columns:**
+- **Name** - Adapter semantic name (tenant/domain/purpose/revision)
+- **Category** - Domain classification with icon
+- **State** - Lifecycle tier (Unloaded → Cold → Warm → Hot → Resident)
+  - Shows pin icon if `adapter.pinned = true`
+  - Color-coded badges (gray, blue, orange, red, purple)
+- **Memory (MB)** - Current VRAM footprint
+- **Activations** - Router selection count (drives promotion/demotion)
+- **Last Used** - Timestamp of most recent inference
+
+**State Machine (Lines 190-240):**
+```
+Unloaded → Cold → Warm → Hot → Resident
+    ↑                              ↓
+    └──────── (eviction) ──────────┘
+```
+
+**Pinned Adapters:**
+- Exempt from automatic eviction
+- Visual pin icon in State column
+- TTL enforcement via `pinned_until` field
+
+**Implementation:** Lines 34-50 (fetchAdaptersData), 209-211 (state badge + pin indicator)
+
+### Multi-Model Dashboard
+
+**Component:** `ui/src/components/dashboard/MultiModelStatusWidget.tsx`
+**API Endpoint:** `GET /v1/models/status/all?tenant_id={tenantId}` (client.ts:940)
+
+**Purpose:** Shows all loaded models across tenants (multi-tenancy view)
+
+**Displayed Per Model:**
+- `model_id` and `model_name`
+- Status badge (5 states, see Base Model Status above)
+- Error message if `status = 'error'`
+
+**Polling:** Auto-refresh every 5 seconds for live status updates
+**Implementation:** Lines 54-64 (polling logic), 107-133 (model list)
+
+### Adapter State Distribution Widget
+
+**Component:** `ui/src/components/dashboard/AdapterStatusWidget.tsx`
+**Status:** Currently uses mock data (lines 14-20)
+**Planned Integration:** Fetch from `/api/adapters` and aggregate by `current_state`
+
+**Visualization:**
+- Color-coded bar chart (hot=red, warm=orange, cold=blue, unloaded=gray)
+- State breakdown grid with counts
+- Memory usage progress bar
+- Average activation rate metric
+
+**Note:** Requires API integration (production currently bypassed)
+
+### Missing Backend Fields (Not Yet Exposed in UI)
+
+The following fields exist in backend schema but are **not** displayed in current UI components:
+- `backend` - Model backend type (`secure_enclave` | `file`) - types.ts:1535
+- `quantization` - Weight quantization method (e.g., `q15`, `q8`) - types.ts:1809
+- `last_error` - Most recent error message for failed adapters
+
+**Future Work:** Add these fields to AdaptersPage.tsx table and BaseModelWidget details view.
 
 ---
 

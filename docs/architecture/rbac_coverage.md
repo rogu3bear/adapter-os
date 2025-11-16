@@ -40,7 +40,7 @@ Admin > Operator > Compliance > Viewer
 - `/metrics` - Prometheus metrics (bearer token auth, not JWT)
 
 ### Dual Auth Endpoints
-- OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/models`) support API key or JWT
+- Chat/inference endpoints are internal-only; OpenAI-compatible surfaces (`/v1/chat/completions`, `/v1/models`) have been removed.
 
 ## UI Layer RBAC
 
@@ -100,4 +100,3 @@ Admin > Operator > Compliance > Viewer
 4. **CLI Enhancement**: Add role validation messages in CLI commands
 5. **Audit Logging**: Log all role-check failures for security monitoring
 6. **Role Permissions Matrix**: Document complete permissions matrix for each role
-

@@ -60,7 +60,7 @@ Job orchestration for async tasks: plan builds, audits, replays, and node comman
 Telemetry indexer that watches NDJSON bundles and streams events via SSE.
 
 ### aos-node
-Node agent that runs on worker hosts to spawn workers with tenant isolation.
+Node runtime daemon that runs on worker hosts to spawn workers with tenant isolation.
 
 ## Security Model
 
@@ -72,7 +72,7 @@ Node agent that runs on worker hosts to spawn workers with tenant isolation.
 ### Authentication
 - Local user accounts with Argon2id password hashing
 - JWT tokens with 8-hour expiry
-- Optional mTLS for node agents
+- Optional mTLS for node runtimes
 
 ### Authorization (RBAC)
 Six roles with different access levels:
@@ -102,7 +102,7 @@ Six roles with different access levels:
 
 ### Nodes
 - `GET /v1/nodes` - List worker nodes
-- `POST /v1/nodes/register` - Register node agent
+- `POST /v1/nodes/register` - Register node runtime
 
 ### Models & Adapters
 - `POST /v1/models/import` - Import base model
@@ -333,9 +333,9 @@ A control point can only be promoted if:
 - **Performance**: Budgets met, router overhead ≤ threshold
 - **Compliance**: Control matrix links resolve, ITAR suite passes
 
-## Node Agent
+## Node Runtime
 
-The `aos-node` agent runs on each worker host and:
+The `aos-node` runtime daemon runs on each worker host and:
 
 1. Receives spawn requests from control plane (mTLS)
 2. Verifies local PF rules
@@ -420,7 +420,7 @@ Tokens expire after 8 hours. Re-login to get a new token.
 - Implement full job execution (plan builds, audits)
 - Add SSE telemetry streaming from bundle watcher
 - Implement CP promotion with audit gates
-- Add mTLS support for node agents
+- Add mTLS support for node runtimes
 - Build Web UI for control plane
 
 ## References
