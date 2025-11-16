@@ -9,34 +9,11 @@ This document tracks remaining UI integration tasks that were identified but not
 3. ✓ **SSE Authentication** - Added token-based auth for EventSource
 4. ✓ **Unused Component Imports** - Removed 12 unused imports
 5. ✓ **SystemMetrics Type Definition** - Enhanced with proper documentation
+6. ✓ **Console Logging Violations** - Migrated to structured logging with telemetry integration (2025-11-15)
 
 ## Outstanding Issues
 
-### 1. Console Logging Violations ⚠ HIGH PRIORITY
-
-**Status**: Deferred (requires architectural decision)
-**Scope**: 32 files, 70+ instances
-**Violation**: CLAUDE.md:207 requires `tracing` for logging (Rust), UI uses `console.*`
-
-**Files Affected**:
-```
-App.tsx, Dashboard.tsx, Policies.tsx, Adapters.tsx, Nodes.tsx,
-WorkersTab.tsx, TrainingWizard.tsx, Telemetry.tsx, and 24 others
-```
-
-**Recommendation**:
-- **Short-term**: Remove debug `console.log` statements, keep `console.error` for critical errors
-- **Long-term**: Implement structured logging framework compatible with backend telemetry
-  - Options: `winston`, `pino`, or custom logger that sends to `/v1/telemetry/events`
-  - Integrate with backend's canonical JSON event logging
-  - Support log levels matching backend (debug, info, warn, error)
-
-**Current State**:
-- ✓ Using `toast` notifications for user-facing errors
-- ✓ Using `console.error` for debugging
-- ✗ No structured logging or telemetry integration
-
-### 2. Incomplete API Implementations MEDIUM PRIORITY
+### 1. Incomplete API Implementations MEDIUM PRIORITY
 
 **Status**: Documented as TODOs
 **Scope**: 10+ components with placeholder functionality
