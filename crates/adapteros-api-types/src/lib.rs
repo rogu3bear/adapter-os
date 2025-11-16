@@ -5,16 +5,12 @@
 
 pub mod adapters;
 pub mod auth;
-<<<<<<< HEAD
 pub mod dashboard;
-=======
->>>>>>> integration-branch
 pub mod domain_adapters;
 pub mod git;
 pub mod inference;
 pub mod metrics;
 pub mod nodes;
-pub mod openai;
 pub mod plans;
 pub mod repositories;
 pub mod telemetry;
@@ -25,23 +21,15 @@ pub mod workers;
 // Re-export commonly used types
 pub use adapters::*;
 pub use auth::*;
-<<<<<<< HEAD
 pub use dashboard::*;
-=======
->>>>>>> integration-branch
 pub use domain_adapters::*;
 pub use git::*;
 pub use inference::*;
 pub use metrics::*;
 pub use nodes::*;
-pub use openai::*;
 pub use plans::*;
 pub use repositories::*;
-<<<<<<< HEAD
 // Note: telemetry types are not re-exported to avoid conflicts with metrics types
-=======
-pub use telemetry::*;
->>>>>>> integration-branch
 pub use tenants::*;
 pub use training::*;
 pub use workers::*;
@@ -50,15 +38,10 @@ pub use workers::*;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
-<<<<<<< HEAD
     #[serde(default)]
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
-=======
-    pub message: String,
-    pub code: Option<String>,
->>>>>>> integration-branch
 }
 
 impl ErrorResponse {
@@ -66,19 +49,13 @@ impl ErrorResponse {
     pub fn new(error: impl Into<String>) -> Self {
         Self {
             error: error.into(),
-<<<<<<< HEAD
             code: "INTERNAL_ERROR".to_string(),
             details: None,
-=======
-            message: String::new(),
-            code: Some("INTERNAL_ERROR".to_string()),
->>>>>>> integration-branch
         }
     }
 
     /// Set the error code
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
-<<<<<<< HEAD
         self.code = code.into();
         self
     }
@@ -100,21 +77,6 @@ impl ErrorResponse {
     /// For unified API types, use ErrorResponse::new() and map messages at the server level
     pub fn with_user_friendly_message(mut self, user_friendly_msg: impl Into<String>) -> Self {
         self.error = user_friendly_msg.into();
-=======
-        self.code = Some(code.into());
-        self
-    }
-
-    /// Set the error message/details
-    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
-        self.message = details.into();
-        self
-    }
-
-    /// Set the error message/details from serde_json::Value
-    pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.message = details.to_string();
->>>>>>> integration-branch
         self
     }
 }
@@ -124,7 +86,6 @@ impl ErrorResponse {
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
-<<<<<<< HEAD
     /// Model runtime health information
     pub models: Option<ModelRuntimeHealth>,
 }
@@ -136,8 +97,6 @@ pub struct ModelRuntimeHealth {
     pub loaded_count: i32,
     pub healthy: bool,
     pub inconsistencies_count: usize,
-=======
->>>>>>> integration-branch
 }
 
 /// Pagination parameters

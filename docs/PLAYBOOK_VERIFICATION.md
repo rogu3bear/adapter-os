@@ -509,7 +509,6 @@ POST   /v1/adapters/:id/evict
 GET    /v1/memory/usage
 
 # Inference
-POST   /v1/chat/completions  # OpenAI-compatible
 POST   /v1/infer              # Native
 ```
 

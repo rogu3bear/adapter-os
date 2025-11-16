@@ -31,7 +31,7 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
 adapteros-secd = { path = "../adapteros-secd" }
-# adapteros-system-metrics = { path = "../adapteros-system-metrics" }  # Temporarily excluded - SQL errors
+adapteros-system-metrics = { path = "../adapteros-system-metrics" }
 adapteros-replay = { path = "../adapteros-replay" }
 adapteros-trace = { path = "../adapteros-trace" }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
@@ -58,6 +58,7 @@ walkdir = "2.4"
 chrono = "0.4"
 hex = "0.4"
 zip = "1.0"
+fs_extra = "1.3"
 sysinfo = "0.30"
 sqlx = { workspace = true }
 blake3 = "1.5"

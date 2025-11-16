@@ -44,41 +44,6 @@ pub struct SystemMetricsResponse {
     pub process_count: usize,
     pub load_average: LoadAverageResponse,
     pub timestamp: u64,
-<<<<<<< HEAD
-    #[serde(default)]
-    pub memory_usage_pct: f32,
-    #[serde(default)]
-    pub adapter_count: i32,
-    #[serde(default)]
-    pub active_sessions: i32,
-    #[serde(default)]
-    pub tokens_per_second: f32,
-    #[serde(default)]
-    pub latency_p95_ms: f32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cpu_usage_percent: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_usage_percent: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disk_usage_percent: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_rx_bytes: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_tx_bytes: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_rx_packets: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_tx_packets: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_bandwidth_mbps: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_utilization_percent: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_memory_used_gb: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_memory_total_gb: Option<f32>,
-=======
->>>>>>> integration-branch
 }
 
 /// Load average response

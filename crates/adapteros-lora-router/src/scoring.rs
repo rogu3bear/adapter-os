@@ -251,7 +251,29 @@ impl ScoringFunction for AdapterAwareScorer {
             .collect();
         let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
 
-        Decision { indices, gates_q15 }
+        // Calculate Shannon entropy from gate distribution
+        let entropy: f32 = gates
+            .iter()
+            .map(|&p| if p > 0.0 { -p * p.log2() } else { 0.0 })
+            .sum();
+
+        // Create candidates from top_k results
+        let candidates: Vec<crate::DecisionCandidate> = top_k
+            .iter()
+            .zip(gates_q15.iter())
+            .map(|((idx, raw_score), &gate_q15)| crate::DecisionCandidate {
+                adapter_idx: *idx as u16,
+                raw_score: *raw_score,
+                gate_q15,
+            })
+            .collect();
+
+        Decision {
+            indices,
+            gates_q15,
+            entropy,
+            candidates,
+        }
     }
 }
 

@@ -942,9 +942,9 @@ class ApiClient {
     return this.request<types.AllModelsStatusResponse>(`/v1/models/status/all${query}`);
   }
 
-  // OpenAI-compatible models list for ModelSelector
-  async listModels(): Promise<types.OpenAIModelInfo[]> {
-    const resp = await this.request<types.OpenAIModelsListResponse>(`/v1/models`);
+  // Models list for ModelSelector
+  async listModels(): Promise<types.CursorModelInfo[]> {
+    const resp = await this.request<types.CursorModelsListResponse>(`/v1/models`);
     return resp.data;
   }
 

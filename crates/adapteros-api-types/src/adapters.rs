@@ -91,25 +91,3 @@ pub struct AdapterHealthResponse {
     pub policy_violations: Vec<String>,
     pub recent_activations: Vec<AdapterActivationResponse>,
 }
-<<<<<<< HEAD
-
-/// Hot-swap request for updating an adapter to a new .aos path
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct HotSwapRequest {
-    /// Path to new .aos file
-    pub new_path: String,
-}
-
-/// Hot-swap response containing timing and previous adapter
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct HotSwapResponse {
-    pub adapter_id: String,
-    /// Swap time in milliseconds
-    pub swap_time_ms: u64,
-    /// Previous adapter ID (if any)
-    pub old_adapter: Option<String>,
-}
-
-// (duplication removed)
-=======
->>>>>>> integration-branch

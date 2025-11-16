@@ -84,9 +84,6 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::delete_domain_adapter,
         // Model status handlers
         handlers::get_base_model_status,
-        // OpenAI-compatible handlers
-        handlers::openai::chat_completions,
-        handlers::openai::list_models,
         // Audit logs handler
         handlers::query_audit_logs,
     ),
@@ -173,13 +170,6 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::git::EndGitSessionResponse,
         handlers::git::SessionAction,
         handlers::git::FileChangeEvent,
-        adapteros_api_types::openai::ChatCompletionRequest,
-        adapteros_api_types::openai::ChatCompletionResponse,
-        adapteros_api_types::openai::ChatMessage,
-        adapteros_api_types::openai::ChatChoice,
-        adapteros_api_types::openai::ChatUsage,
-        adapteros_api_types::openai::ModelsListResponse,
-        adapteros_api_types::openai::ModelInfo,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -199,7 +189,6 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "domain-adapters", description = "Domain adapter management"),
         (name = "git", description = "Git integration and session management"),
         (name = "federation", description = "Federation verification and quarantine management"),
-        (name = "openai", description = "OpenAI-compatible endpoints for external tools"),
         (name = "inference", description = "Model inference endpoints"),
     )
 )]
@@ -216,19 +205,6 @@ pub fn build(state: AppState) -> Router {
     // Metrics endpoint (custom auth, not JWT)
     let metrics_route = Router::new()
         .route("/metrics", get(handlers::metrics_handler))
-        .with_state(state.clone());
-
-    // OpenAI-compatible endpoints (dual auth: API key or JWT)
-    let openai_routes = Router::new()
-        .route(
-            "/v1/chat/completions",
-            post(handlers::openai::chat_completions),
-        )
-        .route("/v1/models", get(handlers::openai::list_models))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            dual_auth_middleware,
-        ))
         .with_state(state.clone());
 
     // Protected routes (require auth)
@@ -632,7 +608,6 @@ pub fn build(state: AppState) -> Router {
     Router::new()
         .merge(public_routes)
         .merge(metrics_route)
-        .merge(openai_routes)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)

@@ -277,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_creation() {
-        let db = Db::connect_in_memory().await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.unwrap();
 
         let id = db
             .log_audit(
@@ -311,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resource_audit_trail() {
-        let db = Db::connect_in_memory().await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.unwrap();
 
         // Create multiple audit logs for same resource
         db.log_audit(

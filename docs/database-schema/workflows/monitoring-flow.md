@@ -303,7 +303,7 @@ graph LR
 5. **Socket Health**: UDS path accessible
 
 ### Node Health Checks
-1. **Agent Reachable**: HTTP endpoint responding
+1. **Runtime Reachable**: HTTP endpoint responding
 2. **Heartbeat**: Last seen within 120 seconds
 3. **Worker Capacity**: Not over-provisioned
 4. **Resource Availability**: Sufficient CPU/memory/GPU

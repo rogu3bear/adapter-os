@@ -22,7 +22,6 @@ pub mod domain_adapters;
 pub mod federation;
 pub mod git;
 pub mod git_repository;
-pub mod openai;
 pub mod replay;
 
 // Re-export domain adapter handlers

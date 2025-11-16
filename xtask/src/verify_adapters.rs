@@ -1,6 +1,6 @@
-//! Agent verification system
+//! Adapter deliverable verification system
 //!
-//! Validates that all five agents (A-E) delivered their agreed work
+//! Validates that all six adapter deliverables (A-F) delivered their agreed work
 //! with machine-readable PASS/FAIL reports.
 
 use anyhow::Result;
@@ -14,12 +14,14 @@ pub mod agent_b;
 pub mod agent_c;
 pub mod agent_d;
 pub mod agent_e;
+pub mod agent_f;
 pub mod baseline;
 pub mod report;
+pub mod verify_deterministic_exec;
 
 #[derive(Parser, Debug)]
-#[command(name = "verify-agents")]
-#[command(about = "Verify that Agents A-E delivered all agreed work")]
+#[command(name = "verify-adapters")]
+#[command(about = "Verify that adapter deliverables A-F delivered all agreed work")]
 pub struct VerifyAgentsArgs {
     /// Output directory for verification artifacts
     #[arg(long, default_value = "target/verify")]
@@ -180,14 +182,14 @@ impl VerificationReport {
     }
 }
 
-/// Run all agent verification checks
+/// Run all adapter deliverable verification checks
 pub async fn run(args: VerifyAgentsArgs) -> Result<VerificationReport> {
     let mut report = VerificationReport::new();
 
     // Create artifacts directory
     std::fs::create_dir_all(&args.artifacts)?;
 
-    println!("=== AdapterOS Agent Verification ===\n");
+    println!("=== AdapterOS Adapter Verification ===\n");
 
     // Run baseline checks first
     println!("Running baseline checks...");
@@ -209,6 +211,11 @@ pub async fn run(args: VerifyAgentsArgs) -> Result<VerificationReport> {
     let agent_c_section = agent_c::run(&args).await?;
     report.add_section(agent_c_section);
 
+    // Deterministic Execution & Multi-Agent Coordination
+    println!("\nRunning Deterministic Execution verification...");
+    let deterministic_exec_section = verify_deterministic_exec::run(&args).await?;
+    report.add_section(deterministic_exec_section);
+
     // Agent D: UI/UX/Observability
     println!("\nRunning Agent D checks (UI/UX/Observability)...");
     let agent_d_section = agent_d::run(&args).await?;
@@ -218,6 +225,11 @@ pub async fn run(args: VerifyAgentsArgs) -> Result<VerificationReport> {
     println!("\nRunning Agent E checks (Testing/Deployment/Compliance)...");
     let agent_e_section = agent_e::run(&args).await?;
     report.add_section(agent_e_section);
+
+    // Agent F: Adapter Lifecycle & TTL
+    println!("\nRunning Agent F checks (Adapter Lifecycle & TTL)...");
+    let agent_f_section = agent_f::run(&args).await?;
+    report.add_section(agent_f_section);
 
     // Generate reports
     println!("\nGenerating reports...");

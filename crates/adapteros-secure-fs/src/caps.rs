@@ -90,7 +90,7 @@ impl Capabilities {
     /// Set root directory capability
     pub fn set_root_dir(&mut self, path: impl AsRef<StdPath>) -> Result<()> {
         let root_dir = Dir::open_ambient_dir(path, cap_std::ambient_authority())
-            .map_err(|e| AosError::Security(format!("Failed to open root directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to open root directory: {}", e)))?;
 
         self.root_dir = Some(root_dir);
         info!("Set root directory capability");
@@ -206,7 +206,7 @@ impl Capabilities {
                 if let Ok(regex) = regex::Regex::new(&pattern.pattern) {
                     Ok(regex.is_match(text))
                 } else {
-                    Err(AosError::Security(format!(
+                    Err(AosError::Io(format!(
                         "Invalid regex pattern: {}",
                         pattern.pattern
                     )))

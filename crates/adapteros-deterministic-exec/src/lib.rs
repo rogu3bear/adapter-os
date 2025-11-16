@@ -644,10 +644,10 @@ impl DeterministicExecutor {
                         self.event_log.lock().push(event.clone());
 
                         // Record to global ledger if available (use dummy task ID for tick advances)
+                        // Note: record_tick now atomically assigns ticks internally (Issue C-6 fix)
                         if let Some(ref ledger) = self.global_ledger {
                             let dummy_task_id = TaskId::from_bytes([0u8; 32]);
                             let _ = ledger.record_tick(dummy_task_id, &event).await;
-                            let _ = ledger.increment_tick();
                         }
                     }
                 }

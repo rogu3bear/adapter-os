@@ -34,9 +34,6 @@ JWT_SECRET=$(openssl rand -base64 32)
 
 # Logging
 RUST_LOG=info,adapteros=debug
-
-# Optional: OpenAI for patch generation
-OPENAI_API_KEY=sk-your-api-key-here
 ```
 
 ### 2. Build the Project
@@ -153,23 +150,7 @@ let selected = router.route(hidden_states, k=3);
 // Entropy floor prevents single-adapter collapse
 ```
 
-### 2. OpenAI Patch Generation (Optional)
-
-Generate code patches using GPT-4:
-
-```bash
-curl -X POST http://localhost:9443/api/v1/patch/propose \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_id": "owner/repo",
-    "commit_sha": "abc123",
-    "target_files": ["src/main.rs"],
-    "description": "Fix the timeout issue"
-  }'
-```
-
-### 3. Metal-Optimized Kernels
+### 2. Metal-Optimized Kernels
 
 Fused operations for maximum GPU utilization:
 - Embedded `.metallib` blobs (no runtime compilation)
@@ -241,14 +222,6 @@ Make sure the server is running:
 cargo run --release --bin adapteros-server -- --config configs/cp.toml
 ```
 
-### "OpenAI API error: Unauthorized"
-
-Set your API key:
-```bash
-export OPENAI_API_KEY=sk-your-key-here
-# Or add to .env file
-```
-
 ### Compilation Errors
 
 Clean and rebuild:
@@ -300,7 +273,6 @@ cargo test --workspace --jobs 4
 - [x] Input validation enabled on all endpoints
 - [x] Database migrations applied
 - [x] Privilege dropping configured for production
-- [ ] OpenAI API key stored securely (if using)
 - [ ] HTTPS/TLS configured (if exposing publicly)
 - [ ] Rate limiting configured (future)
 - [ ] Audit logging enabled (future)

@@ -7,7 +7,7 @@ This document provides an overview of the comprehensive integration test suite f
 The integration test suite validates end-to-end functionality of key AdapterOS subsystems:
 
 1. **Kernel Workflow Integration** - Real Metal kernel-based workflow execution
-2. **Streaming Inference** - Server-Sent Events (SSE) streaming with OpenAI API compatibility
+2. **Streaming Inference** - Server-Sent Events (SSE) streaming with chat-style responses
 3. **Policy Evidence Compliance** - Evidence policy enforcement and tracking
 
 ---
@@ -60,7 +60,7 @@ cargo test --test kernel_workflow_integration test_kernel_backend_sequential_wor
 
 ### 2. streaming_integration.rs
 
-Tests Server-Sent Events (SSE) streaming inference with OpenAI API compatibility.
+Tests Server-Sent Events (SSE) streaming inference with chat-style responses.
 
 **Location:** `tests/streaming_integration.rs`
 
@@ -78,12 +78,11 @@ Tests Server-Sent Events (SSE) streaming inference with OpenAI API compatibility
 | `test_streaming_concurrent_requests` | Multiple concurrent streams | Concurrency |
 | `test_stream_chunk_serialization_roundtrip` | Serialization/deserialization | Serialization |
 | `test_stream_delta_partial_updates` | Partial StreamDelta updates | Format |
-| `test_streaming_openai_compatibility` | OpenAI API format compliance | Compliance |
+| `test_streaming_chunk_shape_compatibility` | Streaming chunk shape compliance | Compliance |
 
 **Key Features Tested:**
 
 - ✅ SSE format: `data: {json}\n\n`
-- ✅ OpenAI chat completion chunk format
 - ✅ StreamChunk, StreamChoice, StreamDelta structures
 - ✅ [DONE] message termination
 - ✅ Temperature and max_tokens parameters
@@ -91,16 +90,6 @@ Tests Server-Sent Events (SSE) streaming inference with OpenAI API compatibility
 - ✅ Concurrent streaming requests
 - ✅ Error handling for invalid inputs
 - ✅ Serialization roundtrip correctness
-
-**OpenAI API Compatibility:**
-
-All streaming responses match the OpenAI Chat Completions API format:
-
-```json
-data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1234567890,"model":"qwen2.5","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}
-
-data: [DONE]
-```
 
 **Example Usage:**
 
@@ -282,7 +271,6 @@ cargo test --test streaming_integration -- --nocapture --show-output
 - [x] Worker::execute_workflow() integration
 - [x] Arc<Mutex<K>> kernel sharing
 - [x] SSE streaming format
-- [x] OpenAI API compatibility
 - [x] StreamChunk serialization
 - [x] Evidence policy enforcement
 - [x] Quality threshold validation

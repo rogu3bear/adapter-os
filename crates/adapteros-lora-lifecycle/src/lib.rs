@@ -201,6 +201,150 @@ impl LifecycleManager {
         *tracker = ActivationTracker::new(window);
     }
 
+    /// Recover from system crash or unexpected shutdown
+    ///
+    /// Scans for orphaned adapters and inconsistent state, then cleans up:
+    /// 1. Marks adapters stuck in loading state as unloaded
+    /// 2. Verifies GPU buffer integrity (if applicable)
+    /// 3. Reconciles in-memory state with database
+    /// 4. Emits telemetry events for detected issues
+    ///
+    /// Should be called on server startup before handling requests.
+    pub async fn recover_from_crash(&self) -> Result<()> {
+        use chrono::Utc;
+        use tracing::{error, info, warn};
+
+        info!("Starting crash recovery scan...");
+
+        let db = match &self.db {
+            Some(db) => db,
+            None => {
+                warn!("No database connection - skipping crash recovery");
+                return Ok(());
+            }
+        };
+
+        let mut recovery_actions = Vec::new();
+
+        // 1. Find adapters stuck in "loading" state (orphaned from crash)
+        let stale_adapters: Vec<(String, String, String)> = sqlx::query_as(
+            r#"
+            SELECT adapter_id, name, load_state
+            FROM adapters
+            WHERE load_state = 'loading'
+              AND last_loaded_at < datetime('now', '-5 minutes')
+            "#,
+        )
+        .fetch_all(db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
+
+        if !stale_adapters.is_empty() {
+            warn!("Found {} orphaned adapters stuck in loading state", stale_adapters.len());
+
+            for (adapter_id, name, load_state) in stale_adapters {
+                recovery_actions.push(format!(
+                    "Adapter {} ({}) stuck in state '{}' - marking as unloaded",
+                    name, adapter_id, load_state
+                ));
+
+                // Mark as unloaded in database
+                sqlx::query(
+                    "UPDATE adapters SET load_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
+                )
+                .bind(&adapter_id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to update adapter state: {}", e)))?;
+
+                // Emit telemetry event
+                if let Some(ref telemetry) = self.telemetry {
+                    let event = serde_json::json!({
+                        "adapter_id": adapter_id,
+                        "adapter_name": name,
+                        "stuck_state": load_state,
+                        "recovered_at": Utc::now().to_rfc3339(),
+                        "recovery_action": "marked_unloaded"
+                    });
+
+                    if let Err(e) = telemetry.log("adapter_crash_detected", &event) {
+                        error!("Failed to write crash recovery telemetry: {}", e);
+                    }
+                }
+
+                info!("✓ Recovered adapter: {} ({})", name, adapter_id);
+            }
+        }
+
+        // 2. Check for adapters with last_heartbeat too old (if heartbeat column exists)
+        // Note: This will be implemented in Phase 2.1 when heartbeat mechanism is added
+
+        // 3. Verify adapter count consistency
+        let db_adapter_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM adapters")
+            .fetch_one(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count adapters: {}", e)))?;
+
+        let states_count = self.states.read().len();
+        if db_adapter_count as usize != states_count {
+            warn!(
+                "Adapter count mismatch: DB has {}, in-memory has {}",
+                db_adapter_count, states_count
+            );
+            recovery_actions.push(format!(
+                "Count mismatch: {} in DB vs {} in memory (may indicate stale data)",
+                db_adapter_count, states_count
+            ));
+        }
+
+        // 4. Clean up stale activation percentages (reset if needed)
+        let reset_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM adapters WHERE activation_pct > 1.0 OR activation_pct < 0.0",
+        )
+        .fetch_one(db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query invalid activation_pct: {}", e)))?;
+
+        if reset_count > 0 {
+            warn!("Found {} adapters with invalid activation_pct - resetting", reset_count);
+
+            sqlx::query("UPDATE adapters SET activation_pct = 0.0 WHERE activation_pct > 1.0 OR activation_pct < 0.0")
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to reset activation_pct: {}", e)))?;
+
+            recovery_actions.push(format!(
+                "Reset {} adapters with invalid activation percentages",
+                reset_count
+            ));
+        }
+
+        // Summary
+        if recovery_actions.is_empty() {
+            info!("✓ Crash recovery complete - no issues detected");
+        } else {
+            info!("✓ Crash recovery complete - {} actions taken:", recovery_actions.len());
+            for action in &recovery_actions {
+                info!("  - {}", action);
+            }
+
+            // Emit summary telemetry event
+            if let Some(ref telemetry) = self.telemetry {
+                let event = serde_json::json!({
+                    "actions_taken": recovery_actions.len(),
+                    "recovery_actions": recovery_actions,
+                    "completed_at": Utc::now().to_rfc3339()
+                });
+
+                if let Err(e) = telemetry.log("crash_recovery_completed", &event) {
+                    error!("Failed to write crash recovery summary telemetry: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Record router selection results to update activation percentages.
     pub async fn record_router_decision(&self, selected: &[u16]) -> Result<()> {
         let changed = {
@@ -280,50 +424,108 @@ impl LifecycleManager {
     }
 
     /// Pin adapter to resident state
-    pub fn pin_adapter(&self, adapter_id: u16) -> Result<()> {
-        let mut states = self.states.write();
+    ///
+    /// Persists pin to database via `pinned_adapters` table.
+    /// Pinned adapters will not be evicted by TTL or memory pressure.
+    pub async fn pin_adapter(&self, adapter_id: u16, tenant_id: &str, pinned_by: &str, pinned_until: Option<String>, reason: Option<String>) -> Result<()> {
+        let adapter_id_str = {
+            let mut states = self.states.write();
 
-        if let Some(record) = states.get_mut(&adapter_id) {
-            let old_state = record.state;
-            record.pin();
+            if let Some(record) = states.get_mut(&adapter_id) {
+                let old_state = record.state;
+                record.pin();
 
-            info!("Pinned adapter {} to resident state", record.adapter_id);
+                info!("Pinned adapter {} to resident state", record.adapter_id);
 
-            if let Some(ref telemetry) = self.telemetry {
-                telemetry.log(
-                    "adapter_promoted",
-                    AdapterTransitionEvent {
-                        adapter_id: record.adapter_id.clone(),
-                        from_state: old_state.to_string(),
-                        to_state: AdapterState::Resident.to_string(),
-                        reason: "manual_pin".to_string(),
-                    },
-                )?;
+                if let Some(ref telemetry) = self.telemetry {
+                    telemetry.log(
+                        "adapter_promoted",
+                        AdapterTransitionEvent {
+                            adapter_id: record.adapter_id.clone(),
+                            from_state: old_state.to_string(),
+                            to_state: AdapterState::Resident.to_string(),
+                            reason: "manual_pin".to_string(),
+                        },
+                    )?;
+                }
+
+                record.adapter_id.clone()
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
             }
+        };
 
-            Ok(())
-        } else {
-            Err(AosError::Lifecycle(format!(
-                "Adapter {} not found",
-                adapter_id
-            )))
+        // Persist pin to database (single source of truth)
+        if let Some(ref db) = self.db {
+            // Use tenant_id:adapter_id as stable pin ID
+            let pin_id = format!("{}:{}", tenant_id, adapter_id_str);
+            let pinned_until_sql = pinned_until.as_deref();
+            let reason_sql = reason.as_deref();
+
+            sqlx::query(
+                r#"
+                INSERT INTO pinned_adapters (id, tenant_id, adapter_id, pinned_until, reason, pinned_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, adapter_id) DO UPDATE SET
+                    pinned_until = excluded.pinned_until,
+                    reason = excluded.reason,
+                    pinned_by = excluded.pinned_by,
+                    updated_at = datetime('now')
+                "#
+            )
+            .bind(&pin_id)
+            .bind(tenant_id)
+            .bind(&adapter_id_str)
+            .bind(pinned_until_sql)
+            .bind(reason_sql)
+            .bind(pinned_by)
+            .execute(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to persist adapter pin: {}", e)))?;
+
+            info!("✓ Persisted pin for adapter {} to database", adapter_id_str);
         }
+
+        Ok(())
     }
 
     /// Unpin adapter
-    pub fn unpin_adapter(&self, adapter_id: u16) -> Result<()> {
-        let mut states = self.states.write();
+    ///
+    /// Removes pin from database. Adapter becomes eligible for eviction again.
+    pub async fn unpin_adapter(&self, adapter_id: u16, tenant_id: &str) -> Result<()> {
+        let adapter_id_str = {
+            let mut states = self.states.write();
 
-        if let Some(record) = states.get_mut(&adapter_id) {
-            record.unpin();
-            info!("Unpinned adapter {}", record.adapter_id);
-            Ok(())
-        } else {
-            Err(AosError::Lifecycle(format!(
-                "Adapter {} not found",
-                adapter_id
-            )))
+            if let Some(record) = states.get_mut(&adapter_id) {
+                record.unpin();
+                info!("Unpinned adapter {}", record.adapter_id);
+                record.adapter_id.clone()
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
+            }
+        };
+
+        // Remove pin from database (single source of truth)
+        if let Some(ref db) = self.db {
+            sqlx::query(
+                "DELETE FROM pinned_adapters WHERE tenant_id = ? AND adapter_id = ?"
+            )
+            .bind(tenant_id)
+            .bind(&adapter_id_str)
+            .execute(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to remove adapter pin: {}", e)))?;
+
+            info!("✓ Removed pin for adapter {} from database", adapter_id_str);
         }
+
+        Ok(())
     }
 
     /// Manually promote an adapter
@@ -859,8 +1061,35 @@ impl LifecycleManager {
     }
 
     /// Check memory pressure and evict adapters if needed
+    ///
+    /// Citation: Agent G Stability Reinforcement Plan - Patch 2.2
+    /// Enhanced to prioritize eviction of expired adapters
     pub async fn check_memory_pressure(&self, total_memory: usize, threshold: f32) -> Result<()> {
         let memory_pressure = self.get_total_memory_usage() as f32 / total_memory as f32;
+
+        // First, check for and evict expired adapters regardless of memory pressure
+        // This ensures expired adapters don't linger in memory
+        if let Some(ref db) = self.db {
+            if let Ok(expired_adapters) = db.find_expired_adapters().await {
+                if !expired_adapters.is_empty() {
+                    info!(
+                        count = expired_adapters.len(),
+                        "Found expired adapters during memory check, evicting immediately"
+                    );
+
+                    for expired in &expired_adapters {
+                        if let Some(adapter_id) = self.get_adapter_id_by_name(&expired.name) {
+                            info!(
+                                adapter_id = %expired.name,
+                                expired_at = ?expired.expires_at,
+                                "Evicting expired adapter"
+                            );
+                            let _ = self.evict_adapter(adapter_id).await;
+                        }
+                    }
+                }
+            }
+        }
 
         if memory_pressure > threshold {
             info!(
@@ -1247,6 +1476,127 @@ impl LifecycleManager {
             );
         }
         Ok(())
+    }
+
+    /// Update heartbeat for an adapter
+    ///
+    /// Updates last_heartbeat timestamp in database to indicate adapter is alive
+    pub async fn heartbeat_adapter(&self, adapter_id: &str) -> Result<()> {
+        if let Some(ref db) = self.db {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| AosError::Internal(format!("System time error: {}", e)))?
+                .as_secs() as i64;
+
+            sqlx::query(
+                "UPDATE adapters SET last_heartbeat = ? WHERE id = ?"
+            )
+            .bind(now)
+            .bind(adapter_id)
+            .execute(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update heartbeat: {}", e)))?;
+
+            tracing::trace!(adapter_id = %adapter_id, timestamp = now, "Updated adapter heartbeat");
+        }
+        Ok(())
+    }
+
+    /// Check for stale adapters (no heartbeat in threshold seconds)
+    ///
+    /// Returns list of adapter IDs that haven't sent heartbeat recently
+    pub async fn check_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
+        if let Some(ref db) = self.db {
+            let cutoff = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| AosError::Internal(format!("System time error: {}", e)))?
+                .as_secs() as i64
+                - threshold_seconds;
+
+            let stale: Vec<(String,)> = sqlx::query_as(
+                "SELECT id FROM adapters
+                 WHERE last_heartbeat IS NOT NULL
+                   AND last_heartbeat < ?
+                   AND load_state != 'unloaded'"
+            )
+            .bind(cutoff)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
+
+            let stale_ids: Vec<String> = stale.into_iter().map(|(id,)| id).collect();
+
+            if !stale_ids.is_empty() {
+                tracing::warn!(count = stale_ids.len(), threshold_seconds, "Detected stale adapters");
+            }
+
+            return Ok(stale_ids);
+        }
+        Ok(vec![])
+    }
+
+    /// Auto-recover stale adapters by resetting their state
+    ///
+    /// Called periodically to detect and recover adapters that stopped sending heartbeats
+    pub async fn recover_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
+        let stale_ids = self.check_stale_adapters(threshold_seconds).await?;
+        let mut recovered = Vec::new();
+
+        // Emit telemetry event for stale detection
+        if !stale_ids.is_empty() {
+            if let Some(ref telemetry) = self.telemetry {
+                let event = serde_json::json!({
+                    "event_type": "heartbeat_stale_detected",
+                    "stale_count": stale_ids.len(),
+                    "threshold_seconds": threshold_seconds,
+                    "adapter_ids": stale_ids,
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                });
+                if let Err(e) = telemetry.log("heartbeat_stale_detected", &event) {
+                    tracing::error!("Failed to write stale detection telemetry: {}", e);
+                }
+            }
+        }
+
+        for adapter_id in stale_ids {
+            // Reset state to unloaded for stale adapters
+            if let Some(ref db) = self.db {
+                sqlx::query(
+                    "UPDATE adapters
+                     SET load_state = 'unloaded', last_heartbeat = NULL
+                     WHERE id = ?"
+                )
+                .bind(&adapter_id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
+
+                tracing::info!(adapter_id = %adapter_id, "Recovered stale adapter");
+
+                // Emit telemetry event for each recovery
+                if let Some(ref telemetry) = self.telemetry {
+                    let event = serde_json::json!({
+                        "event_type": "heartbeat_recovery",
+                        "adapter_id": adapter_id,
+                        "threshold_seconds": threshold_seconds,
+                        "timestamp": std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0),
+                    });
+                    if let Err(e) = telemetry.log("heartbeat_recovery", &event) {
+                        tracing::error!("Failed to write heartbeat recovery telemetry: {}", e);
+                    }
+                }
+
+                recovered.push(adapter_id);
+            }
+        }
+
+        Ok(recovered)
     }
 }
 

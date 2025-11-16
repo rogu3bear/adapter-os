@@ -297,6 +297,27 @@ Examples:
     },
 
     // ============================================================
+    // System Status
+    // ============================================================
+    /// Show system status (adapters, cluster, tick, memory)
+    #[command(subcommand)]
+    Status(commands::status::StatusCommand),
+
+    // ============================================================
+    // Maintenance
+    // ============================================================
+    /// Maintenance operations (GC, sweeps, etc.)
+    #[command(subcommand)]
+    Maintenance(commands::maintenance::MaintenanceCommand),
+
+    // ============================================================
+    // Deployment
+    // ============================================================
+    /// Deployment workflows (adapters, etc.)
+    #[command(subcommand)]
+    Deploy(commands::deploy::DeployCommand),
+
+    // ============================================================
     // Registry Management
     // ============================================================
     /// Sync adapters from local directory to registry
@@ -324,6 +345,17 @@ Examples:
         #[arg(long, default_value = "./var/registry.db")]
         registry: PathBuf,
     },
+
+    /// Migrate legacy registry database into new schema
+    #[command(after_help = "\
+Examples:
+  # Migrate from deprecated/registry.db to var/registry.db
+  aosctl registry migrate
+
+  # Explicit paths with dry run
+  aosctl registry migrate --from-db deprecated/registry.db --to-db var/registry.db --dry-run
+")]
+    RegistryMigrate(commands::registry_migrate::RegistryMigrateArgs),
 
     // ============================================================
     // Plan Management
@@ -564,6 +596,28 @@ Examples:
         /// Bundle path
         bundle: PathBuf,
     },
+
+    /// Verify adapter deliverables (A–F)
+    #[command(after_help = "\
+Examples:
+  # Run full adapter verification
+  aosctl verify-adapters
+
+  # JSON summary for CI
+  aosctl --json verify-adapters
+")]
+    VerifyAdapters,
+
+    /// Verify determinism loop (dev-only; delegates to cargo xtask)
+    #[command(name = "verify-determinism-loop")]
+    #[command(after_help = "\
+Examples:
+  # Generate determinism report via xtask
+  aosctl verify-determinism-loop
+
+  # In CI, prefer this over calling `cargo xtask determinism-report` directly
+")]
+    VerifyDeterminismLoop,
 
     // ============================================================
     // Policy Management
@@ -1277,6 +1331,21 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             node_sync::run(sync_mode).await?;
         }
 
+        // Deployment
+        Commands::Deploy(cmd) => {
+            commands::deploy::run(cmd.clone(), &output).await?;
+        }
+
+        // System Status
+        Commands::Status(cmd) => {
+            commands::status::run(cmd.clone(), &output).await?;
+        }
+
+        // Maintenance
+        Commands::Maintenance(cmd) => {
+            commands::maintenance::run(cmd.clone(), &output).await?;
+        }
+
         // Registry Management
         Commands::RegistrySync {
             dir,
@@ -1284,6 +1353,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             registry,
         } => {
             sync_registry::sync_registry(&dir, &cas_root, &registry, &output).await?;
+        }
+        Commands::RegistryMigrate(args) => {
+            commands::registry_migrate::run(args.clone(), &output).await?;
         }
 
         // Plan Management
@@ -1378,6 +1450,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
         Commands::Verify { bundle } => {
             verify::run(&bundle, &output).await?;
+        }
+        Commands::VerifyDeterminismLoop => {
+            let exit_code = verify_determinism_loop::run(&output).await?;
+            std::process::exit(exit_code);
+        }
+        Commands::VerifyAdapters => {
+            let exit_code = commands::verify_adapters::run(&output).await?;
+            std::process::exit(exit_code);
         }
 
         // Policy Management
@@ -1555,6 +1635,9 @@ fn get_command_name(command: &Commands) -> String {
         Commands::NodeList { .. } => "node-list",
         Commands::NodeVerify { .. } => "node-verify",
         Commands::NodeSync { .. } => "node-sync",
+        Commands::Status { .. } => "status",
+        Commands::Maintenance { .. } => "maintenance",
+        Commands::Deploy { .. } => "deploy",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::TelemetryVerify { .. } => "verify-telemetry",
@@ -1566,6 +1649,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::SecdAudit { .. } => "secd-audit",
         Commands::Import { .. } => "import",
         Commands::Verify { .. } => "verify",
+        Commands::VerifyAdapters { .. } => "verify-adapters",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
@@ -1575,6 +1659,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Golden(_) => "golden",
         Commands::Router(_) => "router",
         Commands::RegistrySync { .. } => "registry-sync",
+        Commands::RegistryMigrate { .. } => "registry-migrate",
         Commands::Report { .. } => "report",
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",

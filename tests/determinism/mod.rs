@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
-=======
->>>>>>> integration-branch
 //! Comprehensive determinism verification tests for AdapterOS
 //!
 //! This module provides specialized verification utilities and tests for:

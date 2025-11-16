@@ -103,10 +103,15 @@ impl SystemMetricsDb {
                 memory_usage: row.memory_usage,
                 disk_read_bytes: row.disk_read_bytes,
                 disk_write_bytes: row.disk_write_bytes,
+                disk_usage_percent: 0.0, // Not stored in DB yet, TODO: add to schema
                 network_rx_bytes: row.network_rx_bytes,
                 network_tx_bytes: row.network_tx_bytes,
+                network_rx_packets: 0, // Not stored in DB yet, TODO: add to schema
+                network_tx_packets: 0, // Not stored in DB yet, TODO: add to schema
+                network_bandwidth_mbps: 0.0, // Not stored in DB yet, TODO: add to schema
                 gpu_utilization: row.gpu_utilization,
                 gpu_memory_used: row.gpu_memory_used,
+                gpu_memory_total: None, // Not stored in DB yet, TODO: add to schema
                 uptime_seconds: row.uptime_seconds,
                 process_count: row.process_count as i32,
                 load_1min: row.load_1min,

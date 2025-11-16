@@ -305,10 +305,10 @@ pub async fn file_changes_stream(
 
                 // Convert to SSE event
                 let data = FileChangeEvent {
-                    file_path: event.file_path.to_string_lossy().to_string(),
-                    change_type: event.change_type.to_string(),
-                    adapter_id: event.adapter_id,
-                    timestamp: event.timestamp.to_rfc3339(),
+                    file_path: event.file_path.clone(),
+                    change_type: event.change_type.clone(),
+                    adapter_id: event.adapter_id.clone(),
+                    timestamp: event.timestamp.clone(),
                 };
 
                 match serde_json::to_string(&data) {
