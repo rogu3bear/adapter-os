@@ -399,9 +399,13 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Run migrations (temporarily disabled for demo)
-    info!("Skipping database migrations for demo");
-    // db.migrate().await?;
+    // Run migrations with Ed25519 signature verification
+    info!("Running database migrations...");
+    db.migrate().await?;
+
+    // Recover from any previous crash (orphaned adapters, stale state)
+    info!("Running crash recovery checks...");
+    db.recover_from_crash().await?;
 
     // Seed development data
     if let Err(e) = db.seed_dev_data().await {
@@ -700,6 +704,94 @@ async fn main() -> Result<()> {
             }
         });
         info!("Status writer started (5s interval)");
+    }
+
+    // Spawn TTL cleanup background task
+    // Citation: Agent G Stability Reinforcement Plan - Patch 2.1
+    {
+        let db_clone = db.clone();
+        let _ = spawn_deterministic("TTL cleanup".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            loop {
+                interval.tick().await;
+
+                // Find and clean up expired adapters
+                match db_clone.find_expired_adapters().await {
+                    Ok(expired) => {
+                        if !expired.is_empty() {
+                            info!(
+                                count = expired.len(),
+                                "Found expired adapters, cleaning up"
+                            );
+
+                            for adapter in expired {
+                                info!(
+                                    adapter_id = %adapter.adapter_id,
+                                    name = %adapter.name,
+                                    expired_at = ?adapter.expires_at,
+                                    "Deleting expired adapter"
+                                );
+
+                                // Delete the expired adapter
+                                if let Err(e) = db_clone.delete_adapter(&adapter.id).await {
+                                    warn!(
+                                        adapter_id = %adapter.adapter_id,
+                                        error = %e,
+                                        "Failed to delete expired adapter"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Failed to query for expired adapters"
+                        );
+                    }
+                }
+
+                // Also cleanup expired pins from pinned_adapters table
+                if let Err(e) = db_clone.cleanup_expired_pins().await {
+                    warn!(
+                        error = %e,
+                        "Failed to cleanup expired pins"
+                    );
+                }
+            }
+        });
+        info!("TTL cleanup task started (5 minute interval)");
+    }
+
+    // Spawn heartbeat recovery background task
+    // Citation: Agent G Stability Reinforcement Plan - Phase 2 Heartbeat Mechanism
+    {
+        let db_clone = db.clone();
+        let _ = spawn_deterministic("Heartbeat recovery".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            loop {
+                interval.tick().await;
+
+                // Recover adapters that haven't sent heartbeat in 5 minutes
+                match db_clone.recover_stale_adapters(300).await {
+                    Ok(recovered) => {
+                        if !recovered.is_empty() {
+                            info!(
+                                count = recovered.len(),
+                                "Recovered stale adapters via heartbeat check"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Failed to recover stale adapters"
+                        );
+                    }
+                }
+            }
+        });
+        info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
     }
 
     // Build router with UI

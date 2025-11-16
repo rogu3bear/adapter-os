@@ -1,12 +1,130 @@
-//! Verify bundle
+//! Verification commands
 
 use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
 use adapteros_core::B3Hash;
 use anyhow::{Context, Result};
+use clap::Subcommand;
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum VerifyCommand {
+    /// Verify artifact bundle signature and hashes
+    #[command(after_help = r#"Examples:
+  # Verify artifact bundle
+  aosctl verify bundle artifacts/adapters.zip
+"#)]
+    Bundle {
+        /// Bundle path
+        bundle: PathBuf,
+    },
+
+    /// Verify a packaged adapter directory
+    #[command(after_help = r#"Examples:
+  # Verify packaged adapter
+  aosctl verify adapter --adapters-root ./adapters --adapter-id demo_adapter
+
+  # JSON output
+  aosctl verify adapter --adapters-root ./adapters --adapter-id demo_adapter --json
+"#)]
+    Adapter {
+        /// Adapters root directory
+        #[arg(long, default_value = "./adapters")]
+        adapters_root: PathBuf,
+
+        /// Adapter ID to verify
+        #[arg(long)]
+        adapter_id: String,
+    },
+
+    /// Verify adapter deliverables (A–F)
+    #[command(after_help = r#"Examples:
+  # Run full adapter verification
+  aosctl verify adapters
+
+  # JSON summary for CI
+  aosctl --json verify adapters
+"#)]
+    Adapters,
+
+    /// Verify determinism loop (dev-only; delegates to cargo xtask)
+    #[command(after_help = r#"Examples:
+  # Generate determinism report via xtask
+  aosctl verify determinism-loop
+
+  # In CI, prefer this over calling `cargo xtask determinism-report` directly
+"#)]
+    DeterminismLoop,
+
+    /// Verify telemetry bundle chain
+    #[command(after_help = r#"Examples:
+  # Verify telemetry bundles
+  aosctl verify telemetry --bundle-dir ./var/telemetry
+
+  # JSON output
+  aosctl verify telemetry --bundle-dir ./var/telemetry --json
+"#)]
+    Telemetry {
+        /// Telemetry bundle directory
+        #[arg(short, long)]
+        bundle_dir: PathBuf,
+    },
+
+    /// Verify cross-host federation signatures
+    #[command(after_help = r#"Examples:
+  # Verify federation signatures
+  aosctl verify federation --bundle-dir ./var/telemetry
+
+  # Custom database path
+  aosctl verify federation --bundle-dir ./var/telemetry --database ./var/cp.db
+"#)]
+    Federation {
+        /// Telemetry bundle directory
+        #[arg(short, long)]
+        bundle_dir: PathBuf,
+
+        /// Database path
+        #[arg(long, default_value = "./var/cp.db")]
+        database: PathBuf,
+    },
+}
+
+/// Handle verify commands
+pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) -> Result<()> {
+    match cmd {
+        VerifyCommand::Bundle { bundle } => run_bundle(&bundle, output).await,
+        VerifyCommand::Adapter {
+            adapters_root,
+            adapter_id,
+        } => {
+            use crate::commands::verify_adapter;
+            verify_adapter::run(adapters_root, adapter_id, output).await
+        }
+        VerifyCommand::Adapters => {
+            use crate::commands::verify_adapters;
+            verify_adapters::run(output).await?;
+            Ok(())
+        }
+        VerifyCommand::DeterminismLoop => {
+            use crate::commands::verify_determinism_loop;
+            verify_determinism_loop::run(output).await?;
+            Ok(())
+        }
+        VerifyCommand::Telemetry { bundle_dir } => {
+            use crate::commands::verify_telemetry;
+            verify_telemetry::verify_telemetry_chain(&bundle_dir, output).await
+        }
+        VerifyCommand::Federation {
+            bundle_dir,
+            database,
+        } => {
+            use crate::commands::verify_federation;
+            verify_federation::run(&bundle_dir, &database, output).await
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct VerificationResult {
@@ -17,7 +135,8 @@ struct VerificationResult {
     bundle_hash: String,
 }
 
-pub async fn run(bundle_path: &Path, output: &OutputWriter) -> Result<()> {
+/// Verify a bundle (internal implementation)
+async fn run_bundle(bundle_path: &Path, output: &OutputWriter) -> Result<()> {
     output.info(format!("Verifying bundle: {}", bundle_path.display()));
 
     // Create temporary directory for extraction

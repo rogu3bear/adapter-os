@@ -455,9 +455,7 @@ fn draw_setup_prompt(f: &mut Frame, app: &App) {
     lines.push(Line::from("Shortcuts:"));
     lines.push(Line::from("  - 'b' - bootstrap all services"));
     lines.push(Line::from("  - 'q' - quit TUI after starting services"));
-    lines.push(Line::from(
-        "  - ./scripts/service-manager.sh status - inspect from shell",
-    ));
+    lines.push(Line::from("  - aos status --json - inspect from shell"));
 
     if let Some(action) = &setup.last_action {
         lines.push(Line::from(""));

@@ -10,7 +10,7 @@ The MVP includes:
 
 1. **Core Inference** - Run inference with base model (Qwen 2.5 7B)
 2. **LoRA Routing** - Load and route K-sparse LoRA adapters
-3. **Server API** - REST API for inference requests (OpenAI-compatible)
+3. **Server API** - REST API for inference requests
 4. **Adapter Registry** - Database-backed adapter management
 5. **Basic Policy** - Core policy enforcement (determinism, egress)
 6. **CLI** - Basic commands for model/adapter management
@@ -144,4 +144,3 @@ For issues or questions:
 
 **Last Updated:** 2025-01-15  
 **MVP Status:** Core functionality ready, server fixes in progress
-

@@ -1,7 +1,7 @@
 //! Server-Sent Events (SSE) streaming for real-time inference
 //!
-//! Provides token-by-token streaming responses for chat completions and text generation.
-//! Compatible with OpenAI-style streaming API format.
+//! Provides token-by-token streaming responses for chat completions and text generation
+//! using a chat-style chunked response format.
 
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::FusedKernels;
@@ -65,7 +65,7 @@ fn default_stream() -> bool {
     true
 }
 
-/// Streaming response chunk (OpenAI-compatible format)
+/// Streaming response chunk
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamingChunk {
     /// Unique identifier for the completion
@@ -105,13 +105,13 @@ pub struct Delta {
     pub content: Option<String>,
 }
 
-/// OpenAI-compatible error response for streaming
+/// Error response for streaming
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamErrorResponse {
     pub error: StreamErrorDetail,
 }
 
-/// Error detail in OpenAI format
+/// Error detail for streaming errors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamErrorDetail {
     pub message: String,
@@ -212,7 +212,7 @@ pub async fn streaming_inference_handler<K: FusedKernels + Send + Sync + 'static
             }
             StreamEvent::Error(error) => {
                 warn!("Streaming error event: {}", error);
-                // Send OpenAI-compatible error format
+                // Send structured streaming error
                 let error_response = StreamErrorResponse {
                     error: StreamErrorDetail {
                         message: error.clone(),
@@ -400,7 +400,7 @@ pub async fn completion_handler<K: FusedKernels + Send + Sync>(
         return Err(ApiError::WorkerError("No text generated".to_string()));
     };
 
-    // Build OpenAI-compatible response
+    // Build streaming response
     // Note: We don't have exact token counts from Worker, use estimates
     let prompt_token_count = request.prompt.split_whitespace().count();
     let completion_token_count = output_text.split_whitespace().count();

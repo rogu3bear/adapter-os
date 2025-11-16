@@ -1,7 +1,3 @@
 [main]
 db_type = "Sqlite"
-<<<<<<< HEAD
-path = "./registry.db"
-=======
 path = "var/aos.db"
->>>>>>> integration-branch

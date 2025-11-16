@@ -168,6 +168,9 @@ pub mod actions {
     // Domain adapter actions
     pub const DOMAIN_ADAPTER_CREATE: &str = "adapter.domain.create";
     pub const DOMAIN_ADAPTER_DELETE: &str = "adapter.domain.delete";
+
+    // SSE authentication actions
+    pub const SSE_AUTHENTICATION: &str = "sse.authenticate";
     pub const DOMAIN_ADAPTER_LOAD: &str = "adapter.domain.load";
     pub const DOMAIN_ADAPTER_UNLOAD: &str = "adapter.domain.unload";
     pub const DOMAIN_ADAPTER_EXECUTE: &str = "adapter.domain.execute";
@@ -231,4 +234,5 @@ pub mod resources {
     pub const PLAN: &str = "plan";
     pub const PROMOTION: &str = "promotion";
     pub const TELEMETRY_BUNDLE: &str = "telemetry_bundle";
+    pub const STREAM_ENDPOINT: &str = "stream_endpoint";
 }

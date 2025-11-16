@@ -70,10 +70,10 @@ determinism-report: ## Generate determinism report
 	cargo xtask determinism-report
 
 verify-artifacts: ## Verify and sign artifacts
-	./scripts/verify_artifacts.sh
+	cargo xtask verify-artifacts
 
 openapi-docs: ## Generate OpenAPI documentation
-	./scripts/generate_openapi_simple.sh
+	cargo xtask openapi-docs
 
 validate-openapi: ## Validate OpenAPI documentation
 	./scripts/validate_openapi_docs.sh

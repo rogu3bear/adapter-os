@@ -4,7 +4,7 @@
 //! repositories registered in the control plane database.
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::{git_repositories::GitRepository, Database};
+use adapteros_db::{git_repositories::GitRepository, Db};
 use chrono::{DateTime, Duration, Utc};
 use git2::{BranchType, DiffFormat, Oid};
 use serde::{Deserialize, Serialize};
@@ -67,7 +67,7 @@ pub struct GitBranchInfo {
 /// Git subsystem manager
 pub struct GitSubsystem {
     enabled: bool,
-    db: Database,
+    db: Db,
     branch_manager: BranchManager,
 }
 
@@ -81,9 +81,9 @@ impl std::fmt::Debug for GitSubsystem {
 
 impl GitSubsystem {
     /// Construct a new Git subsystem from config and a database handle.
-    pub async fn new(cfg: GitConfig, db: Database) -> Result<Self> {
+    pub async fn new(cfg: GitConfig, db: Db) -> Result<Self> {
         let branch_manager =
-            BranchManager::new(db.clone().into_inner(), BranchManagerConfig::default()).await?;
+            BranchManager::new(db.clone(), BranchManagerConfig::default()).await?;
 
         Ok(Self {
             enabled: cfg.enabled,
@@ -254,10 +254,11 @@ impl GitSubsystem {
         let repositories = self.db.list_git_repositories().await.unwrap_or_default();
         let repositories_tracked = repositories.len() as u32;
 
-        // Find the most recent last_scan timestamp across all repositories
+        // Find the most recent created_at timestamp across all repositories
+        // TODO: Add last_scan field to GitRepository schema if needed
         let last_scan = repositories
             .iter()
-            .filter_map(|repo| repo.last_scan.as_ref())
+            .map(|repo| &repo.created_at)
             .max()
             .cloned();
 

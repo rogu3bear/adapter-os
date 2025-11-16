@@ -1281,17 +1281,17 @@ export interface ModelValidationResponse {
   download_commands?: string[];
 }
 
-// OpenAI-compatible models list (used by ModelSelector)
-export interface OpenAIModelInfo {
+// Models list for ModelSelector
+export interface CursorModelInfo {
   id: string;
   object: string; // usually 'model'
   created: number;
   owned_by: string;
 }
 
-export interface OpenAIModelsListResponse {
+export interface CursorModelsListResponse {
   object: string; // 'list'
-  data: OpenAIModelInfo[];
+  data: CursorModelInfo[];
 }
 
 export interface CursorConfigResponse {

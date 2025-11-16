@@ -33,6 +33,7 @@ blake3 = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+ed25519-dalek = { version = "2.1", features = ["pkcs8"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

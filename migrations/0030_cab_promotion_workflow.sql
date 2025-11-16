@@ -67,8 +67,3 @@ CREATE TABLE IF NOT EXISTS quality_gate_results (
 
 CREATE INDEX IF NOT EXISTS idx_quality_gate_cpid ON quality_gate_results(cpid);
 CREATE INDEX IF NOT EXISTS idx_quality_gate_run_at ON quality_gate_results(run_at DESC);
-
-<<<<<<< HEAD
-=======
-
->>>>>>> integration-branch

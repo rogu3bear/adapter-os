@@ -141,9 +141,7 @@ Verdict: Grounded.
 ```91:99:docs/CURSOR_INTEGRATION_GUIDE.md
 ### Base-only (no adapters)
 - Ensure the control plane is running: API at `http://127.0.0.1:8080/api`
-- Cursor can target the OpenAI-compatible endpoints:
-  - List models: `GET /api/v1/models`
-  - Chat: `POST /api/v1/chat/completions` with model `adapteros-qwen2.5-7b`
+- Cursor can target the AdapterOS inference endpoints (note: `/api/v1/models` and `/api/v1/chat/completions` have been removed in this build).
 ```
 
 Verdict: Grounded.
@@ -158,5 +156,4 @@ Verdict: Grounded.
 
 ## Result
 Audit Passed.
-
 

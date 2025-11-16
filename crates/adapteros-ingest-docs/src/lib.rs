@@ -5,16 +5,11 @@
 //! training examples.
 
 mod chunker;
-<<<<<<< HEAD
-mod markdown;
-mod pdf;
-=======
 pub mod embeddings;
 mod markdown;
 mod pdf;
 pub mod rag_integration;
 pub mod training_gen;
->>>>>>> integration-branch
 pub mod types;
 mod utils;
 
@@ -24,8 +19,6 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 
 pub use chunker::{ChunkingOptions, DocumentChunker};
-<<<<<<< HEAD
-=======
 pub use embeddings::{
     EmbeddingModel, ProductionEmbeddingModel, SimpleEmbeddingModel, EMBEDDING_DIMENSION,
 };
@@ -36,7 +29,6 @@ pub use training_gen::{
     generate_training_data, generate_training_data_from_documents, TrainingData, TrainingExample,
     TrainingGenConfig, TrainingStrategy,
 };
->>>>>>> integration-branch
 pub use types::{DocumentChunk, DocumentSource, IngestedDocument};
 
 /// High level entrypoint for document ingestion.

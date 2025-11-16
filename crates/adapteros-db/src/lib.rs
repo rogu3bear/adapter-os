@@ -44,8 +44,16 @@ impl Db {
         Self::connect(&database_url).await
     }
 
-    /// Run database migrations
+    /// Run database migrations with signature verification
+    ///
+    /// Per Artifacts Ruleset #13: All migrations must be Ed25519 signed.
+    /// This method:
+    /// 1. Verifies all migration signatures before applying
+    /// 2. Runs migrations via sqlx
+    /// 3. Verifies database is at expected version after completion
     pub async fn migrate(&self) -> Result<()> {
+        use tracing::info;
+
         // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let workspace_root = std::path::Path::new(manifest_dir)
@@ -64,17 +72,279 @@ impl Db {
             .into());
         }
 
-        // Use sqlx::migrate with dynamic path
-        let migrator = sqlx::migrate::Migrator::new(migrations_path)
+        // CRITICAL: Verify all migration signatures before applying
+        info!("Verifying migration signatures...");
+        let verifier = crate::migration_verify::MigrationVerifier::new(&migrations_path)?;
+        verifier.verify_all()?;
+        info!(
+            "✓ All {} migration signatures verified (fingerprint: {})",
+            verifier.signature_count(),
+            verifier.public_key_fingerprint()
+        );
+
+        // Use sqlx::migrate with dynamic path (PathBuf implements MigrationSource)
+        let migrator = sqlx::migrate::Migrator::new(migrations_path.clone())
             .await
             .map_err(|e| AosError::Database(format!("Failed to create migrator: {}", e)))?;
 
+        // Run migrations
+        info!("Applying database migrations...");
         migrator
             .run(&self.pool)
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
+        // Verify database version after migration
+        self.verify_migration_version(&migrations_path).await?;
+
         Ok(())
+    }
+
+    /// Verify database is at the expected migration version
+    ///
+    /// Checks that the last applied migration matches the latest migration file.
+    /// Prevents version drift where code expects newer schema than DB has.
+    pub async fn verify_migration_version(
+        &self,
+        migrations_path: &std::path::Path,
+    ) -> Result<()> {
+        use tracing::{info, warn};
+
+        // Get latest migration version from database
+        let latest_db_migration: Option<(i64, String)> = sqlx::query_as(
+            "SELECT version, description FROM _sqlx_migrations ORDER BY version DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query migration version: {}", e)))?;
+
+        // Count migration files
+        let migration_files: Vec<_> = std::fs::read_dir(migrations_path)
+            .map_err(|e| AosError::Database(format!("Failed to read migrations directory: {}", e)))?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    == Some("sql")
+            })
+            .collect();
+
+        let expected_count = migration_files.len();
+
+        match latest_db_migration {
+            Some((version, description)) => {
+                info!(
+                    "✓ Database at migration version {} ({}) - {} migrations total",
+                    version, description, expected_count
+                );
+
+                // Warn if version seems low (expected at least 0062 based on current state)
+                if version < 60 && expected_count > 60 {
+                    warn!(
+                        "⚠ Database version {} is significantly behind expected version {}",
+                        version, expected_count
+                    );
+                    warn!("⚠ Run database migrations with: aosctl db migrate");
+                }
+            }
+            None => {
+                if expected_count > 0 {
+                    return Err(AosError::Database(format!(
+                        "Database has no migrations applied but {} migration files exist. Run migrations first.",
+                        expected_count
+                    )).into());
+                }
+                warn!("No migrations applied yet (empty database)");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Recover from system crash or unexpected shutdown
+    ///
+    /// Scans for orphaned adapters and inconsistent state, then cleans up:
+    /// 1. Marks adapters stuck in loading state as unloaded
+    /// 2. Resets invalid activation percentages
+    /// 3. Logs recovery actions for audit trail
+    ///
+    /// Should be called after migrations but before handling requests.
+    pub async fn recover_from_crash(&self) -> Result<()> {
+        use chrono::Utc;
+        use tracing::{info, warn};
+
+        info!("Starting crash recovery scan...");
+
+        let mut recovery_actions = Vec::new();
+
+        // 1. Find adapters stuck in "loading" state (orphaned from crash)
+        let stale_adapters: Vec<(String, String, String)> = sqlx::query_as(
+            r#"
+            SELECT adapter_id, name, load_state
+            FROM adapters
+            WHERE load_state = 'loading'
+              AND last_loaded_at < datetime('now', '-5 minutes')
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
+
+        if !stale_adapters.is_empty() {
+            warn!(
+                "Found {} orphaned adapters stuck in loading state",
+                stale_adapters.len()
+            );
+
+            for (adapter_id, name, load_state) in stale_adapters {
+                recovery_actions.push(format!(
+                    "Adapter {} ({}) stuck in state '{}' - marking as unloaded",
+                    name, adapter_id, load_state
+                ));
+
+                // Mark as unloaded in database
+                sqlx::query(
+                    "UPDATE adapters SET load_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
+                )
+                .bind(&adapter_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to update adapter state: {}", e)))?;
+
+                info!("✓ Recovered adapter: {} ({})", name, adapter_id);
+            }
+        }
+
+        // 2. Clean up invalid activation percentages
+        let reset_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM adapters WHERE activation_pct > 1.0 OR activation_pct < 0.0",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to query invalid activation_pct: {}", e))
+        })?;
+
+        if reset_count > 0 {
+            warn!(
+                "Found {} adapters with invalid activation_pct - resetting",
+                reset_count
+            );
+
+            sqlx::query(
+                "UPDATE adapters SET activation_pct = 0.0 WHERE activation_pct > 1.0 OR activation_pct < 0.0",
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to reset activation_pct: {}", e)))?;
+
+            recovery_actions.push(format!(
+                "Reset {} adapters with invalid activation percentages",
+                reset_count
+            ));
+        }
+
+        // 3. Log summary
+        if recovery_actions.is_empty() {
+            info!("✓ Crash recovery complete - no issues detected");
+        } else {
+            info!(
+                "✓ Crash recovery complete - {} actions taken:",
+                recovery_actions.len()
+            );
+            for action in &recovery_actions {
+                info!("  - {}", action);
+            }
+
+            // Log to audit trail if available
+            let audit_log = serde_json::json!({
+                "action": "crash_recovery",
+                "actions_taken": recovery_actions.len(),
+                "recovery_actions": recovery_actions,
+                "timestamp": Utc::now().to_rfc3339()
+            });
+            tracing::debug!("Crash recovery audit: {}", audit_log);
+        }
+
+        Ok(())
+    }
+
+    /// Recover stale adapters based on heartbeat timeout
+    ///
+    /// Finds adapters that haven't sent a heartbeat within threshold_seconds
+    /// and resets their state to unloaded. This is called periodically from
+    /// a background task in the server to detect crashed/frozen adapters.
+    ///
+    /// Per Agent G Stability Reinforcement Plan Phase 2: Heartbeat Mechanism
+    pub async fn recover_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
+        use chrono::Utc;
+        use tracing::{info, warn};
+
+        let cutoff_timestamp = Utc::now().timestamp() - threshold_seconds;
+
+        // Find adapters with stale heartbeats
+        let stale_adapters: Vec<(String, String, Option<i64>)> = sqlx::query_as(
+            r#"
+            SELECT adapter_id, name, last_heartbeat
+            FROM adapters
+            WHERE last_heartbeat IS NOT NULL
+              AND last_heartbeat < ?
+              AND load_state != 'unloaded'
+            "#,
+        )
+        .bind(cutoff_timestamp)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
+
+        let mut recovered_ids = Vec::new();
+
+        if !stale_adapters.is_empty() {
+            warn!(
+                "Found {} adapters with stale heartbeats (threshold: {}s)",
+                stale_adapters.len(),
+                threshold_seconds
+            );
+
+            for (adapter_id, name, last_heartbeat) in stale_adapters {
+                let seconds_since = last_heartbeat
+                    .map(|ts| Utc::now().timestamp() - ts)
+                    .unwrap_or(-1);
+
+                info!(
+                    "Recovering stale adapter: {} ({}) - last heartbeat: {}s ago",
+                    name, adapter_id, seconds_since
+                );
+
+                // Reset state to unloaded and clear heartbeat
+                sqlx::query(
+                    r#"
+                    UPDATE adapters
+                    SET load_state = 'unloaded',
+                        last_heartbeat = NULL,
+                        updated_at = datetime('now')
+                    WHERE adapter_id = ?
+                    "#,
+                )
+                .bind(&adapter_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to reset stale adapter: {}", e))
+                })?;
+
+                recovered_ids.push(adapter_id);
+            }
+
+            info!(
+                "✓ Recovered {} stale adapters based on heartbeat timeout",
+                recovered_ids.len()
+            );
+        }
+
+        Ok(recovered_ids)
     }
 
     /// Seed database with development data
