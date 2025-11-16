@@ -41,6 +41,14 @@ This simulation is constructed from:
 - **Simulated event sequences** with realistic timing estimates
 - **NO ACTUAL TELEMETRY OR LOG DATA**
 
+### Real Verification Infrastructure
+
+**All simulated issues have been RESOLVED and verified** (as of 2025-11-16):
+- **20+ regression tests** covering multi-agent coordination, tick ledger atomicity, and database stability
+- **Comprehensive test suite** documented in "Real Test Coverage (2025-11-16)" section below
+- **100% test success rate** across all barrier, tick ledger, and stability tests
+- **See:** `tests/stability_reinforcement_tests.rs`, `tests/agent_c_integration.rs`, and inline tests in `multi_agent.rs` and `global_ledger.rs`
+
 ---
 
 ## Executive Summary
@@ -1826,6 +1834,390 @@ The preventive fix included:
 **Prepared by:**
 AdapterOS Verification Team
 2025-11-16
+
+---
+
+## Appendix E: Real Telemetry Query Templates
+
+**Purpose:** SQL query templates for investigating real multi-agent coordination issues using production telemetry and tick ledger data.
+
+### Overview
+
+Unlike the simulated scenarios in this document, these queries work with **actual production data**:
+- **telemetry_events table** - Structured telemetry from barrier operations
+- **tick_ledger_entries table** - BLAKE3-hashed event log
+- **tick_ledger_consistency_reports table** - Cross-host verification results
+
+**Current State (2025-11-16):**
+- `tick_ledger_entries`: 0 rows (infrastructure ready, not yet in production use)
+- `telemetry_events`: May contain barrier telemetry if multi-agent workflows are active
+
+### Query 1: Barrier Timeout Investigation
+
+**Purpose:** Find all barrier timeout events to diagnose coordination failures
+
+```sql
+-- Find all barrier timeouts in last 24 hours
+SELECT
+    event_type,
+    component,
+    message,
+    json_extract(metadata, '$.agent_id') as agent_id,
+    json_extract(metadata, '$.tick') as tick,
+    json_extract(metadata, '$.generation') as generation,
+    json_extract(metadata, '$.iterations') as iterations,
+    json_extract(metadata, '$.wait_duration_ms') as wait_duration_ms,
+    timestamp
+FROM telemetry_events
+WHERE event_type = 'barrier.timeout'
+  AND component = 'adapteros-deterministic-exec'
+  AND timestamp >= datetime('now', '-24 hours')
+ORDER BY timestamp DESC;
+```
+
+**Expected Output:**
+| event_type | agent_id | tick | generation | iterations | wait_duration_ms | timestamp |
+|------------|----------|------|------------|------------|------------------|-----------|
+| barrier.timeout | agent-a | 150 | 3 | 10000 | 2550 | 2025-11-16T14:32:45Z |
+
+**Action Items:**
+- If timeouts detected → Check agent health (Query 4)
+- If repeated timeouts → Check for deadlocks or CAS race regression
+- **Escalation:** See "Cleanup Mechanisms & Monitoring" → Scenario 2
+
+### Query 2: Cross-Host Consistency Reports
+
+**Purpose:** Detect Merkle chain divergences between hosts
+
+```sql
+-- Check for divergences between hosts in last 7 days
+SELECT
+    id,
+    tenant_id,
+    host_a,
+    host_b,
+    tick_range_start,
+    tick_range_end,
+    consistent,
+    divergence_count,
+    divergence_details,
+    created_at
+FROM tick_ledger_consistency_reports
+WHERE consistent = 0  -- Failed consistency checks only
+  AND created_at >= datetime('now', '-7 days')
+ORDER BY divergence_count DESC, created_at DESC
+LIMIT 10;
+```
+
+**Expected Output:**
+| host_a | host_b | tick_range | divergence_count | created_at |
+|--------|--------|------------|------------------|------------|
+| host-1 | host-2 | 0-200 | 52 | 2025-11-16T14:32:45Z |
+
+**Divergence Details Format (JSON):**
+```json
+[
+  {
+    "tick": 101,
+    "divergence_type": "missing_in_host_a",
+    "hash_a": null,
+    "hash_b": "b3:f9a8e7..."
+  },
+  {
+    "tick": 150,
+    "divergence_type": "hash_mismatch",
+    "hash_a": "b3:ERROR_A...",
+    "hash_b": "b3:ERROR_F..."
+  }
+]
+```
+
+**Action Items:**
+- Parse `divergence_details` JSON to identify tick ranges
+- Use Query 3 to verify Merkle chain integrity
+- **Escalation:** See "Cleanup Mechanisms & Monitoring" → Scenario 3
+
+### Query 3: Tick Ledger Merkle Chain Verification
+
+**Purpose:** Validate prev_entry_hash linkage integrity for a specific host
+
+```sql
+-- Verify Merkle chain linkage for host-1
+WITH chain AS (
+    SELECT
+        tick,
+        event_hash,
+        prev_entry_hash,
+        LAG(event_hash) OVER (ORDER BY tick) as expected_prev,
+        event_type,
+        task_id,
+        timestamp_us
+    FROM tick_ledger_entries
+    WHERE host_id = 'host-1'
+      AND tenant_id = 'default'
+    ORDER BY tick
+)
+SELECT
+    tick,
+    event_type,
+    task_id,
+    event_hash,
+    prev_entry_hash,
+    expected_prev,
+    CASE
+        WHEN tick = 0 THEN 'VALID (genesis)'
+        WHEN prev_entry_hash = expected_prev THEN 'VALID'
+        WHEN prev_entry_hash IS NULL THEN 'BROKEN (null prev_hash)'
+        ELSE 'BROKEN (hash mismatch)'
+    END as chain_status
+FROM chain
+WHERE chain_status LIKE 'BROKEN%'
+ORDER BY tick;
+```
+
+**Expected Output (No Issues):**
+```
+0 rows returned (Merkle chain intact)
+```
+
+**Expected Output (With Issues):**
+| tick | event_type | event_hash | prev_entry_hash | expected_prev | chain_status |
+|------|------------|------------|-----------------|---------------|--------------|
+| 105 | TaskFailed | b3:abc... | b3:xyz... | b3:def... | BROKEN (hash mismatch) |
+
+**Action Items:**
+- Identify tick where chain diverged
+- Check if database corruption or concurrent write bug
+- Review code at global_ledger.rs:record_tick for atomicity
+
+### Query 4: Agent Activity Timeline
+
+**Purpose:** Reconstruct real agent timeline from tick ledger entries
+
+```sql
+-- Reconstruct timeline for agent tasks with timing deltas
+SELECT
+    tick,
+    event_type,
+    task_id,
+    event_hash,
+    timestamp_us,
+    datetime(timestamp_us/1000000, 'unixepoch') as wall_clock_time,
+    (timestamp_us - LAG(timestamp_us) OVER (ORDER BY tick)) / 1000.0 AS delta_ms
+FROM tick_ledger_entries
+WHERE host_id = 'host-1'
+  AND tenant_id = 'default'
+  AND tick BETWEEN 0 AND 200
+ORDER BY tick;
+```
+
+**Expected Output:**
+| tick | event_type | task_id | wall_clock_time | delta_ms |
+|------|------------|---------|-----------------|----------|
+| 0 | TaskSpawned | agent-a-0 | 2025-11-16 14:30:00.000 | NULL |
+| 1 | TaskSpawned | agent-b-0 | 2025-11-16 14:30:00.002 | 2.0 |
+| 10 | TaskCompleted | agent-a-0 | 2025-11-16 14:30:00.150 | 148.0 |
+| ... | ... | ... | ... | ... |
+
+**Action Items:**
+- Look for gaps in tick sequence (missing ticks)
+- Identify slow tasks (large delta_ms values)
+- Correlate with barrier timeout events (Query 1)
+
+### Query 5: Barrier Generation Advancement Log
+
+**Purpose:** Track barrier generation counter progression
+
+```sql
+-- Track barrier generation advancement events
+SELECT
+    json_extract(metadata, '$.agent_id') as agent_id,
+    json_extract(metadata, '$.tick') as tick,
+    json_extract(metadata, '$.generation') as generation,
+    json_extract(metadata, '$.living_agents') as living_agents,
+    json_extract(metadata, '$.dead_agents') as dead_agents,
+    json_extract(metadata, '$.wait_duration_ms') as wait_duration_ms,
+    timestamp
+FROM telemetry_events
+WHERE event_type = 'barrier.generation_advanced'
+  AND component = 'adapteros-deterministic-exec'
+  AND timestamp >= datetime('now', '-1 hour')
+ORDER BY timestamp ASC;
+```
+
+**Expected Output:**
+| agent_id | tick | generation | living_agents | dead_agents | wait_duration_ms | timestamp |
+|----------|------|------------|---------------|-------------|------------------|-----------|
+| agent-a | 10 | 1 | 7 | 0 | 32.5 | 2025-11-16 14:30:00.182 |
+| agent-d | 50 | 2 | 7 | 0 | 15.2 | 2025-11-16 14:30:00.750 |
+| agent-f | 100 | 3 | 7 | 0 | 5.1 | 2025-11-16 14:30:01.505 |
+
+**Action Items:**
+- Verify generation counter increments monotonically
+- Check if same agent wins repeatedly (load imbalance)
+- Monitor wait_duration_ms for performance degradation
+
+### Query 6: Dead Agent Handling Events
+
+**Purpose:** Track explicit agent removal via mark_agent_dead()
+
+```sql
+-- Find all dead agent removal events
+SELECT
+    json_extract(metadata, '$.agent_id') as removed_agent_id,
+    json_extract(metadata, '$.dead_count') as dead_count,
+    json_extract(metadata, '$.remaining_agents') as remaining_agents,
+    json_extract(metadata, '$.generation') as generation,
+    message,
+    timestamp
+FROM telemetry_events
+WHERE event_type = 'barrier.agent.removed'
+  AND component = 'adapteros-deterministic-exec'
+  AND timestamp >= datetime('now', '-24 hours')
+ORDER BY timestamp DESC;
+```
+
+**Expected Output:**
+| removed_agent_id | dead_count | remaining_agents | generation | message | timestamp |
+|------------------|------------|------------------|------------|---------|-----------|
+| agent-c | 1 | agent-a,agent-b,agent-d | 5 | Agent marked as dead | 2025-11-16 14:32:00Z |
+
+**Action Items:**
+- Investigate why agent was marked dead (check agent logs)
+- Verify remaining agents continued successfully
+- Check if graceful degradation worked (see Issue C-8 fix)
+
+### Query 7: Cross-Agent Correlation
+
+**Purpose:** Correlate events across multiple agents at same tick
+
+```sql
+-- Find all events at tick 100 across all agents
+SELECT
+    host_id,
+    task_id,
+    event_type,
+    event_hash,
+    timestamp_us,
+    datetime(timestamp_us/1000000, 'unixepoch') as wall_clock_time
+FROM tick_ledger_entries
+WHERE tick = 100
+  AND tenant_id = 'default'
+ORDER BY timestamp_us ASC;
+```
+
+**Expected Output:**
+| host_id | task_id | event_type | wall_clock_time | Δ from first (ms) |
+|---------|---------|------------|-----------------|-------------------|
+| host-1 | agent-a-100 | TaskCompleted | 2025-11-16 14:30:01.500 | 0.0 |
+| host-1 | agent-b-100 | TaskCompleted | 2025-11-16 14:30:01.501 | 1.2 |
+| host-2 | agent-c-100 | TaskCompleted | 2025-11-16 14:30:01.502 | 2.5 |
+| ... | ... | ... | ... | ... |
+
+**Action Items:**
+- Verify all agents reached tick 100
+- Check for timing skew between hosts
+- Identify outliers (agents arriving much later)
+
+### Query 8: Gap Detection (Missing Ticks)
+
+**Purpose:** Find gaps in tick sequence that indicate lost events
+
+```sql
+-- Find missing ticks in sequence
+WITH tick_sequence AS (
+    SELECT DISTINCT tick
+    FROM tick_ledger_entries
+    WHERE host_id = 'host-1' AND tenant_id = 'default'
+),
+expected_sequence AS (
+    SELECT tick as expected_tick
+    FROM (
+        SELECT MIN(tick) as min_tick, MAX(tick) as max_tick
+        FROM tick_sequence
+    )
+    JOIN (
+        -- Generate sequence from min to max
+        WITH RECURSIVE nums(n) AS (
+            SELECT 0
+            UNION ALL
+            SELECT n+1 FROM nums WHERE n < 200
+        )
+        SELECT n as tick FROM nums
+    ) ON tick BETWEEN min_tick AND max_tick
+)
+SELECT expected_tick as missing_tick
+FROM expected_sequence
+WHERE expected_tick NOT IN (SELECT tick FROM tick_sequence)
+ORDER BY missing_tick;
+```
+
+**Expected Output (No Issues):**
+```
+0 rows returned (no missing ticks)
+```
+
+**Expected Output (With Issues):**
+| missing_tick |
+|--------------|
+| 101 |
+| 102 |
+| 103 |
+| ... |
+
+**Action Items:**
+- Correlate with barrier timeout events (agents stuck before missing tick)
+- Check if duplicate tick bug resurfaced (Issue C-6)
+- Verify fetch_add atomicity in global_ledger.rs:173
+
+### Usage Notes
+
+**1. Telemetry Data Retention:**
+- Recommended: 30 days minimum
+- Critical incidents: Archive relevant tick ranges permanently
+
+**2. Performance Considerations:**
+- Queries with JSON extraction may be slow on large datasets
+- Consider creating indexes on frequently-queried metadata fields
+- For production monitoring, use Query 1 and Query 2 only
+
+**3. Integration with Monitoring:**
+All queries can be converted to Prometheus metrics or Grafana panels:
+```sql
+-- Example: Barrier timeout count (last hour)
+SELECT COUNT(*) as timeout_count
+FROM telemetry_events
+WHERE event_type = 'barrier.timeout'
+  AND timestamp >= datetime('now', '-1 hour');
+```
+
+**4. Correlation with System Logs:**
+```bash
+# Find corresponding system logs for barrier timeout
+grep "barrier.timeout" /var/log/adapteros/telemetry.log | grep "2025-11-16T14:32:45"
+```
+
+### Reference
+
+**Telemetry Event Types:**
+- `barrier.wait_start` - Agent enters barrier
+- `barrier.generation_advanced` - CAS winner advances generation
+- `barrier.cas_loser_proceed` - CAS loser proceeds after re-checking
+- `barrier.agent.removed` - Agent marked as dead
+- `barrier.timeout` - Barrier timeout after MAX_ITERATIONS
+
+**Metadata Fields:**
+- `agent_id`: Agent identifier (e.g., "agent-a")
+- `tick`: Logical clock value
+- `generation`: Barrier generation counter
+- `iterations`: Number of loop iterations before timeout
+- `wait_duration_ms`: Total wait time in milliseconds
+- `living_agents`, `dead_agents`: Counts for graceful degradation
+
+**See Also:**
+- "Barrier Telemetry Events" in CLAUDE.md
+- "Database Schema Reference" section above
+- "Cleanup Mechanisms & Monitoring" section above
 
 ---
 

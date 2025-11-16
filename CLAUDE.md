@@ -363,7 +363,7 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 - **0062** - RBAC audit logs
 - **0066** - SQLite compatibility fixes for domain_adapters tables
 - **0067** - Cleanup 15+ unused tables
-- **0068** - Pinned adapters table with TTL support
+- **0060** - Pinned adapters table with TTL support
 
 **Creating New Migrations:**
 ```bash
