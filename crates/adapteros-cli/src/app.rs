@@ -1144,6 +1144,28 @@ pub enum Commands {
         args: train_base_adapter::TrainBaseAdapterArgs,
     },
 
+    /// Train adapter from codebase (automated ingestion)
+    #[command(after_help = r#"Examples:
+  # Train adapter from repository
+  aosctl train-from-code --repo /path/to/repo --adapter-id my_project_adapter
+
+  # Train with custom configuration
+  aosctl train-from-code --repo /path/to/repo --adapter-id my_adapter \
+    --rank 16 --alpha 32.0 --epochs 4 --output ./adapters
+
+  # Train and register in database
+  aosctl train-from-code --repo /path/to/repo --adapter-id my_adapter \
+    --register --db-path ./var/cp.db --tier 2
+
+  # Include private APIs and more examples per symbol
+  aosctl train-from-code --repo /path/to/repo --adapter-id my_adapter \
+    --include-private --max-pairs-per-symbol 5
+"#)]
+    TrainFromCode {
+        #[command(flatten)]
+        args: train_from_code::TrainFromCodeArgs,
+    },
+
     /// Alias for tenant-init (for convenience)
     #[command(hide = true)]
     Init {
@@ -1733,6 +1755,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         Commands::TrainBaseAdapter { args } => {
+            args.execute().await?;
+        }
+
+        Commands::TrainFromCode { args } => {
             args.execute().await?;
         }
 
