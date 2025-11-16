@@ -1,0 +1,45 @@
+{
+  "name": "data_science_ml_patterns_v1",
+  "description": "Comprehensive data science and machine learning engineering patterns including MLOps, model deployment strategies, experiment tracking, data pipeline patterns, model monitoring, and production ML system best practices",
+  "version": "1.0.0",
+  "category": "codebase",
+  "scope": "global",
+  "tier": "persistent",
+  "rank": 8,
+  "alpha": 16.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj"],
+  "entries": [
+    {
+      "path": "data_science_ml-positive-examples.positive.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "Effective MLOps patterns: experiment tracking, model deployment, monitoring, data pipelines"
+    },
+    {
+      "path": "data_science_ml-negative-examples.negative.jsonl",
+      "format": "jsonl",
+      "weight": -1.0,
+      "role": "negative",
+      "notes": "ML engineering anti-patterns: model drift, training-serving skew, experiment irreproducibility"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#adapteros-runtime-layer",
+      "docs/architecture/MasterPlan.md#five-tier-adapter-hierarchy"
+    ],
+    "created_by": "data-science-ml-patterns-dataset",
+    "created_at": "2025-11-15T00:00:00Z",
+    "last_reviewed_at": "2025-11-15T00:00:00Z",
+    "review_notes": "Universal data science and ML engineering patterns applicable to production ML systems and MLOps practices"
+  },
+  "evaluation_gates": [
+    "Experiment reproducibility ≥ 95%",
+    "Model deployment automation ≥ 90%",
+    "Data pipeline reliability ≥ 95%",
+    "Model monitoring implementation ≥ 85%",
+    "MLOps best practices adoption ≥ 90%"
+  ],
+  "intent": "Teach developers how to build, deploy, and maintain production-ready machine learning systems with proper MLOps practices, monitoring, and operational excellence"
+}

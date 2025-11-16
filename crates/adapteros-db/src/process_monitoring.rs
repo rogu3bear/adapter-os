@@ -924,7 +924,7 @@ impl PerformanceBaseline {
                 calculation_period_days, confidence_interval, standard_deviation,
                 percentile_95, percentile_99, is_active, calculated_at, expires_at
             ) VALUES (
-                (SELECT id FROM process_performance_baselines 
+                (SELECT id FROM process_performance_baselines
                  WHERE worker_id = ? AND metric_name = ? AND is_active = true),
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?
             )
