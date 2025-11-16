@@ -90,9 +90,7 @@ aosctl code-status your-project-name
 
 ### Base-only (no adapters)
 - Ensure the control plane is running: API at `http://127.0.0.1:8080/api`
-- Cursor can target the OpenAI-compatible endpoints:
-  - List models: `GET /api/v1/models`
-  - Chat: `POST /api/v1/chat/completions` with model `adapteros-qwen2.5-7b`
+- Cursor should target AdapterOS-native endpoints (OpenAI-compatible HTTP surfaces have been removed in this build).
 
 ### Optional: Upsert a synthetic directory adapter
 You can synthesize a directory-scoped adapter (no training) and optionally activate it.
@@ -443,4 +441,3 @@ Optimize:
 - [API Registry](./code-intelligence/code-api-registry.md)
 - [Router Features](./code-intelligence/code-router-features.md)
 - [Implementation Roadmap](./code-intelligence/code-implementation-roadmap.md)
-

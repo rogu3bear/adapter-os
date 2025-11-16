@@ -33,7 +33,7 @@ erDiagram
     nodes {
         text id PK "UUID primary key"
         text hostname UK "Unique hostname"
-        text agent_endpoint "HTTP endpoint for aos-node agent"
+        text agent_endpoint "HTTP endpoint for aos-node runtime"
         text status "pending|active|offline|maintenance"
         text last_seen_at "Last heartbeat timestamp"
         text labels_json "Key-value labels for node"

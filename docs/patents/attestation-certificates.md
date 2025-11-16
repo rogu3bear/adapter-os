@@ -55,8 +55,8 @@ This document certifies the deterministic behavior of the AdapterOS kernel and e
    - Merkle chain maintains event integrity
    - Cross-host consistency verification
 
-3. **Multi-Agent Coordination**
-   - Tick-based barriers synchronize agent execution
+3. **Multi-Adapter Coordination**
+   - Tick-based barriers synchronize adapter execution
    - Global sequence counter prevents race conditions
    - Coordinated actions use deterministic serialization
 

@@ -217,9 +217,9 @@ This document maintains citations linking patent claims to their current impleme
    - Enforces contract between manifest defaults and PolicyEngine
    - Prevents documentation drift
 
-## Multi-Agent Coordination System
+## Multi-Adapter Coordination System
 
-**Feature:** Deterministic cross-agent synchronization with tick-based barriers and global sequencing
+**Feature:** Deterministic cross-adapter synchronization with tick-based barriers and global sequencing
 
 **Patent Gate:** Adversarial test coverage for distributed coordination failures
 
@@ -227,9 +227,9 @@ This document maintains citations linking patent claims to their current impleme
 
 1. **AgentBarrier Type**
    - **Location:** `crates/adapteros-deterministic-exec/src/multi_agent.rs` (lines 36-150)
-   - **Synchronization:** Tick-based barriers ensuring all agents reach same logical time
+   - **Synchronization:** Tick-based barriers ensuring all adapters reach same logical time
    - **Determinism:** Global sequence counter prevents race conditions
-   - **Fault Tolerance:** Timeout protection and agent registration validation
+   - **Fault Tolerance:** Timeout protection and participant registration validation
 
 2. **GlobalTickLedger**
    - **Location:** `crates/adapteros-deterministic-exec/src/global_ledger.rs` (lines 73-604)
@@ -241,14 +241,14 @@ This document maintains citations linking patent claims to their current impleme
    - **Location:** `crates/adapteros-deterministic-exec/src/multi_agent.rs` (lines 170-204)
    - **Atomicity:** Global sequence numbers for deterministic action ordering
    - **Integrity:** BLAKE3 hash verification of action payloads
-   - **Serialization:** Deterministic encoding for cross-agent communication
+   - **Serialization:** Deterministic encoding for cross-adapter communication
 
 ### Security Testing
 
 **Adversarial Coverage:** `tests/fault_injection_harness.rs` (lines 1281-1382)
 
 1. **Barrier Synchronization Attacks** (lines 1285-1303)
-   - Empty agent names, extremely long names, special characters
+   - Empty participant names, extremely long names, special characters
    - **Citation:** test_multi_agent_barrier_adversarial_conditions
 
 2. **Merkle Chain Tampering** (lines 1305-1382)
