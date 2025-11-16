@@ -36,12 +36,12 @@ These existed previously but are now either removed or shims pointing to the Rus
   - Notes: Exists only to catch legacy `./scripts/aos.sh` invocations.  
   - Sources: `[source: scripts/aos.sh L1-L20]`
 
-- `./aos-launch`  
-  - Purpose: Launch panel that performs pre-flight checks and then starts backend, UI, and menu bar app via the `aos` CLI.  
-  - Owner: Root shell script.  
-  - Status: **DELETE** after behavior is covered by `aos`/`aosctl` and documentation.  
-  - Notes: High UX surface area; should be replaced by `aos` and `aosctl` commands rather than a bespoke launcher.  
-  - Sources: `[source: aos-launch L1-L220]`
+- `./aos-launch`
+  - Purpose: Canonical orchestration script that performs comprehensive pre-flight checks, port management, and coordinates backend/UI/menu-bar app startup.
+  - Owner: Root shell script.
+  - Status: **KEEP** (canonical launch method for local development and testing).
+  - Notes: Provides important orchestration features including database initialization, port conflict resolution, health monitoring, and graceful shutdown. Battle-tested and comprehensive. See docs/cli/aos-launch.md for full documentation.
+  - Sources: `[source: aos-launch L1-L403]`
 
 ## Scripts Under `scripts/` (High-Level Inventory)
 

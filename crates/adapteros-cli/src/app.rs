@@ -317,6 +317,23 @@ pub enum Commands {
     },
 
     // ============================================================
+    // Database Management
+    // ============================================================
+    /// Database management commands (migrate, etc.)
+    #[command(subcommand)]
+    Db(commands::db::DbCommand),
+
+    /// Migrate registry database from old to new schema
+    #[command(after_help = r#"Examples:
+  # Migrate from deprecated/registry.db to var/registry.db
+  aosctl registry-migrate
+
+  # Explicit paths with dry run
+  aosctl registry-migrate --from-db deprecated/registry.db --to-db var/registry.db --dry-run
+"#)]
+    RegistryMigrate(commands::registry_migrate::RegistryMigrateArgs),
+
+    // ============================================================
     // Plan Management
     // ============================================================
     /// Build a plan from manifest
@@ -383,17 +400,6 @@ pub enum Commands {
     // ============================================================
     // Telemetry & Verification
     // ============================================================
-    /// Verify telemetry bundle chain
-    #[command(after_help = r#"Examples:
-  aosctl telemetry-verify --bundle-dir ./var/telemetry
-  aosctl telemetry-verify --bundle-dir ./var/telemetry --json > verify.json
-"#)]
-    TelemetryVerify {
-        /// Telemetry bundle directory
-        #[arg(short, long)]
-        bundle_dir: PathBuf,
-    },
-
     /// Validate a trace file for integrity and limits
     #[command(after_help = r#"Examples:
   # Strict validation with hash checks
@@ -432,22 +438,6 @@ pub enum Commands {
         /// Maximum line length in bytes
         #[arg(long)]
         max_line_len: Option<usize>,
-    },
-
-    /// Verify cross-host federation signatures
-    #[command(after_help = r#"Examples:
-  aosctl federation-verify --bundle-dir ./var/telemetry
-  aosctl federation-verify --bundle-dir ./var/telemetry --database ./var/cp.db
-  aosctl federation-verify --bundle-dir ./var/telemetry --json > federation.json
-"#)]
-    FederationVerify {
-        /// Telemetry bundle directory
-        #[arg(short, long)]
-        bundle_dir: PathBuf,
-
-        /// Database path
-        #[arg(long, default_value = "./var/cp.db")]
-        database: PathBuf,
     },
 
     /// Check for environment drift
@@ -584,37 +574,9 @@ pub enum Commands {
         no_verify: bool,
     },
 
-    /// Verify a bundle
-    #[command(after_help = r#"Examples:
-  # Verify artifact bundle signature and hashes
-  aosctl verify artifacts/adapters.zip
-
-  # Verify telemetry bundle chain
-  aosctl verify-telemetry --bundle-dir ./var/telemetry
-"#)]
-    Verify {
-        /// Bundle path
-        bundle: PathBuf,
-    },
-
-    /// Verify a packaged adapter directory
-    #[command(after_help = r#"Examples:
-  # Verify packaged adapter
-  aosctl verify-adapter --adapters-root ./adapters --adapter-id demo_adapter
-
-  # JSON output
-  aosctl verify-adapter --adapters-root ./adapters --adapter-id demo_adapter --json
-
-"#)]
-    VerifyAdapter {
-        /// Adapters root directory
-        #[arg(long, default_value = "./adapters")]
-        adapters_root: PathBuf,
-
-        /// Adapter ID to verify
-        #[arg(long)]
-        adapter_id: String,
-    },
+    /// Verification commands (bundle, adapter, adapters, determinism-loop, telemetry, federation)
+    #[command(subcommand)]
+    Verify(commands::verify::VerifyCommand),
 
     // ============================================================
     // Policy Management
@@ -1448,6 +1410,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             sync_registry::sync_registry(dir, cas_root, registry, output).await?;
         }
 
+        // Database Management
+        Commands::Db(cmd) => {
+            commands::db::handle_db_command(cmd.clone(), output).await?;
+        }
+        Commands::RegistryMigrate(args) => {
+            commands::registry_migrate::run(args.clone(), output).await?;
+        }
+
         // Plan Management
         Commands::PlanBuild {
             manifest,
@@ -1479,10 +1449,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Telemetry & Verification
-        Commands::TelemetryVerify { bundle_dir } => {
-            verify_telemetry::verify_telemetry_chain(bundle_dir, output).await?;
-        }
-
         Commands::TraceValidate {
             path,
             strict,
@@ -1503,13 +1469,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 output,
             )
             .await?;
-        }
-
-        Commands::FederationVerify {
-            bundle_dir,
-            database,
-        } => {
-            verify_federation::run(bundle_dir, database, output).await?;
         }
 
         Commands::DriftCheck {
@@ -1563,15 +1522,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Import { bundle, no_verify } => {
             import::run(bundle, !no_verify, output).await?;
         }
-        Commands::Verify { bundle } => {
-            verify::run(bundle, output).await?;
-        }
-        Commands::VerifyAdapter {
-            adapters_root,
-            adapter_id,
-        } => {
-            commands::verify_adapter::run(adapters_root.clone(), adapter_id.clone(), output)
-                .await?;
+        Commands::Verify(cmd) => {
+            commands::verify::handle_verify_command(cmd.clone(), output).await?;
         }
 
         // Policy Management
@@ -1799,9 +1751,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::NodeSync { .. } => "node-sync",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
-        Commands::TelemetryVerify { .. } => "verify-telemetry",
         Commands::TraceValidate { .. } => "trace-validate",
-        Commands::FederationVerify { .. } => "federation-verify",
         Commands::DriftCheck { .. } => "drift-check",
         Commands::CallgraphExport { .. } => "callgraph-export",
         Commands::CodegraphStats { .. } => "codegraph-stats",
@@ -1819,6 +1769,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Golden(_) => "golden",
         Commands::Router(_) => "router",
         Commands::RegistrySync { .. } => "registry-sync",
+        Commands::Db(_) => "db",
+        Commands::RegistryMigrate(_) => "registry-migrate",
         Commands::Report { .. } => "report",
         Commands::BootstrapAdmin { .. } => "bootstrap-admin",
         Commands::Bootstrap { .. } => "bootstrap",
@@ -1835,7 +1787,6 @@ fn get_command_name(command: &Commands) -> String {
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",
         Commands::CodeStatus { .. } => "code-status",
-        Commands::VerifyAdapter { .. } => "verify-adapter",
         Commands::QuantizeQwen { .. } => "quantize-qwen",
         Commands::Aos(_) => "aos",
         Commands::Infer { .. } => "infer",
