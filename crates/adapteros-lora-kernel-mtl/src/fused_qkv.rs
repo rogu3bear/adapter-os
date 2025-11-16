@@ -14,6 +14,7 @@ use metal::*;
 use std::sync::Arc;
 
 use super::ring_buffer::RingBuffer;
+use super::AdapterWeights;
 
 /// GQA configuration
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -109,7 +110,11 @@ impl FusedQkvKernel {
         })
     }
 
-    /// Execute the fused QKV kernel
+    /// Execute the fused QKV kernel with actual adapter weights
+    ///
+    /// # Arguments
+    /// * `adapter_weights` - Slice of references to loaded adapter weights (GPU buffers)
+    /// * `adapters` - Active adapters with IDs and Q15 gates (must match adapter_weights length)
     pub fn execute(
         &self,
         input: &Buffer,
@@ -119,16 +124,26 @@ impl FusedQkvKernel {
         q_output: &Buffer,
         k_output: &Buffer,
         v_output: &Buffer,
-        lora_config: &LoraConfig,
+        adapter_weights: &[&AdapterWeights],
+        adapters: &[super::ring_buffer::ActiveAdapter],
         ring_buffer: &RingBuffer,
     ) -> Result<()> {
+        // Validate adapter_weights and adapters match
+        if adapter_weights.len() != adapters.len() {
+            return Err(AosError::Validation(format!(
+                "Adapter count mismatch: {} weights but {} adapters",
+                adapter_weights.len(),
+                adapters.len()
+            )));
+        }
+
         let command_buffer = self.command_queue.new_command_buffer();
 
         let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        // Set buffers
+        // Set base model weight buffers
         encoder.set_buffer(0, Some(input), 0);
         encoder.set_buffer(1, Some(q_weight), 0);
         encoder.set_buffer(2, Some(k_weight), 0);
@@ -136,18 +151,41 @@ impl FusedQkvKernel {
         encoder.set_buffer(4, Some(q_output), 0);
         encoder.set_buffer(5, Some(k_output), 0);
         encoder.set_buffer(6, Some(v_output), 0);
-        encoder.set_buffer(7, ring_buffer.get_buffer().map(|v| &**v), 0);
 
-        // Set LoRA configuration
-        let lora_config_bytes = serde_json::to_vec(lora_config).map_err(AosError::Serialization)?;
-        let lora_config_buffer = self.device.new_buffer_with_data(
-            lora_config_bytes.as_ptr() as *const std::ffi::c_void,
-            lora_config_bytes.len() as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
-        encoder.set_buffer(8, Some(&lora_config_buffer), 0);
+        // Pass actual LoRA weight buffers to Metal shader
+        // Metal shader (aos_kernels.metal) expects buffers 8-13 for LoRA weights:
+        //   Buffer 8: q_lora_a, Buffer 9: q_lora_b
+        //   Buffer 10: k_lora_a, Buffer 11: k_lora_b
+        //   Buffer 12: v_lora_a, Buffer 13: v_lora_b
+        //
+        // Our buffer layout: [q_proj_A(0), k_proj_A(1), v_proj_A(2), mlp_down_A(3), mlp_up_A(4)]
+        //
+        // Note: The Metal shader uses a non-standard indexing scheme. For now, we pass
+        // the first adapter's weights directly. Multi-adapter support will require buffer concatenation.
 
-        // Set GQA configuration
+        if !adapter_weights.is_empty() {
+            let first_adapter = adapter_weights[0];
+
+            // Pass Q projection LoRA weights (index 0)
+            if first_adapter.lora_a_buffers.len() > 0 && first_adapter.lora_b_buffers.len() > 0 {
+                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[0]), 0);  // q_lora_a
+                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[0]), 0);  // q_lora_b
+            }
+
+            // Pass K projection LoRA weights (index 1)
+            if first_adapter.lora_a_buffers.len() > 1 && first_adapter.lora_b_buffers.len() > 1 {
+                encoder.set_buffer(10, Some(&first_adapter.lora_a_buffers[1]), 0); // k_lora_a
+                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[1]), 0); // k_lora_b
+            }
+
+            // Pass V projection LoRA weights (index 2)
+            if first_adapter.lora_a_buffers.len() > 2 && first_adapter.lora_b_buffers.len() > 2 {
+                encoder.set_buffer(12, Some(&first_adapter.lora_a_buffers[2]), 0); // v_lora_a
+                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[2]), 0); // v_lora_b
+            }
+        }
+
+        // Set GQA configuration (buffer 14)
         let gqa_config_bytes =
             serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
         let gqa_config_buffer = self.device.new_buffer_with_data(
@@ -155,7 +193,30 @@ impl FusedQkvKernel {
             gqa_config_bytes.len() as u64,
             MTLResourceOptions::StorageModeShared,
         );
-        encoder.set_buffer(9, Some(&gqa_config_buffer), 0);
+        encoder.set_buffer(14, Some(&gqa_config_buffer), 0);
+
+        // Set LoRA configuration (buffer 15)
+        let lora_config = if adapter_weights.is_empty() {
+            LoraConfig::default()
+        } else {
+            LoraConfig {
+                rank: adapter_weights[0].rank as u32,
+                alpha: adapter_weights[0].alpha,
+                target_module: 0,
+                dropout_rate: 0.0,
+            }
+        };
+
+        let lora_config_bytes = serde_json::to_vec(&lora_config).map_err(AosError::Serialization)?;
+        let lora_config_buffer = self.device.new_buffer_with_data(
+            lora_config_bytes.as_ptr() as *const std::ffi::c_void,
+            lora_config_bytes.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        encoder.set_buffer(15, Some(&lora_config_buffer), 0);
+
+        // Set ring buffer (buffer 16)
+        encoder.set_buffer(16, ring_buffer.get_buffer().map(|v| &**v), 0);
 
         // Calculate threadgroup size optimized for GQA
         let threadgroup_size = MTLSize::new(32, 8, 1);

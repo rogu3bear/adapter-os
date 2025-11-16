@@ -39,7 +39,11 @@ impl KernelDebugger {
     /// Only logs the label and hash, no raw seed bytes
     pub fn log_seed_chain(&self, label: &str, seed_hash: &B3Hash) {
         if self.enabled {
-            println!("[DEBUG] Seed: label={}, hash={}", label, seed_hash.to_hex());
+            tracing::debug!(
+                label = %label,
+                hash = %seed_hash.to_hex(),
+                "HKDF seed chain"
+            );
         }
     }
 
@@ -51,10 +55,10 @@ impl KernelDebugger {
         if self.enabled {
             let param_json = serde_json::to_vec(params).unwrap_or_default();
             let param_hash = B3Hash::hash(&param_json);
-            println!(
-                "[DEBUG] Kernel: name={}, params_hash={}",
-                kernel_name,
-                param_hash.to_hex()
+            tracing::debug!(
+                kernel = %kernel_name,
+                params_hash = %param_hash.to_hex(),
+                "Kernel dispatch"
             );
         }
     }
@@ -62,7 +66,11 @@ impl KernelDebugger {
     /// Log buffer allocation without data
     pub fn log_buffer_allocation(&self, name: &str, size_bytes: u64) {
         if self.enabled {
-            println!("[DEBUG] Buffer: name={}, size={} bytes", name, size_bytes);
+            tracing::debug!(
+                buffer_name = %name,
+                size_bytes = size_bytes,
+                "Buffer allocation"
+            );
         }
     }
 
@@ -70,9 +78,11 @@ impl KernelDebugger {
     pub fn log_adapter_activation(&self, adapter_id: u32, gate_q15: u16) {
         if self.enabled {
             let gate_f32 = gate_q15 as f32 / 32768.0;
-            println!(
-                "[DEBUG] Adapter: id={}, gate={:.4} (q15={})",
-                adapter_id, gate_f32, gate_q15
+            tracing::debug!(
+                adapter_id = adapter_id,
+                gate_f32 = gate_f32,
+                gate_q15 = gate_q15,
+                "Adapter activation"
             );
         }
     }

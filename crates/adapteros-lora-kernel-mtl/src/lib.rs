@@ -203,7 +203,7 @@ impl MetalKernels {
 
             if idx < devices.len() {
                 let device = devices[idx].clone();
-                println!("Selected GPU {}: {}", idx, device.name());
+                tracing::info!(gpu_index = idx, gpu_name = %device.name(), "Selected Metal GPU device");
                 return Ok(device);
             } else {
                 return Err(AosError::Kernel(format!(
@@ -1056,7 +1056,7 @@ impl FusedKernels for MetalKernels {
     /// # Errors
     /// - AosError::Serialization if SafeTensors parsing fails
     /// - AosError::Kernel if Metal buffer creation fails
-    /// - AosError::Validation if expected tensors are missing
+    /// - AosError::Validation if expected tensors are missing or have wrong shapes
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
         use safetensors::SafeTensors;
         use tracing::{info, warn};
@@ -1067,10 +1067,11 @@ impl FusedKernels for MetalKernels {
             "Loading adapter weights into Metal GPU"
         );
 
-        // Check if adapter already loaded
-        if self.adapter_weights.contains_key(&id) {
-            warn!(adapter_id = id, "Adapter already loaded, unloading first");
-            self.unload_adapter(id)?;
+        // Check if adapter already loaded (atomic check-and-remove to avoid TOCTOU race)
+        use std::collections::hash_map::Entry;
+        if let Entry::Occupied(entry) = self.adapter_weights.entry(id) {
+            warn!(adapter_id = id, "Adapter already loaded, removing existing entry");
+            entry.remove();
         }
 
         // 1. Parse SafeTensors format
@@ -1093,8 +1094,38 @@ impl FusedKernels for MetalKernels {
             ));
         };
 
-        // Assume alpha = 2 * rank (common default)
-        let alpha = (2 * rank) as f32;
+        // Read alpha from AOS2 manifest if available, otherwise use 2*rank default
+        // The incoming weights might be:
+        // 1. Full AOS2 format (has manifest with metadata)
+        // 2. Raw SafeTensors (no manifest)
+        let alpha = if weights.len() >= 8 {
+            // Try to parse AOS2 manifest
+            let manifest_offset = u32::from_le_bytes([weights[0], weights[1], weights[2], weights[3]]) as usize;
+            let manifest_len = u32::from_le_bytes([weights[4], weights[5], weights[6], weights[7]]) as usize;
+
+            if weights.len() >= manifest_offset + manifest_len {
+                let manifest_bytes = &weights[manifest_offset..manifest_offset + manifest_len];
+                if let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(manifest_bytes) {
+                    if let Some(alpha_val) = manifest.get("lora_alpha").and_then(|v| v.as_f64()) {
+                        info!(adapter_id = id, alpha = alpha_val, "Found lora_alpha in AOS2 manifest");
+                        alpha_val as f32
+                    } else {
+                        let default_alpha = (2 * rank) as f32;
+                        warn!(adapter_id = id, rank = rank, "No lora_alpha in AOS2 manifest, using 2*rank={}", default_alpha);
+                        default_alpha
+                    }
+                } else {
+                    // Not AOS2 format, use default
+                    (2 * rank) as f32
+                }
+            } else {
+                // Invalid AOS2 format, use default
+                (2 * rank) as f32
+            }
+        } else {
+            // Too small to be AOS2, use default
+            (2 * rank) as f32
+        };
 
         // 3. Define expected target modules (order matters for buffer indexing)
         let target_modules = vec!["q_proj", "k_proj", "v_proj", "mlp.down_proj", "mlp.up_proj"];
@@ -1365,11 +1396,64 @@ impl FusedKernels for MetalKernels {
         ))
     }
 
-    fn vram_tracker(&self) -> Option<&adapteros_lora_kernel_api::VramTracker> {
-        Some(&self.vram_tracker)
+    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+        use adapteros_core::B3Hash;
+        use crate::vram::GpuBufferFingerprint;
+
+        // Parse hex hash back to B3Hash
+        let checkpoint_hash = match B3Hash::from_hex(checkpoint_hash_hex) {
+            Ok(hash) => hash,
+            Err(e) => {
+                tracing::error!(
+                    adapter_id = id,
+                    checkpoint_hash_hex = checkpoint_hash_hex,
+                    error = %e,
+                    "Failed to parse checkpoint hash hex - skipping fingerprint storage"
+                );
+                return; // Skip storing invalid fingerprint
+            }
+        };
+
+        let fingerprint = GpuBufferFingerprint {
+            buffer_bytes: buffer_size,
+            allocated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            checkpoint_hash,
+        };
+
+        self.vram_tracker.store_fingerprint(id as u32, fingerprint);
     }
 
-    fn vram_tracker_mut(&mut self) -> Option<&mut adapteros_lora_kernel_api::VramTracker> {
-        Some(&mut self.vram_tracker)
+    fn verify_gpu_fingerprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        use adapteros_core::B3Hash;
+        use crate::vram::GpuBufferFingerprint;
+
+        // Parse hex hash back to B3Hash
+        let checkpoint_hash = B3Hash::from_hex(checkpoint_hash_hex)
+            .map_err(|e| AosError::Validation(format!("Invalid checkpoint hash hex: {}", e)))?;
+
+        let current_fp = GpuBufferFingerprint {
+            buffer_bytes: buffer_size,
+            allocated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            checkpoint_hash,
+        };
+
+        self.vram_tracker.verify_fingerprint(id as u32, &current_fp)
+            .map_err(|msg| AosError::Validation(msg))
+    }
+
+    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        // Use interior mutability in VramTracker to enable baseline learning from &self
+        self.vram_tracker.check_memory_footprint(id as u32, buffer_size)
     }
 }

@@ -175,6 +175,8 @@ fn generate_qa_examples(
         metadata.insert("chunk_index".to_string(), chunk.chunk_index.to_string());
         metadata.insert("qa_index".to_string(), idx.to_string());
         metadata.insert("strategy".to_string(), "qa".to_string());
+        metadata.insert("qa_question_text".to_string(), question.clone());
+        metadata.insert("qa_answer_text".to_string(), sentence.to_string());
 
         examples.push(TrainingExample {
             input: input_ids,
@@ -264,12 +266,12 @@ mod tests {
     use crate::types::DocumentSource;
     use adapteros_core::B3Hash;
     use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokenizers::Tokenizer;
 
     #[test]
     fn test_generate_identity_example() {
-        let tokenizer = tokenizers::Tokenizer::from_pretrained("bert-base-uncased", None)
-            .expect("Failed to load tokenizer");
-        let tokenizer = Arc::new(tokenizer);
+        let tokenizer = fixture_tokenizer();
 
         let chunk = DocumentChunk::new(
             0,
@@ -305,9 +307,7 @@ mod tests {
 
     #[test]
     fn test_generate_qa_examples() {
-        let tokenizer = tokenizers::Tokenizer::from_pretrained("bert-base-uncased", None)
-            .expect("Failed to load tokenizer");
-        let tokenizer = Arc::new(tokenizer);
+        let tokenizer = fixture_tokenizer();
 
         let chunk = DocumentChunk::new(
             0,
@@ -346,6 +346,30 @@ mod tests {
             assert!(!example.target.is_empty());
             let metadata = example.metadata.as_ref().unwrap();
             assert_eq!(metadata.get("strategy").unwrap(), "qa");
+            assert!(
+                metadata
+                    .get("qa_question_text")
+                    .map(|q| !q.is_empty())
+                    .unwrap_or(false),
+                "Question metadata should be populated"
+            );
+            assert!(
+                metadata
+                    .get("qa_answer_text")
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false),
+                "Answer metadata should be populated"
+            );
         }
+    }
+
+    fn fixture_tokenizer() -> Arc<Tokenizer> {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("Failed to locate workspace root");
+        let tokenizer_path = repo_root.join("models/test-model/tokenizer.json");
+        crate::load_tokenizer(&tokenizer_path).expect("Failed to load tokenizer")
     }
 }

@@ -80,17 +80,14 @@ impl Gate for PerformanceGate {
             anyhow::bail!("Performance budgets failed: {}", failures.join(", "));
         }
 
-        println!(
-            "    Latency p95: {}ms (budget: {}ms)",
-            latency_p95, self.latency_p95_ms_max
-        );
-        println!(
-            "    Throughput: {} tokens/s (budget: {} tokens/s)",
-            throughput, self.throughput_tokens_per_s_min
-        );
-        println!(
-            "    Router overhead: {:.1}% (budget: {:.1}%)",
-            router_overhead, self.router_overhead_pct_max
+        tracing::info!(
+            latency_p95_ms = latency_p95,
+            latency_budget_ms = self.latency_p95_ms_max,
+            throughput_tokens_per_s = throughput,
+            throughput_budget = self.throughput_tokens_per_s_min,
+            router_overhead_pct = router_overhead,
+            router_overhead_budget_pct = self.router_overhead_pct_max,
+            "Performance budgets passed"
         );
 
         Ok(())

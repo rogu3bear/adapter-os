@@ -130,6 +130,36 @@ impl OrthogonalConstraints {
 
         Ok(())
     }
+
+    /// Compute penalty for a single adapter based on activation history
+    ///
+    /// This computes how much an individual adapter should be penalized
+    /// based on its recent activation pattern.
+    ///
+    /// # Arguments
+    /// * `adapter_idx` - Index of the adapter to compute penalty for
+    ///
+    /// # Returns
+    /// Penalty value (0.0 = no penalty, higher = more similar to recent selections)
+    pub fn compute_adapter_penalty(&self, adapter_idx: usize) -> f32 {
+        if self.activation_history.is_empty() || adapter_idx >= 256 {
+            return 0.0;
+        }
+
+        let mut total_penalty = 0.0;
+
+        for historical_activation in &self.activation_history {
+            // Check if this adapter was active in history
+            if historical_activation[adapter_idx] > 0.0 {
+                let similarity = historical_activation[adapter_idx];
+                if similarity > self.similarity_threshold {
+                    total_penalty += self.penalty_weight * similarity;
+                }
+            }
+        }
+
+        total_penalty
+    }
 }
 
 #[cfg(test)]

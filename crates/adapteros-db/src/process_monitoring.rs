@@ -316,7 +316,7 @@ impl ProcessMonitoringRule {
                 threshold_value, threshold_operator, severity, evaluation_window_seconds,
                 cooldown_seconds, is_active, notification_channels, escalation_rules, created_by
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&rule.name)
@@ -486,7 +486,7 @@ impl ProcessHealthMetric {
             INSERT INTO process_health_metrics (
                 id, worker_id, tenant_id, metric_name, metric_value, metric_unit, tags
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&metric.worker_id)
@@ -650,7 +650,7 @@ impl ProcessAlert {
                 id, rule_id, worker_id, tenant_id, alert_type, severity,
                 title, message, metric_value, threshold_value, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&alert.rule_id)
@@ -810,7 +810,7 @@ impl ProcessAnomaly {
                 expected_range_min, expected_range_max, confidence_score, severity,
                 description, detection_method, model_version, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&anomaly.worker_id)
@@ -937,7 +937,7 @@ impl PerformanceBaseline {
                 calculation_period_days, confidence_interval, standard_deviation,
                 percentile_95, percentile_99, is_active, calculated_at, expires_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-            "#
+            "#,
         )
         .bind(&id)
         .bind(&baseline.worker_id)
@@ -965,27 +965,30 @@ impl PerformanceBaseline {
         worker_id: &str,
         metric_name: &str,
     ) -> Result<Option<PerformanceBaseline>> {
-        let row = sqlx::query_as::<_, (
-            String,            // id
-            String,            // worker_id
-            String,            // tenant_id
-            String,            // metric_name
-            f64,               // baseline_value
-            String,            // baseline_type
-            i64,               // calculation_period_days
-            Option<f64>,       // confidence_interval
-            Option<f64>,       // standard_deviation
-            Option<f64>,       // percentile_95
-            Option<f64>,       // percentile_99
-            bool,              // is_active
-            String,            // calculated_at
-            Option<String>,    // expires_at
-        )>(
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,         // id
+                String,         // worker_id
+                String,         // tenant_id
+                String,         // metric_name
+                f64,            // baseline_value
+                String,         // baseline_type
+                i64,            // calculation_period_days
+                Option<f64>,    // confidence_interval
+                Option<f64>,    // standard_deviation
+                Option<f64>,    // percentile_95
+                Option<f64>,    // percentile_99
+                bool,           // is_active
+                String,         // calculated_at
+                Option<String>, // expires_at
+            ),
+        >(
             "SELECT id, worker_id, tenant_id, metric_name, baseline_value, baseline_type,
              calculation_period_days, confidence_interval, standard_deviation,
              percentile_95, percentile_99, is_active, calculated_at, expires_at
              FROM process_performance_baselines
-             WHERE worker_id = ? AND metric_name = ? AND is_active = true"
+             WHERE worker_id = ? AND metric_name = ? AND is_active = true",
         )
         .bind(worker_id)
         .bind(metric_name)
@@ -1010,7 +1013,9 @@ impl PerformanceBaseline {
                 calculated_at: chrono::DateTime::parse_from_rfc3339(&row.12)
                     .map_err(|e| AosError::Database(format!("Invalid calculated_at: {}", e)))?
                     .with_timezone(&chrono::Utc),
-                expires_at: row.13.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                expires_at: row
+                    .13
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                     .map(|dt| dt.with_timezone(&chrono::Utc)),
             }))
         } else {

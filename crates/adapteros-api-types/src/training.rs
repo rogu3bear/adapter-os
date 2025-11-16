@@ -137,7 +137,7 @@ pub struct TrainingMetricsResponse {
 pub struct UploadDatasetRequest {
     pub name: String,
     pub description: Option<String>,
-    pub format: String,  // 'patches', 'jsonl', 'txt', 'custom'
+    pub format: String, // 'patches', 'jsonl', 'txt', 'custom'
 }
 
 /// Upload dataset response

@@ -1,6 +1,6 @@
 //! Hot-swap adapter loading and unloading
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -10,15 +10,30 @@ pub struct AdapterLoader {
     base_path: PathBuf,
     /// Currently loaded adapters (adapter_id -> path)
     loaded: HashMap<u16, PathBuf>,
+    /// Expected hashes from manifest
+    expected_hashes: HashMap<String, B3Hash>,
 }
 
 impl AdapterLoader {
     /// Create a new adapter loader
-    pub fn new(base_path: PathBuf) -> Self {
+    pub fn new(base_path: PathBuf, expected_hashes: HashMap<String, B3Hash>) -> Self {
         Self {
             base_path,
             loaded: HashMap::new(),
+            expected_hashes,
         }
+    }
+
+    fn expected_hash(&self, adapter_name: &str) -> Result<B3Hash> {
+        self.expected_hashes
+            .get(adapter_name)
+            .copied()
+            .ok_or_else(|| {
+                AosError::Lifecycle(format!(
+                    "Missing expected hash for adapter {}",
+                    adapter_name
+                ))
+            })
     }
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
@@ -33,7 +48,23 @@ impl AdapterLoader {
         }
 
         // Load adapter weights from SafeTensors format
-        let _weights = self.load_adapter_weights(&adapter_path)?;
+        let weights = self.load_adapter_weights(&adapter_path)?;
+        let expected_hash = self.expected_hash(adapter_name)?;
+        let actual_hash = B3Hash::hash(&weights);
+
+        if actual_hash != expected_hash {
+            tracing::error!(
+                "Adapter hash mismatch for {} (expected {}, got {})",
+                adapter_name,
+                expected_hash,
+                actual_hash
+            );
+            return Err(AosError::AdapterHashMismatch {
+                adapter_id: adapter_name.to_string(),
+                expected: expected_hash,
+                actual: actual_hash,
+            });
+        }
         self.loaded.insert(adapter_id, adapter_path.clone());
 
         tracing::info!(
@@ -56,8 +87,8 @@ impl AdapterLoader {
         adapter_id: u16,
         adapter_name: &str,
     ) -> Result<AdapterHandle> {
-        // Perform the blocking load operation in a blocking task
         let base_path = self.base_path.clone();
+        let expected_hash = self.expected_hash(adapter_name)?;
         let adapter_name = adapter_name.to_string();
 
         let handle = tokio::task::spawn_blocking(move || {
@@ -70,10 +101,24 @@ impl AdapterLoader {
                 )));
             }
 
-            // Load adapter weights from SafeTensors format
             use std::fs;
             let weights_data = fs::read(&adapter_path)
                 .map_err(|e| AosError::Lifecycle(format!("Failed to read adapter file: {}", e)))?;
+
+            let actual_hash = B3Hash::hash(&weights_data);
+            if actual_hash != expected_hash {
+                tracing::error!(
+                    "Adapter hash mismatch for {} (expected {}, got {})",
+                    adapter_name,
+                    expected_hash,
+                    actual_hash
+                );
+                return Err(AosError::AdapterHashMismatch {
+                    adapter_id: adapter_name.clone(),
+                    expected: expected_hash,
+                    actual: actual_hash,
+                });
+            }
 
             tracing::info!(
                 "Loaded adapter {} ({}) from {} ({} bytes)",
@@ -184,7 +229,12 @@ mod tests {
         let adapter_path = temp_dir.join("test_adapter.safetensors");
         fs::write(&adapter_path, b"fake adapter data").expect("Test file write should succeed");
 
-        let mut loader = AdapterLoader::new(temp_dir.clone());
+        let mut expected_hashes = HashMap::new();
+        expected_hashes.insert(
+            "test_adapter".to_string(),
+            B3Hash::hash(b"fake adapter data"),
+        );
+        let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
 
         // Load adapter
         let handle = loader
@@ -202,6 +252,39 @@ mod tests {
         assert_eq!(loader.loaded_count(), 0);
 
         // Cleanup
+        fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[test]
+    fn test_loader_hash_mismatch() {
+        let temp_dir = std::env::temp_dir().join("mplora_test_loader_mismatch");
+        fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let adapter_path = temp_dir.join("test_adapter.safetensors");
+        fs::write(&adapter_path, b"fake adapter data").expect("Test file write should succeed");
+
+        let mut expected_hashes = HashMap::new();
+        expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(b"different data"));
+
+        let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
+
+        match loader.load_adapter(0, "test_adapter") {
+            Err(AosError::AdapterHashMismatch {
+                expected,
+                actual,
+                adapter_id,
+            }) => {
+                assert_eq!(adapter_id, "test_adapter");
+                assert_eq!(expected, B3Hash::hash(b"different data"));
+                assert_eq!(actual, B3Hash::hash(b"fake adapter data"));
+            }
+            Err(e) => panic!("Unexpected error: {}", e),
+            Ok(_) => panic!("Expected hash mismatch error"),
+        }
+
+        assert!(!loader.is_loaded(0));
+        assert_eq!(loader.loaded_count(), 0);
+
         fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 }

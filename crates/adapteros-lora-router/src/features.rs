@@ -96,36 +96,76 @@ impl CodeFeatures {
 
     /// Convert to extended feature vector (25 dimensions) for MPLoRA
     /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    ///
+    /// Note: The extended features (orthogonal_penalty, adapter_diversity, path_similarity)
+    /// require router state and should be set externally before calling this method.
+    /// By default, they return 0.0.
     pub fn to_vector_extended(&self) -> Vec<f32> {
         let mut vec = self.to_vector(); // Start with original 22 dimensions
 
         // MPLoRA extensions (3 additional dimensions)
-        vec.push(self.orthogonal_penalty()); // [22]: orthogonal penalty
-        vec.push(self.adapter_diversity()); // [23]: adapter diversity
-        vec.push(self.path_similarity()); // [24]: path similarity
+        // These are placeholders that should be set by the router
+        vec.push(0.0); // [22]: orthogonal penalty (set by router)
+        vec.push(0.0); // [23]: adapter diversity (set by router)
+        vec.push(0.0); // [24]: path similarity (set by router)
 
         vec
     }
 
-    /// Compute orthogonal penalty based on recent activations
-    fn orthogonal_penalty(&self) -> f32 {
-        // This would be computed by the router using activation history
-        // For now, return a placeholder value
-        0.0
+    /// Set MPLoRA extension values in an extended feature vector
+    ///
+    /// This method should be called by the router to inject MPLoRA-specific
+    /// features that require routing history.
+    ///
+    /// # Arguments
+    /// * `vec` - Mutable reference to 25-dimensional feature vector
+    /// * `orthogonal_penalty` - Penalty for selecting similar adapters
+    /// * `adapter_diversity` - Diversity score of recent selections
+    /// * `path_similarity` - Similarity to previous routing paths
+    pub fn set_mplora_features(
+        vec: &mut Vec<f32>,
+        orthogonal_penalty: f32,
+        adapter_diversity: f32,
+        path_similarity: f32,
+    ) {
+        if vec.len() >= 25 {
+            vec[22] = orthogonal_penalty;
+            vec[23] = adapter_diversity;
+            vec[24] = path_similarity;
+        }
     }
 
-    /// Measure diversity of adapter selection
-    fn adapter_diversity(&self) -> f32 {
-        // Higher values indicate more diverse selections
-        // This would be computed by the router using recent selections
-        0.0 // Placeholder
-    }
+    /// Compute path similarity based on path tokens
+    ///
+    /// This is a simplified version that doesn't require router history.
+    /// It measures how similar the current path context is to typical patterns.
+    ///
+    /// Returns a value between 0.0 (unique path) and 1.0 (common path)
+    pub fn compute_path_similarity_score(&self) -> f32 {
+        if self.path_tokens.is_empty() {
+            return 0.0;
+        }
 
-    /// Measure similarity to previous paths
-    fn path_similarity(&self) -> f32 {
-        // Lower values indicate more orthogonal paths
-        // This would be computed by the router using path history
-        0.0 // Placeholder
+        // Common path patterns that indicate high similarity
+        let common_paths = [
+            "src", "lib", "main", "test", "tests", "bin", "pkg", "app", "api", "core", "utils",
+            "common", "shared", "internal",
+        ];
+
+        let mut similarity_count = 0;
+        for token in &self.path_tokens {
+            let token_lower = token.to_lowercase();
+            if common_paths.iter().any(|&common| token_lower.contains(common)) {
+                similarity_count += 1;
+            }
+        }
+
+        // Normalize by number of path tokens
+        if self.path_tokens.is_empty() {
+            0.0
+        } else {
+            (similarity_count as f32 / self.path_tokens.len() as f32).min(1.0)
+        }
     }
 
     /// Set attention entropy from recent inference logits

@@ -38,10 +38,22 @@ pub struct InferenceTrace {
     pub latency_ms: u64,
 }
 
-/// Router decision at a specific position
+/// Candidate adapter entry for router trace
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RouterCandidate {
+    pub adapter_idx: u16,
+    pub raw_score: f32,
+    pub gate_q15: i16,
+}
+
+/// Router decision at a specific position (canonical schema)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RouterDecision {
-    pub position: usize,
-    pub adapter_ids: Vec<u16>,
-    pub gates: Vec<u16>,
+    pub step: usize,
+    pub input_token_id: Option<u32>,
+    pub candidate_adapters: Vec<RouterCandidate>,
+    pub entropy: f32,
+    pub tau: f32,
+    pub entropy_floor: f32,
+    pub stack_hash: Option<String>,
 }

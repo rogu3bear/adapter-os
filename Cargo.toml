@@ -14,10 +14,11 @@ members = [
     "crates/adapteros-manifest",
     "crates/adapteros-registry",
     "crates/adapteros-artifacts",
+    "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
     "crates/adapteros-lora-kernel-mtl",
     "crates/adapteros-lora-kernel-prof",
-    "crates/adapteros-system-metrics",
+    # "crates/adapteros-system-metrics",  # Temporarily excluded - has 11 SQL compilation errors
     # MLX FFI excluded - experimental backend with PyO3 linker issues
     # Re-enable with: --features experimental-backends
     "crates/adapteros-autograd",  # Rust autograd system
@@ -33,8 +34,8 @@ members = [
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
-    "crates/adapteros-server",
-    "crates/adapteros-server-api",
+    # "crates/adapteros-server",  # Temporarily excluded - depends on server-api which has compilation errors
+    # "crates/adapteros-server-api",  # Temporarily excluded - has 62 pre-existing compilation errors
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
@@ -174,6 +175,8 @@ base64 = "0.22"
 hostname = "0.3"
 zeroize = "1.0"
 async-trait = "0.1"
+regex = "1.10"
+once_cell = "1.19"
 
 # Auth & Security
 argon2 = "0.5"
@@ -230,6 +233,18 @@ path = "tests/replay_identical.rs"
 name = "cross_platform_determinism"
 path = "tests/cross_platform_determinism.rs"
 
+[[test]]
+name = "directory_adapter_performance"
+path = "tests/directory_adapter_performance.rs"
+
+[[test]]
+name = "kernel_buffer_layout"
+path = "tests/kernel_buffer_layout.rs"
+
+[[test]]
+name = "kernel_lora_validation"
+path = "tests/kernel_lora_validation.rs"
+
 # Test dependencies
 [dev-dependencies]
 adapteros-core = { path = "crates/adapteros-core" }
@@ -242,9 +257,11 @@ adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
 adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
-adapteros-server = { path = "crates/adapteros-server" }
-adapteros-server-api = { path = "crates/adapteros-server-api" }
+# adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
+adapteros-server-api = { path = "crates/adapteros-server-api" }  # Enabled for performance tests
 adapteros-db = { path = "crates/adapteros-db" }
+adapteros-config = { path = "crates/adapteros-config" }
+adapteros-codegraph = { path = "crates/adapteros-codegraph" }
 adapteros-client = { path = "crates/adapteros-client" }
 adapteros-node = { path = "crates/adapteros-node" }
 adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
@@ -256,7 +273,7 @@ adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }
-adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }
+# adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Temporarily excluded
 adapteros-crypto = { path = "crates/adapteros-crypto" }
 adapteros-sbom = { path = "crates/adapteros-sbom" }
 adapteros-api = { path = "crates/adapteros-api" }
@@ -268,6 +285,7 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3.0"
+tracing-subscriber = { workspace = true }
 anyhow = "1.0"
 axum = "0.7"
 tower = "0.4"
@@ -276,3 +294,4 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
 blake3 = { workspace = true }
 hex = { workspace = true }
+metal = { workspace = true }

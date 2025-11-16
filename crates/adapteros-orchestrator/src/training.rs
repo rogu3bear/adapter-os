@@ -4,13 +4,17 @@
 //! Integrates with MLX backend for actual training operations.
 
 use adapteros_core::AosError;
+use adapteros_lora_worker::training::{
+    MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
+    TrainingExample as WorkerTrainingExample,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
-use adapteros_lora_worker::training::{MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig, TrainingExample as WorkerTrainingExample};
 
 /// Training job state
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -42,6 +46,7 @@ pub struct TrainingJob {
     pub adapter_name: String,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    pub dataset_id: Option<String>,
     pub status: TrainingJobStatus,
     pub progress_pct: f32,
     pub current_epoch: u32,
@@ -215,6 +220,7 @@ impl TrainingService {
         config: TrainingConfig,
         template_id: Option<String>,
         repo_id: Option<String>,
+        dataset_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
         let now = chrono::Utc::now().to_rfc3339();
@@ -224,6 +230,7 @@ impl TrainingService {
             adapter_name,
             template_id,
             repo_id,
+            dataset_id,
             status: TrainingJobStatus::Pending,
             progress_pct: 0.0,
             current_epoch: 0,
@@ -247,8 +254,20 @@ impl TrainingService {
         let jobs_ref = self.jobs.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
+        let dataset_id_for_run = job.dataset_id.clone();
+        // Note: For now, we don't have db/storage_root in TrainingService
+        // These should be added as fields when integrating with the full system
         tokio::spawn(async move {
-            if let Err(e) = run_training_job(jobs_ref, job_id_for_run.clone(), cfg_for_run).await {
+            if let Err(e) = run_training_job(
+                jobs_ref,
+                job_id_for_run.clone(),
+                cfg_for_run,
+                dataset_id_for_run,
+                None, // db - TODO: add to TrainingService
+                None, // storage_root - TODO: add to TrainingService
+            )
+            .await
+            {
                 tracing::error!("Training job {} failed: {}", job_id_for_run, e);
             }
         });
@@ -374,6 +393,9 @@ async fn run_training_job(
     jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
     job_id: String,
     orchestrator_cfg: TrainingConfig,
+    dataset_id: Option<String>,
+    db: Option<adapteros_db::Db>,
+    storage_root: Option<PathBuf>,
 ) -> Result<()> {
     // Transition to running
     {
@@ -394,11 +416,36 @@ async fn run_training_job(
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
     };
 
-    // TODO: replace with real dataset acquisition once wired (artifact or DB). For now use a tiny synthetic batch.
-    let examples: Vec<WorkerTrainingExample> = vec![
-        WorkerTrainingExample { input: vec![1,2,3], target: vec![4,5,6], metadata: Default::default() },
-        WorkerTrainingExample { input: vec![7,8,9], target: vec![10,11,12], metadata: Default::default() },
-    ];
+    // Load training examples from dataset if available, otherwise use synthetic fallback
+    let examples: Vec<WorkerTrainingExample> = match (dataset_id, db, storage_root) {
+        (Some(ds_id), Some(database), Some(storage)) => {
+            use crate::training_dataset_integration::TrainingDatasetManager;
+            let dataset_manager = TrainingDatasetManager::new(database, storage, None);
+            dataset_manager
+                .load_dataset_examples(&ds_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to load dataset: {}", e))?
+        }
+        _ => {
+            // Fallback: tiny synthetic batch for testing
+            tracing::warn!(
+                "No dataset configured for job {}, using synthetic training data",
+                job_id
+            );
+            vec![
+                WorkerTrainingExample {
+                    input: vec![1, 2, 3],
+                    target: vec![4, 5, 6],
+                    metadata: Default::default(),
+                },
+                WorkerTrainingExample {
+                    input: vec![7, 8, 9],
+                    target: vec![10, 11, 12],
+                    metadata: Default::default(),
+                },
+            ]
+        }
+    };
 
     let mut trainer = WorkerTrainer::new(worker_cfg)?;
 
@@ -455,7 +502,7 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None)
+            .start_training("test-adapter".to_string(), config, None, None, None)
             .await
             .unwrap();
 
@@ -472,7 +519,7 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None)
+            .start_training("test-adapter".to_string(), config, None, None, None)
             .await
             .unwrap();
 
@@ -488,7 +535,7 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None)
+            .start_training("test-adapter".to_string(), config, None, None, None)
             .await
             .unwrap();
 

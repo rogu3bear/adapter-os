@@ -99,24 +99,33 @@ impl RingBuffer {
 
         let mut offset = 0;
 
-        // Write adapter indices
+        // IMPORTANT: This layout must match the Metal struct RingBuffer in common.metal:
+        // struct RingBuffer {
+        //     uint top_k;
+        //     uint current_pos;
+        //     uint adapter_indices[8];
+        //     uint16_t gates[8];
+        // };
+
+        // Write top_k (4 bytes)
+        slice[offset..offset + 4].copy_from_slice(&(self.top_k as u32).to_le_bytes());
+        offset += 4;
+
+        // Write current_pos (4 bytes)
+        slice[offset..offset + 4].copy_from_slice(&(self.current_pos as u32).to_le_bytes());
+        offset += 4;
+
+        // Write adapter indices (8 * 4 bytes = 32 bytes)
         for &idx in &self.adapter_indices {
             slice[offset..offset + 4].copy_from_slice(&idx.to_le_bytes());
             offset += 4;
         }
 
-        // Write gates
+        // Write gates (8 * 2 bytes = 16 bytes)
         for &gate in &self.gates {
             slice[offset..offset + 2].copy_from_slice(&gate.to_le_bytes());
             offset += 2;
         }
-
-        // Write top_k
-        slice[offset..offset + 4].copy_from_slice(&(self.top_k as u32).to_le_bytes());
-        offset += 4;
-
-        // Write current_pos
-        slice[offset..offset + 4].copy_from_slice(&(self.current_pos as u32).to_le_bytes());
 
         Ok(())
     }

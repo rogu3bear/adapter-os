@@ -1277,3 +1277,251 @@ fn test_policy_thresholds_circuit_breaker_edge_cases() {
     assert!(engine2.should_open_circuit_breaker(0));
     assert!(engine2.should_open_circuit_breaker(1));
 }
+
+#[tokio::test]
+async fn test_multi_agent_barrier_adversarial_conditions() {
+    use adapteros_deterministic_exec::multi_agent::{AgentBarrier, CoordinationError};
+
+    // Test barrier with adversarial agent names
+    let adversarial_names = vec![
+        "".to_string(),                    // Empty string
+        "agent_with_very_long_name_".repeat(100), // Extremely long name
+        "agent\nwith\nnewlines".to_string(), // Newlines
+        "agent\twith\ttabs".to_string(),   // Tabs
+        "agent\0with\nulls".to_string(),   // Null bytes
+    ];
+
+    for name in adversarial_names {
+        let agent_ids = vec![name.clone()];
+        let barrier = AgentBarrier::new(agent_ids);
+
+        // Should handle adversarial names gracefully
+        let result = barrier.wait(&name, 1).await;
+        assert!(result.is_err(), "Should reject adversarial agent name: {:?}", name);
+        assert!(matches!(result.unwrap_err(), CoordinationError::AgentNotRegistered { .. }));
+    }
+}
+
+#[tokio::test]
+async fn test_global_tick_ledger_merkle_chain_integrity() {
+    use adapteros_deterministic_exec::global_ledger::{GlobalTickLedger, TickLedgerEntry};
+    use adapteros_deterministic_exec::ExecutorEvent;
+    use adapteros_core::{B3Hash, TaskId};
+    use adapteros_db::Db;
+    use tempfile::TempDir;
+
+    // Create temporary database for testing
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test_ledger.db");
+    let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
+    db.migrate().await.unwrap();
+
+    let db = Arc::new(db);
+    let ledger = GlobalTickLedger::new(
+        db,
+        "test-tenant".to_string(),
+        "test-host".to_string(),
+    );
+
+    // Test Merkle chain integrity with adversarial event data
+    let task_id = TaskId::from_bytes([1u8; 32]);
+
+    let adversarial_events = vec![
+        ExecutorEvent::TaskSpawned {
+            task_id,
+            description: "".to_string(), // Empty description
+            tick: 0,
+            agent_id: None,
+            hash: [0u8; 32],
+        },
+        ExecutorEvent::TaskSpawned {
+            task_id,
+            description: "desc".repeat(10000), // Extremely long description
+            tick: 0,
+            agent_id: None,
+            hash: [0u8; 32],
+        },
+        ExecutorEvent::TaskSpawned {
+            task_id,
+            description: "desc\nwith\nnewlines\nand\ttabs".to_string(),
+            tick: 0,
+            agent_id: None,
+            hash: [0u8; 32],
+        },
+    ];
+
+    for event in adversarial_events {
+        let result = ledger.record_tick(task_id, &event).await;
+        assert!(result.is_ok(), "Should handle adversarial event data gracefully");
+
+        let hash = result.unwrap();
+        assert_ne!(hash, B3Hash::new([0u8; 32]), "Hash should not be zero");
+    }
+
+    // Verify Merkle chain integrity
+    let latest_hash = ledger.get_latest_entry_hash();
+    assert!(latest_hash.is_some(), "Should have latest entry hash");
+
+    // Test cross-host consistency with tampered data
+    let peer_entries = vec![TickLedgerEntry {
+        id: Some("tampered".to_string()),
+        tick: 0,
+        tenant_id: "test-tenant".to_string(),
+        host_id: "peer-host".to_string(),
+        task_id,
+        event_type: "TaskSpawned".to_string(),
+        event_hash: B3Hash::new([255u8; 32]), // Tampered hash
+        timestamp_us: 1234567890,
+        prev_entry_hash: None,
+    }];
+
+    let our_entries = ledger.get_entries(0, 10).await.unwrap();
+    let divergences = ledger.compute_divergences(&our_entries, &peer_entries);
+
+    assert!(!divergences.is_empty(), "Should detect tampered data as divergence");
+}
+
+#[tokio::test]
+async fn test_database_schema_recovery_adversarial() {
+    use adapteros_db::Db;
+    use std::fs;
+
+    // Test schema recovery with corrupted database file
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("corrupted.db");
+
+    // Create a corrupted database file
+    fs::write(&db_path, b"not a valid sqlite database").unwrap();
+
+    // Attempting to connect should fail gracefully
+    let result = Db::connect(db_path.to_str().unwrap()).await;
+    assert!(result.is_err(), "Should reject corrupted database file");
+
+    // Test with non-existent path (should create new database)
+    let new_db_path = temp_dir.path().join("new.db");
+    let result = Db::connect(new_db_path.to_str().unwrap()).await;
+    assert!(result.is_ok(), "Should create new database file");
+
+    let db = result.unwrap();
+
+    // Migration should work on clean database
+    let migration_result = db.migrate().await;
+    assert!(migration_result.is_ok(), "Should apply migrations successfully");
+
+    // Verify critical tables exist
+    let pool = db.pool();
+    let tables = vec![
+        "_sqlx_migrations",
+        "users",
+        "tenants",
+        "adapters",
+        "policies",
+        "audits",
+    ];
+
+    for table in tables {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'",
+            table
+        ))
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+
+        assert_eq!(count, 1, "Table {} should exist", table);
+    }
+}
+
+#[tokio::test]
+async fn test_process_monitoring_adversarial_inputs() {
+    use adapteros_db::process_monitoring::{ProcessHealthMetric, ProcessAlert, ProcessAnomaly};
+    use chrono::{DateTime, Utc};
+
+    // Test process monitoring with adversarial inputs
+    let adversarial_metrics = vec![
+        ProcessHealthMetric {
+            id: "".to_string(), // Empty ID
+            worker_id: "".to_string(), // Empty worker ID
+            tenant_id: "test-tenant".to_string(),
+            metric_name: "".to_string(), // Empty metric name
+            metric_value: f64::INFINITY, // Infinity value
+            metric_unit: "".to_string(),
+            tags: serde_json::json!({}),
+            collected_at: Utc::now(),
+        },
+        ProcessHealthMetric {
+            id: "valid-id".to_string(),
+            worker_id: "valid-worker".to_string(),
+            tenant_id: "test-tenant".to_string(),
+            metric_name: "cpu_usage".to_string(),
+            metric_value: f64::NAN, // NaN value
+            metric_unit: "%".to_string(),
+            tags: serde_json::json!({"invalid": f64::NAN}), // NaN in JSON
+            collected_at: Utc::now(),
+        },
+        ProcessHealthMetric {
+            id: "id-with-newlines\nand\ttabs".to_string(),
+            worker_id: "worker\nwith\nspecial\nchars".to_string(),
+            tenant_id: "tenant\twith\ttabs".to_string(),
+            metric_name: "metric\nname".to_string(),
+            metric_value: -999999.999, // Extreme negative value
+            metric_unit: "unit\nwith\nnewlines".to_string(),
+            tags: serde_json::json!({}),
+            collected_at: DateTime::<Utc>::MIN_UTC, // Minimum timestamp
+        },
+    ];
+
+    // These should all be handled gracefully without panicking
+    for metric in adversarial_metrics {
+        let json_result = serde_json::to_string(&metric);
+        assert!(json_result.is_ok(), "Should serialize adversarial metric: {:?}", metric);
+
+        let json_str = json_result.unwrap();
+        let deserialize_result = serde_json::from_str::<ProcessHealthMetric>(&json_str);
+        assert!(deserialize_result.is_ok(), "Should deserialize adversarial metric JSON");
+    }
+
+    // Test alerts with adversarial data
+    let adversarial_alert = ProcessAlert {
+        id: "alert-id".to_string(),
+        rule_id: "".to_string(), // Empty rule ID
+        worker_id: "worker-id".to_string(),
+        tenant_id: "tenant-id".to_string(),
+        alert_type: "test".to_string(),
+        severity: "critical".to_string(),
+        message: "message\nwith\nnewlines\nand\ttabs\tand\0nulls".to_string(),
+        triggered_at: Utc::now(),
+        acknowledged_at: None,
+        resolved_at: None,
+        status: "active".to_string(),
+        metadata: serde_json::json!({
+            "nested": {
+                "deeply": {
+                    "complex": f64::INFINITY
+                }
+            }
+        }),
+    };
+
+    let json_result = serde_json::to_string(&adversarial_alert);
+    assert!(json_result.is_ok(), "Should serialize adversarial alert");
+
+    // Test anomalies with extreme values
+    let adversarial_anomaly = ProcessAnomaly {
+        id: "anomaly-id".to_string(),
+        worker_id: "worker-id".to_string(),
+        tenant_id: "tenant-id".to_string(),
+        anomaly_type: "performance".to_string(),
+        metric_name: "memory_usage".to_string(),
+        detected_value: f64::MAX,
+        expected_value: f64::MIN,
+        deviation_threshold: f64::EPSILON,
+        confidence_score: 2.0, // Invalid confidence (> 1.0)
+        detected_at: Utc::now(),
+        status: "active".to_string(),
+        metadata: serde_json::json!({}),
+    };
+
+    let json_result = serde_json::to_string(&adversarial_anomaly);
+    assert!(json_result.is_ok(), "Should serialize adversarial anomaly");
+}

@@ -49,7 +49,7 @@ impl IoBuffers {
 }
 
 /// Trait for fused kernel implementations
-pub trait FusedKernels: Send {
+pub trait FusedKernels: Send + Sync {
     /// Load plan and weights
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()>;
 
@@ -84,6 +84,83 @@ pub trait FusedKernels: Send {
         Err(adapteros_core::AosError::Kernel(
             "Hot-swap not supported by this backend".to_string(),
         ))
+    }
+
+    /// Verify GPU adapter buffers and compute fingerprint
+    ///
+    /// Samples buffer contents at checkpoints (first/last/mid 4KB) and returns
+    /// a fingerprint for integrity verification. This enables cross-layer validation
+    /// without full GPU-to-CPU buffer readback.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID to verify
+    ///
+    /// # Returns
+    /// * Buffer size in bytes
+    /// * Checkpoint samples (first 4KB, last 4KB, mid 4KB)
+    ///
+    /// Default implementation returns error for backends without GPU verification
+    fn verify_adapter_buffers(&self, _id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        Err(adapteros_core::AosError::Kernel(
+            "GPU buffer verification not supported by this backend".to_string(),
+        ))
+    }
+
+    /// Store GPU buffer fingerprint for adapter
+    ///
+    /// Stores a BLAKE3 hash of GPU buffer checkpoint samples for later verification.
+    /// Used after adapter load to establish baseline.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID
+    /// * `buffer_size` - Buffer size in bytes
+    /// * `checkpoint_hash_hex` - BLAKE3 hash of checkpoint samples as hex string
+    ///
+    /// Default implementation is no-op for backends without GPU tracking
+    fn store_gpu_fingerprint(&mut self, _id: u16, _buffer_size: u64, _checkpoint_hash_hex: &str) {
+        // No-op for backends without VRAM tracking
+    }
+
+    /// Verify GPU buffer fingerprint matches stored baseline
+    ///
+    /// Compares current GPU buffer fingerprint against stored baseline.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID
+    /// * `buffer_size` - Current buffer size
+    /// * `checkpoint_hash_hex` - Current BLAKE3 hash as hex string
+    ///
+    /// # Returns
+    /// * `Ok(true)` - Fingerprint matches baseline
+    /// * `Ok(false)` - No baseline stored yet (first verification)
+    /// * `Err(msg)` - Fingerprint mismatch
+    ///
+    /// Default implementation returns Ok(true) for backends without GPU tracking
+    fn verify_gpu_fingerprint(
+        &self,
+        _id: u16,
+        _buffer_size: u64,
+        _checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        Ok(true) // No verification for non-GPU backends
+    }
+
+    /// Check if memory footprint is within adaptive baseline tolerance
+    ///
+    /// Uses 2σ tolerance with adaptive baseline learning.
+    ///
+    /// # Arguments
+    /// * `id` - Adapter ID
+    /// * `buffer_size` - Current buffer size
+    ///
+    /// # Returns
+    /// * within_tolerance: bool
+    /// * z_score: f64
+    /// * baseline_stats: Option<(mean, stddev, sample_count)>
+    ///
+    /// Default implementation returns (true, 0.0, None) for backends without tracking
+    fn check_memory_footprint(&self, _id: u16, _buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (true, 0.0, None) // No anomaly detection for non-GPU backends
     }
 }
 
@@ -165,6 +242,75 @@ impl FusedKernels for Box<dyn FusedKernels> {
 
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
         (**self).unload_adapter(id)
+    }
+
+    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        (**self).verify_adapter_buffers(id)
+    }
+
+    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+        (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn verify_gpu_fingerprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (**self).check_memory_footprint(id, buffer_size)
+    }
+}
+
+/// Impl FusedKernels for Box<dyn FusedKernels + Send + Sync> to enable dynamic dispatch with explicit bounds
+impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
+    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        (**self).load(plan_bytes)
+    }
+
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        (**self).run_step(ring, io)
+    }
+
+    fn device_name(&self) -> &str {
+        (**self).device_name()
+    }
+
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        (**self).attest_determinism()
+    }
+
+    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+        (**self).load_adapter(id, weights)
+    }
+
+    fn unload_adapter(&mut self, id: u16) -> Result<()> {
+        (**self).unload_adapter(id)
+    }
+
+    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        (**self).verify_adapter_buffers(id)
+    }
+
+    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+        (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn verify_gpu_fingerprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+    }
+
+    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (**self).check_memory_footprint(id, buffer_size)
     }
 }
 
