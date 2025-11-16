@@ -1,6 +1,8 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::{sqlx, Db};
+use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_lora_worker::Worker;
 use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
@@ -10,6 +12,13 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
     pub metrics: MetricsConfig,
+    /// Timeout in seconds for directory analysis operations (default: 120)
+    #[serde(default = "default_directory_analysis_timeout")]
+    pub directory_analysis_timeout_secs: u64,
+}
+
+fn default_directory_analysis_timeout() -> u64 {
+    120
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +68,7 @@ pub struct AppState {
     pub crypto: Arc<CryptoState>,
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
     pub code_job_manager: Option<Arc<CodeJobManager>>,
+    pub worker: Option<Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>>,
     pub active_stack: Arc<RwLock<Option<String>>>,
     pub db_pool: sqlx::SqlitePool,
 }
@@ -82,6 +92,7 @@ impl AppState {
             crypto: Arc::new(CryptoState::new()),
             lifecycle_manager: None,
             code_job_manager: None,
+            worker: None,
             active_stack: Arc::new(RwLock::new(None)),
             db_pool,
         }
@@ -104,6 +115,11 @@ impl AppState {
 
     pub fn with_code_jobs(mut self, code_job_manager: Arc<CodeJobManager>) -> Self {
         self.code_job_manager = Some(code_job_manager);
+        self
+    }
+
+    pub fn with_worker(mut self, worker: Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>) -> Self {
+        self.worker = Some(worker);
         self
     }
 

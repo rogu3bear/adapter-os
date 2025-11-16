@@ -1,5 +1,6 @@
 use crate::state::AppState;
 use adapteros_api_types::adapters::*;
+use adapteros_core::StackName;
 use adapteros_db::sqlx;
 use axum::{
     extract::{Path, State},
@@ -58,6 +59,20 @@ pub async fn create_stack(
     State(state): State<AppState>,
     Json(req): Json<CreateStackRequest>,
 ) -> Result<(StatusCode, Json<StackResponse>), (StatusCode, String)> {
+    // Validate stack name format
+    let stack_name = StackName::parse(&req.name).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid stack name: {}", e),
+        )
+    })?;
+
+    info!(
+        stack_name = %stack_name,
+        adapter_count = req.adapter_ids.len(),
+        "Creating adapter stack"
+    );
+
     let id = uuid::Uuid::now_v7().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let adapter_ids_json = serde_json::to_string(&req.adapter_ids)
@@ -79,7 +94,18 @@ pub async fn create_stack(
     )
     .execute(&state.db_pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE constraint failed") {
+            (
+                StatusCode::CONFLICT,
+                format!("Stack name '{}' already exists", req.name),
+            )
+        } else {
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        }
+    })?;
+
+    info!(stack_id = %id, stack_name = %stack_name, "Adapter stack created");
 
     Ok((
         StatusCode::CREATED,
@@ -136,7 +162,8 @@ pub async fn list_stacks(
                 // Log the error but don't fail - return empty list for corrupted data
                 tracing::warn!(
                     "Corrupted adapter_ids_json in stack {}: {}. Using empty list.",
-                    name, e
+                    name,
+                    e
                 );
                 // Continue with empty list for this specific case
             })
@@ -209,7 +236,12 @@ pub async fn get_stack(
     .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Stack with id '{}' not found", id)))?;
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Stack with id '{}' not found", id),
+        )
+    })?;
 
     // Validate that critical fields are present
     let stack_id = row.id.ok_or_else(|| {
@@ -223,10 +255,7 @@ pub async fn get_stack(
 
     let adapter_ids: Vec<String> = serde_json::from_str(&row.adapter_ids_json)
         .map_err(|e| {
-            tracing::warn!(
-                "Failed to parse adapter_ids_json for stack {}: {}",
-                name, e
-            );
+            tracing::warn!("Failed to parse adapter_ids_json for stack {}: {}", name, e);
         })
         .unwrap_or_else(|_| vec![]);
 
@@ -331,36 +360,40 @@ pub async fn activate_stack(
     .await
     .map_err(|e| {
         warn!("Database error while fetching stack {}: {}", id, e);
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
     })?
     .ok_or_else(|| {
         warn!("Attempted to activate non-existent stack: {}", id);
-        (StatusCode::NOT_FOUND, format!("Stack with id '{}' not found", id))
+        (
+            StatusCode::NOT_FOUND,
+            format!("Stack with id '{}' not found", id),
+        )
     })?;
 
     let name = stack.name;
 
     // Parse adapter IDs to ensure they're valid
-    let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
-        .map_err(|e| {
-            warn!("Failed to parse adapter_ids_json for stack {}: {}", name, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Invalid adapter list in stack '{}': {}", name, e),
-            )
-        })?;
+    let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json).map_err(|e| {
+        warn!("Failed to parse adapter_ids_json for stack {}: {}", name, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Invalid adapter list in stack '{}': {}", name, e),
+        )
+    })?;
 
     // Store the active stack ID in application state
     // This would be used by the routing logic
     let previous_stack = {
-        let mut active_stack = state.active_stack.write()
-            .map_err(|e| {
-                warn!("Failed to acquire write lock for active_stack: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal synchronization error".to_string(),
-                )
-            })?;
+        let mut active_stack = state.active_stack.write().map_err(|e| {
+            warn!("Failed to acquire write lock for active_stack: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal synchronization error".to_string(),
+            )
+        })?;
         let prev = active_stack.clone();
         *active_stack = Some(id.clone());
         prev
@@ -399,14 +432,13 @@ pub async fn deactivate_stack(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let previous_stack = {
-        let mut active_stack = state.active_stack.write()
-            .map_err(|e| {
-                warn!("Failed to acquire write lock for active_stack: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal synchronization error".to_string(),
-                )
-            })?;
+        let mut active_stack = state.active_stack.write().map_err(|e| {
+            warn!("Failed to acquire write lock for active_stack: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal synchronization error".to_string(),
+            )
+        })?;
         let prev = active_stack.clone();
         *active_stack = None;
         prev
