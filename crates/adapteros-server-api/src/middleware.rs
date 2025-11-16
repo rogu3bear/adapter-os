@@ -1,4 +1,5 @@
 use crate::auth::{validate_token, Claims};
+use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -19,6 +20,11 @@ pub async fn auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // Extract client IP address from headers for audit logging
+    if let Some(ip) = extract_client_ip(req.headers()) {
+        req.extensions_mut().insert(ClientIp(ip));
+    }
+
     let auth_header = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -60,6 +66,11 @@ pub async fn dual_auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // Extract client IP address from headers for audit logging
+    if let Some(ip) = extract_client_ip(req.headers()) {
+        req.extensions_mut().insert(ClientIp(ip));
+    }
+
     let auth_header = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
