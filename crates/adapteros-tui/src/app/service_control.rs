@@ -9,7 +9,7 @@ use which::which;
 
 pub struct ServiceControl {
     project_root: PathBuf,
-    service_manager: PathBuf,
+    aos_command: String,
     launch_script: PathBuf,
 }
 
@@ -45,13 +45,11 @@ impl ServiceControl {
             .and_then(Path::parent)
             .ok_or_else(|| anyhow!("Could not determine AdapterOS project root"))?
             .to_path_buf();
-
-        let service_manager = project_root.join("scripts/service-manager.sh");
         let launch_script = project_root.join("launch.sh");
 
         Ok(Self {
             project_root,
-            service_manager,
+            aos_command: "aos".to_string(),
             launch_script,
         })
     }
@@ -59,17 +57,17 @@ impl ServiceControl {
     pub fn missing_prereqs(&self) -> Vec<String> {
         let mut missing = Vec::new();
 
-        if !self.service_manager.exists() {
-            missing.push(format!(
-                "Missing service-manager script at {}",
-                self.service_manager.display()
-            ));
-        }
-
         if !self.launch_script.exists() {
             missing.push(format!(
                 "Missing launch script at {}",
                 self.launch_script.display()
+            ));
+        }
+
+        if which(&self.aos_command).is_err() {
+            missing.push(format!(
+                "`{}` CLI not found in PATH. Build it with `cargo build -p adapteros-aos` or install it from the system package.",
+                self.aos_command
             ));
         }
 
@@ -95,10 +93,7 @@ impl ServiceControl {
     }
 
     pub async fn start_all_services(&self) -> Result<ServiceCommandResult> {
-        match self
-            .run_service_manager(&["start", "all"], "scripts/service-manager.sh start all")
-            .await
-        {
+        match self.run_aos(&["start", "backend"], "aos start backend").await {
             Ok(result) => Ok(result),
             Err(err) => {
                 warn!(
@@ -116,27 +111,11 @@ impl ServiceControl {
 
     #[allow(dead_code)]
     pub async fn start_backend(&self) -> Result<ServiceCommandResult> {
-        self.run_service_manager(
-            &["start", "backend"],
-            "scripts/service-manager.sh start backend",
-        )
-        .await
+        self.run_aos(&["start", "backend"], "aos start backend").await
     }
 
-    async fn run_service_manager(
-        &self,
-        args: &[&str],
-        display: &str,
-    ) -> Result<ServiceCommandResult> {
-        if !self.service_manager.exists() {
-            return Err(anyhow!(
-                "Service manager script not found at {}",
-                self.service_manager.display()
-            ));
-        }
-
-        let mut cmd = Command::new("bash");
-        cmd.arg(&self.service_manager);
+    async fn run_aos(&self, args: &[&str], display: &str) -> Result<ServiceCommandResult> {
+        let mut cmd = Command::new(&self.aos_command);
         for arg in args {
             cmd.arg(arg);
         }

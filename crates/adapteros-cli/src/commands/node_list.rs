@@ -52,7 +52,7 @@ pub async fn run(offline: bool) -> Result<()> {
     println!("{}", table);
     println!("\nTotal: {} node(s)", nodes.len());
 
-    // If not offline, query live status from agents
+    // If not offline, query live status from node runtimes
     if !offline {
         println!("\nQuerying live status...");
         for node in &nodes {
@@ -81,14 +81,14 @@ pub async fn run(offline: bool) -> Result<()> {
     Ok(())
 }
 
-/// Node status from agent
+/// Node status from node runtime
 #[derive(Debug, serde::Deserialize)]
 struct NodeStatus {
     worker_count: usize,
     vram_bytes: u64,
 }
 
-/// Query node agent for live status
+/// Query node runtime for live status
 async fn query_node_status(endpoint: &str) -> Result<NodeStatus> {
     let client = reqwest::Client::new();
     let url = format!("{}/status", endpoint);

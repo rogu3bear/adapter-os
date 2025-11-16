@@ -98,7 +98,7 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
       </div>
       <Alert>
         <AlertDescription>
-          This endpoint provides OpenAI-compatible API for Cursor IDE
+          This endpoint provides a local AdapterOS API for Cursor IDE (no external cloud calls).
         </AlertDescription>
       </Alert>
     </div>
@@ -232,4 +232,3 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
 }
 
 export default CursorSetupWizard;
-
