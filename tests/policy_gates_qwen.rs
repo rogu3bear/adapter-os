@@ -169,7 +169,7 @@ async fn test_egress_block_policy() {
     // Test that outbound connections are blocked
     let blocked_connections = vec![
         "tcp://example.com:80",
-        "https://api.openai.com/v1/chat",
+        "https://example-llm-provider.com/v1/chat",
         "dns://8.8.8.8",
     ];
 

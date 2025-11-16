@@ -1,7 +1,7 @@
 //! Integration tests for SSE streaming inference
 //!
 //! These tests validate the Server-Sent Events (SSE) streaming implementation
-//! for real-time inference with OpenAI API compatibility.
+//! for real-time inference with a chat-style streaming protocol.
 
 use adapteros_api::streaming::{StreamChoice, StreamChunk, StreamDelta, StreamMessage};
 use adapteros_api::{ChatCompletionRequest, ChatMessage};
@@ -476,7 +476,7 @@ async fn test_stream_delta_partial_updates() {
 
 #[tokio::test]
 #[ignore] // Requires Metal runtime
-async fn test_streaming_openai_compatibility() {
+async fn test_streaming_chunk_shape_compatibility() {
     use adapteros_lora_kernel_mtl::MetalKernels;
 
     // Initialize kernels and worker
@@ -487,7 +487,7 @@ async fn test_streaming_openai_compatibility() {
         .await
         .expect("Failed to create Worker");
 
-    // Create request matching OpenAI format
+    // Create request matching the expected streaming request format
     let request = ChatCompletionRequest {
         model: "qwen2.5".to_string(),
         messages: vec![ChatMessage {
@@ -504,12 +504,12 @@ async fn test_streaming_openai_compatibility() {
         .await
         .expect("Failed to create stream");
 
-    // Collect chunks and verify OpenAI format
+    // Collect chunks and verify streaming response format
     let mut chunks = Vec::new();
     while let Some(Ok(chunk)) = stream.next().await {
         chunks.push(chunk);
 
-        // Verify each chunk matches OpenAI format
+        // Verify each chunk matches expected streaming format
         let last_chunk = chunks.last().unwrap();
         assert_eq!(last_chunk.object, "chat.completion.chunk");
         assert!(!last_chunk.id.is_empty());
@@ -518,6 +518,5 @@ async fn test_streaming_openai_compatibility() {
         assert!(!last_chunk.choices.is_empty());
         assert_eq!(last_chunk.choices[0].index, 0);
     }
-
-    assert!(!chunks.is_empty(), "Expected OpenAI-compatible chunks");
+    assert!(!chunks.is_empty(), "Expected streaming chunks");
 }
