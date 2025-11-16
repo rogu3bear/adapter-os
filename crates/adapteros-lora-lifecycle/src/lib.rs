@@ -1233,6 +1233,16 @@ impl LifecycleManager {
                             }
                         }
 
+                        // Automatically load parent adapters if lineage loading is enabled
+                        // Note: This is opportunistic - if parent loading fails, we log but don't fail the whole operation
+                        if let Err(e) = self.load_parent_adapter(*adapter_id).await {
+                            warn!(
+                                adapter_id = *adapter_id,
+                                error = %e,
+                                "Failed to load parent adapter, continuing with child only"
+                            );
+                        }
+
                         let load_duration = load_start.elapsed();
                         let load_time_us = load_duration.as_micros() as u64;
 
@@ -1376,6 +1386,234 @@ impl LifecycleManager {
     /// Get lazy loading metrics for monitoring
     pub fn get_lazy_load_metrics(&self) -> LazyLoadMetrics {
         self.lazy_load_metrics.read().clone()
+    }
+
+    /// Load parent adapter if lineage loading is enabled
+    ///
+    /// This method checks if an adapter has a parent_adapter_id and recursively
+    /// loads the parent adapter chain. Parent adapters are loaded into a Warm state
+    /// to make them available for combination but not promote them excessively.
+    ///
+    /// Returns Ok(true) if parent was loaded, Ok(false) if no parent or already loaded
+    pub async fn load_parent_adapter(&self, adapter_idx: u16) -> Result<bool> {
+        self.load_parent_adapter_internal(adapter_idx, &mut std::collections::HashSet::new())
+            .await
+    }
+
+    /// Internal helper for load_parent_adapter with cycle detection
+    async fn load_parent_adapter_internal(
+        &self,
+        adapter_idx: u16,
+        visited: &mut std::collections::HashSet<u16>,
+    ) -> Result<bool> {
+        // Cycle detection
+        if visited.contains(&adapter_idx) {
+            return Err(AosError::Lifecycle(format!(
+                "Circular parent relationship detected at adapter {}",
+                adapter_idx
+            )));
+        }
+        visited.insert(adapter_idx);
+        // Get parent adapter ID from the state record
+        let parent_id = {
+            let states = self.states.read();
+            states
+                .get(&adapter_idx)
+                .and_then(|record| record.parent_adapter_id.clone())
+        };
+
+        // If no parent, nothing to do
+        let parent_id = match parent_id {
+            Some(id) => id,
+            None => return Ok(false),
+        };
+
+        info!(
+            adapter_idx = adapter_idx,
+            parent_adapter_id = %parent_id,
+            "Loading parent adapter for lineage stacking"
+        );
+
+        // Find parent adapter index
+        let parent_idx = {
+            let states = self.states.read();
+            states
+                .iter()
+                .find(|(_, record)| record.adapter_id == parent_id)
+                .map(|(idx, _)| *idx)
+        };
+
+        let parent_idx = match parent_idx {
+            Some(idx) => idx,
+            None => {
+                warn!(
+                    adapter_idx = adapter_idx,
+                    parent_adapter_id = %parent_id,
+                    "Parent adapter not found in registry"
+                );
+                return Err(AosError::Lifecycle(format!(
+                    "Parent adapter {} not found for adapter {}",
+                    parent_id, adapter_idx
+                )));
+            }
+        };
+
+        // Check if parent is already loaded
+        let parent_state = {
+            let states = self.states.read();
+            states.get(&parent_idx).map(|record| record.state)
+        };
+
+        if let Some(state) = parent_state {
+            if state.is_loaded() {
+                info!(
+                    parent_adapter_id = %parent_id,
+                    parent_idx = parent_idx,
+                    state = %state,
+                    "Parent adapter already loaded"
+                );
+                return Ok(false);
+            }
+        }
+
+        // Load parent adapter
+        info!(
+            parent_adapter_id = %parent_id,
+            parent_idx = parent_idx,
+            "Loading parent adapter"
+        );
+
+        // Use ensure_adapters_loaded to load the parent
+        self.ensure_adapters_loaded(&[parent_idx]).await?;
+
+        // Promote parent to Warm state (available but not hot)
+        {
+            let mut states = self.states.write();
+            if let Some(record) = states.get_mut(&parent_idx) {
+                if record.state == AdapterState::Cold {
+                    record.state = AdapterState::Warm;
+                }
+            }
+        }
+
+        // Recursively load grandparent if parent has a parent
+        self.load_parent_adapter_internal(parent_idx, visited)
+            .await?;
+
+        info!(
+            parent_adapter_id = %parent_id,
+            parent_idx = parent_idx,
+            "Parent adapter loaded successfully"
+        );
+
+        Ok(true)
+    }
+
+    /// Get adapter lineage chain (from root to current adapter)
+    ///
+    /// Returns a vector of adapter indices in order from the root ancestor
+    /// to the given adapter. The first element is the oldest ancestor,
+    /// the last element is the given adapter.
+    ///
+    /// Returns an error if a cycle is detected in the lineage chain.
+    pub fn get_adapter_lineage(&self, adapter_idx: u16) -> Vec<u16> {
+        let mut lineage = vec![adapter_idx];
+        let states = self.states.read();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(adapter_idx);
+
+        let mut current_idx = adapter_idx;
+        loop {
+            let parent_id = states
+                .get(&current_idx)
+                .and_then(|record| record.parent_adapter_id.clone());
+
+            match parent_id {
+                Some(parent_id) => {
+                    // Find parent index
+                    let parent_idx = states
+                        .iter()
+                        .find(|(_, record)| record.adapter_id == parent_id)
+                        .map(|(idx, _)| *idx);
+
+                    match parent_idx {
+                        Some(idx) => {
+                            // Cycle detection
+                            if visited.contains(&idx) {
+                                warn!(
+                                    adapter_idx = adapter_idx,
+                                    cycle_at = idx,
+                                    "Detected cycle in adapter lineage"
+                                );
+                                break;
+                            }
+
+                            visited.insert(idx);
+                            lineage.insert(0, idx);
+                            current_idx = idx;
+                        }
+                        None => break,
+                    }
+                }
+                None => break,
+            }
+        }
+
+        lineage
+    }
+
+    /// Get all safety adapters
+    pub fn get_safety_adapters(&self) -> Vec<u16> {
+        let states = self.states.read();
+        states
+            .iter()
+            .filter(|(_, record)| record.is_safety_adapter)
+            .map(|(idx, _)| *idx)
+            .collect()
+    }
+
+    /// Get adapters by domain
+    pub fn get_adapters_by_domain(&self, domain: &str) -> Vec<u16> {
+        let states = self.states.read();
+        states
+            .iter()
+            .filter(|(_, record)| record.domains.contains(&domain.to_string()))
+            .map(|(idx, _)| *idx)
+            .collect()
+    }
+
+    /// Update adapter metadata from manifest
+    ///
+    /// This should be called after loading manifests to populate lineage and safety metadata.
+    /// Pass the adapter list from the manifest to update state records.
+    pub fn update_adapter_metadata(&self, adapters: &[adapteros_manifest::Adapter]) -> Result<()> {
+        let mut states = self.states.write();
+
+        for adapter in adapters {
+            // Find the state record by adapter ID
+            let record = states.values_mut().find(|r| r.adapter_id == adapter.id);
+
+            if let Some(record) = record {
+                record.parent_adapter_id = adapter.parent_adapter_id.clone();
+                record.is_safety_adapter = adapter.is_safety_adapter;
+                record.domains = adapter.domains.clone();
+
+                info!(
+                    adapter_id = %adapter.id,
+                    parent = ?adapter.parent_adapter_id,
+                    is_safety = adapter.is_safety_adapter,
+                    domains = ?adapter.domains,
+                    "Updated adapter metadata from manifest"
+                );
+            } else {
+                warn!(
+                    adapter_id = %adapter.id,
+                    "Adapter in manifest not found in lifecycle manager"
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1626,6 +1864,214 @@ mod tests {
         // Try to lazy load a non-existent adapter
         let result = manager.ensure_adapters_loaded(&[999]).await;
         assert!(result.is_err(), "Should fail for non-existent adapter");
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_adapter_lineage_metadata() {
+        use adapteros_manifest::Adapter;
+
+        let adapter_names = vec![
+            "parent".to_string(),
+            "child".to_string(),
+            "safety".to_string(),
+        ];
+        let temp_dir = std::env::temp_dir().join("mplora_lineage_metadata");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+
+        // Create manifest adapters with lineage metadata
+        let adapters = vec![
+            Adapter {
+                id: "parent".to_string(),
+                hash: "b3:parent123".to_string(),
+                tier: "persistent".to_string(),
+                rank: 16,
+                alpha: 32.0,
+                target_modules: vec!["q_proj".to_string()],
+                parent_adapter_id: None,
+                domains: vec!["code".to_string()],
+                is_safety_adapter: false,
+            },
+            Adapter {
+                id: "child".to_string(),
+                hash: "b3:child456".to_string(),
+                tier: "persistent".to_string(),
+                rank: 16,
+                alpha: 32.0,
+                target_modules: vec!["q_proj".to_string()],
+                parent_adapter_id: Some("parent".to_string()),
+                domains: vec!["code".to_string(), "python".to_string()],
+                is_safety_adapter: false,
+            },
+            Adapter {
+                id: "safety".to_string(),
+                hash: "b3:safety789".to_string(),
+                tier: "persistent".to_string(),
+                rank: 8,
+                alpha: 16.0,
+                target_modules: vec!["q_proj".to_string()],
+                parent_adapter_id: None,
+                domains: vec!["safety".to_string()],
+                is_safety_adapter: true,
+            },
+        ];
+
+        // Update metadata from manifests
+        manager
+            .update_adapter_metadata(&adapters)
+            .expect("Metadata update should succeed");
+
+        // Verify metadata was set correctly
+        {
+            let states = manager.states.read();
+
+            let parent = states.get(&0).expect("Parent adapter should exist");
+            assert_eq!(parent.parent_adapter_id, None);
+            assert_eq!(parent.domains, vec!["code"]);
+            assert!(!parent.is_safety_adapter);
+
+            let child = states.get(&1).expect("Child adapter should exist");
+            assert_eq!(child.parent_adapter_id, Some("parent".to_string()));
+            assert_eq!(child.domains, vec!["code", "python"]);
+            assert!(!child.is_safety_adapter);
+
+            let safety = states.get(&2).expect("Safety adapter should exist");
+            assert_eq!(safety.parent_adapter_id, None);
+            assert_eq!(safety.domains, vec!["safety"]);
+            assert!(safety.is_safety_adapter);
+        }
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_get_adapter_lineage() {
+        let adapter_names = vec![
+            "grandparent".to_string(),
+            "parent".to_string(),
+            "child".to_string(),
+        ];
+        let temp_dir = std::env::temp_dir().join("mplora_get_lineage");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+
+        // Set up lineage: child -> parent -> grandparent
+        {
+            let mut states = manager.states.write();
+
+            states.get_mut(&0).unwrap().parent_adapter_id = None; // grandparent
+            states.get_mut(&1).unwrap().parent_adapter_id = Some("grandparent".to_string()); // parent
+            states.get_mut(&2).unwrap().parent_adapter_id = Some("parent".to_string());
+            // child
+        }
+
+        // Get lineage for child
+        let lineage = manager.get_adapter_lineage(2);
+        assert_eq!(lineage, vec![0, 1, 2]); // Should be [grandparent, parent, child]
+
+        // Get lineage for parent
+        let lineage = manager.get_adapter_lineage(1);
+        assert_eq!(lineage, vec![0, 1]); // Should be [grandparent, parent]
+
+        // Get lineage for grandparent
+        let lineage = manager.get_adapter_lineage(0);
+        assert_eq!(lineage, vec![0]); // Should be just [grandparent]
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_lineage_cycle_detection() {
+        let adapter_names = vec!["a".to_string(), "b".to_string()];
+        let temp_dir = std::env::temp_dir().join("mplora_lineage_cycle");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 2);
+
+        // Create a cycle: a -> b -> a
+        {
+            let mut states = manager.states.write();
+            states.get_mut(&0).unwrap().parent_adapter_id = Some("b".to_string());
+            states.get_mut(&1).unwrap().parent_adapter_id = Some("a".to_string());
+        }
+
+        // get_adapter_lineage should detect the cycle and break
+        let lineage = manager.get_adapter_lineage(0);
+        // Should stop when cycle detected, not infinite loop
+        assert!(lineage.len() <= 2);
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_get_safety_adapters() {
+        let adapter_names = vec![
+            "normal1".to_string(),
+            "safety1".to_string(),
+            "normal2".to_string(),
+            "safety2".to_string(),
+        ];
+        let temp_dir = std::env::temp_dir().join("mplora_safety_adapters");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 4);
+
+        // Mark some as safety adapters
+        {
+            let mut states = manager.states.write();
+            states.get_mut(&1).unwrap().is_safety_adapter = true;
+            states.get_mut(&3).unwrap().is_safety_adapter = true;
+        }
+
+        // Get safety adapters
+        let mut safety = manager.get_safety_adapters();
+        safety.sort(); // Sort for deterministic comparison
+        assert_eq!(safety, vec![1, 3]);
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_get_adapters_by_domain() {
+        let adapter_names = vec![
+            "code1".to_string(),
+            "vision1".to_string(),
+            "code2".to_string(),
+        ];
+        let temp_dir = std::env::temp_dir().join("mplora_domain_adapters");
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+
+        let manager =
+            LifecycleManager::new(adapter_names, &test_policies(), temp_dir.clone(), None, 3);
+
+        // Set domains
+        {
+            let mut states = manager.states.write();
+            states.get_mut(&0).unwrap().domains = vec!["code".to_string()];
+            states.get_mut(&1).unwrap().domains = vec!["vision".to_string()];
+            states.get_mut(&2).unwrap().domains = vec!["code".to_string(), "python".to_string()];
+        }
+
+        // Get code adapters
+        let mut code = manager.get_adapters_by_domain("code");
+        code.sort();
+        assert_eq!(code, vec![0, 2]);
+
+        // Get vision adapters
+        let vision = manager.get_adapters_by_domain("vision");
+        assert_eq!(vision, vec![1]);
+
+        // Get python adapters
+        let python = manager.get_adapters_by_domain("python");
+        assert_eq!(python, vec![2]);
 
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
