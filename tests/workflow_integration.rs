@@ -1,15 +1,25 @@
 //! Integration tests for workflow execution
 
+use adapteros_core::B3Hash;
 use adapteros_lora_lifecycle::{
-    LifecycleManager, WorkflowContext, WorkflowExecutor, WorkflowType,
+    LifecycleManager, MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowType,
 };
 use adapteros_manifest::Policies;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+fn build_adapter_hashes(names: &[String]) -> HashMap<String, B3Hash> {
+    names
+        .iter()
+        .map(|name| (name.clone(), B3Hash::hash(name.as_bytes())))
+        .collect()
+}
 
 #[tokio::test]
 async fn test_workflow_execution_sequential() {
     // Create workflow executor
+    let backend = Arc::new(MockAdapterBackend);
     let executor = WorkflowExecutor::new(
         WorkflowType::Sequential,
         vec![
@@ -17,6 +27,7 @@ async fn test_workflow_execution_sequential() {
             "adapter_2".to_string(),
             "adapter_3".to_string(),
         ],
+        backend,
     );
 
     // Create context
@@ -44,6 +55,7 @@ async fn test_workflow_execution_sequential() {
 #[tokio::test]
 async fn test_workflow_execution_parallel() {
     // Create workflow executor
+    let backend = Arc::new(MockAdapterBackend);
     let executor = WorkflowExecutor::new(
         WorkflowType::Parallel,
         vec![
@@ -52,6 +64,7 @@ async fn test_workflow_execution_parallel() {
             "adapter_c".to_string(),
             "adapter_d".to_string(),
         ],
+        backend,
     );
 
     // Create context
@@ -80,6 +93,7 @@ async fn test_workflow_execution_parallel() {
 #[tokio::test]
 async fn test_workflow_execution_upstream_downstream() {
     // Create workflow executor with 6 adapters
+    let backend = Arc::new(MockAdapterBackend);
     let executor = WorkflowExecutor::new(
         WorkflowType::UpstreamDownstream,
         vec![
@@ -90,6 +104,7 @@ async fn test_workflow_execution_upstream_downstream() {
             "downstream_2".to_string(),
             "downstream_3".to_string(),
         ],
+        backend,
     );
 
     // Create context
@@ -120,13 +135,12 @@ async fn test_lifecycle_manager_workflow_integration() {
     // Create lifecycle manager
     let policies = Policies::default();
     let adapters_path = PathBuf::from("/tmp/test_adapters");
-    let adapter_names = vec![
-        "test_adapter_1".to_string(),
-        "test_adapter_2".to_string(),
-    ];
+    let adapter_names = vec!["test_adapter_1".to_string(), "test_adapter_2".to_string()];
 
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
     let manager = LifecycleManager::new(
         adapter_names.clone(),
+        adapter_hashes,
         &policies,
         adapters_path,
         None,
@@ -135,7 +149,9 @@ async fn test_lifecycle_manager_workflow_integration() {
 
     // Activate a stack
     let stack_name = "test_stack".to_string();
-    let result = manager.activate_stack(stack_name.clone(), adapter_names).await;
+    let result = manager
+        .activate_stack(stack_name.clone(), adapter_names)
+        .await;
 
     // Stack activation might fail if adapters don't exist, but that's okay for this test
     if result.is_ok() {

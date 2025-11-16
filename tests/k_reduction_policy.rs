@@ -1,8 +1,17 @@
 //! Tests for K-reduction policy under memory pressure
 
+use adapteros_core::B3Hash;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_manifest::Policies;
 use adapteros_profiler::AdapterProfiler;
+use std::collections::HashMap;
+
+fn build_adapter_hashes(names: &[String]) -> HashMap<String, B3Hash> {
+    names
+        .iter()
+        .map(|name| (name.clone(), B3Hash::hash(name.as_bytes())))
+        .collect()
+}
 
 #[test]
 fn test_k_reduction_before_hot_eviction() {
@@ -16,8 +25,10 @@ fn test_k_reduction_before_hot_eviction() {
     ];
 
     let policies = Policies::default();
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
     let manager = LifecycleManager::new(
         adapter_names.clone(),
+        adapter_hashes,
         &policies,
         temp_dir.clone(),
         None,
@@ -73,9 +84,10 @@ fn test_k_gradual_reduction() {
 
     let adapter_names = vec!["adapter_0".to_string()];
     let policies = Policies::default();
-
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
     let manager = LifecycleManager::new(
         adapter_names.clone(),
+        adapter_hashes,
         &policies,
         temp_dir.clone(),
         None,
@@ -124,8 +136,15 @@ fn test_eviction_order_respects_policy() {
     let mut policies = Policies::default();
     policies.memory.evict_order = vec!["cold_lru".to_string(), "warm_lru".to_string()];
 
-    let manager =
-        LifecycleManager::new(adapter_names.clone(), &policies, temp_dir.clone(), None, 3);
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
+    let manager = LifecycleManager::new(
+        adapter_names.clone(),
+        adapter_hashes,
+        &policies,
+        temp_dir.clone(),
+        None,
+        3,
+    );
 
     let profiler = AdapterProfiler::new(adapter_names, None);
 

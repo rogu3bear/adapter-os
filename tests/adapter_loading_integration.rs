@@ -120,8 +120,10 @@ async fn test_adapter_activation_tracking() -> Result<()> {
 
 #[tokio::test]
 async fn test_adapter_lifecycle_manager_integration() -> Result<()> {
+    use adapteros_core::B3Hash;
     use adapteros_lora_lifecycle::{AdapterLoader, LifecycleManager};
     use adapteros_manifest::Policies;
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     let temp_dir = std::env::temp_dir().join("aos_test_adapter_lifecycle");
@@ -134,7 +136,19 @@ async fn test_adapter_lifecycle_manager_integration() -> Result<()> {
     // Create lifecycle manager
     let adapter_names = vec!["test_adapter".to_string()];
     let policies = Policies::default();
-    let lifecycle = LifecycleManager::new(adapter_names, &policies, temp_dir.clone(), None, 3);
+    let mut adapter_hashes = HashMap::new();
+    adapter_hashes.insert(
+        adapter_names[0].clone(),
+        B3Hash::hash(b"fake safetensors data"),
+    );
+    let lifecycle = LifecycleManager::new(
+        adapter_names,
+        adapter_hashes,
+        &policies,
+        temp_dir.clone(),
+        None,
+        3,
+    );
 
     // Test that adapter starts in unloaded state
     assert_eq!(

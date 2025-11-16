@@ -21,8 +21,8 @@ fn test_weighted_scoring_influences_selection() {
         0.05, // verb
     );
 
-    let mut router1 = Router::new_with_weights(heavy_language_weights, 3, 1.0, 0.02, [0u8; 32]);
-    let mut router2 = Router::new_with_weights(heavy_framework_weights, 3, 1.0, 0.02, [0u8; 32]);
+    let mut router1 = Router::new_with_weights(heavy_language_weights, 3, 1.0, 0.02);
+    let mut router2 = Router::new_with_weights(heavy_framework_weights, 3, 1.0, 0.02);
 
     // Create code features with strong Python + Django signal
     let features = CodeFeatures::from_context("def main(): # Python Django application");
@@ -56,7 +56,7 @@ fn test_weighted_scoring_influences_selection() {
 #[test]
 fn test_feature_score_components() {
     let weights = RouterWeights::default();
-    let router = Router::new_with_weights(weights, 3, 1.0, 0.02, [0u8; 32]);
+    let router = Router::new_with_weights(weights, 3, 1.0, 0.02);
 
     // Create features with known components
     let features = CodeFeatures::from_context("Fix the bug in this Python function");
@@ -105,13 +105,12 @@ fn test_routing_decision_changes_with_weights() {
     let feature_vec = features.to_vector();
 
     // Test with different weights
-    let mut router1 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02, [0u8; 32]);
+    let mut router1 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
     let mut router2 = Router::new_with_weights(
         RouterWeights::new(0.5, 0.3, 0.1, 0.05, 0.05),
         3,
         1.0,
         0.02,
-        [0u8; 32],
     );
 
     let priors = vec![1.0, 1.2, 0.8, 1.5, 0.9];
