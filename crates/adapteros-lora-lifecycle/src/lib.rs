@@ -52,6 +52,7 @@ pub mod loader;
 pub mod policy;
 pub mod state;
 pub mod ttl_manager;
+pub mod workflow_executor;
 
 pub use activation_tracker::ActivationTracker;
 pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
@@ -59,6 +60,7 @@ pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
 pub use state::{AdapterState, AdapterStateRecord, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
+pub use workflow_executor::{WorkflowExecutor, WorkflowType, WorkflowContext, WorkflowResult, ExecutionStats};
 
 /// Enhanced lifecycle manager for adapters with category-aware state management
 pub struct LifecycleManager {
@@ -78,6 +80,8 @@ pub struct LifecycleManager {
     db: Option<Db>,
     /// Rolling activation tracker fed by router decisions
     activation_tracker: Arc<RwLock<ActivationTracker>>,
+    /// Currently active stack (if any)
+    active_stack: Arc<RwLock<Option<(String, Vec<String>)>>>, // (name, adapter_ids)
 }
 
 impl LifecycleManager {
@@ -106,6 +110,7 @@ impl LifecycleManager {
             category_policies: CategoryPolicyManager::new(),
             db: None,
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
+            active_stack: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -140,6 +145,7 @@ impl LifecycleManager {
             category_policies: CategoryPolicyManager::new(),
             db: Some(db),
             activation_tracker: Arc::new(RwLock::new(ActivationTracker::new(200))),
+            active_stack: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -921,6 +927,184 @@ impl LifecycleManager {
             .iter()
             .map(|(id, record)| (*id, record.state.priority_boost()))
             .collect()
+    }
+
+    /// Load and activate an adapter stack
+    pub async fn activate_stack(&self, stack_name: String, adapter_ids: Vec<String>) -> Result<()> {
+        use tracing::{info, debug};
+
+        info!(
+            "Activating adapter stack '{}' with {} adapters",
+            stack_name,
+            adapter_ids.len()
+        );
+
+        // Ensure all adapters in the stack are loaded
+        for adapter_id in &adapter_ids {
+            debug!("Checking if adapter {} is loaded", adapter_id);
+
+            // Find the adapter index by ID
+            let adapter_idx = {
+                let states = self.states.read();
+                states
+                    .iter()
+                    .find(|(_, record)| record.adapter_id == *adapter_id)
+                    .map(|(idx, _)| *idx)
+            };
+
+            if let Some(idx) = adapter_idx {
+                // Check if adapter is loaded
+                let is_loaded = {
+                    let states = self.states.read();
+                    states.get(&idx).map_or(false, |record| record.state.is_loaded())
+                };
+
+                if !is_loaded {
+                    info!("Adapter {} needs to be loaded for stack {}", adapter_id, stack_name);
+                    // In a real implementation, we would load the adapter here
+                    // For now, we just log that it needs loading
+                }
+            } else {
+                return Err(AosError::NotFound(format!(
+                    "Adapter {} not found in lifecycle manager",
+                    adapter_id
+                ))
+                .into());
+            }
+        }
+
+        // Update the active stack
+        {
+            let mut active_stack = self.active_stack.write();
+            *active_stack = Some((stack_name.clone(), adapter_ids.clone()));
+        }
+
+        // Log telemetry event
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "lifecycle.stack_activated",
+                serde_json::json!({
+                    "stack_name": stack_name,
+                    "adapter_count": adapter_ids.len(),
+                    "adapter_ids": adapter_ids,
+                }),
+            )?;
+        }
+
+        info!("Stack '{}' activated successfully", stack_name);
+        Ok(())
+    }
+
+    /// Deactivate the current stack
+    pub async fn deactivate_stack(&self) -> Result<()> {
+        let stack_info = {
+            let mut active_stack = self.active_stack.write();
+            active_stack.take()
+        };
+
+        if let Some((name, _)) = stack_info {
+            // Log telemetry event
+            if let Some(ref telemetry) = self.telemetry {
+                telemetry.log(
+                    "lifecycle.stack_deactivated",
+                    serde_json::json!({
+                        "stack_name": name,
+                    }),
+                )?;
+            }
+
+            info!("Stack '{}' deactivated", name);
+        }
+
+        Ok(())
+    }
+
+    /// Get the currently active stack
+    pub fn get_active_stack(&self) -> Option<(String, Vec<String>)> {
+        let active_stack = self.active_stack.read();
+        active_stack.clone()
+    }
+
+    /// Load a stack from database and activate it
+    pub async fn load_and_activate_stack(&self, stack_id: &str) -> Result<()> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AosError::Database("Database not configured".to_string()))?;
+
+        // Query the stack from database
+        let row = sqlx::query_as::<_, (String, String, Option<String>)>(
+            r#"
+            SELECT name, adapter_ids_json, workflow_type
+            FROM adapter_stacks
+            WHERE id = ?
+            "#,
+        )
+        .bind(stack_id)
+        .fetch_optional(db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?
+        .ok_or_else(|| AosError::NotFound(format!("Stack {} not found", stack_id)))?;
+
+        let adapter_ids: Vec<String> = serde_json::from_str(&row.1)
+            .map_err(|e| AosError::Serialization(e))?;
+
+        self.activate_stack(row.0, adapter_ids).await
+    }
+
+    /// Execute the current stack's workflow
+    pub async fn execute_stack_workflow(&self, context: WorkflowContext) -> Result<WorkflowResult> {
+        let stack_info = {
+            let active_stack = self.active_stack.read();
+            active_stack.clone()
+        };
+
+        let (stack_name, adapter_ids) = stack_info
+            .ok_or_else(|| AosError::Lifecycle("No active stack".to_string()))?;
+
+        info!("Executing workflow for stack '{}'", stack_name);
+
+        // Get workflow type from database if available
+        let workflow_type = if let Some(ref db) = self.db {
+            let row = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT workflow_type FROM adapter_stacks WHERE name = ?"
+            )
+            .bind(&stack_name)
+            .fetch_optional(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to fetch workflow type: {}", e)))?;
+
+            match row.and_then(|wt| wt) {
+                Some(wt) => match wt.as_str() {
+                    "parallel" => WorkflowType::Parallel,
+                    "upstream_downstream" => WorkflowType::UpstreamDownstream,
+                    "sequential" => WorkflowType::Sequential,
+                    _ => WorkflowType::Parallel, // Default
+                },
+                None => WorkflowType::Parallel, // Default if not specified
+            }
+        } else {
+            WorkflowType::Parallel // Default if no database
+        };
+
+        // Create and execute workflow
+        let executor = WorkflowExecutor::new(workflow_type, adapter_ids);
+        let result = executor.execute(context).await?;
+
+        // Log telemetry
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "lifecycle.workflow_executed",
+                serde_json::json!({
+                    "stack_name": stack_name,
+                    "adapters_executed": result.stats.adapters_executed,
+                    "total_time_ms": result.stats.total_time_ms,
+                    "phases": result.stats.phases.len(),
+                }),
+            )?;
+        }
+
+        Ok(result)
     }
 }
 

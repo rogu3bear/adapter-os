@@ -309,30 +309,30 @@ impl ProcessMonitoringRule {
             .escalation_rules
             .map(|v| serde_json::to_string(&v).unwrap());
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_monitoring_rules (
                 id, name, description, tenant_id, rule_type, metric_name,
                 threshold_value, threshold_operator, severity, evaluation_window_seconds,
                 cooldown_seconds, is_active, notification_channels, escalation_rules, created_by
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            rule.name,
-            rule.description,
-            rule.tenant_id,
-            rule_type_str,
-            rule.metric_name,
-            rule.threshold_value,
-            threshold_operator_str,
-            severity_str,
-            rule.evaluation_window_seconds,
-            rule.cooldown_seconds,
-            rule.is_active,
-            notification_channels_str,
-            escalation_rules_str,
-            rule.created_by
+            "#
         )
+        .bind(&id)
+        .bind(&rule.name)
+        .bind(&rule.description)
+        .bind(&rule.tenant_id)
+        .bind(&rule_type_str)
+        .bind(&rule.metric_name)
+        .bind(&rule.threshold_value)
+        .bind(&threshold_operator_str)
+        .bind(&severity_str)
+        .bind(&rule.evaluation_window_seconds)
+        .bind(&rule.cooldown_seconds)
+        .bind(&rule.is_active)
+        .bind(&notification_channels_str)
+        .bind(&escalation_rules_str)
+        .bind(&rule.created_by)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create monitoring rule: {}", e)))?;
@@ -465,7 +465,8 @@ impl ProcessMonitoringRule {
 
     /// Delete a monitoring rule
     pub async fn delete(pool: &SqlitePool, id: &str) -> Result<()> {
-        sqlx::query!("DELETE FROM process_monitoring_rules WHERE id = ?", id)
+        sqlx::query("DELETE FROM process_monitoring_rules WHERE id = ?")
+            .bind(id)
             .execute(pool)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete monitoring rule: {}", e)))?;
@@ -480,20 +481,20 @@ impl ProcessHealthMetric {
         let id = uuid::Uuid::now_v7().to_string();
 
         let tags_json = metric.tags.map(|v| serde_json::to_string(&v).unwrap());
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_health_metrics (
                 id, worker_id, tenant_id, metric_name, metric_value, metric_unit, tags
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            metric.worker_id,
-            metric.tenant_id,
-            metric.metric_name,
-            metric.metric_value,
-            metric.metric_unit,
-            tags_json
+            "#
         )
+        .bind(&id)
+        .bind(&metric.worker_id)
+        .bind(&metric.tenant_id)
+        .bind(&metric.metric_name)
+        .bind(&metric.metric_value)
+        .bind(&metric.metric_unit)
+        .bind(&tags_json)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert health metric: {}", e)))?;
@@ -643,25 +644,25 @@ impl ProcessAlert {
         let severity_str = alert.severity.to_string();
         let status_str = alert.status.to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_alerts (
                 id, rule_id, worker_id, tenant_id, alert_type, severity,
                 title, message, metric_value, threshold_value, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            alert.rule_id,
-            alert.worker_id,
-            alert.tenant_id,
-            alert.alert_type,
-            severity_str,
-            alert.title,
-            alert.message,
-            alert.metric_value,
-            alert.threshold_value,
-            status_str
+            "#
         )
+        .bind(&id)
+        .bind(&alert.rule_id)
+        .bind(&alert.worker_id)
+        .bind(&alert.tenant_id)
+        .bind(&alert.alert_type)
+        .bind(&severity_str)
+        .bind(&alert.title)
+        .bind(&alert.message)
+        .bind(&alert.metric_value)
+        .bind(&alert.threshold_value)
+        .bind(&status_str)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create alert: {}", e)))?;
@@ -802,29 +803,29 @@ impl ProcessAnomaly {
         let severity_str = anomaly.severity.to_string();
         let status_str = anomaly.status.to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_anomalies (
                 id, worker_id, tenant_id, anomaly_type, metric_name, detected_value,
                 expected_range_min, expected_range_max, confidence_score, severity,
                 description, detection_method, model_version, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            anomaly.worker_id,
-            anomaly.tenant_id,
-            anomaly.anomaly_type,
-            anomaly.metric_name,
-            anomaly.detected_value,
-            anomaly.expected_range_min,
-            anomaly.expected_range_max,
-            anomaly.confidence_score,
-            severity_str,
-            anomaly.description,
-            anomaly.detection_method,
-            anomaly.model_version,
-            status_str
+            "#
         )
+        .bind(&id)
+        .bind(&anomaly.worker_id)
+        .bind(&anomaly.tenant_id)
+        .bind(&anomaly.anomaly_type)
+        .bind(&anomaly.metric_name)
+        .bind(&anomaly.detected_value)
+        .bind(&anomaly.expected_range_min)
+        .bind(&anomaly.expected_range_max)
+        .bind(&anomaly.confidence_score)
+        .bind(&severity_str)
+        .bind(&anomaly.description)
+        .bind(&anomaly.detection_method)
+        .bind(&anomaly.model_version)
+        .bind(&status_str)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert anomaly: {}", e)))?;
@@ -917,33 +918,40 @@ impl PerformanceBaseline {
         let baseline_type_str = baseline.baseline_type.to_string();
         let expires_at_str = baseline.expires_at.map(|dt| dt.to_rfc3339());
 
-        sqlx::query!(
+        // First, try to get existing ID if any
+        let existing_id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM process_performance_baselines WHERE worker_id = ? AND metric_name = ? AND is_active = true"
+        )
+        .bind(&baseline.worker_id)
+        .bind(&baseline.metric_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to check existing baseline: {}", e)))?;
+
+        let id = existing_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+
+        sqlx::query(
             r#"
             INSERT OR REPLACE INTO process_performance_baselines (
                 id, worker_id, tenant_id, metric_name, baseline_value, baseline_type,
                 calculation_period_days, confidence_interval, standard_deviation,
                 percentile_95, percentile_99, is_active, calculated_at, expires_at
-            ) VALUES (
-                (SELECT id FROM process_performance_baselines
-                 WHERE worker_id = ? AND metric_name = ? AND is_active = true),
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?
-            )
-            "#,
-            baseline.worker_id,
-            baseline.metric_name,
-            baseline.worker_id,
-            baseline.tenant_id,
-            baseline.metric_name,
-            baseline.baseline_value,
-            baseline_type_str,
-            baseline.calculation_period_days,
-            baseline.confidence_interval,
-            baseline.standard_deviation,
-            baseline.percentile_95,
-            baseline.percentile_99,
-            baseline.is_active,
-            expires_at_str
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            "#
         )
+        .bind(&id)
+        .bind(&baseline.worker_id)
+        .bind(&baseline.tenant_id)
+        .bind(&baseline.metric_name)
+        .bind(&baseline.baseline_value)
+        .bind(&baseline_type_str)
+        .bind(&baseline.calculation_period_days)
+        .bind(&baseline.confidence_interval)
+        .bind(&baseline.standard_deviation)
+        .bind(&baseline.percentile_95)
+        .bind(&baseline.percentile_99)
+        .bind(&baseline.is_active)
+        .bind(&expires_at_str)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to upsert baseline: {}", e)))?;
@@ -957,35 +965,53 @@ impl PerformanceBaseline {
         worker_id: &str,
         metric_name: &str,
     ) -> Result<Option<PerformanceBaseline>> {
-        let row = sqlx::query!(
-            "SELECT * FROM process_performance_baselines WHERE worker_id = ? AND metric_name = ? AND is_active = true",
-            worker_id,
-            metric_name
+        let row = sqlx::query_as::<_, (
+            String,            // id
+            String,            // worker_id
+            String,            // tenant_id
+            String,            // metric_name
+            f64,               // baseline_value
+            String,            // baseline_type
+            i64,               // calculation_period_days
+            Option<f64>,       // confidence_interval
+            Option<f64>,       // standard_deviation
+            Option<f64>,       // percentile_95
+            Option<f64>,       // percentile_99
+            bool,              // is_active
+            String,            // calculated_at
+            Option<String>,    // expires_at
+        )>(
+            "SELECT id, worker_id, tenant_id, metric_name, baseline_value, baseline_type,
+             calculation_period_days, confidence_interval, standard_deviation,
+             percentile_95, percentile_99, is_active, calculated_at, expires_at
+             FROM process_performance_baselines
+             WHERE worker_id = ? AND metric_name = ? AND is_active = true"
         )
+        .bind(worker_id)
+        .bind(metric_name)
         .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get baseline: {}", e)))?;
 
         if let Some(row) = row {
             Ok(Some(PerformanceBaseline {
-                id: row.id.unwrap_or_default(),
-                worker_id: row.worker_id,
-                tenant_id: row.tenant_id,
-                metric_name: row.metric_name,
-                baseline_value: row.baseline_value,
-                baseline_type: BaselineType::from_string(row.baseline_type),
-                calculation_period_days: row.calculation_period_days,
-                confidence_interval: row.confidence_interval,
-                standard_deviation: row.standard_deviation,
-                percentile_95: row.percentile_95,
-                percentile_99: row.percentile_99,
-                is_active: row.is_active,
-                calculated_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.calculated_at.unwrap_or_default().to_string(),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid calculated_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-                expires_at: row.expires_at.map(|dt| dt.and_utc()),
+                id: row.0,
+                worker_id: row.1,
+                tenant_id: row.2,
+                metric_name: row.3,
+                baseline_value: row.4,
+                baseline_type: BaselineType::from_string(row.5),
+                calculation_period_days: row.6,
+                confidence_interval: row.7,
+                standard_deviation: row.8,
+                percentile_95: row.9,
+                percentile_99: row.10,
+                is_active: row.11,
+                calculated_at: chrono::DateTime::parse_from_rfc3339(&row.12)
+                    .map_err(|e| AosError::Database(format!("Invalid calculated_at: {}", e)))?
+                    .with_timezone(&chrono::Utc),
+                expires_at: row.13.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
             }))
         } else {
             Ok(None)
