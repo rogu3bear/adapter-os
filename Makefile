@@ -1,4 +1,4 @@
-.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install dup
+.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install dup tui tui-debug up server adapter-up
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,19 @@ ui: ## Build Web UI (production)
 
 ui-dev: ## Start Web UI dev server
 	cd ui && pnpm dev
+
+tui: ## Run the Terminal UI control panel
+	cargo run -p adapteros-tui
+
+tui-debug: ## Run TUI with debug logging
+	RUST_LOG=debug cargo run -p adapteros-tui
+
+up: tui ## Launch the TUI (alias for 'tui')
+
+adapter-up: tui ## Launch the TUI (alias for 'tui')
+
+server: ## Start the AdapterOS server
+	cargo run -p adapteros-server
 
 codegraph-viewer: ## Build CodeGraph Viewer (Tauri desktop app)
 	cd crates/mplora-codegraph-viewer/frontend && pnpm install && pnpm build
