@@ -49,6 +49,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(err) = &app.error_message {
         draw_error(f, err);
     }
+
+    if app.setup_state.needs_setup() {
+        draw_setup_prompt(f, app);
+    }
 }
 
 fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
@@ -67,19 +71,8 @@ fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
 
     // Add log entries
     for entry in &app.recent_logs {
-        let level_color = match entry.level {
-            crate::app::types::LogLevel::Error => Color::Red,
-            crate::app::types::LogLevel::Warning => Color::Yellow,
-            crate::app::types::LogLevel::Info => Color::Green,
-            crate::app::types::LogLevel::Debug => Color::Gray,
-        };
-
         lines.push(Line::from(vec![
             Span::raw(format!("{} ", entry.timestamp.format("%H:%M:%S%.3f"))),
-            Span::styled(
-                format!(" {} ", entry.level.color_code()),
-                Style::default().fg(level_color),
-            ),
             Span::styled(
                 &entry.component,
                 Style::default().add_modifier(Modifier::BOLD),
@@ -419,6 +412,72 @@ fn draw_error(f: &mut Frame, message: &str) {
         .block(block)
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Red));
+
+    f.render_widget(paragraph, area);
+}
+
+fn draw_setup_prompt(f: &mut Frame, app: &App) {
+    let area = centered_rect(70, 50, f.area());
+    let setup = &app.setup_state;
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "AdapterOS control center is waiting to bootstrap services",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    if !setup.infrastructure_online {
+        lines.push(Line::from(Span::raw(
+            "Core services are offline. Press 'b' to start everything from this TUI or run ./launch.sh",
+        )));
+        lines.push(Line::from(""));
+    }
+
+    if !setup.missing_prereqs.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Missing prerequisites detected:",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )));
+        for item in &setup.missing_prereqs {
+            lines.push(Line::from(format!("  - {}", item)));
+        }
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(
+        "This panel should be the first process you start - it can launch every other AdapterOS service and guide setup.",
+    ));
+    lines.push(Line::from(""));
+    lines.push(Line::from("Shortcuts:"));
+    lines.push(Line::from("  - 'b' - bootstrap all services"));
+    lines.push(Line::from("  - 'q' - quit TUI after starting services"));
+    lines.push(Line::from(
+        "  - ./scripts/service-manager.sh status - inspect from shell",
+    ));
+
+    if let Some(action) = &setup.last_action {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("Last action: {}", action),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        if let Some(output) = &setup.last_output {
+            lines.push(Line::from(output.as_str()));
+        }
+    }
+
+    let block = Block::default()
+        .title(" System Setup Required ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .alignment(Alignment::Left);
 
     f.render_widget(paragraph, area);
 }

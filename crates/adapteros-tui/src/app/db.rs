@@ -31,11 +31,6 @@ impl DbClient {
         }
     }
 
-    /// Check if database is connected
-    pub fn is_connected(&self) -> bool {
-        self.pool.is_some()
-    }
-
     /// Get training jobs count
     pub async fn get_training_jobs_count(&self) -> Result<i64> {
         let pool = match &self.pool {
@@ -102,71 +97,6 @@ impl DbClient {
         Ok(count)
     }
 
-    /// Get recent training jobs
-    pub async fn get_recent_training_jobs(&self, limit: i64) -> Result<Vec<TrainingJobRow>> {
-        let pool = match &self.pool {
-            Some(p) => p,
-            None => return Ok(vec![]),
-        };
-
-        let rows = sqlx::query(
-            "SELECT id, tenant_id, status, created_at, started_at, completed_at
-             FROM training_jobs
-             ORDER BY created_at DESC
-             LIMIT ?",
-        )
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        let jobs: Vec<TrainingJobRow> = rows
-            .iter()
-            .map(|row| TrainingJobRow {
-                id: row.try_get("id").unwrap_or_default(),
-                tenant_id: row.try_get("tenant_id").unwrap_or_default(),
-                status: row.try_get("status").unwrap_or_default(),
-                created_at: row.try_get("created_at").ok(),
-                started_at: row.try_get("started_at").ok(),
-                completed_at: row.try_get("completed_at").ok(),
-            })
-            .collect();
-
-        debug!(count = jobs.len(), "Fetched recent training jobs");
-        Ok(jobs)
-    }
-
-    /// Get recent adapters
-    pub async fn get_recent_adapters(&self, limit: i64) -> Result<Vec<AdapterRow>> {
-        let pool = match &self.pool {
-            Some(p) => p,
-            None => return Ok(vec![]),
-        };
-
-        let rows = sqlx::query(
-            "SELECT id, name, version, tenant_id, created_at
-             FROM adapters
-             ORDER BY created_at DESC
-             LIMIT ?",
-        )
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-        let adapters: Vec<AdapterRow> = rows
-            .iter()
-            .map(|row| AdapterRow {
-                id: row.try_get("id").unwrap_or_default(),
-                name: row.try_get("name").unwrap_or_default(),
-                version: row.try_get("version").unwrap_or_default(),
-                tenant_id: row.try_get("tenant_id").unwrap_or_default(),
-                created_at: row.try_get("created_at").ok(),
-            })
-            .collect();
-
-        debug!(count = adapters.len(), "Fetched recent adapters");
-        Ok(adapters)
-    }
-
     /// Get database stats summary
     pub async fn get_stats_summary(&self) -> Result<DbStatsSummary> {
         if self.pool.is_none() {
@@ -198,25 +128,6 @@ impl DbClient {
 }
 
 // Data types for database rows
-
-#[derive(Debug, Clone)]
-pub struct TrainingJobRow {
-    pub id: String,
-    pub tenant_id: String,
-    pub status: String,
-    pub created_at: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AdapterRow {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    pub tenant_id: String,
-    pub created_at: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct DbStatsSummary {

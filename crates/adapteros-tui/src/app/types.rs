@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -50,10 +49,7 @@ pub struct ModelStatus {
 
 #[derive(Debug, Clone)]
 pub struct SystemStatus {
-    pub uptime: Duration,
     pub cpu_percent: f32,
-    pub memory_percent: f32,
-    pub disk_percent: f32,
     pub network_rx_mbps: f32,
     pub network_tx_mbps: f32,
 }
@@ -71,61 +67,16 @@ pub struct SystemMetrics {
 #[derive(Debug, Clone)]
 pub struct LogEntry {
     pub timestamp: DateTime<Utc>,
-    pub level: LogLevel,
     pub component: String,
     pub message: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogLevel {
-    Error,
-    Warning,
-    Info,
-    Debug,
-}
-
-impl LogLevel {
-    pub fn as_str(&self) -> &str {
-        match self {
-            LogLevel::Error => "ERROR",
-            LogLevel::Warning => "WARN",
-            LogLevel::Info => "INFO",
-            LogLevel::Debug => "DEBUG",
-        }
-    }
-
-    pub fn color_code(&self) -> &str {
-        match self {
-            LogLevel::Error => "ERR",
-            LogLevel::Warning => "WRN",
-            LogLevel::Info => "INF",
-            LogLevel::Debug => "DBG",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Alert {
-    pub timestamp: DateTime<Utc>,
-    pub severity: AlertSeverity,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlertSeverity {
-    Critical,
-    Warning,
-    Info,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SystemConfig {
     pub server_port: u16,
-    pub uds_socket: Option<String>,
     pub max_connections: u32,
     pub jwt_mode: JwtMode,
     pub require_pf_deny: bool,
-    pub skip_pf_check: bool,
     pub model_path: String,
     pub k_sparse_value: u8,
     pub batch_size: u32,
@@ -150,5 +101,37 @@ impl JwtMode {
             JwtMode::Hmac => "HMAC",
             JwtMode::EdDsa => "EdDSA",
         }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SetupState {
+    pub missing_prereqs: Vec<String>,
+    pub infrastructure_online: bool,
+    pub last_action: Option<String>,
+    pub last_output: Option<String>,
+}
+
+impl SetupState {
+    pub fn new(missing_prereqs: Vec<String>) -> Self {
+        Self {
+            missing_prereqs,
+            infrastructure_online: false,
+            last_action: None,
+            last_output: None,
+        }
+    }
+
+    pub fn needs_setup(&self) -> bool {
+        !self.missing_prereqs.is_empty() || !self.infrastructure_online
+    }
+
+    pub fn set_last_action<A, B>(&mut self, action: A, output: B)
+    where
+        A: Into<String>,
+        B: Into<String>,
+    {
+        self.last_action = Some(action.into());
+        self.last_output = Some(output.into());
     }
 }

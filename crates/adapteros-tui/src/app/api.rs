@@ -1,7 +1,7 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde_json::Value;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use super::types::SystemMetrics;
 
@@ -69,20 +69,22 @@ impl ApiClient {
         let url = format!("{}/api/services/start-all", self.base_url);
         info!("Starting all services via API");
 
-        match self.client.post(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    info!("Successfully started all services");
-                } else {
-                    error!("Failed to start services: {}", response.status());
-                }
-            }
-            Err(e) => {
-                error!("Failed to call start services API: {}", e);
-            }
-        }
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call start services API: {}", e))?;
 
-        Ok(())
+        if response.status().is_success() {
+            info!("Successfully started all services");
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to start services: HTTP {}",
+                response.status()
+            ))
+        }
     }
 
     /// Start a specific service
@@ -90,62 +92,73 @@ impl ApiClient {
         let url = format!("{}/api/services/{}/start", self.base_url, name);
         info!("Starting service: {}", name);
 
-        match self.client.post(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    info!("Successfully started service: {}", name);
-                } else {
-                    error!("Failed to start service {}: {}", name, response.status());
-                }
-            }
-            Err(e) => {
-                error!("Failed to call start service API for {}: {}", name, e);
-            }
-        }
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call start service API for {}: {}", name, e))?;
 
-        Ok(())
+        if response.status().is_success() {
+            info!("Successfully started service: {}", name);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to start service {}: HTTP {}",
+                name,
+                response.status()
+            ))
+        }
     }
 
     /// Stop a specific service
+    #[allow(dead_code)]
     pub async fn stop_service(&self, name: &str) -> Result<()> {
         let url = format!("{}/api/services/{}/stop", self.base_url, name);
         info!("Stopping service: {}", name);
 
-        match self.client.post(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    info!("Successfully stopped service: {}", name);
-                } else {
-                    error!("Failed to stop service {}: {}", name, response.status());
-                }
-            }
-            Err(e) => {
-                error!("Failed to call stop service API for {}: {}", name, e);
-            }
-        }
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call stop service API for {}: {}", name, e))?;
 
-        Ok(())
+        if response.status().is_success() {
+            info!("Successfully stopped service: {}", name);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to stop service {}: HTTP {}",
+                name,
+                response.status()
+            ))
+        }
     }
 
     /// Restart a specific service
+    #[allow(dead_code)]
     pub async fn restart_service(&self, name: &str) -> Result<()> {
         let url = format!("{}/api/services/{}/restart", self.base_url, name);
         info!("Restarting service: {}", name);
 
-        match self.client.post(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    info!("Successfully restarted service: {}", name);
-                } else {
-                    error!("Failed to restart service {}: {}", name, response.status());
-                }
-            }
-            Err(e) => {
-                error!("Failed to call restart service API for {}: {}", name, e);
-            }
-        }
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call restart service API for {}: {}", name, e))?;
 
-        Ok(())
+        if response.status().is_success() {
+            info!("Successfully restarted service: {}", name);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to restart service {}: HTTP {}",
+                name,
+                response.status()
+            ))
+        }
     }
 
     /// Get adapter list

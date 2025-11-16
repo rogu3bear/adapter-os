@@ -20,6 +20,7 @@ async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter("adapteros_tui=debug")
+        .with_writer(io::stderr)
         .init();
 
     info!("Starting adapterOS TUI Control System");

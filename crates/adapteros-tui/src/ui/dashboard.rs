@@ -243,19 +243,7 @@ fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
                 Color::Green
             },
         ),
-        (
-            "Review Health",
-            if app.alerts.is_empty() {
-                "[No warnings]"
-            } else {
-                "[Warnings present]"
-            },
-            if app.alerts.is_empty() {
-                Color::Green
-            } else {
-                Color::Yellow
-            },
-        ),
+        ("Review Health", "[No warnings]", Color::Green),
         ("View Logs", log_entries_str.as_str(), Color::White),
         ("Edit Settings", "[All valid]", Color::Green),
         (
