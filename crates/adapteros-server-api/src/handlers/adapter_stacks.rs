@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::{info, warn};
 
 /// Request to create a new adapter stack
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,30 +119,64 @@ pub async fn list_stacks(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let stacks = rows
-        .into_iter()
-        .map(|row| {
-            let adapter_ids: Vec<String> = serde_json::from_str(&row.adapter_ids_json)
-                .unwrap_or_else(|_| vec![]);
-            let workflow_type = row.workflow_type.and_then(|s| match s.as_str() {
-                "Parallel" => Some(WorkflowType::Parallel),
-                "UpstreamDownstream" => Some(WorkflowType::UpstreamDownstream),
-                "Sequential" => Some(WorkflowType::Sequential),
-                _ => None,
-            });
+    let mut stacks = Vec::new();
+    for row in rows {
+        // Properly handle potential missing or invalid data
+        let id = row.id.ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Stack missing ID in database"),
+            )
+        })?;
 
-            StackResponse {
-                id: row.id.unwrap_or_default(),
-                name: row.name,
-                description: row.description,
-                adapter_ids,
-                workflow_type,
-                created_at: row.created_at.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-                updated_at: row.updated_at.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-                is_active: false,
+        let name = row.name;
+
+        let adapter_ids: Vec<String> = serde_json::from_str(&row.adapter_ids_json)
+            .map_err(|e| {
+                // Log the error but don't fail - return empty list for corrupted data
+                tracing::warn!(
+                    "Corrupted adapter_ids_json in stack {}: {}. Using empty list.",
+                    name, e
+                );
+                // Continue with empty list for this specific case
+            })
+            .unwrap_or_else(|_| vec![]);
+
+        let workflow_type = row.workflow_type.and_then(|s| match s.as_str() {
+            "Parallel" => Some(WorkflowType::Parallel),
+            "UpstreamDownstream" => Some(WorkflowType::UpstreamDownstream),
+            "Sequential" => Some(WorkflowType::Sequential),
+            invalid => {
+                tracing::warn!("Invalid workflow_type '{}' for stack {}", invalid, name);
+                None
             }
-        })
-        .collect();
+        });
+
+        let created_at = row.created_at.ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Stack {} missing created_at timestamp", name),
+            )
+        })?;
+
+        let updated_at = row.updated_at.ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Stack {} missing updated_at timestamp", name),
+            )
+        })?;
+
+        stacks.push(StackResponse {
+            id,
+            name,
+            description: row.description,
+            adapter_ids,
+            workflow_type,
+            created_at,
+            updated_at,
+            is_active: false,
+        });
+    }
 
     Ok(Json(stacks))
 }
@@ -174,25 +209,59 @@ pub async fn get_stack(
     .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, "Stack not found".to_string()))?;
+    .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Stack with id '{}' not found", id)))?;
+
+    // Validate that critical fields are present
+    let stack_id = row.id.ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Stack record missing ID field"),
+        )
+    })?;
+
+    let name = row.name;
 
     let adapter_ids: Vec<String> = serde_json::from_str(&row.adapter_ids_json)
+        .map_err(|e| {
+            tracing::warn!(
+                "Failed to parse adapter_ids_json for stack {}: {}",
+                name, e
+            );
+        })
         .unwrap_or_else(|_| vec![]);
+
     let workflow_type = row.workflow_type.and_then(|s| match s.as_str() {
         "Parallel" => Some(WorkflowType::Parallel),
         "UpstreamDownstream" => Some(WorkflowType::UpstreamDownstream),
         "Sequential" => Some(WorkflowType::Sequential),
-        _ => None,
+        invalid => {
+            tracing::warn!("Invalid workflow_type '{}' for stack {}", invalid, name);
+            None
+        }
     });
 
+    let created_at = row.created_at.ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Stack {} missing created_at timestamp", name),
+        )
+    })?;
+
+    let updated_at = row.updated_at.ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Stack {} missing updated_at timestamp", name),
+        )
+    })?;
+
     Ok(Json(StackResponse {
-        id: row.id.unwrap_or_default(),
-        name: row.name,
+        id: stack_id,
+        name,
         description: row.description,
         adapter_ids,
         workflow_type,
-        created_at: row.created_at.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-        updated_at: row.updated_at.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+        created_at,
+        updated_at,
         is_active: false,
     }))
 }
@@ -249,7 +318,7 @@ pub async fn activate_stack(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // First verify the stack exists
+    // First verify the stack exists and parse adapter IDs
     let stack = sqlx::query!(
         r#"
         SELECT id, name, adapter_ids_json
@@ -260,19 +329,60 @@ pub async fn activate_stack(
     )
     .fetch_optional(&state.db_pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, "Stack not found".to_string()))?;
+    .map_err(|e| {
+        warn!("Database error while fetching stack {}: {}", id, e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
+    })?
+    .ok_or_else(|| {
+        warn!("Attempted to activate non-existent stack: {}", id);
+        (StatusCode::NOT_FOUND, format!("Stack with id '{}' not found", id))
+    })?;
+
+    let name = stack.name;
+
+    // Parse adapter IDs to ensure they're valid
+    let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
+        .map_err(|e| {
+            warn!("Failed to parse adapter_ids_json for stack {}: {}", name, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Invalid adapter list in stack '{}': {}", name, e),
+            )
+        })?;
 
     // Store the active stack ID in application state
     // This would be used by the routing logic
-    {
-        let mut active_stack = state.active_stack.write().unwrap();
+    let previous_stack = {
+        let mut active_stack = state.active_stack.write()
+            .map_err(|e| {
+                warn!("Failed to acquire write lock for active_stack: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal synchronization error".to_string(),
+                )
+            })?;
+        let prev = active_stack.clone();
         *active_stack = Some(id.clone());
-    }
+        prev
+    };
+
+    info!(
+        "Activated adapter stack '{}' (id: {}) with {} adapters. Previous stack: {:?}",
+        name,
+        id,
+        adapter_ids.len(),
+        previous_stack
+    );
+
+    // TODO: Notify the router about the stack change
+    // This is where we would integrate with the actual router
+    // For now, this is just stored in AppState
 
     Ok(Json(serde_json::json!({
-        "message": format!("Stack '{}' activated", stack.name),
+        "message": format!("Stack '{}' activated", name),
         "stack_id": id,
+        "adapter_count": adapter_ids.len(),
+        "previous_stack": previous_stack,
     })))
 }
 
@@ -288,12 +398,33 @@ pub async fn activate_stack(
 pub async fn deactivate_stack(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    {
-        let mut active_stack = state.active_stack.write().unwrap();
+    let previous_stack = {
+        let mut active_stack = state.active_stack.write()
+            .map_err(|e| {
+                warn!("Failed to acquire write lock for active_stack: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal synchronization error".to_string(),
+                )
+            })?;
+        let prev = active_stack.clone();
         *active_stack = None;
-    }
+        prev
+    };
 
-    Ok(Json(serde_json::json!({
-        "message": "Active stack deactivated",
-    })))
+    match previous_stack {
+        Some(stack_id) => {
+            info!("Deactivated adapter stack '{}'", stack_id);
+            Ok(Json(serde_json::json!({
+                "message": "Active stack deactivated",
+                "previous_stack": stack_id,
+            })))
+        }
+        None => {
+            info!("Deactivate called but no stack was active");
+            Ok(Json(serde_json::json!({
+                "message": "No stack was active",
+            })))
+        }
+    }
 }

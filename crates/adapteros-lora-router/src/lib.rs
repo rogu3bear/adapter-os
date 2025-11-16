@@ -172,6 +172,12 @@ pub struct Router {
     compression_ratio: f32,
     /// Whether shared downsample is enabled
     shared_downsample: bool,
+
+    // Adapter stack support
+    /// Currently active stack name (if any)
+    active_stack_name: Option<String>,
+    /// Adapter IDs that are part of the active stack
+    active_stack_adapter_ids: Option<Vec<String>>,
 }
 
 impl Router {
@@ -189,6 +195,8 @@ impl Router {
             orthogonal_enabled: false,
             compression_ratio: 0.8,
             shared_downsample: false,
+            active_stack_name: None,
+            active_stack_adapter_ids: None,
         }
     }
 
@@ -259,6 +267,52 @@ impl Router {
     /// Enable shared downsample matrix
     pub fn set_shared_downsample(&mut self, enabled: bool) {
         self.shared_downsample = enabled;
+    }
+
+    /// Set the active adapter stack for filtering
+    pub fn set_active_stack(&mut self, stack_name: Option<String>, adapter_ids: Option<Vec<String>>) {
+        tracing::debug!(
+            "Setting active stack: {:?} with {} adapters",
+            stack_name,
+            adapter_ids.as_ref().map(|ids| ids.len()).unwrap_or(0)
+        );
+        self.active_stack_name = stack_name;
+        self.active_stack_adapter_ids = adapter_ids;
+    }
+
+    /// Get the currently active stack name
+    pub fn active_stack(&self) -> Option<&String> {
+        self.active_stack_name.as_ref()
+    }
+
+    /// Filter adapter indices based on the active stack
+    fn filter_by_stack(&self, adapter_info: &[AdapterInfo]) -> Vec<usize> {
+        match &self.active_stack_adapter_ids {
+            Some(allowed_ids) => {
+                tracing::debug!(
+                    "Filtering adapters by stack: {} allowed IDs",
+                    allowed_ids.len()
+                );
+                adapter_info
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, info)| allowed_ids.contains(&info.id))
+                    .map(|(idx, _)| idx)
+                    .collect()
+            }
+            None => {
+                // No stack active, all adapters are candidates
+                (0..adapter_info.len()).collect()
+            }
+        }
+    }
+
+    /// Check if an adapter is in the active stack
+    fn is_in_active_stack(&self, adapter_id: &str) -> bool {
+        match &self.active_stack_adapter_ids {
+            Some(allowed_ids) => allowed_ids.contains(&adapter_id.to_string()),
+            None => true, // No stack = all adapters allowed
+        }
     }
 
     /// Get current diversity score from orthogonal constraints
@@ -556,11 +610,20 @@ impl Router {
         code_features: &CodeFeatures,
         adapter_info: &[AdapterInfo],
     ) -> Decision {
+        // Filter adapters by active stack first
+        let allowed_indices = self.filter_by_stack(adapter_info);
+
         // Generate priors for each adapter based on code features
         let mut priors: Vec<f32> = vec![1.0; adapter_info.len()];
 
         // Apply framework priors
         for (i, adapter) in adapter_info.iter().enumerate() {
+            // Skip if not in active stack
+            if !allowed_indices.contains(&i) {
+                priors[i] = 0.0; // Zero prior for excluded adapters
+                continue;
+            }
+
             if let Some(framework) = &adapter.framework {
                 if let Some(&boost) = code_features.framework_prior.get(framework) {
                     priors[i] += boost * 0.5; // Scale framework boost
@@ -578,10 +641,24 @@ impl Router {
 
         if let Some(lang_idx) = lang_idx {
             for (i, adapter) in adapter_info.iter().enumerate() {
+                // Skip if not in active stack
+                if !allowed_indices.contains(&i) {
+                    continue;
+                }
+
                 if adapter.supports_language(lang_idx) {
                     priors[i] += 0.3;
                 }
             }
+        }
+
+        // Log stack filtering info
+        if self.active_stack_name.is_some() {
+            tracing::debug!(
+                "Stack filtering: {} of {} adapters eligible",
+                allowed_indices.len(),
+                adapter_info.len()
+            );
         }
 
         // Convert code features to vector

@@ -3,7 +3,6 @@
 use crate::Db;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

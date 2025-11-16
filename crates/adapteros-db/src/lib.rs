@@ -3,7 +3,15 @@ use anyhow::Result;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
-// PostgreSQL backend for production
+// Database abstraction layer
+pub mod traits;
+pub mod sqlite_backend;
+pub mod postgres_backend;
+
+// Re-export commonly used types
+pub use traits::{DatabaseBackend, DatabaseConfig, DatabaseBackendType, CreateStackRequest, StackRecord};
+
+// PostgreSQL backend for production (legacy - to be deprecated)
 pub mod postgres;
 pub use postgres::PostgresDb;
 
@@ -209,6 +217,6 @@ pub mod workers;
 
 // Re-export unified access types
 pub use unified_access::{
-    ConnectionInfo, DatabaseAccess, DatabaseConfig, DatabaseStatistics, DatabaseType, HealthState,
+    ConnectionInfo, DatabaseAccess, DatabaseStatistics, DatabaseType, HealthState,
     HealthStatus, SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
 };
