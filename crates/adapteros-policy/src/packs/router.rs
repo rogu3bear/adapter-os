@@ -24,6 +24,12 @@ pub struct RouterConfig {
     pub feature_config: FeatureConfig,
     /// Tie-breaking rules
     pub tie_break_rules: Vec<TieBreakRule>,
+    /// Safe mode enabled - forces routing through safety adapter only
+    #[serde(default)]
+    pub safe_mode: bool,
+    /// Enable automatic parent adapter loading for lineage stacking
+    #[serde(default = "default_enable_lineage")]
+    pub enable_lineage_loading: bool,
 }
 
 /// Gate quantization method
@@ -86,6 +92,10 @@ pub enum TieBreakRule {
     MemoryUsageAsc,
 }
 
+fn default_enable_lineage() -> bool {
+    true
+}
+
 impl Default for RouterConfig {
     fn default() -> Self {
         Self {
@@ -114,6 +124,8 @@ impl Default for RouterConfig {
                 TieBreakRule::ActivationScoreDesc,
                 TieBreakRule::AdapterIdAsc,
             ],
+            safe_mode: false,
+            enable_lineage_loading: true,
         }
     }
 }
@@ -257,6 +269,36 @@ impl RouterPolicy {
         } else {
             Ok(())
         }
+    }
+
+    /// Check if safe mode is enabled
+    pub fn is_safe_mode_enabled(&self) -> bool {
+        self.config.safe_mode
+    }
+
+    /// Check if lineage loading is enabled
+    pub fn is_lineage_loading_enabled(&self) -> bool {
+        self.config.enable_lineage_loading
+    }
+
+    /// Enable safe mode
+    pub fn enable_safe_mode(&mut self) {
+        self.config.safe_mode = true;
+    }
+
+    /// Disable safe mode
+    pub fn disable_safe_mode(&mut self) {
+        self.config.safe_mode = false;
+    }
+
+    /// Get configuration
+    pub fn config(&self) -> &RouterConfig {
+        &self.config
+    }
+
+    /// Update configuration
+    pub fn set_config(&mut self, config: RouterConfig) {
+        self.config = config;
     }
 }
 

@@ -189,6 +189,15 @@ pub struct AdapterStateRecord {
     pub scope: String,
     pub last_activated: Option<std::time::SystemTime>,
     pub activation_count: u64,
+    /// Optional parent adapter ID for lineage stacking
+    #[serde(default)]
+    pub parent_adapter_id: Option<String>,
+    /// Marks adapter as safety layer (used for Safe Mode routing)
+    #[serde(default)]
+    pub is_safety_adapter: bool,
+    /// Domain tags for routing (e.g., "code", "vision", "finance")
+    #[serde(default)]
+    pub domains: Vec<String>,
 }
 
 impl AdapterStateRecord {
@@ -203,6 +212,9 @@ impl AdapterStateRecord {
             scope: "global".to_string(),
             last_activated: None,
             activation_count: 0,
+            parent_adapter_id: None,
+            is_safety_adapter: false,
+            domains: Vec::new(),
         }
     }
 
@@ -222,6 +234,34 @@ impl AdapterStateRecord {
             scope,
             last_activated: None,
             activation_count: 0,
+            parent_adapter_id: None,
+            is_safety_adapter: false,
+            domains: Vec::new(),
+        }
+    }
+
+    pub fn new_with_metadata(
+        adapter_id: String,
+        adapter_idx: u16,
+        category: String,
+        scope: String,
+        parent_adapter_id: Option<String>,
+        is_safety_adapter: bool,
+        domains: Vec<String>,
+    ) -> Self {
+        Self {
+            adapter_id,
+            adapter_idx,
+            state: AdapterState::Unloaded,
+            pinned: false,
+            memory_bytes: 0,
+            category,
+            scope,
+            last_activated: None,
+            activation_count: 0,
+            parent_adapter_id,
+            is_safety_adapter,
+            domains,
         }
     }
 

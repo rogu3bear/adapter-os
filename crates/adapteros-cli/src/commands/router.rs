@@ -13,6 +13,8 @@ pub enum RouterCmd {
     Validate(ValidateArgs),
     /// Show current router weights
     Show(ShowArgs),
+    /// Enable or disable safe mode (routes through safety adapter only)
+    SafeMode(SafeModeArgs),
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -56,12 +58,24 @@ pub struct ShowArgs {
     weights: Option<PathBuf>,
 }
 
+#[derive(Debug, Parser, Clone)]
+pub struct SafeModeArgs {
+    /// Enable safe mode (true) or disable it (false)
+    #[arg(short, long)]
+    enable: bool,
+
+    /// Path to router config file to update
+    #[arg(short, long, default_value = "router_config.json")]
+    config: PathBuf,
+}
+
 impl RouterCmd {
     pub fn run(self) -> Result<()> {
         match self {
             RouterCmd::Calibrate(args) => calibrate(args),
             RouterCmd::Validate(args) => validate(args),
             RouterCmd::Show(args) => show(args),
+            RouterCmd::SafeMode(args) => safe_mode(args),
         }
     }
 }
@@ -185,4 +199,46 @@ fn print_metrics(metrics: &adapteros_lora_router::ValidationMetrics) {
     println!("  F1 Score:  {:.4}", metrics.f1_score);
     println!("  MRR:       {:.4}", metrics.mrr);
     println!("  Score:     {:.4}", metrics.score());
+}
+
+fn safe_mode(args: SafeModeArgs) -> Result<()> {
+    use adapteros_policy::packs::router::RouterConfig;
+    use std::fs;
+
+    // Load existing config or create default
+    let mut config = if args.config.exists() {
+        println!("Loading router config from {:?}...", args.config);
+        let json = fs::read_to_string(&args.config).context("Failed to read router config file")?;
+        serde_json::from_str::<RouterConfig>(&json).context("Failed to parse router config")?
+    } else {
+        println!("Creating new router config...");
+        RouterConfig::default()
+    };
+
+    // Update safe mode setting
+    config.safe_mode = args.enable;
+
+    // Save config
+    let json =
+        serde_json::to_string_pretty(&config).context("Failed to serialize router config")?;
+    fs::write(&args.config, json).context("Failed to write router config file")?;
+
+    println!(
+        "\n✓ Safe mode {} in {:?}",
+        if args.enable { "enabled" } else { "disabled" },
+        args.config
+    );
+
+    if args.enable {
+        println!("\n⚠ Safe mode is now active:");
+        println!("  - Only safety adapters will be used for routing");
+        println!("  - All queries will be filtered through the safety layer");
+        println!("  - This may reduce response quality for non-safety queries");
+    } else {
+        println!("\n✓ Normal routing mode restored");
+        println!("  - All adapters are available for routing");
+        println!("  - Standard K-sparse selection will be used");
+    }
+
+    Ok(())
 }
