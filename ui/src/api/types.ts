@@ -27,7 +27,7 @@ export interface User {
   permissions: string[];
 }
 
-export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Auditor' | 'Viewer';
+export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Viewer';
 
 // Tenants
 export interface Tenant {
@@ -482,10 +482,20 @@ export interface InferenceTrace {
   latency_ms: number;
 }
 
+export interface RouterCandidate {
+  adapter_idx: number;
+  raw_score: number;
+  gate_q15: number;
+}
+
 export interface RouterDecision {
-  token_idx: number;
-  adapters: string[];
-  gates: number[];
+  step: number;
+  input_token_id?: number;
+  candidate_adapters: RouterCandidate[];
+  entropy: number;
+  tau: number;
+  entropy_floor: number;
+  stack_hash?: string;
 }
 
 export interface EvidenceSpan {
@@ -1170,10 +1180,13 @@ export interface DetailedInferenceTrace {
 }
 
 export interface DetailedRouterDecision {
-  token_idx: number;
-  adapters: string[];
-  gates: number[];
-  scores: number[];
+  step: number;
+  input_token_id?: number;
+  candidate_adapters: RouterCandidate[];
+  entropy: number;
+  tau: number;
+  entropy_floor: number;
+  stack_hash?: string;
   feature_vector?: FeatureVector;
   selection_reason?: string;
 }

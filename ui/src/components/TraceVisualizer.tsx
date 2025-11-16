@@ -50,29 +50,46 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                 </div>
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {trace.router_decisions.slice(0, 10).map((decision, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 bg-muted rounded-lg text-sm"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">Token {decision.token_idx}</span>
+                    <div key={idx} className="p-3 bg-muted rounded-lg text-sm">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            Token {decision.step}
+                            {decision.input_token_id !== undefined
+                              ? ` (input ${decision.input_token_id})`
+                              : ''}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Entropy: {decision.entropy.toFixed(3)}, Tau:{' '}
+                            {decision.tau.toFixed(3)}, Floor:{' '}
+                            {decision.entropy_floor.toFixed(3)}
+                          </span>
+                        </div>
                         <Badge variant="outline">
-                          {decision.adapters?.length || 0} adapters
+                          {decision.candidate_adapters.length} adapters
                         </Badge>
                       </div>
                       <div className="space-y-1">
-                        {decision.adapters?.map((adapterId, adapterIdx) => (
+                        {decision.candidate_adapters.map((candidate, candidateIdx) => (
                           <div
-                            key={adapterIdx}
+                            key={candidateIdx}
                             className="flex items-center justify-between text-xs"
                           >
-                            <span className="font-mono">{adapterId}</span>
+                            <span className="font-mono">
+                              Adapter {candidate.adapter_idx}
+                            </span>
                             <span className="text-muted-foreground">
-                              Gate: {decision.gates?.[adapterIdx] || 0}
+                              Score: {candidate.raw_score.toFixed(3)} | Gate:{' '}
+                              {candidate.gate_q15}
                             </span>
                           </div>
                         ))}
                       </div>
+                      {decision.stack_hash && (
+                        <div className="text-xs text-muted-foreground mt-2">
+                          Stack hash: {decision.stack_hash.slice(0, 12)}...
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
