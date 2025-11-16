@@ -75,7 +75,7 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
 
             #[cfg(not(target_os = "macos"))]
             {
-                Err(AosError::Unsupported(
+                Err(AosError::Config(
                     "Metal backend only available on macOS".to_string(),
                 ))
             }

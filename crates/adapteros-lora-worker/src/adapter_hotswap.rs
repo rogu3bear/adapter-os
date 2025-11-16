@@ -636,24 +636,36 @@ where
                             let vram_mb = (buffer_size / (1024 * 1024)).max(1);
 
                             // Create and store GPU fingerprint for integrity verification
+                            #[cfg(target_os = "macos")]
                             use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
+                            #[cfg(target_os = "macos")]
                             let gpu_fp = GpuBufferFingerprint::new(
                                 buffer_size,
                                 &first_sample,
                                 &last_sample,
                                 &mid_sample,
                             );
+                            #[cfg(target_os = "macos")]
                             kernels_lock.store_gpu_fingerprint(
                                 adapter_id_u16,
                                 buffer_size,
                                 &gpu_fp.checkpoint_hash.to_hex()
                             );
 
+                            #[cfg(target_os = "macos")]
                             tracing::info!(
                                 adapter_id = %adapter_id,
                                 vram_mb = vram_mb,
                                 buffer_size = buffer_size,
                                 "Adapter loaded with GPU fingerprint stored"
+                            );
+
+                            #[cfg(not(target_os = "macos"))]
+                            tracing::info!(
+                                adapter_id = %adapter_id,
+                                vram_mb = vram_mb,
+                                buffer_size = buffer_size,
+                                "Adapter loaded (GPU fingerprint not available on this platform)"
                             );
 
                             vram_mb
