@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Property-Based Testing Infrastructure
 //!
 //! This module provides property-based testing utilities for AdapterOS components,

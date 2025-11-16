@@ -274,7 +274,6 @@ struct FrameworkRule {
     name: &'static str,
     rank: u8,
     indicators: Vec<Indicator>,
-    #[allow(dead_code)]
     keywords: &'static [&'static str],
 }
 
@@ -369,7 +368,7 @@ pub fn detect_frameworks(root: &Path) -> Result<Vec<DetectedFramework>> {
                 }
                 Indicator::Config(files) => {
                     for file in *files {
-                        if metadata.config_files.iter().any(|s| s == file) {
+                        if metadata.config_files.contains(&file.to_string()) {
                             evidence.push(format!("config:{}", file));
                             score += 0.15;
                         }

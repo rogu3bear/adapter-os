@@ -44,6 +44,7 @@ pub struct SystemMetricsResponse {
     pub process_count: usize,
     pub load_average: LoadAverageResponse,
     pub timestamp: u64,
+<<<<<<< HEAD
     #[serde(default)]
     pub memory_usage_pct: f32,
     #[serde(default)]
@@ -76,6 +77,8 @@ pub struct SystemMetricsResponse {
     pub gpu_memory_used_gb: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gpu_memory_total_gb: Option<f32>,
+=======
+>>>>>>> integration-branch
 }
 
 /// Load average response

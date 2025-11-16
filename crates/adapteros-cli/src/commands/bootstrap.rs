@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 #[derive(Serialize, Deserialize)]
 struct ProgressUpdate {

@@ -14,14 +14,18 @@
 //!
 //! Run with: `cargo test --test inference_integration_tests -- --ignored --nocapture`
 
+use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
 use anyhow::Result;
 use serde_json::json;
+<<<<<<< HEAD
 
 fn integrations_enabled() -> bool {
     std::env::var("AOS_RUN_FULL_INTEGRATION")
         .map(|v| v == "1")
         .unwrap_or(false)
 }
+=======
+>>>>>>> integration-branch
 
 /// Test base URL from environment or default
 fn test_base_url() -> String {
@@ -334,13 +338,22 @@ async fn test_concurrent_inference() -> Result<()> {
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/inference", test_base_url());
 
+<<<<<<< HEAD
     let mut handles = Vec::new();
+=======
+    // Launch 5 concurrent requests
+    let mut handles = vec![];
+>>>>>>> integration-branch
 
     for i in 0..5 {
         let client = client.clone();
         let url = url.clone();
 
+<<<<<<< HEAD
         handles.push(tokio::spawn(async move {
+=======
+        let handle = spawn_deterministic(format!("Inference request {}", i), async move {
+>>>>>>> integration-branch
             let request = json!({
                 "cpid": "test_cp_v1",
                 "prompt": format!("Explain concept {}", i),
@@ -355,11 +368,27 @@ async fn test_concurrent_inference() -> Result<()> {
                 .await?
                 .json::<serde_json::Value>()
                 .await
+<<<<<<< HEAD
         }));
     }
 
     for (i, handle) in handles.into_iter().enumerate() {
         let response = handle.await.expect("join should succeed")?;
+=======
+                .unwrap()
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all to complete
+    let results = futures::future::join_all(handles).await;
+
+    assert_eq!(results.len(), 5, "All requests should complete");
+
+    for (i, result) in results.iter().enumerate() {
+        let response = result.as_ref().unwrap();
+>>>>>>> integration-branch
         assert_eq!(
             response["status"], "success",
             "Request {} should succeed",

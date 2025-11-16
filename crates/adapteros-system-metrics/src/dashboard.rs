@@ -18,7 +18,6 @@ pub struct DashboardService {
 
 /// Row structure for dashboard config query
 #[derive(Debug)]
-#[allow(dead_code)]
 struct DashboardConfigRow {
     dashboard_config: Option<String>,
 }

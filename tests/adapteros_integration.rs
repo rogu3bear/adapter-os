@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! AdapterOS Integration Test Suite
 //!
 //! Comprehensive end-to-end tests covering:
@@ -24,8 +27,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tempfile::{tempdir, TempDir};
 use tokio::time::{timeout, Duration};
+<<<<<<< HEAD
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+=======
+>>>>>>> integration-branch
 
 /// Test configuration for integration tests
 #[derive(Debug, Clone)]
@@ -113,6 +119,7 @@ impl TestConfig {
     }
 }
 
+<<<<<<< HEAD
 /// Helper to resolve aosctl binary path with fallback mechanisms
 fn resolve_aosctl_binary() -> Result<String> {
     // Check common binary locations in order of preference
@@ -180,11 +187,23 @@ async fn run_aosctl_command(args: &[&str]) -> Result<String> {
                 binary_path, e, args
             )
         })?;
+=======
+/// Helper to run aosctl commands
+async fn run_aosctl_command(args: &[&str]) -> Result<String> {
+    let mut cmd = Command::new("cargo");
+    cmd.args(&["run", "--bin", "aosctl", "--"])
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = cmd.output()?;
+>>>>>>> integration-branch
 
     if output.status.success() {
         Ok(String::from_utf8(output.stdout)?)
     } else {
         let stderr = String::from_utf8(output.stderr)?;
+<<<<<<< HEAD
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         Err(anyhow::anyhow!(
@@ -205,6 +224,9 @@ async fn run_aosctl_command(args: &[&str]) -> Result<String> {
             stdout.trim(),
             binary_path
         ))
+=======
+        Err(anyhow::anyhow!("Command failed: {}", stderr))
+>>>>>>> integration-branch
     }
 }
 
@@ -217,6 +239,7 @@ async fn run_aosctl_json(args: &[&str]) -> Result<serde_json::Value> {
     Ok(serde_json::from_str(&output)?)
 }
 
+<<<<<<< HEAD
 /// Setup test environment with unique database isolation
 async fn setup_test_env() -> Result<(TestConfig, Db, String)> {
     let config = TestConfig::new()?;
@@ -251,6 +274,27 @@ async fn cleanup_test_env(config: &TestConfig) -> Result<()> {
         }
     }
 
+=======
+/// Setup test environment
+async fn setup_test_env() -> Result<(TestConfig, Db)> {
+    let config = TestConfig::new()?;
+
+    // Set up environment variables for testing
+    std::env::set_var("AOS_DB_PATH", config.temp_dir.join("test.db"));
+    std::env::set_var("AOS_VAR_DIR", &config.var_dir);
+
+    // Initialize database
+    let db = Db::connect_env().await?;
+
+    // Initialize tenant for testing
+    db.create_tenant("integration_test", false).await?;
+
+    Ok((config, db))
+}
+
+/// Cleanup test environment
+async fn cleanup_test_env(config: &TestConfig) -> Result<()> {
+>>>>>>> integration-branch
     config.cleanup()
 }
 
@@ -259,7 +303,11 @@ async fn cleanup_test_env(config: &TestConfig) -> Result<()> {
 async fn test_build_plan_integration() -> Result<()> {
     println!("\n🔧 Testing aosctl build-plan integration\n");
 
+<<<<<<< HEAD
     let (config, _db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Test 1: Build plan from manifest
     println!("1. Building plan from manifest...");
@@ -271,7 +319,11 @@ async fn test_build_plan_integration() -> Result<()> {
         "--output",
         &output_path.to_string_lossy(),
         "--tenant-id",
+<<<<<<< HEAD
         &tenant_name,
+=======
+        "integration_test",
+>>>>>>> integration-branch
     ];
 
     let output = run_aosctl_command(args).await?;
@@ -342,7 +394,11 @@ async fn test_build_plan_integration() -> Result<()> {
 async fn test_serve_integration() -> Result<()> {
     println!("\n🚀 Testing aosctl serve integration\n");
 
+<<<<<<< HEAD
     let (config, _db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Test 1: Dry-run serve validation
     println!("1. Testing dry-run serve validation...");
@@ -350,7 +406,11 @@ async fn test_serve_integration() -> Result<()> {
     let args = &[
         "serve",
         "--tenant",
+<<<<<<< HEAD
         &tenant_name,
+=======
+        "integration_test",
+>>>>>>> integration-branch
         "--plan",
         "test_plan",
         "--dry-run",
@@ -377,7 +437,11 @@ async fn test_serve_integration() -> Result<()> {
     let args = &[
         "serve",
         "--tenant",
+<<<<<<< HEAD
         &tenant_name,
+=======
+        "integration_test",
+>>>>>>> integration-branch
         "--plan",
         "nonexistent_plan",
         "--socket",
@@ -419,7 +483,11 @@ async fn test_serve_integration() -> Result<()> {
 async fn test_telemetry_ingest_integration() -> Result<()> {
     println!("\n📊 Testing telemetry ingest integration\n");
 
+<<<<<<< HEAD
     let (config, _db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Test 1: Initialize telemetry writer
     println!("1. Initializing telemetry writer...");
@@ -439,7 +507,11 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
     let test_events = vec![
         serde_json::json!({
             "type": "router.decision",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "data": {
                 "adapter_scores": [
                     {"adapter_id": "adapter_001", "score": 0.8, "selected": true},
@@ -452,7 +524,11 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
         }),
         serde_json::json!({
             "type": "inference.start",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "data": {
                 "prompt_length": 150,
                 "max_tokens": 200,
@@ -461,7 +537,11 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
         }),
         serde_json::json!({
             "type": "policy.violation",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "data": {
                 "violation_type": "insufficient_evidence",
                 "required_spans": 1,
@@ -484,7 +564,11 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
     for i in 0..100 {
         let event = serde_json::json!({
             "type": "test.load",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "data": {"iteration": i}
         });
         telemetry_writer.log(&format!("load_test_{}", i), event)?;
@@ -535,7 +619,11 @@ async fn test_telemetry_ingest_integration() -> Result<()> {
 async fn test_policy_violation_paths() -> Result<()> {
     println!("\n🛡️ Testing policy violation paths\n");
 
+<<<<<<< HEAD
     let (config, _db, _tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Test 1: Evidence requirement violation
     println!("1. Testing evidence requirement violation...");
@@ -600,7 +688,11 @@ async fn test_policy_violation_paths() -> Result<()> {
 async fn test_end_to_end_workflow() -> Result<()> {
     println!("\n🔄 Testing end-to-end workflow\n");
 
+<<<<<<< HEAD
     let (config, _db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Step 1: Build plan
     println!("1. Building plan...");
@@ -612,7 +704,11 @@ async fn test_end_to_end_workflow() -> Result<()> {
         "--output",
         &output_path.to_string_lossy(),
         "--tenant-id",
+<<<<<<< HEAD
         &tenant_name,
+=======
+        "integration_test",
+>>>>>>> integration-branch
     ];
 
     let output = run_aosctl_command(args).await?;
@@ -630,7 +726,11 @@ async fn test_end_to_end_workflow() -> Result<()> {
     let args = &[
         "serve",
         "--tenant",
+<<<<<<< HEAD
         &tenant_name,
+=======
+        "integration_test",
+>>>>>>> integration-branch
         "--plan",
         &plan_id,
         "--dry-run",
@@ -659,12 +759,20 @@ async fn test_end_to_end_workflow() -> Result<()> {
     let workflow_events = vec![
         serde_json::json!({
             "type": "workflow.start",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "data": {"plan_id": plan_id, "workflow": "e2e_test"}
         }),
         serde_json::json!({
             "type": "plan.loaded",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "data": {"plan_id": plan_id, "manifest_hash": "test_hash"}
         }),
     ];
@@ -780,7 +888,11 @@ fn acceptance_test_complete_integration() {
 async fn test_telemetry_throughput() -> Result<()> {
     println!("\n⚡ Testing telemetry throughput\n");
 
+<<<<<<< HEAD
     let (config, _db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     let telemetry_writer = TelemetryWriter::new(
         &config.telemetry_dir,
@@ -794,7 +906,11 @@ async fn test_telemetry_throughput() -> Result<()> {
     for i in 0..1000 {
         let event = serde_json::json!({
             "type": "performance_test",
+<<<<<<< HEAD
             "tenant_id": tenant_name,
+=======
+            "tenant_id": "integration_test",
+>>>>>>> integration-branch
             "iteration": i,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "data": {
@@ -830,7 +946,11 @@ async fn test_telemetry_throughput() -> Result<()> {
 async fn test_error_handling_and_recovery() -> Result<()> {
     println!("\n🔧 Testing error handling and recovery\n");
 
+<<<<<<< HEAD
     let (config, _db, _tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Test 1: Database connection failure
     println!("1. Testing database connection failure...");
@@ -917,7 +1037,11 @@ async fn test_error_handling_and_recovery() -> Result<()> {
 async fn test_concurrent_operations() -> Result<()> {
     println!("\n🔄 Testing concurrent operations\n");
 
+<<<<<<< HEAD
     let (config, _db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, _db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Test concurrent plan builds
     let manifest_path = config.manifest_path.clone();
@@ -935,7 +1059,11 @@ async fn test_concurrent_operations() -> Result<()> {
                     "--output",
                     &output_path.to_string_lossy(),
                     "--tenant-id",
+<<<<<<< HEAD
                     &tenant_name,
+=======
+                    "integration_test",
+>>>>>>> integration-branch
                 ];
 
                 run_aosctl_command(args).await
@@ -979,7 +1107,11 @@ async fn test_concurrent_operations() -> Result<()> {
 async fn test_cleanup_and_resource_management() -> Result<()> {
     println!("\n🧹 Testing cleanup and resource management\n");
 
+<<<<<<< HEAD
     let (config, db, tenant_name) = setup_test_env().await?;
+=======
+    let (config, db) = setup_test_env().await?;
+>>>>>>> integration-branch
 
     // Create some test data
     let telemetry_writer = TelemetryWriter::new(&config.telemetry_dir, 10, 1024)?;
@@ -1019,11 +1151,19 @@ async fn test_cleanup_and_resource_management() -> Result<()> {
 
     // Test database cleanup
     let tenants = db.list_tenants().await?;
+<<<<<<< HEAD
     let test_tenant = tenants.iter().find(|t| t.name == tenant_name);
     assert!(test_tenant.is_some(), "Test tenant should exist");
 
     // In a real scenario, we'd clean up the test tenant too
     // db.delete_tenant(&tenant_name).await?;
+=======
+    let test_tenant = tenants.iter().find(|t| t.name == "integration_test");
+    assert!(test_tenant.is_some(), "Test tenant should exist");
+
+    // In a real scenario, we'd clean up the test tenant too
+    // db.delete_tenant("integration_test").await?;
+>>>>>>> integration-branch
 
     println!("   ✓ Database cleanup verified");
 

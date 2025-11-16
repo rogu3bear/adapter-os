@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Concurrent Workload Tests
 //!
 //! Tests for multiple tenants running inference workloads simultaneously,

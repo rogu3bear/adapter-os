@@ -11,7 +11,11 @@ export interface RoleGuidanceItem {
 
 export const roleGuidanceDatabase: RoleGuidanceItem[] = [
   {
+<<<<<<< HEAD
     role: 'admin',
+=======
+    role: 'Admin',
+>>>>>>> integration-branch
     title: 'Administrator',
     description: 'Full system access with complete control over all aspects of the AdapterOS Control Plane.',
     capabilities: [
@@ -31,7 +35,11 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
+<<<<<<< HEAD
     role: 'operator',
+=======
+    role: 'Operator',
+>>>>>>> integration-branch
     title: 'Operator',
     description: 'Operational control over runtime systems, adapters, and day-to-day management.',
     capabilities: [
@@ -54,7 +62,11 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
+<<<<<<< HEAD
     role: 'compliance',
+=======
+    role: 'Compliance',
+>>>>>>> integration-branch
     title: 'Compliance Officer',
     description: 'Oversight role focused on policy compliance, audit trails, and regulatory requirements.',
     capabilities: [
@@ -77,7 +89,11 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
+<<<<<<< HEAD
     role: 'viewer',
+=======
+    role: 'Viewer',
+>>>>>>> integration-branch
     title: 'Viewer',
     description: 'Read-only access for monitoring and reporting purposes.',
     capabilities: [
@@ -101,7 +117,11 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
     ]
   },
   {
+<<<<<<< HEAD
     role: 'sre',
+=======
+    role: 'SRE',
+>>>>>>> integration-branch
     title: 'Site Reliability Engineer',
     description: 'Technical role focused on system reliability, performance, and incident response.',
     capabilities: [
@@ -122,6 +142,7 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
       'Monitor Alerts for incidents',
       'Review telemetry for performance'
     ]
+<<<<<<< HEAD
   },
   {
     role: 'auditor',
@@ -145,6 +166,8 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
       'Review Operations for audit trails',
       'Export data for external analysis'
     ]
+=======
+>>>>>>> integration-branch
   }
 ];
 

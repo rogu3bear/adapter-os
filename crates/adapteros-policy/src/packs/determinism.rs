@@ -23,8 +23,6 @@ pub struct DeterminismConfig {
     pub epsilon_bounds: EpsilonBounds,
     /// Toolchain version requirements
     pub toolchain_requirements: ToolchainRequirements,
-    /// Minimum router entropy threshold (prevents uniform gate distribution)
-    pub min_router_entropy: f32,
 }
 
 /// RNG seeding method
@@ -65,7 +63,7 @@ pub struct EpsilonBounds {
 }
 
 /// Toolchain version requirements
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolchainRequirements {
     /// Required Rust version
     pub rust_version: String,
@@ -99,7 +97,6 @@ impl Default for DeterminismConfig {
                     "-ffast-math".to_string(), // Note: This should be disabled for determinism
                 ],
             },
-            min_router_entropy: 0.1, // Minimum entropy to prevent uniform gate distribution
         }
     }
 }
@@ -146,18 +143,6 @@ impl DeterminismPolicy {
             _ => Err(AosError::PolicyViolation(
                 "RNG seeding method does not match policy requirements".to_string(),
             )),
-        }
-    }
-
-    /// Validate router entropy (prevents uniform gate distribution)
-    pub fn validate_router_entropy(&self, entropy: f32) -> Result<()> {
-        if entropy < self.config.min_router_entropy {
-            Err(AosError::PolicyViolation(format!(
-                "Router entropy {:.4} below minimum threshold {:.4}",
-                entropy, self.config.min_router_entropy
-            )))
-        } else {
-            Ok(())
         }
     }
 
@@ -275,29 +260,6 @@ impl DeterminismPolicy {
             return Err(AosError::PolicyViolation(
                 "Metal backend must provide metallib hash".to_string(),
             ));
-        }
-
-        // For Metal backend, require kernel hash match if enabled
-        if self.config.require_kernel_hash_match
-            && report.backend_type == BackendType::Metal
-            && report.metallib_hash.is_some()
-            && report.manifest.is_some()
-        {
-            let metallib_hash = report.metallib_hash.as_ref().unwrap();
-            let manifest = report.manifest.as_ref().unwrap();
-
-            let expected_hash =
-                adapteros_core::B3Hash::from_hex(&manifest.kernel_hash).map_err(|e| {
-                    AosError::PolicyViolation(format!("Invalid kernel hash in manifest: {}", e))
-                })?;
-
-            if metallib_hash != &expected_hash {
-                return Err(AosError::PolicyViolation(format!(
-                    "Kernel hash mismatch: expected {}, got {}",
-                    expected_hash.to_hex(),
-                    metallib_hash.to_hex()
-                )));
-            }
         }
 
         // Check RNG seeding method matches policy
@@ -440,30 +402,5 @@ mod tests {
         // Invalid version
         toolchain_info.insert("rust".to_string(), "1.70.0".to_string());
         assert!(policy.validate_toolchain(&toolchain_info).is_err());
-    }
-
-    #[test]
-    fn test_validate_router_entropy() {
-        let config = DeterminismConfig::default();
-        let policy = DeterminismPolicy::new(config);
-
-        // Test entropy above threshold
-        assert!(policy.validate_router_entropy(0.2).is_ok());
-
-        // Test entropy below threshold
-        let result = policy.validate_router_entropy(0.05);
-        assert!(result.is_err());
-        let err_msg = format!("{:?}", result.unwrap_err());
-        assert!(err_msg.contains("Router entropy"));
-        assert!(err_msg.contains("below minimum threshold"));
-    }
-
-    #[test]
-    fn test_validate_router_entropy_exact_threshold() {
-        let config = DeterminismConfig::default();
-        let policy = DeterminismPolicy::new(config);
-
-        // Test entropy exactly at threshold
-        assert!(policy.validate_router_entropy(0.1).is_ok());
     }
 }

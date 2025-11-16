@@ -2,9 +2,23 @@
 
 //! Tests for adapter lifecycle state transitions
 
+<<<<<<< HEAD
 use adapteros_lora_lifecycle::{AdapterState, AdapterStateRecord, LifecycleManager};
 use adapteros_manifest::Policies;
+=======
+use adapteros_core::B3Hash;
+use adapteros_lora_lifecycle::{AdapterState, AdapterStateRecord, LifecycleManager};
+use adapteros_manifest::Policies;
+use std::collections::HashMap;
+>>>>>>> integration-branch
 use std::path::PathBuf;
+
+fn build_adapter_hashes(names: &[String]) -> HashMap<String, B3Hash> {
+    names
+        .iter()
+        .map(|name| (name.clone(), B3Hash::hash(name.as_bytes())))
+        .collect()
+}
 
 #[test]
 fn test_state_machine_transitions() {
@@ -81,7 +95,19 @@ fn test_lifecycle_manager_basic() {
     ];
 
     let policies = Policies::default();
+<<<<<<< HEAD
     let manager = LifecycleManager::new(adapter_names, &policies, temp_dir.clone(), None, 3);
+=======
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
+    let manager = LifecycleManager::new(
+        adapter_names.clone(),
+        adapter_hashes,
+        &policies,
+        temp_dir.clone(),
+        None,
+        3,
+    );
+>>>>>>> integration-branch
 
     // Check initial state
     assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
@@ -120,7 +146,19 @@ fn test_available_adapters_filtering() {
     ];
 
     let policies = Policies::default();
+<<<<<<< HEAD
     let manager = LifecycleManager::new(adapter_names, &policies, temp_dir.clone(), None, 3);
+=======
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
+    let manager = LifecycleManager::new(
+        adapter_names.clone(),
+        adapter_hashes,
+        &policies,
+        temp_dir.clone(),
+        None,
+        3,
+    );
+>>>>>>> integration-branch
 
     // Initially, no adapters are available (all unloaded)
     let available = manager.get_available_adapters();
@@ -165,7 +203,19 @@ fn test_state_priority_boosts() {
     ];
 
     let policies = Policies::default();
+<<<<<<< HEAD
     let manager = LifecycleManager::new(adapter_names, &policies, temp_dir.clone(), None, 3);
+=======
+    let adapter_hashes = build_adapter_hashes(&adapter_names);
+    let manager = LifecycleManager::new(
+        adapter_names.clone(),
+        adapter_hashes,
+        &policies,
+        temp_dir.clone(),
+        None,
+        3,
+    );
+>>>>>>> integration-branch
 
     // Set different states
     manager.promote_adapter(0).unwrap(); // cold

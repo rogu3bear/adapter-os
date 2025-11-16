@@ -218,7 +218,7 @@ The `cab_workflow.rs` module compiles successfully, but other modules in `adapte
 2. Missing `Db` methods (`list_domain_adapters`, `get_domain_adapter`)
 3. Missing `crypto` field in `AppState`
 
-**Status:** Fixes defined in `COMPREHENSIVE_PATCH_PLAN.md` Phase 5.2
+**Status:** Fixes defined in `PATCH_COMPLETION_PLAN.md` Phase 5.2
 
 **Workaround:** Use `cab_workflow` module independently:
 ```rust
@@ -329,9 +329,9 @@ If currently promoting CPIDs manually:
 
 ## References
 
-- [Build & Release Ruleset](../../docs/architecture/MasterPlan.md#build-release-ruleset)
-- [CAB Workflow Specification](../../docs/database-schema/workflows/promotion-pipeline.md)
-- [COMPREHENSIVE_PATCH_PLAN.md](../../COMPREHENSIVE_PATCH_PLAN.md) - Integration fixes
+- [Build & Release Ruleset](docs/architecture/MasterPlan.md#build-release-ruleset)
+- [CAB Workflow Specification](docs/database-schema/workflows/promotion-pipeline.md)
+- [PATCH_COMPLETION_PLAN.md](../../PATCH_COMPLETION_PLAN.md) - Integration fixes
 - [Migration Schema](../../migrations/0030_cab_promotion_workflow.sql)
 
 ---
@@ -346,4 +346,5 @@ If currently promoting CPIDs manually:
 - ✅ Promotion history tracking
 - ✅ Database schema migration
 - ⏳ Pending: Server-API integration (Phase 5.2)
+
 

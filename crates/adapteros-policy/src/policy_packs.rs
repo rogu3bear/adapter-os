@@ -8,7 +8,6 @@
 //! - CLAUDE.md L142: "Policy Engine: Enforces 20 policy packs"
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
-use crate::unified_enforcement as unified;
 use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -153,9 +152,6 @@ impl PolicyPackId {
 pub struct PolicyPackConfig {
     /// Policy pack ID
     pub id: PolicyPackId,
-
-    /// Policy pack version (semver)
-    pub version: String,
 
     /// Configuration data
     pub config: serde_json::Value,
@@ -341,7 +337,7 @@ pub struct PolicyViolation {
     pub details: Option<serde_json::Value>,
 
     /// Remediation steps
-    pub remediation: Option<Vec<String>>,
+    pub remediation: Option<String>,
 
     /// Violation timestamp
     pub timestamp: DateTime<Utc>,
@@ -392,9 +388,6 @@ pub struct PolicyPackManager {
 
     /// Policy pack configurations
     configs: HashMap<PolicyPackId, PolicyPackConfig>,
-
-    /// Direct reference to determinism policy pack for attestation validation
-    determinism_pack: Option<crate::packs::determinism::DeterminismPolicy>,
 }
 
 impl Default for PolicyPackManager {
@@ -409,7 +402,6 @@ impl PolicyPackManager {
         let mut manager = Self {
             packs: HashMap::new(),
             configs: HashMap::new(),
-            determinism_pack: None,
         };
 
         // Initialize all policy packs
@@ -421,11 +413,6 @@ impl PolicyPackManager {
     /// Initialize all policy packs
     fn initialize_policy_packs(&mut self) {
         info!("Initializing all 20 policy packs");
-
-        // Initialize determinism policy pack for direct attestation validation
-        self.determinism_pack = Some(crate::packs::determinism::DeterminismPolicy::new(
-            crate::packs::determinism::DeterminismConfig::default(),
-        ));
 
         // Register all policy pack validators
         self.register_pack(PolicyPackId::Egress, Box::new(EgressValidator::new()));
@@ -487,7 +474,6 @@ impl PolicyPackManager {
         for id in PolicyPackId::all() {
             let config = PolicyPackConfig {
                 id: id.clone(),
-                version: "1.0.0".to_string(), // Default semver version
                 config: self.get_default_config(&id),
                 enabled: true,
                 enforcement_level: EnforcementLevel::Error,
@@ -495,11 +481,6 @@ impl PolicyPackManager {
             };
             self.configs.insert(id, config);
         }
-    }
-
-    /// Get configuration for a policy pack
-    pub fn get_config(&self, id: &PolicyPackId) -> Option<&PolicyPackConfig> {
-        self.configs.get(id)
     }
 
     /// Get default configuration for a policy pack
@@ -642,14 +623,10 @@ impl PolicyPackManager {
     }
 
     /// Validate a request against all active policy packs
-    ///
-    /// Optimized with short-circuiting: stops validation early if a critical violation
-    /// is found that would block the request regardless of other packs.
     pub fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let start_time = std::time::Instant::now();
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        let mut found_critical_blocker = false;
 
         debug!(
             request_id = %request.request_id,
@@ -658,18 +635,7 @@ impl PolicyPackManager {
         );
 
         // Validate against each active policy pack
-        // Stop early if we find a critical blocker violation
         for (pack_id, validator) in &self.packs {
-            if found_critical_blocker {
-                // Short-circuit: critical blocker found, skip remaining validations
-                debug!(
-                    request_id = %request.request_id,
-                    policy_pack = %pack_id.name(),
-                    "Skipping validation due to critical blocker violation"
-                );
-                continue;
-            }
-
             if let Some(config) = self.configs.get(pack_id) {
                 if !config.enabled {
                     continue;
@@ -677,22 +643,6 @@ impl PolicyPackManager {
 
                 match validator.validate(request) {
                     Ok(result) => {
-                        // Check for critical blockers that would stop all processing
-                        for violation in &result.violations {
-                            if matches!(
-                                violation.severity,
-                                ViolationSeverity::Critical | ViolationSeverity::Blocker
-                            ) && matches!(
-                                config.enforcement_level,
-                                EnforcementLevel::Critical | EnforcementLevel::Error
-                            ) {
-                                found_critical_blocker = true;
-                                violations.push(violation.clone());
-                                // Continue to collect all violations but mark as blocker found
-                                break;
-                            }
-                        }
-
                         violations.extend(result.violations);
                         warnings.extend(result.warnings);
                     }
@@ -703,43 +653,15 @@ impl PolicyPackManager {
                             "Policy pack validation failed"
                         );
 
-                        let violation = PolicyViolation {
+                        violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: pack_id.name().to_string(),
                             severity: ViolationSeverity::Error,
-                            message: format!(
-                                "Policy pack '{}' validation failed: {}. This may indicate a configuration issue or missing dependency.",
-                                pack_id.name(),
-                                e
-                            ),
-                            details: Some(serde_json::json!({
-                                "error": e.to_string(),
-                                "policy_pack": pack_id.name(),
-                                "request_id": request.request_id,
-                                "request_type": format!("{:?}", request.request_type),
-                                "suggestion": "Check policy pack configuration and ensure all dependencies are available",
-                                "context": {
-                                    "component": request.context.component,
-                                    "operation": request.context.operation,
-                                }
-                            })),
-                            remediation: Some(vec![
-                                format!("Verify {} policy pack is properly initialized and configured", pack_id.name()),
-                                "Check system logs for detailed error information".to_string(),
-                                "Ensure all required dependencies and resources are available".to_string(),
-                                format!("Review {} policy pack documentation for configuration requirements", pack_id.name()),
-                            ]),
+                            message: format!("Policy pack validation failed: {}", e),
+                            details: Some(serde_json::json!({"error": e.to_string()})),
+                            remediation: Some("Check policy pack configuration".to_string()),
                             timestamp: Utc::now(),
-                        };
-
-                        if matches!(
-                            config.enforcement_level,
-                            EnforcementLevel::Critical | EnforcementLevel::Error
-                        ) {
-                            found_critical_blocker = true;
-                        }
-
-                        violations.push(violation);
+                        });
                     }
                 }
             }
@@ -839,151 +761,9 @@ impl PolicyPackManager {
         Ok(())
     }
 
-    /// Configure policy packs from manifest policies
-    ///
-    /// This integrates manifest-based policy configuration with the pack-based system,
-    /// ensuring that manifest policies are properly reflected in pack configurations.
-    pub fn configure_from_manifest(
-        &mut self,
-        policies: &adapteros_manifest::Policies,
-    ) -> Result<()> {
-        info!("Configuring policy packs from manifest policies");
-
-        // Configure Egress pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Egress) {
-            config.config = serde_json::json!({
-                "mode": policies.egress.mode,
-                "serve_requires_pf": policies.egress.serve_requires_pf,
-                "allow_tcp": policies.egress.allow_tcp,
-                "allow_udp": policies.egress.allow_udp,
-                "uds_paths": policies.egress.uds_paths,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Determinism pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Determinism) {
-            config.config = serde_json::json!({
-                "require_metallib_embed": policies.determinism.require_metallib_embed,
-                "require_kernel_hash_match": policies.determinism.require_kernel_hash_match,
-                "rng": policies.determinism.rng,
-                "retrieval_tie_break": policies.determinism.retrieval_tie_break,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Evidence pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Evidence) {
-            config.config = serde_json::json!({
-                "require_open_book": policies.evidence.require_open_book,
-                "min_spans": policies.evidence.min_spans,
-                "prefer_latest_revision": policies.evidence.prefer_latest_revision,
-                "warn_on_superseded": policies.evidence.warn_on_superseded,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Refusal pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Refusal) {
-            config.config = serde_json::json!({
-                "abstain_threshold": policies.refusal.abstain_threshold,
-                "missing_fields_templates": policies.refusal.missing_fields_templates,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Numeric pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::NumericUnits) {
-            config.config = serde_json::json!({
-                "canonical_units": policies.numeric.canonical_units,
-                "max_rounding_error": policies.numeric.max_rounding_error,
-                "require_units_in_trace": policies.numeric.require_units_in_trace,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure RAG pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::RagIndex) {
-            config.config = serde_json::json!({
-                "index_scope": policies.rag.index_scope,
-                "doc_tags_required": policies.rag.doc_tags_required,
-                "embedding_model_hash": policies.rag.embedding_model_hash.to_string(),
-                "topk": policies.rag.topk,
-                "order": policies.rag.order,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Isolation pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Isolation) {
-            config.config = serde_json::json!({
-                "process_model": policies.isolation.process_model,
-                "uds_root": policies.isolation.uds_root,
-                "forbid_shm": policies.isolation.forbid_shm,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Performance pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Performance) {
-            config.config = serde_json::json!({
-                "latency_p95_ms": policies.performance.latency_p95_ms,
-                "router_overhead_pct_max": policies.performance.router_overhead_pct_max,
-                "throughput_tokens_per_s_min": policies.performance.throughput_tokens_per_s_min,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Memory pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Memory) {
-            config.config = serde_json::json!({
-                "min_headroom_pct": policies.memory.min_headroom_pct,
-                "evict_order": policies.memory.evict_order,
-                "k_reduce_before_evict": policies.memory.k_reduce_before_evict,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        // Configure Artifacts pack
-        if let Some(config) = self.configs.get_mut(&PolicyPackId::Artifacts) {
-            config.config = serde_json::json!({
-                "require_signature": policies.artifacts.require_signature,
-                "require_sbom": policies.artifacts.require_sbom,
-                "cas_only": policies.artifacts.cas_only,
-            });
-            config.last_updated = Utc::now();
-        }
-
-        info!("Policy packs configured from manifest");
-        Ok(())
-    }
-
     /// Get all policy pack configurations
     pub fn get_all_configs(&self) -> &HashMap<PolicyPackId, PolicyPackConfig> {
         &self.configs
-    }
-
-    /// Get a policy pack validator by ID
-    pub fn get_validator(
-        &self,
-        pack_id: &PolicyPackId,
-    ) -> Option<&(dyn PolicyPackValidator + Send + Sync)> {
-        self.packs.get(pack_id).map(|v| v.as_ref())
-    }
-
-    /// Validate backend determinism attestation
-    pub fn validate_determinism_attestation(
-        &self,
-        report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
-    ) -> Result<()> {
-        self.determinism_pack
-            .as_ref()
-            .ok_or_else(|| {
-                adapteros_core::AosError::PolicyViolation(
-                    "Determinism policy pack not initialized".to_string(),
-                )
-            })?
-            .validate_backend_attestation(report)
     }
 
     /// Enable or disable a policy pack
@@ -1007,7 +787,6 @@ impl PolicyPackManager {
 
 /// Egress policy pack validator
 pub struct EgressValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1020,7 +799,6 @@ impl Default for EgressValidator {
 impl EgressValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "mode": "deny_all",
                 "serve_requires_pf": true,
@@ -1050,7 +828,7 @@ impl PolicyPackValidator for EgressValidator {
                     severity: ViolationSeverity::Error,
                     message: "DNS resolution requests are not allowed".to_string(),
                     details: Some(serde_json::json!({"operation": "dns_resolution"})),
-                    remediation: Some(vec!["DNS resolution is blocked for security".to_string()]),
+                    remediation: Some("DNS resolution is blocked for security".to_string()),
                     timestamp: Utc::now(),
                 });
             }
@@ -1064,7 +842,7 @@ impl PolicyPackValidator for EgressValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "TCP/UDP connections are not allowed".to_string(),
                             details: Some(serde_json::json!({"protocol": protocol})),
-                            remediation: Some(vec!["Use Unix domain sockets only".to_string()]),
+                            remediation: Some("Use Unix domain sockets only".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1092,7 +870,6 @@ impl PolicyPackValidator for EgressValidator {
 
 /// Determinism policy pack validator
 pub struct DeterminismValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1105,7 +882,6 @@ impl Default for DeterminismValidator {
 impl DeterminismValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_metallib_embed": true,
                 "require_kernel_hash_match": true,
@@ -1129,7 +905,7 @@ impl PolicyPackValidator for DeterminismValidator {
                 severity: ViolationSeverity::Error,
                 message: "Runtime kernel compilation is not allowed".to_string(),
                 details: Some(serde_json::json!({"operation": "kernel_compile"})),
-                remediation: Some(vec!["Use precompiled .metallib blobs".to_string()]),
+                remediation: Some("Use precompiled .metallib blobs".to_string()),
                 timestamp: Utc::now(),
             });
         }
@@ -1144,7 +920,7 @@ impl PolicyPackValidator for DeterminismValidator {
                         severity: ViolationSeverity::Error,
                         message: "Non-HKDF RNG usage detected".to_string(),
                         details: Some(serde_json::json!({"rng_type": rng_type})),
-                        remediation: Some(vec!["Use HKDF-seeded RNG only".to_string()]),
+                        remediation: Some("Use HKDF-seeded RNG only".to_string()),
                         timestamp: Utc::now(),
                     });
                 }
@@ -1171,7 +947,6 @@ impl PolicyPackValidator for DeterminismValidator {
 
 /// Router policy pack validator
 pub struct RouterValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1184,7 +959,6 @@ impl Default for RouterValidator {
 impl RouterValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "k_sparse": 3,
                 "gate_quant": "q15",
@@ -1211,9 +985,7 @@ impl PolicyPackValidator for RouterValidator {
                             severity: ViolationSeverity::Error,
                             message: "K-sparse value exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"k_sparse": k})),
-                            remediation: Some(vec![
-                                "Reduce K-sparse value to maximum of 3".to_string()
-                            ]),
+                            remediation: Some("Reduce K-sparse value to maximum of 3".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1231,7 +1003,7 @@ impl PolicyPackValidator for RouterValidator {
                         severity: ViolationSeverity::Error,
                         message: "Gate quantization must be Q15".to_string(),
                         details: Some(serde_json::json!({"gate_quant": quant_type})),
-                        remediation: Some(vec!["Use Q15 quantization for gates".to_string()]),
+                        remediation: Some("Use Q15 quantization for gates".to_string()),
                         timestamp: Utc::now(),
                     });
                 }
@@ -1258,7 +1030,6 @@ impl PolicyPackValidator for RouterValidator {
 
 /// Evidence policy pack validator
 pub struct EvidenceValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1271,7 +1042,6 @@ impl Default for EvidenceValidator {
 impl EvidenceValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_open_book": true,
                 "min_spans": 1,
@@ -1299,9 +1069,7 @@ impl PolicyPackValidator for EvidenceValidator {
                                 severity: ViolationSeverity::Error,
                                 message: "Evidence spans are required for inference".to_string(),
                                 details: Some(serde_json::json!({"evidence_spans": spans})),
-                                remediation: Some(vec![
-                                    "Include at least one evidence span".to_string()
-                                ]),
+                                remediation: Some("Include at least one evidence span".to_string()),
                                 timestamp: Utc::now(),
                             });
                         }
@@ -1330,7 +1098,6 @@ impl PolicyPackValidator for EvidenceValidator {
 
 /// Refusal policy pack validator
 pub struct RefusalValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1343,7 +1110,6 @@ impl Default for RefusalValidator {
 impl RefusalValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "abstain_threshold": 0.55,
                 "missing_fields_templates": {
@@ -1370,9 +1136,7 @@ impl PolicyPackValidator for RefusalValidator {
                             severity: ViolationSeverity::Warning,
                             message: "Low confidence response should be refused".to_string(),
                             details: Some(serde_json::json!({"confidence": conf})),
-                            remediation: Some(vec![
-                                "Refuse response due to low confidence".to_string()
-                            ]),
+                            remediation: Some("Refuse response due to low confidence".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1400,7 +1164,6 @@ impl PolicyPackValidator for RefusalValidator {
 
 /// Numeric Units policy pack validator
 pub struct NumericUnitsValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1413,7 +1176,6 @@ impl Default for NumericUnitsValidator {
 impl NumericUnitsValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "canonical_units": {"torque": "in_lbf", "pressure": "psi"},
                 "max_rounding_error": 0.5,
@@ -1441,9 +1203,9 @@ impl PolicyPackValidator for NumericUnitsValidator {
                                     severity: ViolationSeverity::Error,
                                     message: "Units are required for numeric values".to_string(),
                                     details: Some(serde_json::json!({"value": value})),
-                                    remediation: Some(vec![
-                                        "Include units for all numeric values".to_string()
-                                    ]),
+                                    remediation: Some(
+                                        "Include units for all numeric values".to_string(),
+                                    ),
                                     timestamp: Utc::now(),
                                 });
                             }
@@ -1473,7 +1235,6 @@ impl PolicyPackValidator for NumericUnitsValidator {
 
 /// RAG Index policy pack validator
 pub struct RagIndexValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1486,7 +1247,6 @@ impl Default for RagIndexValidator {
 impl RagIndexValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "index_scope": "per_tenant",
                 "doc_tags_required": ["doc_id", "rev", "effectivity", "source_type"],
@@ -1514,7 +1274,7 @@ impl PolicyPackValidator for RagIndexValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "Cross-tenant access detected".to_string(),
                             details: Some(serde_json::json!({"tenant_id": tenant_id})),
-                            remediation: Some(vec!["Enforce per-tenant isolation".to_string()]),
+                            remediation: Some("Enforce per-tenant isolation".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1542,7 +1302,6 @@ impl PolicyPackValidator for RagIndexValidator {
 
 /// Isolation policy pack validator
 pub struct IsolationValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1555,7 +1314,6 @@ impl Default for IsolationValidator {
 impl IsolationValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "process_model": "per_tenant",
                 "uds_root": "/var/run/aos/<tenant>",
@@ -1581,7 +1339,7 @@ impl PolicyPackValidator for IsolationValidator {
                         severity: ViolationSeverity::Error,
                         message: "Shared memory usage is forbidden".to_string(),
                         details: Some(serde_json::json!({"use_shared_memory": use_shm})),
-                        remediation: Some(vec!["Disable shared memory usage".to_string()]),
+                        remediation: Some("Disable shared memory usage".to_string()),
                         timestamp: Utc::now(),
                     });
                 }
@@ -1608,7 +1366,6 @@ impl PolicyPackValidator for IsolationValidator {
 
 /// Telemetry policy pack validator
 pub struct TelemetryValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1621,7 +1378,6 @@ impl Default for TelemetryValidator {
 impl TelemetryValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "schema_hash": "b3:...",
                 "sampling": {"token": 0.05, "router": 1.0, "inference": 1.0},
@@ -1648,9 +1404,7 @@ impl PolicyPackValidator for TelemetryValidator {
                             severity: ViolationSeverity::Warning,
                             message: "Sampling rate exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"sampling_rate": rate})),
-                            remediation: Some(vec![
-                                "Reduce sampling rate to maximum of 1.0".to_string()
-                            ]),
+                            remediation: Some("Reduce sampling rate to maximum of 1.0".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1678,7 +1432,6 @@ impl PolicyPackValidator for TelemetryValidator {
 
 /// Retention policy pack validator
 pub struct RetentionValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1691,7 +1444,6 @@ impl Default for RetentionValidator {
 impl RetentionValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "keep_bundles_per_cpid": 12,
                 "keep_incident_bundles": true,
@@ -1744,7 +1496,6 @@ impl PolicyPackValidator for RetentionValidator {
 
 /// Performance policy pack validator
 pub struct PerformanceValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1757,7 +1508,6 @@ impl Default for PerformanceValidator {
 impl PerformanceValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "latency_p95_ms": 24,
                 "router_overhead_pct_max": 8,
@@ -1783,9 +1533,9 @@ impl PolicyPackValidator for PerformanceValidator {
                             severity: ViolationSeverity::Error,
                             message: "Latency exceeds p95 budget".to_string(),
                             details: Some(serde_json::json!({"latency_p95_ms": latency})),
-                            remediation: Some(vec![
-                                "Optimize performance to meet latency budget".to_string()
-                            ]),
+                            remediation: Some(
+                                "Optimize performance to meet latency budget".to_string(),
+                            ),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1813,7 +1563,6 @@ impl PolicyPackValidator for PerformanceValidator {
 
 /// Memory policy pack validator
 pub struct MemoryValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1826,7 +1575,6 @@ impl Default for MemoryValidator {
 impl MemoryValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "min_headroom_pct": 15,
                 "evict_order": ["ephemeral_ttl", "cold_lru", "warm_lru"],
@@ -1852,9 +1600,9 @@ impl PolicyPackValidator for MemoryValidator {
                             severity: ViolationSeverity::Error,
                             message: "Memory headroom below minimum threshold".to_string(),
                             details: Some(serde_json::json!({"headroom_pct": headroom})),
-                            remediation: Some(vec![
-                                "Increase memory headroom to at least 15%".to_string()
-                            ]),
+                            remediation: Some(
+                                "Increase memory headroom to at least 15%".to_string(),
+                            ),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1882,7 +1630,6 @@ impl PolicyPackValidator for MemoryValidator {
 
 /// Artifacts policy pack validator
 pub struct ArtifactsValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1895,7 +1642,6 @@ impl Default for ArtifactsValidator {
 impl ArtifactsValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_signature": true,
                 "require_sbom": true,
@@ -1921,7 +1667,7 @@ impl PolicyPackValidator for ArtifactsValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "Artifact signature is required".to_string(),
                             details: Some(serde_json::json!({"artifact": artifact})),
-                            remediation: Some(vec!["Sign artifact with Ed25519".to_string()]),
+                            remediation: Some("Sign artifact with Ed25519".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -1949,7 +1695,6 @@ impl PolicyPackValidator for ArtifactsValidator {
 
 /// Secrets policy pack validator
 pub struct SecretsValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -1962,7 +1707,6 @@ impl Default for SecretsValidator {
 impl SecretsValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "env_allowed": [],
                 "keystore": "secure_enclave",
@@ -1990,9 +1734,9 @@ impl PolicyPackValidator for SecretsValidator {
                                     severity: ViolationSeverity::Blocker,
                                     message: "Plaintext secrets are not allowed".to_string(),
                                     details: Some(serde_json::json!({"secret": secret})),
-                                    remediation: Some(vec![
+                                    remediation: Some(
                                         "Use Secure Enclave for secret storage".to_string(),
-                                    ]),
+                                    ),
                                     timestamp: Utc::now(),
                                 });
                             }
@@ -2022,7 +1766,6 @@ impl PolicyPackValidator for SecretsValidator {
 
 /// Build Release policy pack validator
 pub struct BuildReleaseValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2035,7 +1778,6 @@ impl Default for BuildReleaseValidator {
 impl BuildReleaseValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "require_replay_zero_diff": true,
                 "hallucination_thresholds": {"arr_min": 0.95, "ecs5_min": 0.75, "hlr_max": 0.03, "cr_max": 0.01},
@@ -2062,9 +1804,7 @@ impl PolicyPackValidator for BuildReleaseValidator {
                             severity: ViolationSeverity::Blocker,
                             message: "Replay shows non-zero diff".to_string(),
                             details: Some(serde_json::json!({"replay_diff": diff})),
-                            remediation: Some(vec![
-                                "Fix determinism issues before release".to_string()
-                            ]),
+                            remediation: Some("Fix determinism issues before release".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -2092,7 +1832,6 @@ impl PolicyPackValidator for BuildReleaseValidator {
 
 /// Compliance policy pack validator
 pub struct ComplianceValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2105,7 +1844,6 @@ impl Default for ComplianceValidator {
 impl ComplianceValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "control_matrix_hash": "b3:...",
                 "require_evidence_links": true,
@@ -2131,9 +1869,7 @@ impl PolicyPackValidator for ComplianceValidator {
                             severity: ViolationSeverity::Error,
                             message: "Compliance evidence links are required".to_string(),
                             details: Some(serde_json::json!({"compliance": compliance})),
-                            remediation: Some(vec![
-                                "Provide evidence links for compliance".to_string()
-                            ]),
+                            remediation: Some("Provide evidence links for compliance".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -2161,7 +1897,6 @@ impl PolicyPackValidator for ComplianceValidator {
 
 /// Incident policy pack validator
 pub struct IncidentValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2174,7 +1909,6 @@ impl Default for IncidentValidator {
 impl IncidentValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "memory": ["drop_ephemeral", "reduce_k", "evict_cold", "deny_new_sessions"],
                 "router_skew": ["entropy_floor_on", "cap_activation", "recalibrate", "rebuild_plan"],
@@ -2201,9 +1935,9 @@ impl PolicyPackValidator for IncidentValidator {
                             severity: ViolationSeverity::Error,
                             message: "Incident response procedures are required".to_string(),
                             details: Some(serde_json::json!({"incident_type": incident_type})),
-                            remediation: Some(vec![
+                            remediation: Some(
                                 "Follow documented incident response procedures".to_string(),
-                            ]),
+                            ),
                             timestamp: Utc::now(),
                         });
                     }
@@ -2231,7 +1965,6 @@ impl PolicyPackValidator for IncidentValidator {
 
 /// LLM Output policy pack validator
 pub struct LlmOutputValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2244,7 +1977,6 @@ impl Default for LlmOutputValidator {
 impl LlmOutputValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "format": "json",
                 "require_trace": true,
@@ -2257,7 +1989,7 @@ impl LlmOutputValidator {
 impl PolicyPackValidator for LlmOutputValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         // Check output format requirements
         if let Some(data) = &request.context.data {
@@ -2269,37 +2001,7 @@ impl PolicyPackValidator for LlmOutputValidator {
                         severity: ViolationSeverity::Error,
                         message: "Output format must be JSON".to_string(),
                         details: Some(serde_json::json!({"output_format": output_format})),
-                        remediation: Some(vec!["Use JSON format for all outputs".to_string()]),
-                        timestamp: Utc::now(),
-                    });
-                }
-            }
-        }
-
-        // If trace is required, warn when no evidence is present in response trace
-        if let Some(data) = &request.context.data {
-            let require_trace = self
-                .config
-                .get("require_trace")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-
-            if require_trace {
-                let evidence_len = data
-                    .get("trace")
-                    .and_then(|t| t.get("evidence"))
-                    .and_then(|e| e.as_array())
-                    .map(|arr| arr.len())
-                    .unwrap_or(0);
-
-                if evidence_len == 0 {
-                    warnings.push(PolicyWarning {
-                        warning_id: Uuid::new_v4().to_string(),
-                        policy_pack: "LLM Output Ruleset".to_string(),
-                        message: "No citations present in output trace".to_string(),
-                        details: Some(serde_json::json!({
-                            "hint": "Enable open-book or ensure RAG evidence is retrieved",
-                        })),
+                        remediation: Some("Use JSON format for all outputs".to_string()),
                         timestamp: Utc::now(),
                     });
                 }
@@ -2326,7 +2028,6 @@ impl PolicyPackValidator for LlmOutputValidator {
 
 /// Adapter Lifecycle policy pack validator
 pub struct AdapterLifecycleValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2339,7 +2040,6 @@ impl Default for AdapterLifecycleValidator {
 impl AdapterLifecycleValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "min_activation_pct": 2.0,
                 "min_quality_delta": 0.5,
@@ -2391,7 +2091,6 @@ impl PolicyPackValidator for AdapterLifecycleValidator {
 
 /// Full Pack policy pack validator
 pub struct FullPackValidator {
-    #[allow(dead_code)]
     config: serde_json::Value,
 }
 
@@ -2404,7 +2103,6 @@ impl Default for FullPackValidator {
 impl FullPackValidator {
     pub fn new() -> Self {
         Self {
-            #[allow(dead_code)]
             config: serde_json::json!({
                 "schema": "adapteros.policy.v1",
                 "packs": {
@@ -2448,9 +2146,7 @@ impl PolicyPackValidator for FullPackValidator {
                         severity: ViolationSeverity::Error,
                         message: "Invalid policy schema version".to_string(),
                         details: Some(serde_json::json!({"schema": schema})),
-                        remediation: Some(vec![
-                            "Use schema version 'adapteros.policy.v1'".to_string()
-                        ]),
+                        remediation: Some("Use schema version 'adapteros.policy.v1'".to_string()),
                         timestamp: Utc::now(),
                     });
                 }
@@ -2475,269 +2171,6 @@ impl PolicyPackValidator for FullPackValidator {
     }
 }
 
-impl PolicyPackManager {
-    fn enforcement_level_for_violation(&self, violation: &PolicyViolation) -> EnforcementLevel {
-        if let Some(pack_id) = PolicyPackId::from_name(&violation.policy_pack) {
-            if let Some(config) = self.configs.get(&pack_id) {
-                return config.enforcement_level.clone();
-            } else {
-                warn!(policy_pack = %violation.policy_pack, "No configuration found for policy pack");
-            }
-        } else {
-            warn!(policy_pack = %violation.policy_pack, "Unknown policy pack name");
-        }
-
-        EnforcementLevel::Error
-    }
-
-    fn violation_is_blocking(&self, violation: &PolicyViolation) -> bool {
-        if matches!(
-            violation.severity,
-            ViolationSeverity::Critical | ViolationSeverity::Blocker
-        ) {
-            return true;
-        }
-
-        matches!(
-            self.enforcement_level_for_violation(violation),
-            EnforcementLevel::Error | EnforcementLevel::Critical
-        )
-    }
-}
-
-fn convert_unified_request(request: &unified::PolicyRequest) -> PolicyRequest {
-    PolicyRequest {
-        request_id: request.request_id.clone(),
-        request_type: map_unified_request_type(&request.request_type),
-        tenant_id: request.tenant_id.clone(),
-        user_id: request.user_id.clone(),
-        context: convert_unified_context(&request.context, None),
-        metadata: request.metadata.clone(),
-    }
-}
-
-fn convert_unified_operation(operation: &unified::Operation) -> PolicyRequest {
-    PolicyRequest {
-        request_id: operation.operation_id.clone(),
-        request_type: map_operation_type_to_request_type(&operation.operation_type),
-        tenant_id: None,
-        user_id: None,
-        context: convert_unified_context(&operation.context, Some(&operation.parameters)),
-        metadata: operation.metadata.clone(),
-    }
-}
-
-fn convert_unified_context(
-    context: &unified::PolicyContext,
-    parameters: Option<&HashMap<String, serde_json::Value>>,
-) -> PolicyContext {
-    let mut merged = match &context.data {
-        Some(serde_json::Value::Object(map)) => map.clone(),
-        Some(other) => {
-            let mut map = serde_json::Map::new();
-            map.insert("value".to_string(), other.clone());
-            map
-        }
-        None => serde_json::Map::new(),
-    };
-
-    if let Some(params) = parameters {
-        if !params.is_empty() {
-            let mut param_map = serde_json::Map::new();
-            for (key, value) in params {
-                param_map.insert(key.clone(), value.clone());
-            }
-            merged.insert(
-                "parameters".to_string(),
-                serde_json::Value::Object(param_map),
-            );
-        }
-    }
-
-    PolicyContext {
-        component: context.component.clone(),
-        operation: context.operation.clone(),
-        data: if merged.is_empty() {
-            None
-        } else {
-            Some(serde_json::Value::Object(merged))
-        },
-        priority: convert_unified_priority(&context.priority),
-    }
-}
-
-fn convert_unified_priority(priority: &unified::Priority) -> Priority {
-    match priority {
-        unified::Priority::Low => Priority::Low,
-        unified::Priority::Normal => Priority::Normal,
-        unified::Priority::High => Priority::High,
-        unified::Priority::Critical => Priority::Critical,
-    }
-}
-
-fn map_unified_request_type(request_type: &unified::RequestType) -> RequestType {
-    match request_type {
-        unified::RequestType::Inference => RequestType::Inference,
-        unified::RequestType::AdapterOperation => RequestType::AdapterOperation,
-        unified::RequestType::MemoryOperation => RequestType::MemoryOperation,
-        unified::RequestType::TrainingOperation => RequestType::TrainingOperation,
-        unified::RequestType::PolicyUpdate => RequestType::PolicyUpdate,
-        unified::RequestType::SystemOperation => RequestType::SystemOperation,
-        unified::RequestType::UserOperation => RequestType::UserOperation,
-        unified::RequestType::NetworkOperation => RequestType::NetworkOperation,
-        unified::RequestType::FileOperation => RequestType::FileOperation,
-        unified::RequestType::DatabaseOperation => RequestType::DatabaseOperation,
-    }
-}
-
-fn map_operation_type_to_request_type(operation_type: &unified::OperationType) -> RequestType {
-    match operation_type {
-        unified::OperationType::LoadAdapter
-        | unified::OperationType::EvictAdapter
-        | unified::OperationType::PinAdapter => RequestType::AdapterOperation,
-        unified::OperationType::StartTraining | unified::OperationType::StopTraining => {
-            RequestType::TrainingOperation
-        }
-        unified::OperationType::AllocateMemory | unified::OperationType::DeallocateMemory => {
-            RequestType::MemoryOperation
-        }
-        unified::OperationType::PerformInference => RequestType::Inference,
-        unified::OperationType::UpdatePolicy => RequestType::PolicyUpdate,
-        unified::OperationType::SystemOperation => RequestType::SystemOperation,
-    }
-}
-
-fn convert_validation_result(result: PolicyValidationResult) -> unified::PolicyValidationResult {
-    unified::PolicyValidationResult {
-        valid: result.valid,
-        violations: result.violations,
-        warnings: result.warnings,
-        timestamp: result.timestamp,
-        duration_ms: result.duration_ms,
-    }
-}
-
-fn compliance_status_for_config(config: &PolicyPackConfig) -> unified::ComplianceStatus {
-    if !config.enabled {
-        unified::ComplianceStatus::Warning
-    } else {
-        unified::ComplianceStatus::Compliant
-    }
-}
-
-fn overall_compliance_score(configs: &HashMap<PolicyPackId, PolicyPackConfig>) -> f64 {
-    if configs.is_empty() {
-        return 1.0;
-    }
-
-    let enabled = configs.values().filter(|cfg| cfg.enabled).count() as f64;
-    enabled / configs.len() as f64
-}
-
-#[allow(async_fn_in_trait)]
-impl unified::PolicyEnforcer for PolicyPackManager {
-    async fn validate_request(
-        &self,
-        request: &unified::PolicyRequest,
-    ) -> Result<unified::PolicyValidationResult> {
-        let internal_request = convert_unified_request(request);
-        let result = PolicyPackManager::validate_request(self, &internal_request)?;
-        Ok(convert_validation_result(result))
-    }
-
-    async fn is_operation_allowed(&self, operation: &unified::Operation) -> Result<bool> {
-        let internal_request = convert_unified_operation(operation);
-        let validation = PolicyPackManager::validate_request(self, &internal_request)?;
-        Ok(!validation
-            .violations
-            .iter()
-            .any(|violation| self.violation_is_blocking(violation)))
-    }
-
-    async fn get_violations(
-        &self,
-        operation: &unified::Operation,
-    ) -> Result<Vec<unified::PolicyViolation>> {
-        let internal_request = convert_unified_operation(operation);
-        let validation = PolicyPackManager::validate_request(self, &internal_request)?;
-        Ok(validation.violations)
-    }
-
-    async fn enforce_policy(
-        &self,
-        operation: &unified::Operation,
-    ) -> Result<unified::PolicyEnforcementResult> {
-        let internal_request = convert_unified_operation(operation);
-        let validation = PolicyPackManager::validate_request(self, &internal_request)?;
-        let mut actions = Vec::new();
-
-        let blocking = validation
-            .violations
-            .iter()
-            .any(|violation| self.violation_is_blocking(violation));
-
-        if blocking {
-            actions.push(unified::EnforcementAction::Deny);
-        } else {
-            actions.push(unified::EnforcementAction::Allow);
-        }
-
-        for violation in &validation.violations {
-            actions.push(unified::EnforcementAction::LogViolation {
-                violation: violation.clone(),
-            });
-
-            if matches!(
-                self.enforcement_level_for_violation(violation),
-                EnforcementLevel::Critical
-            ) || matches!(
-                violation.severity,
-                ViolationSeverity::Critical | ViolationSeverity::Blocker
-            ) {
-                actions.push(unified::EnforcementAction::SendAlert {
-                    alert_type: violation.policy_pack.clone(),
-                    message: violation.message.clone(),
-                });
-            }
-        }
-
-        let allowed = !blocking;
-
-        Ok(unified::PolicyEnforcementResult {
-            allowed,
-            actions,
-            violations: validation.violations,
-            timestamp: validation.timestamp,
-            duration_ms: validation.duration_ms,
-        })
-    }
-
-    async fn get_compliance_report(&self) -> Result<unified::PolicyComplianceReport> {
-        let mut compliance = HashMap::new();
-
-        for (id, config) in &self.configs {
-            compliance.insert(
-                id.name().to_string(),
-                unified::PolicyPackCompliance {
-                    policy_pack: id.name().to_string(),
-                    compliance_score: if config.enabled { 1.0 } else { 0.0 },
-                    violation_count: 0,
-                    last_violation: None,
-                    status: compliance_status_for_config(config),
-                },
-            );
-        }
-
-        Ok(unified::PolicyComplianceReport {
-            compliance_score: overall_compliance_score(&self.configs),
-            policy_pack_compliance: compliance,
-            recent_violations: Vec::new(),
-            compliance_trends: Vec::new(),
-            timestamp: Utc::now(),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2746,7 +2179,7 @@ mod tests {
     fn test_policy_pack_manager_creation() {
         let manager = PolicyPackManager::new();
         assert_eq!(manager.packs.len(), 20);
-        assert_eq!(manager.get_all_configs().len(), 20);
+        assert_eq!(manager.configs.len(), 20);
     }
 
     #[test]
@@ -2781,7 +2214,6 @@ mod tests {
 
         let config = PolicyPackConfig {
             id: PolicyPackId::Egress,
-            version: "1.0.0".to_string(),
             config: serde_json::json!({"mode": "deny_all"}),
             enabled: false,
             enforcement_level: EnforcementLevel::Warning,

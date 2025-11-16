@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Integration tests for AdapterOS Server API
 //!
 //! These tests verify end-to-end functionality including:
@@ -12,6 +15,7 @@
 //! Run with: `cargo test --test server_api_integration -- --ignored --nocapture`
 
 use adapteros_core::Result;
+<<<<<<< HEAD
 use adapteros_db::{users::Role, Db};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_manifest::Policies;
@@ -44,6 +48,20 @@ fn encode_jwt(claims: &adapteros_server_api::auth::Claims, secret: &[u8]) -> Res
     .map_err(|e| adapteros_core::AosError::Auth(format!("JWT encoding failed: {}", e)))
 }
 
+=======
+use adapteros_db::Db;
+use adapteros_server_api::types::*;
+use adapteros_server_api::{routes, state::AppState};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+    Router,
+};
+use serde_json::json;
+use std::sync::Arc;
+use tower::ServiceExt;
+
+>>>>>>> integration-branch
 /// Test database setup
 async fn setup_test_db() -> Result<Db> {
     let db = Db::connect(":memory:").await?;
@@ -66,6 +84,7 @@ async fn setup_test_app() -> Result<Router> {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: true,
                 bearer_token: "test-token".to_string(),
+<<<<<<< HEAD
                 system_metrics_interval_secs: 30,
                 telemetry_buffer_capacity: 1000,
                 telemetry_channel_capacity: 100,
@@ -115,6 +134,14 @@ async fn setup_test_app() -> Result<Router> {
         training_service,
     )
     .with_lifecycle(lifecycle_manager);
+=======
+            },
+        },
+    ));
+    let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![])?);
+
+    let state = AppState::new(db, jwt_secret, api_config, metrics_exporter);
+>>>>>>> integration-branch
     Ok(routes::build(state))
 }
 
@@ -344,7 +371,10 @@ async fn test_telemetry_streaming_workflow() -> Result<()> {
     println!("1. Creating telemetry bundle...");
     let _telemetry_event = TelemetryEvent {
         event_type: "inference".to_string(),
+<<<<<<< HEAD
         kind: None,
+=======
+>>>>>>> integration-branch
         timestamp: chrono::Utc::now().to_rfc3339(),
         data: json!({
             "prompt": "test prompt",
@@ -678,6 +708,7 @@ async fn test_api_consistency() -> Result<()> {
     println!("✓ API consistency tests completed successfully!");
     Ok(())
 }
+<<<<<<< HEAD
 
 /// Test /v1/repositories endpoint returns correct data shape
 #[tokio::test]
@@ -1012,3 +1043,5 @@ async fn test_legacy_repository_registration_payload() -> Result<()> {
         }
     }
 }
+=======
+>>>>>>> integration-branch

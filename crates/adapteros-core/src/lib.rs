@@ -28,21 +28,19 @@
 pub mod error;
 pub mod hash;
 pub mod id;
+pub mod naming;
 pub mod policy;
 pub mod seed;
-pub mod status;
-pub mod training;
 
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
+pub use naming::{AdapterName, ForkType, StackName};
 pub use policy::DriftPolicy;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
     derive_seed_typed, hash_adapter_dir, SeedLabel,
 };
-pub use status::{AdapterOSStatus, ServiceStatus};
-pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 
 /// RNG module version for determinism tracking
 pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
@@ -50,7 +48,6 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        AosError, B3Hash, DriftPolicy, Result, ResultExt, TrainingConfig, TrainingJob,
-        TrainingJobStatus, TrainingTemplate, CPID,
+        AdapterName, AosError, B3Hash, DriftPolicy, ForkType, Result, ResultExt, StackName, CPID,
     };
 }

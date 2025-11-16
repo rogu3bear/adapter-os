@@ -14,19 +14,11 @@ use tracing::{info, warn};
 
 pub mod error;
 pub mod metadata;
-#[cfg(feature = "mlx-ffi")]
-pub mod mlx_ffi;
 pub mod qwen;
-#[cfg(feature = "mlx-ffi")]
-pub mod qwen_int4_mlx;
 
 pub use error::{BaseLLMError, Result as BaseLLMResult};
 pub use metadata::{BaseLLMMetadata, ModelArchitecture};
-#[cfg(feature = "mlx-ffi")]
-pub use mlx_ffi::QwenMlxFfi;
 pub use qwen::QwenBaseLLM;
-#[cfg(feature = "mlx-ffi")]
-pub use qwen_int4_mlx::Qwen25Int4Mlx;
 
 /// Base LLM trait for foundation models
 ///
@@ -157,18 +149,6 @@ impl BaseLLMFactory {
     pub fn from_config(config: BaseLLMConfig) -> Result<Box<dyn BaseLLM>> {
         match config.model_type {
             ModelType::Qwen => {
-                #[cfg(feature = "mlx-ffi")]
-                {
-                    // Prefer MLX FFI if feature enabled and model_path provided via env or config
-                    if std::env::var("AOS_MLX_FFI_MODEL").is_ok() || config.model_path.is_some() {
-                        let m = QwenMlxFfi::new(config.metadata.clone());
-                        // If config had an explicit path, set env to ensure MLXFFIModel::load uses it
-                        if let Some(path) = &config.model_path {
-                            std::env::set_var("AOS_MLX_FFI_MODEL", path);
-                        }
-                        return Ok(Box::new(m));
-                    }
-                }
                 let qwen = Self::create_qwen(config.metadata)?;
                 Ok(Box::new(qwen))
             }
@@ -245,95 +225,5 @@ mod tests {
 
         let model = BaseLLMFactory::from_config(config).unwrap();
         assert_eq!(model.metadata().model_id, "test-qwen");
-    }
-}
-
-#[cfg(feature = "mlx")]
-mod mlx_backend {
-    use super::*;
-    use pyo3::prelude::*;
-    use pyo3::types::{IntoPyDict, PyList, PyModule, PyTuple};
-
-    // Add Python version check
-    #[cfg(not(pyo3_python_version = "3.13"))]
-    compile_error!(
-        "MLX backend requires Python 3.13 or earlier; current version is incompatible with PyO3"
-    );
-
-    /// Load a Qwen model via Python's mlx_lm.load API. Returns (model, tokenizer, generate_fn).
-    pub fn load_qwen_via_mlx(
-        model_ref: &str,
-        seed64: u64,
-    ) -> PyResult<(PyObject, PyObject, PyObject)> {
-        Python::with_gil(|py| {
-            // Set deterministic seed on MLX
-            if let Ok(mx) = PyModule::import_bound(py, "mlx.core") {
-                let _ = mx
-                    .getattr("random")
-                    .and_then(|r| r.call_method1("seed", (seed64,)));
-            }
-
-            // Import mlx_lm and load model + tokenizer
-            let mlx_lm = PyModule::import_bound(py, "mlx_lm")?;
-
-            // load(model_ref) -> (model, tokenizer)
-            let load_obj = mlx_lm.getattr("load")?;
-            let loaded = load_obj.call1((model_ref,))?;
-            let (model, tokenizer): (PyObject, PyObject) =
-                if let Ok(tup) = loaded.downcast::<PyTuple>() {
-                    // Extract as PyObject tuple
-                    let m = tup.get_item(0)?.unbind().into_py(py);
-                    let tok = tup.get_item(1)?.unbind().into_py(py);
-                    (m, tok)
-                } else {
-                    loaded.extract()?
-                };
-
-            // Keep a handle to the generate function
-            let generate = mlx_lm.getattr("generate")?.unbind().into_py(py);
-
-            Ok((model, tokenizer, generate))
-        })
-    }
-
-    /// Text generation using mlx_lm.generate(model, tokenizer, prompt, max_tokens) -> str
-    pub fn generate_text(
-        model: &PyObject,
-        tokenizer: &PyObject,
-        generate_fn: &PyObject,
-        prompt: &str,
-        max_tokens: usize,
-    ) -> PyResult<String> {
-        Python::with_gil(|py| {
-            let text_any = generate_fn.call1(py, (model, tokenizer, prompt, max_tokens))?;
-            text_any.extract(py)
-        })
-    }
-
-    /// Decode token IDs into a prompt string using tokenizer.decode(ids)
-    pub fn decode_ids(tokenizer: &PyObject, ids: &[u32]) -> PyResult<String> {
-        Python::with_gil(|py| {
-            let py_ids = PyList::new_bound(py, ids);
-            let s_any = tokenizer.call_method1(py, "decode", (py_ids,))?;
-            s_any.extract(py)
-        })
-    }
-
-    /// Encode text to token IDs using tokenizer.encode(text)
-    pub fn encode_ids(tokenizer: &PyObject, text: &str) -> PyResult<Vec<u32>> {
-        Python::with_gil(|py| {
-            let enc_any = tokenizer.call_method1(py, "encode", (text,))?;
-            // Try direct list extraction
-            if let Ok(ids) = enc_any.extract::<Vec<u32>>(py) {
-                return Ok(ids);
-            }
-            // Try attribute `ids`
-            if let Ok(ids_obj) = enc_any.getattr(py, "ids") {
-                return ids_obj.extract::<Vec<u32>>(py);
-            }
-            Err(pyo3::exceptions::PyException::new_err(
-                "Unable to extract token ids from tokenizer.encode",
-            ))
-        })
     }
 }

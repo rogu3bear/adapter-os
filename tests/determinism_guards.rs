@@ -5,8 +5,11 @@
 //! These tests verify that the determinism guards work correctly in the worker
 //! and catch nondeterministic operations.
 
+<<<<<<< HEAD
 #![cfg(feature = "lint-experimental")]
 
+=======
+>>>>>>> integration-branch
 use adapteros_lint::{runtime_guards, strict_mode};
 use adapteros_lora_worker::{
     determinism_guards_enabled, determinism_violation_count, init_determinism_guards,

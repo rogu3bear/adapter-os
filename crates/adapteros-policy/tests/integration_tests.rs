@@ -803,7 +803,6 @@ async fn test_policy_pack_configuration() {
     // Test updating policy pack configuration
     let new_config = PolicyPackConfig {
         id: PolicyPackId::Egress,
-        version: "1.0.0".to_string(),
         config: serde_json::json!({"mode": "deny_all"}),
         enabled: false,
         enforcement_level: EnforcementLevel::Warning,
@@ -893,12 +892,6 @@ async fn test_comprehensive_policy_integration() {
 
     let result = manager.validate_request(&complex_request).unwrap();
 
-    // Debug: Print actual violations
-    println!("DEBUG: Found {} violations:", result.violations.len());
-    for violation in &result.violations {
-        println!("  - {}: {}", violation.policy_pack, violation.message);
-    }
-
     // Should have multiple violations from different policy packs
     assert!(!result.valid);
     assert!(result.violations.len() > 5);
@@ -910,8 +903,7 @@ async fn test_comprehensive_policy_integration() {
         .map(|v| v.policy_pack.clone())
         .collect();
 
-    // We expect at least 6 unique policy packs to be triggered
-    assert!(policy_packs.len() >= 6);
+    assert!(policy_packs.len() > 5);
     assert!(policy_packs.contains("Egress Ruleset"));
     assert!(policy_packs.contains("Evidence Ruleset"));
     assert!(policy_packs.contains("Refusal Ruleset"));

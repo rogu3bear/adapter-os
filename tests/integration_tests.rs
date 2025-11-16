@@ -12,23 +12,39 @@
 //! Basic tests (health check, authentication) run in standard test mode.
 //! Extended tests require a running AdapterOS instance and proper configuration.
 
+<<<<<<< HEAD
 use adapteros_client::{
     AdapterOSClient, ApplyPatchRequest, CodeMetricsRequest, CreateTenantRequest, DefaultClient,
     InferRequest, LoginRequest, ProposePatchRequest, RegisterAdapterRequest,
     RegisterRepoRequest, RouterFeaturesRequest, ScanRepoRequest, ScoreAdaptersRequest,
     UpdateCodePolicyRequest, ValidatePatchRequest,
+=======
+use adapteros_api_types::{
+    ApplyPatchResponse, CodeMetricsRequest, CodeMetricsResponse, CommitDetailsResponse,
+    GetCodePolicyResponse, HealthResponse, JobResponse, ListAdaptersResponse, LoginResponse,
+    ProposePatchResponse, RepoResponse, RouterFeaturesResponse, ScoreAdaptersResponse,
+    TenantResponse, UserInfoResponse, ValidatePatchResponse,
+};
+use adapteros_client::{
+    ApplyPatchRequest, CpClient, CreateTenantRequest, DefaultClient, LoginRequest,
+    ProposePatchRequest, RegisterRepoRequest, RouterFeaturesRequest, ScanRepoRequest,
+    ScoreAdaptersRequest, UpdateCodePolicyRequest, ValidatePatchRequest,
+>>>>>>> integration-branch
 };
 use anyhow::Result;
 
 /// Helper to create a test base URL
 fn test_base_url() -> String {
     std::env::var("MPLORA_TEST_URL").unwrap_or_else(|_| "http://localhost:9443".to_string())
+<<<<<<< HEAD
 }
 
 /// Helper to create a test client for integration tests
 pub fn create_test_client() -> DefaultClient {
     let base_url = test_base_url();
     DefaultClient::new(base_url)
+=======
+>>>>>>> integration-branch
 }
 
 #[tokio::test]
@@ -55,9 +71,13 @@ async fn test_authentication_flow() -> Result<()> {
         .await?;
 
     assert!(!login_response.token.is_empty());
+<<<<<<< HEAD
     // LoginResponse has user_id, not user.email - check via get_user_info instead
     let user_info = client.get_user_info(&login_response.token).await?;
     assert_eq!(user_info.email, "admin@example.com");
+=======
+    assert_eq!(login_response.user.email, "admin@example.com");
+>>>>>>> integration-branch
 
     // Test logout
     client.logout().await?;
@@ -654,8 +674,12 @@ async fn test_repository_registration_workflow() -> Result<()> {
     };
 
     let scan_response = client.scan_repo(scan_request).await?;
+<<<<<<< HEAD
     // JobResponse has id field, not job_id
     assert!(!scan_response.id.is_empty());
+=======
+    assert!(scan_response.job_id.is_some());
+>>>>>>> integration-branch
 
     // 3. Wait for scan completion (with timeout)
     let mut attempts = 0;
@@ -711,8 +735,12 @@ async fn test_patch_proposal_workflow() -> Result<()> {
     assert!(!patch_response.proposal_id.is_empty());
     assert!(!patch_response.patches.is_empty());
     assert!(!patch_response.evidence.is_empty());
+<<<<<<< HEAD
     // ProposePatchResponse doesn't have confidence field - check patches or rationale instead
     assert!(!patch_response.rationale.is_empty());
+=======
+    assert!(patch_response.confidence > 0.0);
+>>>>>>> integration-branch
 
     // 2. Validate patch (dry run)
     let validate_request = ValidatePatchRequest {
@@ -732,9 +760,14 @@ async fn test_patch_proposal_workflow() -> Result<()> {
         };
 
         let apply_response = client.apply_patch(apply_request).await?;
+<<<<<<< HEAD
         // ApplyPatchResponse has applied field, not success
         assert!(apply_response.applied);
         assert!(!apply_response.backup_id.is_empty());
+=======
+        assert!(apply_response.success);
+        assert!(apply_response.backup_id.is_some());
+>>>>>>> integration-branch
 
         println!(
             "Patch applied successfully. Backup ID: {:?}",
@@ -807,7 +840,11 @@ async fn test_commit_inspection() -> Result<()> {
         create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // Get commit details
+<<<<<<< HEAD
     let commit_details = client.get_commit_details("test/example".to_string(), "abc123".to_string()).await?;
+=======
+    let commit_details = client.get_commit_details("test/example", "abc123").await?;
+>>>>>>> integration-branch
 
     assert_eq!(commit_details.repo_id, "test/example");
     assert_eq!(commit_details.commit, "abc123");
@@ -838,9 +875,13 @@ async fn test_code_policy_management() -> Result<()> {
         },
     };
 
+<<<<<<< HEAD
     // update_code_policy returns (), so we need to fetch the policy to verify changes
     client.update_code_policy(update_request).await?;
     let updated_policy = client.get_code_policy().await?;
+=======
+    let updated_policy = client.update_code_policy(update_request).await?;
+>>>>>>> integration-branch
     assert_eq!(updated_policy.policy.min_evidence_spans, 2);
     assert_eq!(updated_policy.policy.max_patch_size, 600);
 
@@ -864,6 +905,17 @@ async fn test_metrics_collection() -> Result<()> {
     assert!(metrics.compile_success >= 0.0 && metrics.compile_success <= 1.0);
     assert!(metrics.test_pass_rate >= 0.0 && metrics.test_pass_rate <= 1.0);
 
+<<<<<<< HEAD
+=======
+    println!("Metrics for code_v1:");
+    println!("  Acceptance rate: {:.2}%", metrics.acceptance_rate * 100.0);
+    println!(
+        "  Compile success: {:.2}%",
+        metrics.compile_success_rate * 100.0
+    );
+    println!("  Test pass rate: {:.2}%", metrics.test_pass_rate * 100.0);
+
+>>>>>>> integration-branch
     Ok(())
 }
 
@@ -882,7 +934,11 @@ async fn test_routing_inspector() -> Result<()> {
     let features = client.extract_router_features(features_request).await?;
 
     assert!(!features.language_scores.is_empty());
+<<<<<<< HEAD
     assert!(features.symbol_hit_count > 0);
+=======
+    assert!(features.symbol_hits > 0);
+>>>>>>> integration-branch
 
     // Score adapters
     let score_request = ScoreAdaptersRequest {
@@ -892,7 +948,11 @@ async fn test_routing_inspector() -> Result<()> {
     };
 
     let scores = client.score_adapters(score_request).await?;
+<<<<<<< HEAD
     assert!(!scores.scores.is_empty());
+=======
+    assert!(!scores.adapter_scores.is_empty());
+>>>>>>> integration-branch
 
     // Check that top K adapters are selected
     let selected_count = scores.scores.iter().filter(|s| s.selected).count();
@@ -1035,14 +1095,22 @@ async fn test_adapter_fusion_end_to_end() -> Result<()> {
     }
 
     // 4. Verify adapters were created
+<<<<<<< HEAD
     let adapters = client.list_adapters_by_tenant("default".to_string()).await?;
+=======
+    let adapters = client.list_adapters("default").await?;
+>>>>>>> integration-branch
     assert!(
         !adapters.adapters.is_empty(),
         "Should have created adapters"
     );
 
     // 5. Test adapter activation (simulated fusion operation)
+<<<<<<< HEAD
     let activations = client.get_adapter_activations().await?;
+=======
+    let activations = client.get_adapter_activations("default", 100).await?;
+>>>>>>> integration-branch
     assert!(!activations.is_empty(), "Should have adapter activations");
 
     // 6. Test that fusion operations are deterministic
@@ -1119,7 +1187,11 @@ async fn test_fusion_performance_metrics() -> Result<()> {
         create_authenticated_client("admin@example.com", "admin_password").await?;
 
     // Test that fusion operations are tracked in metrics
+<<<<<<< HEAD
     let _ = client
+=======
+    let metrics = client
+>>>>>>> integration-branch
         .get_code_metrics(CodeMetricsRequest {
             cpid: "fusion_test".to_string(),
             time_range: "1h".to_string(),
@@ -1278,7 +1350,11 @@ async fn test_fusion_accuracy_validation() -> Result<()> {
     }
 
     // Verify adapters were created
+<<<<<<< HEAD
     let adapters = client.list_adapters_by_tenant("default".to_string()).await?;
+=======
+    let adapters = client.list_adapters("default").await?;
+>>>>>>> integration-branch
     assert!(
         !adapters.adapters.is_empty(),
         "Should have created adapters for accuracy testing"
@@ -1291,7 +1367,11 @@ async fn test_fusion_accuracy_validation() -> Result<()> {
     // 3. Verifying results are within numerical precision bounds
 
     // For now, verify that fusion operations are tracked in metrics
+<<<<<<< HEAD
     let _ = client
+=======
+    let metrics = client
+>>>>>>> integration-branch
         .get_code_metrics(CodeMetricsRequest {
             cpid: "fusion_accuracy_test".to_string(),
             time_range: "1h".to_string(),
@@ -1345,14 +1425,22 @@ async fn test_adapter_fusion_result_verification() -> Result<()> {
     }
 
     // Verify adapters were created
+<<<<<<< HEAD
     let adapters = client.list_adapters_by_tenant("default".to_string()).await?;
+=======
+    let adapters = client.list_adapters("default").await?;
+>>>>>>> integration-branch
     assert!(
         !adapters.adapters.is_empty(),
         "Should have created adapters for verification"
     );
 
     // Test adapter activation and fusion results
+<<<<<<< HEAD
     let activations = client.get_adapter_activations().await?;
+=======
+    let activations = client.get_adapter_activations("default", 100).await?;
+>>>>>>> integration-branch
     assert!(!activations.is_empty(), "Should have adapter activations");
 
     // Verify fusion results meet expectations:
@@ -1361,7 +1449,11 @@ async fn test_adapter_fusion_result_verification() -> Result<()> {
     // 3. Fusion produces valid output ranges
     // 4. Results are consistent across identical inputs
 
+<<<<<<< HEAD
     let total_activation: f32 = activations.iter().map(|a| a.percentage).sum();
+=======
+    let total_activation: f32 = activations.iter().map(|a| a.activation).sum();
+>>>>>>> integration-branch
     assert!(
         total_activation >= 0.0 && total_activation <= activations.len() as f32,
         "Total activation should be within reasonable bounds"
@@ -1370,9 +1462,15 @@ async fn test_adapter_fusion_result_verification() -> Result<()> {
     // Check that individual activations are reasonable
     for activation in &activations {
         assert!(
+<<<<<<< HEAD
             activation.percentage >= 0.0 && activation.percentage <= 1.0,
             "Individual activation {} should be between 0 and 1",
             activation.percentage
+=======
+            activation.activation >= 0.0 && activation.activation <= 1.0,
+            "Individual activation {} should be between 0 and 1",
+            activation.activation
+>>>>>>> integration-branch
         );
     }
 
@@ -1481,6 +1579,7 @@ async fn test_metal_kernel_fusion_comprehensive() -> Result<()> {
 
     println!("✓ Comprehensive Metal kernel fusion test completed - all fusion operations verified");
 
+<<<<<<< HEAD
     Ok(())
 }
 
@@ -1769,6 +1868,8 @@ async fn test_journey_endpoints() -> Result<()> {
     assert_eq!(promo_response["journey_type"].as_str(), Some("promotion-pipeline"));
 
     println!("✓ Journey endpoints test completed successfully!");
+=======
+>>>>>>> integration-branch
     Ok(())
 }
 
@@ -1780,6 +1881,7 @@ mod helpers {
     pub fn create_test_client() -> DefaultClient {
         let base_url = test_base_url();
         DefaultClient::new(base_url)
+<<<<<<< HEAD
     }
 
     /// Create an authenticated test client
@@ -1800,6 +1902,52 @@ mod helpers {
         // Note: In a real implementation, you'd set the auth token on the client
         // For now, we'll just return the client and token
         Ok((client, login_response.token))
+=======
+    }
+
+    /// Create an authenticated test client
+    pub async fn create_authenticated_client(
+        email: &str,
+        password: &str,
+    ) -> Result<(DefaultClient, String)> {
+        let client = create_test_client();
+
+        let login_response = client
+            .login(LoginRequest {
+                email: email.to_string(),
+                password: password.to_string(),
+            })
+            .await?;
+
+        // Note: In a real implementation, you'd set the auth token on the client
+        // For now, we'll just return the client and token
+        Ok((client, login_response.token))
+    }
+
+    /// Setup test environment
+    pub async fn setup_test_env() -> Result<()> {
+        // Create test directories
+        std::fs::create_dir_all("/tmp/test-repo")?;
+        std::fs::create_dir_all("/tmp/e2e-test-repo")?;
+
+        // Initialize git repositories
+        std::process::Command::new("git")
+            .args(&["init", "/tmp/test-repo"])
+            .output()?;
+
+        std::process::Command::new("git")
+            .args(&["init", "/tmp/e2e-test-repo"])
+            .output()?;
+
+        Ok(())
+    }
+
+    /// Cleanup test environment
+    pub async fn cleanup_test_env() -> Result<()> {
+        std::fs::remove_dir_all("/tmp/test-repo").ok();
+        std::fs::remove_dir_all("/tmp/e2e-test-repo").ok();
+        Ok(())
+>>>>>>> integration-branch
     }
 }
 

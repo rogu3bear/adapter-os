@@ -95,7 +95,6 @@ impl Default for NumericConfig {
 
         let mut conversion_factors = HashMap::new();
         conversion_factors.insert("in_lbf_to_nm".to_string(), 0.112984829);
-        conversion_factors.insert("nm_to_in_lbf".to_string(), 1.0 / 0.112984829);
         conversion_factors.insert("psi_to_pa".to_string(), 6894.75729);
         conversion_factors.insert("fahrenheit_to_celsius".to_string(), 0.555555556);
 

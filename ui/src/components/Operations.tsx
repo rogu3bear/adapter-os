@@ -1,8 +1,16 @@
+<<<<<<< HEAD
 import React, { useState, useEffect, useMemo } from 'react';
+=======
+import React, { useState, useEffect } from 'react';
+>>>>>>> integration-branch
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+<<<<<<< HEAD
+=======
+import { useBreadcrumb } from '../contexts/BreadcrumbContext';
+>>>>>>> integration-branch
 import { useProgressiveDisclosure } from '../hooks/useProgressiveDisclosure';
 import { AdvancedToggle } from './ui/advanced-toggle';
 import { HelpTooltip } from './ui/help-tooltip';
@@ -52,6 +60,10 @@ interface OperationsProps {
 export function Operations({ user, selectedTenant }: OperationsProps) {
   const [activeTab, setActiveTab] = useState('plans');
   const [isLoading, setIsLoading] = useState(false);
+<<<<<<< HEAD
+=======
+  const { addBreadcrumb, clearBreadcrumbs } = useBreadcrumb();
+>>>>>>> integration-branch
   const { isVisible: showAdvanced, toggle: toggleAdvanced } = useProgressiveDisclosure({
     key: 'operations-advanced',
     defaultVisible: false,
@@ -59,19 +71,51 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
   });
 
   // Citation: docs/architecture/MasterPlan.md L41-L44
+<<<<<<< HEAD
   const operationTabs = useMemo(() => [
+=======
+  const operationTabs = [
+>>>>>>> integration-branch
     { id: 'plans', label: 'Plans', icon: FileText, description: 'Execution plan compilation', advanced: false },
     { id: 'promotion', label: 'Promotion', icon: ArrowUp, description: 'Control plane promotion gates', advanced: true },
     { id: 'telemetry', label: 'Telemetry', icon: Activity, description: 'Event bundle management', advanced: true },
     { id: 'inference', label: 'Inference', icon: Zap, description: 'Interactive inference testing', advanced: false },
     { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring', advanced: false },
     { id: 'federation', label: 'Federation', icon: Link, description: 'Cross-host federation status', advanced: true }
+<<<<<<< HEAD
   ], []);
+=======
+  ];
+>>>>>>> integration-branch
 
   // Filter tabs based on advanced visibility
   const visibleTabs = operationTabs.filter(tab => !tab.advanced || showAdvanced);
 
+<<<<<<< HEAD
   // Breadcrumbs are now derived statelessly from URL - no manual management needed
+=======
+  // Set breadcrumb when component mounts
+  useEffect(() => {
+    clearBreadcrumbs();
+    addBreadcrumb({
+      id: 'operations',
+      label: 'Operations',
+      icon: Activity
+    });
+  }, [addBreadcrumb, clearBreadcrumbs]);
+
+  // Update breadcrumb when tab changes
+  useEffect(() => {
+    const currentTab = operationTabs.find(tab => tab.id === activeTab);
+    if (currentTab) {
+      addBreadcrumb({
+        id: `operations-${activeTab}`,
+        label: currentTab.label,
+        icon: currentTab.icon
+      });
+    }
+  }, [activeTab, addBreadcrumb]);
+>>>>>>> integration-branch
 
   return (
     <div className="space-y-6">

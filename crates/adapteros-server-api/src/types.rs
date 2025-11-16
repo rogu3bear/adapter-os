@@ -1,77 +1,20 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 // Re-export shared API types
-pub use adapteros_api_types::telemetry::{
-    AdapterMetricsResponse, MetricDataPointResponse, MetricsSeriesResponse,
-    MetricsSnapshotResponse, SystemMetricsResponse,
-};
-pub use adapteros_api_types::{
-    AdapterActivationResponse,
-    // Metrics types
-    AdapterPerformance,
-    // Adapter types
-    AdapterResponse,
-    AdapterStats,
-    // Domain adapter types
-    CreateDomainAdapterRequest,
-    // Tenant types
-    CreateTenantRequest,
-    DomainAdapterExecutionResponse,
-    DomainAdapterManifestResponse,
-    DomainAdapterResponse,
-    EpsilonStatsResponse,
-    // Inference types
-    InferRequest,
-    InferResponse,
-    LoadAverageResponse,
-    LoadDomainAdapterRequest,
-    QualityMetricsResponse,
-    RegisterAdapterRequest,
-    // Repository types
-    RegisterRepositoryRequest,
-    RouterDecision,
-    // Training types
-    StartTrainingRequest,
-    TenantResponse,
-    TestDomainAdapterRequest,
-    TestDomainAdapterResponse,
-    TrainingConfigRequest,
-    TrainingJobResponse,
-    TrainingMetricsResponse,
-    TrainingTemplateResponse,
-    TriggerScanRequest,
-};
-// Note: adapteros_api_types::* is re-exported at crate level through lib.rs
-use adapteros_core::{TrainingConfig, TrainingJob, TrainingTemplate};
+pub use adapteros_api_types::*;
 
-/// Replay verification response
+/// API error response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ReplayVerificationResponse {
-    pub session_id: String,
-    pub signature_valid: bool,
-    pub hash_chain_valid: bool,
-    pub manifest_verified: bool,
-    pub policy_verified: bool,
-    pub kernel_verified: bool,
-    pub telemetry_verified: bool,
-    pub overall_valid: bool,
-    pub divergences: Vec<ReplayDivergence>,
-    pub verified_at: String,
+pub struct ErrorResponse {
+    pub error: String,
+    #[serde(default = "default_error_code")]
+    pub code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
-
-/// Replay divergence information
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ReplayDivergence {
-    pub divergence_type: String, // 'router' | 'adapter' | 'inference' | 'policy'
-    pub expected_hash: String,
-    pub actual_hash: String,
-    pub context: String,
-}
-
-// Re-export the unified ErrorResponse from api-types
-pub use crate::errors::ErrorResponseExt;
-pub use adapteros_api_types::ErrorResponse;
 
 /// Single request item within a batch inference call
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -110,119 +53,48 @@ pub struct BatchInferResponse {
     pub responses: Vec<BatchInferItemResponse>,
 }
 
-/// Operation progress event for SSE streaming
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-/// Progress event for ongoing operations
-///
-/// # Citations
-/// - Usage in SSE stream: [source: crates/adapteros-server-api/src/handlers.rs L9677-L9719]
-/// - Operation tracker: [source: crates/adapteros-server-api/src/operation_tracker.rs L37-L46]
-pub struct OperationProgressEvent {
-    pub operation_id: String, // Format: "{adapter_id}:{tenant_id}"
-    pub adapter_id: String,
-    pub tenant_id: String,
-    pub operation_type: String, // "load" | "unload"
-    pub progress_pct: f64,      // 0.0 to 100.0
-    pub status: String,         // "running" | "completed" | "failed"
-    pub message: Option<String>,
-    pub started_at: String, // ISO 8601 timestamp
-    pub elapsed_secs: f64,
+fn default_error_code() -> String {
+    "INTERNAL_ERROR".to_string()
 }
 
-// ============================================================================
-// Golden Baselines API Types
-// ============================================================================
+impl ErrorResponse {
+    pub fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            code: "INTERNAL_ERROR".to_string(),
+            details: None,
+        }
+    }
 
-/// Summary of a golden run baseline for UI listing
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GoldenRunSummary {
-    pub name: String,
-    pub run_id: String,
-    pub cpid: String,
-    pub plan_id: String,
-    pub bundle_hash: String,
-    pub layer_count: usize,
-    pub max_epsilon: f64,
-    pub mean_epsilon: f64,
-    pub toolchain_summary: String,
-    pub adapters: Vec<String>,
-    pub created_at: String,
-    pub has_signature: bool,
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = code.into();
+        self
+    }
+
+    pub fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
+        self.details = Some(serde_json::Value::String(details.into()));
+        self
+    }
 }
 
-/// Request to compare a telemetry bundle against a golden baseline
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GoldenCompareRequest {
-    /// Baseline name under golden_runs/baselines/{golden}
-    pub golden: String,
-    /// Telemetry bundle ID (var/bundles/{bundle_id}.ndjson)
-    pub bundle_id: String,
-    /// Strictness level: bitwise | epsilon-tolerant | statistical
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strictness: Option<String>,
-    /// Verification toggles
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verify_toolchain: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verify_adapters: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verify_device: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verify_signature: Option<bool>,
-}
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> Response {
+        let status = match self.code.as_str() {
+            "NOT_FOUND" => StatusCode::NOT_FOUND,
+            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+            "FORBIDDEN" => StatusCode::FORBIDDEN,
+            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
+            "CONFLICT" => StatusCode::CONFLICT,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
 
-/// Register local worker request (from aosctl serve)
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RegisterLocalWorkerRequest {
-    pub tenant_id: String,
-    pub plan_id: String,
-    pub node_id: String,
-    pub uds_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pid: Option<i32>,
-}
-
-/// Pin plan (alias pointer) request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PlanPinRequest {
-    /// Alias name for pointer (e.g., "production" or "staging")
-    pub alias: String,
-    /// If true, activates this pointer and deactivates others for the tenant
-    #[serde(default)]
-    pub active: bool,
-}
-
-/// Control Plane pointer response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CpPointerResponse {
-    pub id: String,
-    pub tenant_id: String,
-    pub name: String,
-    pub plan_id: String,
-    pub active: bool,
-    pub created_at: String,
-    pub activated_at: Option<String>,
-}
-
-/// Bulk adapter load/unload request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BulkAdapterRequest {
-    /// Adapter IDs to add (load)
-    #[serde(default)]
-    pub add: Vec<String>,
-    /// Adapter IDs to remove (unload)
-    #[serde(default)]
-    pub remove: Vec<String>,
-    /// Optional tenant ID (uses JWT tenant if missing)
-    pub tenant_id: Option<String>,
-}
-
-/// Bulk adapter operation result
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BulkAdapterResponse {
-    pub added: usize,
-    pub removed: usize,
-    pub errors: Vec<String>,
+        (status, axum::Json(self)).into_response()
+    }
 }
 
 /// Upsert directory adapter request (synthetic, optional activation)
@@ -264,24 +136,6 @@ pub struct ImportModelRequest {
     pub metadata_json: Option<String>,
 }
 
-/// Load model request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LoadModelRequest {
-    /// Optional timeout in seconds for model loading (default: 300)
-    pub timeout_secs: Option<u64>,
-}
-
-/// Model response after loading
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ModelResponse {
-    pub id: String,
-    pub name: String,
-    pub model_type: String,
-    pub status: String,
-    pub loaded_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub memory_usage: Option<i64>,
-}
-
 /// Base model status response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BaseModelStatusResponse {
@@ -294,24 +148,6 @@ pub struct BaseModelStatusResponse {
     pub memory_usage_mb: Option<i32>,
     pub is_loaded: bool,
     pub updated_at: String,
-}
-
-/// Multi-model status payload matching UI expectations
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AllModelsStatusResponse {
-    pub models: Vec<BaseModelStatusResponse>,
-    pub total_memory_mb: i32,
-    pub active_model_count: i32,
-}
-
-/// Model validation response for checking if a model can be loaded
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ModelValidationResponse {
-    pub model_id: String,
-    pub model_name: String,
-    pub can_load: bool,
-    pub reason: Option<String>,
-    pub download_commands: Option<Vec<String>>,
 }
 
 // BuildPlanRequest is now imported from adapteros-api-types
@@ -372,18 +208,6 @@ pub struct JobResponse {
     pub created_at: String,
 }
 
-/// Training job artifacts verification response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TrainingArtifactsResponse {
-    pub artifact_path: Option<String>,
-    pub adapter_id: Option<String>,
-    pub weights_hash_b3: Option<String>,
-    pub manifest_hash_b3: Option<String>,
-    pub manifest_hash_matches: bool,
-    pub signature_valid: bool,
-    pub ready: bool,
-}
-
 // HealthResponse, InferRequest, InferResponse, InferenceTrace, RouterDecision, and WorkerResponse
 // are now imported from adapteros-api-types
 
@@ -401,25 +225,6 @@ pub struct RollbackResponse {
     pub previous_plan_id: String,
     pub rolled_back_by: String,
     pub rolled_back_at: String,
-}
-
-/// RAG retrieval audit record (API response)
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RagRetrievalRecordResponse {
-    pub tenant_id: String,
-    pub query_hash: String,
-    pub doc_ids: Vec<String>,
-    pub scores: Vec<f32>,
-    pub top_k: i32,
-    pub embedding_model_hash: String,
-    pub created_at: String,
-}
-
-/// RAG retrieval count per tenant
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RagRetrievalTenantCount {
-    pub tenant_id: String,
-    pub count: i64,
 }
 
 // UserInfoResponse and PlanResponse are now imported from adapteros-api-types
@@ -914,18 +719,6 @@ pub struct ListCommitsQuery {
     pub limit: Option<i64>,
 }
 
-/// Get commit query parameters
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GetCommitQuery {
-    pub repo_id: Option<String>,
-}
-
-/// Get commit diff query parameters
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GetCommitDiffQuery {
-    pub repo_id: Option<String>,
-}
-
 /// List adapters query parameters
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListAdaptersQuery {
@@ -934,7 +727,7 @@ pub struct ListAdaptersQuery {
 }
 
 /// Telemetry bundle response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelemetryBundleResponse {
     pub id: String,
     pub cpid: String,
@@ -1038,108 +831,6 @@ pub struct WorkerInferRequest {
     pub prompt: String,
     pub max_tokens: usize,
     pub require_evidence: bool,
-    /// Optional: Pre-selected adapter IDs (from API-level routing)
-    #[serde(default)]
-    pub adapter_hints: Option<Vec<String>>,
-    /// Optional: Router feature scores for telemetry
-    #[serde(default)]
-    pub router_features: Option<RouterFeatureScores>,
-}
-
-/// Router feature scores for telemetry and debugging
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RouterFeatureScores {
-    pub language_score: f32,
-    pub framework_score: f32,
-    pub symbol_hits_score: f32,
-    pub path_tokens_score: f32,
-    pub prompt_verb_score: f32,
-    pub total_score: f32,
-}
-
-// ===== PROMPT ORCHESTRATION TYPES =====
-
-/// Prompt orchestration configuration
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PromptOrchestrationConfig {
-    /// Whether prompt orchestration is enabled
-    pub enabled: bool,
-    /// Minimum complexity score to consider using adapters (0.0-1.0)
-    pub base_model_threshold: f64,
-    /// Minimum score for individual adapters to qualify (0.0-1.0)
-    pub adapter_threshold: f64,
-    /// Maximum time allowed for prompt analysis (ms)
-    pub analysis_timeout: i32,
-    /// Whether to cache analysis results
-    pub cache_enabled: bool,
-    /// Cache TTL in seconds
-    pub cache_ttl: i32,
-    /// Whether to enable telemetry collection
-    pub enable_telemetry: bool,
-    /// Fallback strategy when analysis fails
-    pub fallback_strategy: String,
-}
-
-/// Prompt analysis request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PromptAnalysisRequest {
-    /// The prompt text to analyze
-    pub prompt: String,
-}
-
-/// Prompt analysis response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PromptAnalysisResponse {
-    /// Original prompt text
-    pub prompt: String,
-    /// Complexity score (0.0-1.0)
-    pub complexity_score: f64,
-    /// Recommended orchestration strategy
-    pub recommended_strategy: String,
-    /// Time taken for analysis (ms)
-    pub analysis_time_ms: i32,
-    /// Extracted prompt features
-    pub features: PromptFeatures,
-    /// When the analysis was performed
-    pub timestamp: String,
-}
-
-/// Extracted prompt features
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PromptFeatures {
-    /// Detected programming language
-    pub language: Option<String>,
-    /// Detected frameworks/libraries
-    pub frameworks: Vec<String>,
-    /// Number of symbols detected
-    pub symbols: i32,
-    /// Number of tokens in prompt
-    pub tokens: i32,
-    /// Detected prompt verb/action
-    pub verb: String,
-}
-
-/// Prompt orchestration metrics
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PromptOrchestrationMetrics {
-    /// Total requests processed
-    pub total_requests: i64,
-    /// Requests that used base model only
-    pub base_model_only: i64,
-    /// Requests that used adapters
-    pub adapter_used: i64,
-    /// Requests that used mixed mode
-    pub mixed_mode: i64,
-    /// Average analysis time (ms)
-    pub analysis_time_ms: f64,
-    /// Cache hits
-    pub cache_hits: i64,
-    /// Cache misses
-    pub cache_misses: i64,
-    /// Number of analysis errors
-    pub error_count: i64,
-    /// When metrics were last updated
-    pub last_updated: String,
 }
 
 /// Worker inference response (from worker via UDS)
@@ -1244,41 +935,6 @@ pub struct PromotionRecord {
     pub before_cpid: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct PolicyViolationRecord {
-    pub id: String,
-    pub reason: String,
-    pub violation_type: Option<String>,
-    pub created_at: String,
-    pub released: bool,
-    pub cpid: Option<String>,
-    pub metadata: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct Alert {
-    pub id: String,
-    pub rule_id: String,
-    pub worker_id: String,
-    pub tenant_id: String,
-    pub alert_type: String,
-    pub severity: String,
-    pub title: String,
-    pub message: String,
-    pub metric_value: Option<f64>,
-    pub threshold_value: Option<f64>,
-    pub status: String,
-    pub acknowledged_by: Option<String>,
-    pub acknowledged_at: Option<String>,
-    pub resolved_at: Option<String>,
-    pub suppression_reason: Option<String>,
-    pub suppression_until: Option<String>,
-    pub escalation_level: i32,
-    pub notification_sent: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
 // ===== Policy Management Types (Phase 6) =====
 
 /// Sign policy response
@@ -1369,12 +1025,6 @@ pub struct PurgeBundlesResponse {
 }
 
 // ===== Repository Types (Phase 9) =====
-
-/// Repository response used by /v1/repositories
-pub type RepositoryResponse = adapteros_api_types::repositories::RepositorySummary;
-
-/// Back-compat alias
-pub type RepositorySummary = adapteros_api_types::repositories::RepositorySummary;
 
 /// Repository report response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1637,67 +1287,11 @@ pub struct StreamQuery {
     pub tenant: String,
 }
 
-/// Request payload for starting a high-level training session from UI components
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct StartTrainingSessionRequest {
-    pub repository_path: String,
-    pub adapter_name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub training_config: serde_json::Value,
-    #[serde(default)]
-    pub tenant_id: Option<String>,
-}
-
-/// Response shape for UI training session APIs
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TrainingSessionResponse {
-    pub session_id: String,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub progress: Option<f64>,
-    pub adapter_name: String,
-    pub repository_path: String,
-    pub created_at: String,
-    pub updated_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_id: Option<String>,
-}
-
-/// Activity feed event payload
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ActivityEventResponse {
-    pub id: String,
-    pub timestamp: String,
-    pub event_type: String,
-    pub level: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub component: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
-}
-
 /// Discovery stream query parameters
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DiscoveryStreamQuery {
     pub tenant: String,
     pub repo: Option<String>,
-}
-
-/// Training control response for pause/resume endpoints
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TrainingControlResponse {
-    pub session_id: String,
-    pub status: String,
-    pub message: String,
 }
 
 // ============================================================================
@@ -1706,8 +1300,10 @@ pub struct TrainingControlResponse {
 // ============================================================================
 
 /// Convert TrainingConfigRequest to orchestrator TrainingConfig
-pub fn training_config_from_request(req: TrainingConfigRequest) -> TrainingConfig {
-    TrainingConfig {
+pub fn training_config_from_request(
+    req: TrainingConfigRequest,
+) -> adapteros_orchestrator::TrainingConfig {
+    adapteros_orchestrator::TrainingConfig {
         rank: req.rank,
         alpha: req.alpha,
         targets: req.targets,
@@ -1721,7 +1317,7 @@ pub fn training_config_from_request(req: TrainingConfigRequest) -> TrainingConfi
 }
 
 /// Convert orchestrator TrainingJob to TrainingJobResponse
-pub fn training_job_to_response(job: TrainingJob) -> TrainingJobResponse {
+pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> TrainingJobResponse {
     TrainingJobResponse {
         id: job.id,
         adapter_name: job.adapter_name,
@@ -1739,14 +1335,13 @@ pub fn training_job_to_response(job: TrainingJob) -> TrainingJobResponse {
         completed_at: job.completed_at,
         error_message: job.error_message,
         estimated_completion: None, // TODO: Calculate from training progress
-        artifact_path: job.artifact_path,
-        adapter_id: job.adapter_id,
-        weights_hash_b3: job.weights_hash_b3,
     }
 }
 
 /// Convert orchestrator TrainingTemplate to TrainingTemplateResponse
-pub fn training_template_to_response(template: TrainingTemplate) -> TrainingTemplateResponse {
+pub fn training_template_to_response(
+    template: adapteros_orchestrator::TrainingTemplate,
+) -> TrainingTemplateResponse {
     TrainingTemplateResponse {
         id: template.id,
         name: template.name,
@@ -1801,7 +1396,7 @@ pub struct ProcessHealthMetricResponse {
 }
 
 /// Process alert
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ProcessAlertResponse {
     pub id: String,
     pub rule_id: String,
@@ -2041,217 +1636,55 @@ pub struct GitStatusResponse {
     pub untracked_files: Vec<String>,
 }
 
-/// Repository scan status response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanStatusResponse {
-    pub repo_id: String,
-    pub status: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub progress: Option<f32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
+// ===== Audit Logs API Types =====
 
-/// Log file information response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LogFileInfo {
-    pub name: String,
-    pub path: String,
-    pub size_bytes: u64,
-    pub modified_at: String,
-    pub created_at: String,
-}
-
-/// List log files response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ListLogFilesResponse {
-    pub files: Vec<LogFileInfo>,
-    pub total_size_bytes: u64,
-    pub count: usize,
-}
-
-/// Log file content response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct LogFileContentResponse {
-    pub name: String,
-    pub path: String,
-    pub content: String,
-    pub size_bytes: u64,
-    pub truncated: bool,
-    pub max_size_bytes: u64,
-}
-
-/// Query parameters for log file content
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct LogFileQueryParams {
-    pub max_size: Option<usize>,
-    pub tail: Option<bool>,
-    pub lines: Option<usize>,
-}
-
-// ===== Adapter Lifecycle & Memory Management Types =====
-
-/// Update adapter policy request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UpdateAdapterPolicyRequest {
-    /// Optional category to update
-    pub category: Option<String>,
-}
-
-/// Update adapter policy response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UpdateAdapterPolicyResponse {
-    pub adapter_id: String,
-    pub category: Option<String>,
-    pub message: String,
-}
-
-/// Memory usage adapter entry
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct MemoryUsageAdapter {
-    pub id: String,
-    pub name: String,
-    pub memory_usage_mb: f64,
-    pub state: String,
-    pub pinned: bool,
-    pub category: String,
-}
-
-/// Memory usage response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct MemoryUsageResponse {
-    pub adapters: Vec<MemoryUsageAdapter>,
-    pub total_memory_mb: f64,
-    pub available_memory_mb: f64,
-    pub memory_pressure_level: String, // 'low' | 'medium' | 'high' | 'critical'
-}
-
-/// Evict adapter response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EvictAdapterResponse {
-    pub success: bool,
-    pub message: String,
-}
-
-/// Request to update category policy
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CategoryPolicyRequest {
-    pub promotion_threshold_ms: u64,
-    pub demotion_threshold_ms: u64,
-    pub memory_limit: usize,
-    pub eviction_priority: String, // "never" | "low" | "normal" | "high" | "critical"
-    pub auto_promote: bool,
-    pub auto_demote: bool,
-    pub max_in_memory: Option<usize>,
-    pub routing_priority: f32,
-}
-
-pub struct CategoryPolicyResponse {
-    pub promotion_threshold_ms: u64,
-    pub demotion_threshold_ms: u64,
-    pub memory_limit: usize,
-    pub eviction_priority: String, // "never" | "low" | "normal" | "high" | "critical"
-    pub auto_promote: bool,
-    pub auto_demote: bool,
-    pub max_in_memory: Option<usize>,
-    pub routing_priority: f32,
-}
-
-/// Model diagnostics response for troubleshooting model loading issues
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ModelDiagnosticsResponse {
-    /// Whether mlx-ffi-backend feature is enabled
-    pub mlx_ffi_backend_enabled: bool,
-    /// AOS_MLX_FFI_MODEL environment variable status
-    pub aos_mlx_ffi_model_env: Option<String>,
-    /// Whether the AOS_MLX_FFI_MODEL path exists (if set)
-    pub aos_mlx_ffi_model_path_exists: Option<bool>,
-    /// Whether model runtime is available
-    pub model_runtime_available: bool,
-    /// Number of models in database for this tenant
-    pub database_models_count: i64,
-    /// List of model IDs in database for this tenant
-    pub database_model_ids: Vec<String>,
-    /// Summary message
-    pub summary: String,
-}
-
-/// Model runtime health response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ModelRuntimeHealthResponse {
-    /// Aggregate health status ("healthy" | "unhealthy")
-    pub status: String,
-    /// Total number of models registered in the database
-    pub total_models: i32,
-    /// Number of models currently loaded in the runtime
-    pub loaded_count: i32,
-    /// Detected inconsistencies between database and runtime state
-    pub inconsistencies: Vec<ModelInconsistency>,
-    /// Timestamp of when the health check was performed
-    pub checked_at: String,
-}
-
-/// Inconsistency detected between database and runtime model states
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ModelInconsistency {
-    /// Identifier of the affected model
-    pub model_id: String,
-    /// Tenant that owns the model
-    pub tenant_id: String,
-    /// Description of the inconsistency
-    pub issue: String,
-    /// Runtime status observed ("loaded" | "not_loaded")
-    pub runtime_status: String,
-}
-
-/// Status of a managed service
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ServiceStatus {
-    /// Service identifier
-    pub id: String,
-    /// Human-readable service name
-    pub name: String,
-    /// Current state: "stopped" | "starting" | "running" | "stopping" | "failed" | "restarting"
-    pub state: String,
-    /// Process ID if running
-    pub pid: Option<u32>,
-    /// Port number if applicable
-    pub port: Option<u16>,
-    /// Health status: "unknown" | "healthy" | "unhealthy" | "checking"
-    pub health_status: String,
-    /// Number of restart attempts
-    pub restart_count: u32,
-    /// Last error message if any
-    pub last_error: Option<String>,
-}
-
-/// Status reported to menu bar app
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct AdapterOSStatus {
-    /// Schema version for forward/backward compatibility
-    pub schema_version: String,
-    /// System status: "ok" | "degraded" | "error"
-    pub status: String,
-    /// Uptime in seconds since control plane started
-    pub uptime_secs: u64,
-    /// Number of adapters currently loaded
-    pub adapters_loaded: usize,
-    /// Whether deterministic mode is enabled
-    pub deterministic: bool,
-    /// Short kernel hash (first 8 chars)
-    pub kernel_hash: String,
-    /// Telemetry mode: "local" | "disabled"
-    pub telemetry_mode: String,
-    /// Number of active workers
-    pub worker_count: usize,
-    /// Whether base model is loaded
-    pub base_model_loaded: bool,
-    /// Base model identifier (optional)
-    pub base_model_id: Option<String>,
-    /// Services managed by supervisor
-    pub services: Vec<ServiceStatus>,
-    /// Whether system is in production mode
-    pub production_mode: bool,
-    /// Tenant ID for multi-tenant status
+/// Query parameters for audit logs
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AuditLogsQuery {
+    /// Filter by user ID
+    pub user_id: Option<String>,
+    /// Filter by action (e.g., "adapter.register", "training.start")
+    pub action: Option<String>,
+    /// Filter by resource type (e.g., "adapter", "tenant")
+    pub resource_type: Option<String>,
+    /// Filter by resource ID
+    pub resource_id: Option<String>,
+    /// Filter by status ("success" or "failure")
+    pub status: Option<String>,
+    /// Filter by tenant ID
     pub tenant_id: Option<String>,
+    /// Start time (RFC3339 format)
+    pub from_time: Option<String>,
+    /// End time (RFC3339 format)
+    pub to_time: Option<String>,
+    /// Maximum number of results (default: 100, max: 1000)
+    pub limit: Option<usize>,
+    /// Offset for pagination
+    pub offset: Option<usize>,
+}
+
+/// Single audit log record response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AuditLogResponse {
+    pub id: String,
+    pub timestamp: String,
+    pub user_id: String,
+    pub user_role: String,
+    pub tenant_id: String,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub ip_address: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
+/// Audit logs list response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AuditLogsResponse {
+    pub logs: Vec<AuditLogResponse>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
 }

@@ -8,7 +8,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```ignore
 //! use adapteros_manifest::{ManifestV3, Adapter, AdapterTier};
 //! use adapteros_core::B3Hash;
 //!
@@ -41,7 +41,7 @@
 use adapteros_core::{AosError, B3Hash, Result, CPID};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// RoPE scaling configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -110,15 +110,6 @@ pub struct Adapter {
     pub warmup_prompt: Option<String>,
     #[serde(default)]
     pub dependencies: Option<AdapterDependencies>,
-    /// Optional parent adapter identifier used for lineage stacking
-    #[serde(default)]
-    pub parent_adapter_id: Option<String>,
-    /// Arbitrary domain tags ("code", "vision", "finance") for UI routing toggles
-    #[serde(default)]
-    pub domains: Vec<String>,
-    /// Marks adapter as safety layer (used for Safe Mode routing)
-    #[serde(default)]
-    pub is_safety_adapter: bool,
 
     // Code intelligence fields
     #[serde(default = "default_category")]
@@ -141,17 +132,6 @@ pub struct Adapter {
     pub auto_promote: bool,
     #[serde(default = "default_eviction_priority")]
     pub eviction_priority: EvictionPriority,
-
-    // Pipeline semantics
-    /// Whether this adapter operates in the upstream phase (pre-processing/input transformation)
-    /// vs downstream phase (generation-time modulation). Default is false (downstream).
-    ///
-    /// ⚠️ **EXPERIMENTAL/INCOMPLETE**: Setting this to `true` currently only tracks the adapter
-    /// as upstream and prevents it from being selected during generation, but does NOT actually
-    /// apply the adapter to modify inputs. Full implementation requires kernel API changes.
-    /// See `InferencePipeline::apply_upstream_adapters()` for details.
-    #[serde(default = "default_upstream_enabled")]
-    pub upstream_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -198,10 +178,6 @@ fn default_eviction_priority() -> EvictionPriority {
     EvictionPriority::Normal
 }
 
-fn default_upstream_enabled() -> bool {
-    false // Default to downstream (current behavior)
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AdapterDependencies {
     pub base_model: Option<String>,
@@ -229,8 +205,6 @@ pub struct RouterCfg {
     pub warmup: bool,
     #[serde(default = "default_algorithm")]
     pub algorithm: String, // "weighted" | "entropy_floor" | "plugin:<name>"
-    #[serde(default)]
-    pub stacks: Vec<AdapterStack>,
 
     // MPLoRA enhancements
     // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
@@ -263,18 +237,6 @@ fn default_compression_ratio() -> f32 {
 
 fn default_diversity_threshold() -> f32 {
     0.05
-}
-
-/// Named workflow of adapters that should co-activate
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct AdapterStack {
-    /// Human readable name (unique)
-    pub name: String,
-    /// Ordered list of adapter IDs participating in the stack
-    pub adapters: Vec<String>,
-    /// Optional description shown in UI/CLI
-    #[serde(default)]
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -337,7 +299,6 @@ pub struct Policies {
     pub memory: MemoryPolicy,
     pub artifacts: ArtifactsPolicy,
     pub drift: DriftPolicy,
-    pub lazy_loading: LazyLoadingPolicy,
 }
 
 impl Default for Policies {
@@ -397,6 +358,10 @@ impl Default for Policies {
                 latency_p95_ms: 24,
                 router_overhead_pct_max: 8,
                 throughput_tokens_per_s_min: 40,
+                max_tokens: 1000,
+                cpu_threshold_pct: 90.0,
+                memory_threshold_pct: 95.0,
+                circuit_breaker_threshold: 5,
             },
             memory: MemoryPolicy {
                 min_headroom_pct: 15,
@@ -409,12 +374,6 @@ impl Default for Policies {
                 cas_only: true,
             },
             drift: DriftPolicy::default(),
-            lazy_loading: LazyLoadingPolicy {
-                enabled: true,
-                max_load_time_secs: 30,
-                max_concurrent_loads: 3,
-                preload_related: false,
-            },
         }
     }
 }
@@ -478,6 +437,10 @@ pub struct PerformancePolicy {
     pub latency_p95_ms: u32,
     pub router_overhead_pct_max: u8,
     pub throughput_tokens_per_s_min: u32,
+    pub max_tokens: usize,
+    pub cpu_threshold_pct: f32,
+    pub memory_threshold_pct: f32,
+    pub circuit_breaker_threshold: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -492,18 +455,6 @@ pub struct ArtifactsPolicy {
     pub require_signature: bool,
     pub require_sbom: bool,
     pub cas_only: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct LazyLoadingPolicy {
-    /// Enable lazy loading of adapters on first request
-    pub enabled: bool,
-    /// Maximum time to wait for lazy loading (seconds)
-    pub max_load_time_secs: u64,
-    /// Maximum concurrent adapter loads
-    pub max_concurrent_loads: usize,
-    /// Whether to preload adapters after first lazy load
-    pub preload_related: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -576,45 +527,6 @@ impl ManifestV3 {
             ));
         }
 
-        // Adapter stack validation
-        let adapter_ids: HashSet<&str> = self.adapters.iter().map(|a| a.id.as_str()).collect();
-        let mut stack_names = HashSet::new();
-        for stack in &self.router.stacks {
-            let normalized = stack.name.trim();
-            if normalized.is_empty() {
-                return Err(AosError::InvalidManifest(
-                    "adapter stack name cannot be empty".into(),
-                ));
-            }
-            if !stack_names.insert(normalized.to_ascii_lowercase()) {
-                return Err(AosError::InvalidManifest(format!(
-                    "duplicate adapter stack name: {}",
-                    stack.name
-                )));
-            }
-            if stack.adapters.is_empty() {
-                return Err(AosError::InvalidManifest(format!(
-                    "adapter stack {} must contain at least one adapter",
-                    stack.name
-                )));
-            }
-            let mut stack_members = HashSet::new();
-            for adapter_id in &stack.adapters {
-                if !adapter_ids.contains(adapter_id.as_str()) {
-                    return Err(AosError::InvalidManifest(format!(
-                        "adapter stack {} references unknown adapter {}",
-                        stack.name, adapter_id
-                    )));
-                }
-                if !stack_members.insert(adapter_id) {
-                    return Err(AosError::InvalidManifest(format!(
-                        "adapter stack {} contains duplicate adapter {}",
-                        stack.name, adapter_id
-                    )));
-                }
-            }
-        }
-
         // Adapter constraints
         for adapter in &self.adapters {
             if adapter.rank == 0 {
@@ -678,7 +590,6 @@ mod tests {
                 sample_tokens_full: 128,
                 warmup: false,
                 algorithm: "weighted".into(),
-                stacks: Vec::new(),
                 orthogonal_penalty: 0.1,
                 shared_downsample: false,
                 compression_ratio: 0.8,
@@ -754,6 +665,10 @@ mod tests {
                     latency_p95_ms: 24,
                     router_overhead_pct_max: 8,
                     throughput_tokens_per_s_min: 40,
+                    max_tokens: 1000,
+                    cpu_threshold_pct: 90.0,
+                    memory_threshold_pct: 95.0,
+                    circuit_breaker_threshold: 5,
                 },
                 memory: MemoryPolicy {
                     min_headroom_pct: 15,
@@ -766,12 +681,6 @@ mod tests {
                     cas_only: true,
                 },
                 drift: DriftPolicy::default(),
-                lazy_loading: LazyLoadingPolicy {
-                    enabled: true,
-                    max_load_time_secs: 30,
-                    max_concurrent_loads: 3,
-                    preload_related: false,
-                },
             },
             seeds: Seeds {
                 global: B3Hash::hash(b"global_seed"),

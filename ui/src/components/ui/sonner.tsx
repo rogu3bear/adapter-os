@@ -1,6 +1,10 @@
 "use client";
 
+<<<<<<< HEAD
 import { Toaster as Sonner } from 'sonner';
+=======
+import { Toaster as Sonner, ToasterProps } from "sonner@2.0.3";
+>>>>>>> integration-branch
 import { useTheme } from "@/layout/LayoutProvider";
 
 const Toaster = ({ ...props }: ToasterProps) => {

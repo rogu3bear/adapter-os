@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+<<<<<<< HEAD
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
@@ -103,3 +104,270 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Verify deployment
         run: bash scripts/verify-deployment.sh
+=======
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+# Per Determinism Ruleset #2: Reproducible builds with SOURCE_DATE_EPOCH
+env:
+  SOURCE_DATE_EPOCH: '1704067200'
+  RUSTFLAGS: '-Clink-arg=-Wl,-no_uuid -Cdebuginfo=0'
+  CARGO_TERM_COLOR: always
+  # Pin to stable macOS 14.4 SDK to avoid Sequoia beta linker issues
+  SDKROOT: /Applications/Xcode_14.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX14.4.sdk
+
+jobs:
+  # Fast feedback job with caching
+  test:
+    name: Test Suite
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run tests
+        run: cargo test --workspace --all-features
+      
+      - name: Run clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
+
+  # Reproducible build job (no caching)
+  reproducible-build:
+    name: Reproducible Build
+    strategy:
+      matrix:
+        os: [macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Install b3sum for hashing
+        run: cargo install b3sum || true
+      
+      - name: Build Metal shaders
+        run: |
+          cd metal
+          bash build.sh
+          cd ..
+      
+      - name: Build release binary (locked, offline)
+        run: |
+          cargo build --release --locked --offline --bin aosctl || \
+          cargo build --release --locked --bin aosctl
+        env:
+          SOURCE_DATE_EPOCH: '1704067200'
+          RUSTFLAGS: '-Clink-arg=-Wl,-no_uuid -Cdebuginfo=0'
+      
+      - name: Compute binary hash
+        run: |
+          b3sum target/release/aosctl > aosctl-hash-${{ matrix.os }}.txt
+          cat aosctl-hash-${{ matrix.os }}.txt
+      
+      - name: Upload binary hash
+        uses: actions/upload-artifact@v4
+        with:
+          name: aosctl-hash-${{ matrix.os }}
+          path: aosctl-hash-${{ matrix.os }}.txt
+      
+      - name: Compute Metal library hash
+        run: |
+          b3sum metal/adapteros_kernels.metallib > metallib-hash-${{ matrix.os }}.txt
+          cat metallib-hash-${{ matrix.os }}.txt
+      
+      - name: Upload Metal hash
+        uses: actions/upload-artifact@v4
+        with:
+          name: metallib-hash-${{ matrix.os }}
+          path: metallib-hash-${{ matrix.os }}.txt
+
+  # Determinism verification job
+  verify-determinism:
+    name: Verify Determinism
+    needs: reproducible-build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all hash artifacts
+        uses: actions/download-artifact@v4
+      
+      - name: Compare hashes across platforms
+        run: |
+          echo "=== Binary Hashes ==="
+          cat aosctl-hash-macos-13/aosctl-hash-macos-13.txt
+          cat aosctl-hash-macos-14/aosctl-hash-macos-14.txt
+          
+          echo ""
+          echo "=== Metal Library Hashes ==="
+          cat metallib-hash-macos-13/metallib-hash-macos-13.txt
+          cat metallib-hash-macos-14/metallib-hash-macos-14.txt
+          
+          echo ""
+          echo "=== Comparing Hashes ==="
+          
+          # Extract just the hashes (first field)
+          HASH_13=$(cat aosctl-hash-macos-13/aosctl-hash-macos-13.txt | awk '{print $1}')
+          HASH_14=$(cat aosctl-hash-macos-14/aosctl-hash-macos-14.txt | awk '{print $1}')
+          
+          if [ "$HASH_13" != "$HASH_14" ]; then
+            echo "❌ DETERMINISM BROKEN: Binary hashes differ between macOS 13 and macOS 14"
+            echo "  macOS-13: $HASH_13"
+            echo "  macOS-14: $HASH_14"
+            exit 1
+          else
+            echo "✅ Binary hashes match: $HASH_13"
+          fi
+          
+          # Compare Metal hashes
+          METAL_13=$(cat metallib-hash-macos-13/metallib-hash-macos-13.txt | awk '{print $1}')
+          METAL_14=$(cat metallib-hash-macos-14/metallib-hash-macos-14.txt | awk '{print $1}')
+          
+          if [ "$METAL_13" != "$METAL_14" ]; then
+            echo "❌ DETERMINISM BROKEN: Metal library hashes differ"
+            echo "  macOS-13: $METAL_13"
+            echo "  macOS-14: $METAL_14"
+            exit 1
+          else
+            echo "✅ Metal library hashes match: $METAL_13"
+          fi
+          
+          echo ""
+          echo "✅ All determinism checks passed!"
+
+  # ABI monitoring
+  abi-monitoring:
+    name: ABI Monitoring
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Build MLX FFI crate
+        run: cargo build --package adapteros-lora-mlx-ffi --release
+      
+      - name: Generate ABI map
+        run: |
+          # Generate ABI map for MLX FFI
+          nm -gU target/release/libadapteros_lora_mlx_ffi.dylib > abi-map-current.txt || true
+          
+          # Store ABI map for comparison
+          echo "ABI map generated for MLX FFI"
+          cat abi-map-current.txt | head -20
+      
+      - name: Check ABI stability
+        run: |
+          # Compare with previous ABI map if available
+          if [ -f "abi-map-previous.txt" ]; then
+            if ! diff abi-map-previous.txt abi-map-current.txt; then
+              echo "❌ ABI BREAKING CHANGE DETECTED"
+              echo "MLX FFI ABI has changed - this may break compatibility"
+              exit 1
+            else
+              echo "✅ ABI stable - no breaking changes"
+            fi
+          else
+            echo "ℹ️ No previous ABI map found - storing current as baseline"
+            cp abi-map-current.txt abi-map-previous.txt
+          fi
+
+  # CoreML backend testing
+  coreml-testing:
+    name: CoreML Backend Testing
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Build CoreML backend
+        run: cargo build --package adapteros-lora-kernel-coreml --release
+      
+      - name: Test CoreML backend creation
+        run: |
+          # Test CoreML backend creation
+          cargo test --package adapteros-lora-kernel-coreml --release -- --nocapture
+      
+      - name: Verify CoreML framework availability
+        run: |
+          # Check if CoreML framework is available
+          if ! otool -L target/release/libadapteros_lora_kernel_coreml.dylib | grep -q CoreML; then
+            echo "❌ CoreML framework not linked"
+            exit 1
+          else
+            echo "✅ CoreML framework properly linked"
+          fi
+
+  # Golden run verification
+  golden-run-verification:
+    name: Golden Run Verification
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Build project
+        run: cargo build --release --locked
+      
+      - name: Run golden run test
+        run: cargo test --test determinism_golden --release -- --nocapture
+      
+      - name: Verify golden hashes
+        run: |
+          if [ -f golden_runs/baselines/determinism_report.json ]; then
+            echo "Comparing against golden baseline..."
+            # Verification logic here
+          else
+            echo "No golden baseline found, skipping verification"
+          fi
+
+
+>>>>>>> integration-branch

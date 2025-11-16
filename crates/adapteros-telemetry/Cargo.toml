@@ -8,7 +8,6 @@ license.workspace = true
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
-adapteros-telemetry-types = { path = "../adapteros-telemetry-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
@@ -25,18 +24,6 @@ tower-http = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 blake3 = { workspace = true }
-sysinfo = { workspace = true }
-async-trait = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
-tracing-subscriber = { workspace = true }
-parking_lot = "0.12"
-
-[features]
-default = []
-
-[[bin]]
-name = "adapteros-metrics-collector"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-

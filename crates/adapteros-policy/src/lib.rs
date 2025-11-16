@@ -1,16 +1,13 @@
 //! Policy enforcement for AdapterOS
 
-pub mod evidence_tracker;
 pub mod policy_pack;
 pub mod policy_packs;
 pub mod registry;
 pub mod unified_enforcement;
 pub mod validation;
 
-use crate::unified_enforcement as unified;
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
-use tracing::warn;
 
 pub mod abstention;
 pub mod access_control;
@@ -30,7 +27,6 @@ pub mod packs;
 // Policy hash watcher and quarantine (Determinism Ruleset #2)
 pub mod hash_watcher;
 pub mod quarantine;
-pub mod supervisor;
 
 // Re-export registry types
 pub use registry::{
@@ -42,10 +38,6 @@ pub use abstention::should_abstain;
 pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, RoleDefinition};
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
-};
-pub use evidence_tracker::{
-    create_evidence_record_from_params, EvidenceRecord, EvidenceRecordBuilder,
-    EvidenceRecordParams, EvidenceTracker, KernelToleranceCheck, ModelProvenance,
 };
 pub use hash_watcher::{HashViolation, PolicyHashWatcher, ValidationResult};
 pub use mplora::{MploraConfig, MploraPolicy};
@@ -60,77 +52,33 @@ pub use policy_packs::{
     DeterminismValidator, EgressValidator, EnforcementLevel, EvidenceValidator, FullPackValidator,
     IncidentValidator, IsolationValidator, LlmOutputValidator, MemoryValidator,
     NumericUnitsValidator, PerformanceValidator, PolicyPackConfig, PolicyPackId, PolicyPackManager,
-    PolicyPackValidator, PolicyViolation, PolicyWarning, RagIndexValidator, RefusalValidator,
-    RetentionValidator, RouterValidator, SecretsValidator, TelemetryValidator, ViolationSeverity,
+    PolicyPackValidator, RagIndexValidator, RefusalValidator, RetentionValidator, RouterValidator,
+    SecretsValidator, TelemetryValidator,
+};
+pub use packs::{
+    AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, NamingViolationType,
+    StackNameValidation,
 };
 pub use quarantine::{QuarantineManager, QuarantineOperation};
 pub use refusal::{RefusalReason, RefusalResponse};
 pub use security_monitoring::{SecurityMonitoringService, SecurityReport};
 pub use security_response::{ResponseAction, ResponsePlan, ResponsePolicy, SecurityResponseEngine};
-pub use supervisor::{PolicySupervisor, PolicySupervisorConfig};
 pub use threat_detection::{ThreatAssessment, ThreatDetectionEngine, ThreatSeverity, ThreatSignal};
 pub use unified_enforcement::{
     EnforcementAction, Operation, OperationType, PolicyComplianceReport, PolicyEnforcementResult,
-    PolicyEnforcer, PolicyRequest, PolicyValidationResult, RequestType, UnifiedPolicyEnforcer,
+    PolicyEnforcer, PolicyRequest, PolicyValidationResult, PolicyViolation, RequestType,
+    UnifiedPolicyEnforcer, ViolationSeverity,
 };
 
 /// Policy engine for enforcing all 20 policy packs
-/// Centralized with semver'd policy packs
 pub struct PolicyEngine {
     policies: Policies,
-    pack_manager: PolicyPackManager,
 }
 
 impl PolicyEngine {
     /// Create a new policy engine from manifest
-    ///
-    /// Configures the policy pack manager with settings from the manifest policies,
-    /// ensuring manifest configuration is properly applied to all policy packs.
     pub fn new(policies: Policies) -> Self {
-        let mut pack_manager = PolicyPackManager::new();
-
-        // Configure packs from manifest policies
-        if let Err(e) = pack_manager.configure_from_manifest(&policies) {
-            warn!(
-                error = %e,
-                "Failed to configure some policy packs from manifest, using defaults"
-            );
-        }
-
-        Self {
-            policies,
-            pack_manager,
-        }
-    }
-
-    /// Create a new policy engine with custom pack manager
-    pub fn with_pack_manager(policies: Policies, pack_manager: PolicyPackManager) -> Self {
-        Self {
-            policies,
-            pack_manager,
-        }
-    }
-
-    /// Get policy pack manager
-    pub fn pack_manager(&self) -> &PolicyPackManager {
-        &self.pack_manager
-    }
-
-    /// Get policy pack version for a given pack ID
-    pub fn get_pack_version(&self, pack_id: &PolicyPackId) -> Option<String> {
-        self.pack_manager
-            .get_config(pack_id)
-            .map(|config| config.version.clone())
-    }
-
-    /// Update policy pack version
-    pub fn update_pack_version(&mut self, pack_id: PolicyPackId, _version: String) -> Result<()> {
-        // Note: This requires mutable access to pack_manager, which would need a mutex
-        // For now, return an error indicating this needs to be done via pack_manager directly
-        Err(AosError::PolicyViolation(format!(
-            "Policy pack version update must be done via PolicyPackManager::update_pack_config: {:?}",
-            pack_id
-        )))
+        Self { policies }
     }
 
     /// Check if evidence is sufficient
@@ -159,11 +107,10 @@ impl PolicyEngine {
     /// Check if request should be allowed based on resource limits
     pub fn check_resource_limits(&self, max_tokens: usize) -> Result<()> {
         // Check against policy limits
-        if max_tokens > 1000 {
-            // Would be configurable in real implementation
+        if max_tokens > self.policies.performance.max_tokens {
             return Err(AosError::PolicyViolation(format!(
-                "Request exceeds max tokens limit: {} > 1000",
-                max_tokens
+                "Request exceeds max tokens limit: {} > {}",
+                max_tokens, self.policies.performance.max_tokens
             )));
         }
 
@@ -183,17 +130,17 @@ impl PolicyEngine {
 
     /// Check system resource thresholds
     pub fn check_system_thresholds(&self, cpu_usage: f32, memory_usage: f32) -> Result<()> {
-        if cpu_usage > 90.0 {
+        if cpu_usage > self.policies.performance.cpu_threshold_pct {
             return Err(AosError::PerformanceViolation(format!(
-                "CPU usage {}% exceeds threshold 90%",
-                cpu_usage
+                "CPU usage {:.1}% exceeds threshold {:.1}%",
+                cpu_usage, self.policies.performance.cpu_threshold_pct
             )));
         }
 
-        if memory_usage > 95.0 {
+        if memory_usage > self.policies.performance.memory_threshold_pct {
             return Err(AosError::MemoryPressure(format!(
-                "Memory usage {}% exceeds threshold 95%",
-                memory_usage
+                "Memory usage {:.1}% exceeds threshold {:.1}%",
+                memory_usage, self.policies.performance.memory_threshold_pct
             )));
         }
 
@@ -202,16 +149,17 @@ impl PolicyEngine {
 
     /// Check memory headroom policy (Memory Ruleset #12)
     pub fn check_memory_headroom(&self, headroom_pct: f32) -> Result<()> {
-        if headroom_pct < 15.0 {
+        let min_headroom = self.policies.memory.min_headroom_pct as f32;
+        if headroom_pct < min_headroom {
             return Err(AosError::MemoryPressure(format!(
-                "Insufficient memory headroom: {:.1}% < 15% (Memory Ruleset #12)",
-                headroom_pct
+                "Insufficient memory headroom: {:.1}% < {:.1}% (Memory Ruleset #12)",
+                headroom_pct, min_headroom
             )));
         }
         Ok(())
     }
     pub fn should_open_circuit_breaker(&self, failure_count: usize) -> bool {
-        failure_count >= 5 // Would be configurable in real implementation
+        failure_count >= self.policies.performance.circuit_breaker_threshold
     }
 
     /// Check if memory pressure exceeds limits
@@ -266,47 +214,6 @@ impl PolicyEngine {
         &self.policies.determinism
     }
 
-    /// Validate backend attestation for determinism
-    pub fn validate_backend_determinism(
-        &self,
-        report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
-    ) -> Result<()> {
-        use crate::packs::{DeterminismConfig, DeterminismPolicy};
-
-        // Create determinism policy from manifest config
-        let config = DeterminismConfig {
-            require_metallib_embed: self.policies.determinism.require_metallib_embed,
-            require_kernel_hash_match: self.policies.determinism.require_kernel_hash_match,
-            rng: match self.policies.determinism.rng.as_str() {
-                "hkdf_seeded" => crate::packs::determinism::RngSeedingMethod::HkdfSeeded,
-                "fixed_seed" => crate::packs::determinism::RngSeedingMethod::FixedSeed(42),
-                _ => crate::packs::determinism::RngSeedingMethod::HkdfSeeded,
-            },
-            min_router_entropy: 0.1, // Default minimum entropy threshold
-            retrieval_tie_break: self
-                .policies
-                .determinism
-                .retrieval_tie_break
-                .iter()
-                .map(|s| match s.as_str() {
-                    "score_desc" => crate::packs::determinism::TieBreakRule::ScoreDesc,
-                    "doc_id_asc" => crate::packs::determinism::TieBreakRule::DocIdAsc,
-                    _ => crate::packs::determinism::TieBreakRule::ScoreDesc,
-                })
-                .collect(),
-            epsilon_bounds: crate::packs::determinism::EpsilonBounds {
-                logits_epsilon: 0.001,
-                embeddings_epsilon: 0.001,
-                attention_epsilon: 0.001,
-                gates_epsilon: 0.001,
-            },
-            toolchain_requirements: Default::default(),
-        };
-
-        let policy = DeterminismPolicy::new(config);
-        policy.validate_backend_attestation(report)
-    }
-
     /// Get memory policy
     pub fn memory_policy(&self) -> &MemoryPolicy {
         &self.policies.memory
@@ -315,37 +222,5 @@ impl PolicyEngine {
     /// Get performance policy
     pub fn performance_policy(&self) -> &PerformancePolicy {
         &self.policies.performance
-    }
-}
-
-#[allow(async_fn_in_trait)]
-impl unified::PolicyEnforcer for PolicyEngine {
-    async fn validate_request(
-        &self,
-        request: &unified::PolicyRequest,
-    ) -> Result<unified::PolicyValidationResult> {
-        unified::PolicyEnforcer::validate_request(&self.pack_manager, request).await
-    }
-
-    async fn is_operation_allowed(&self, operation: &unified::Operation) -> Result<bool> {
-        unified::PolicyEnforcer::is_operation_allowed(&self.pack_manager, operation).await
-    }
-
-    async fn get_violations(
-        &self,
-        operation: &unified::Operation,
-    ) -> Result<Vec<unified::PolicyViolation>> {
-        unified::PolicyEnforcer::get_violations(&self.pack_manager, operation).await
-    }
-
-    async fn enforce_policy(
-        &self,
-        operation: &unified::Operation,
-    ) -> Result<unified::PolicyEnforcementResult> {
-        unified::PolicyEnforcer::enforce_policy(&self.pack_manager, operation).await
-    }
-
-    async fn get_compliance_report(&self) -> Result<unified::PolicyComplianceReport> {
-        unified::PolicyEnforcer::get_compliance_report(&self.pack_manager).await
     }
 }

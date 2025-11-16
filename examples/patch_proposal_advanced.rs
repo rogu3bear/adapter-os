@@ -3,13 +3,17 @@
 //! This example demonstrates advanced usage of the patch proposal system
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
+<<<<<<< HEAD
 #[cfg(feature = "extended-tests")]
+=======
+>>>>>>> integration-branch
 use adapteros_lora_worker::{
     evidence::{EvidencePolicy, EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics},
     patch_validator::{CodePolicy, PatchValidator, ValidationResult},
 };
+<<<<<<< HEAD
 #[cfg(feature = "extended-tests")]
 use adapteros_manifest::Policies;
 #[cfg(feature = "extended-tests")]
@@ -17,6 +21,11 @@ use adapteros_policy::PolicyEngine;
 #[cfg(feature = "extended-tests")]
 use adapteros_telemetry::TelemetryWriter;
 #[cfg(feature = "extended-tests")]
+=======
+use adapteros_manifest::Policies;
+use adapteros_policy::PolicyEngine;
+use adapteros_telemetry::TelemetryWriter;
+>>>>>>> integration-branch
 use std::collections::HashMap;
 #[cfg(feature = "extended-tests")]
 use std::time::Instant;
@@ -360,8 +369,13 @@ async fn validate_patch_advanced(
 fn create_advanced_policies() -> Policies {
     use adapteros_core::B3Hash;
     use adapteros_manifest::{
+<<<<<<< HEAD
         ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy,
         IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
+=======
+        ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
+        MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
+>>>>>>> integration-branch
     };
 
     Policies {

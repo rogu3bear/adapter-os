@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Table};
 use std::path::PathBuf;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Profiling snapshot structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -63,7 +63,6 @@ async fn connect_and_fetch_profiling_snapshot(
 }
 
 /// Fallback mock snapshot data for backwards compatibility
-#[allow(dead_code)]
 fn get_mock_profiling_snapshot() -> ProfilingSnapshot {
     ProfilingSnapshot {
         window_size: 1000,
@@ -207,7 +206,7 @@ async fn show_snapshot() -> Result<()> {
     println!("📊 Profiling Snapshot\n");
 
     // Try to connect to worker via UDS
-    let socket_path = std::path::PathBuf::from("/var/run/aos/default/aos.sock");
+    let socket_path = std::path::PathBuf::from("./var/run/aos/default/worker.sock");
 
     if !socket_path.exists() {
         println!("⚠️  Worker socket not found at: {}", socket_path.display());
@@ -400,7 +399,7 @@ async fn export_metrics(path: PathBuf) -> Result<()> {
     use std::fs;
 
     // Try to connect to worker via UDS
-    let socket_path = std::path::PathBuf::from("/var/run/aos/default/aos.sock");
+    let socket_path = std::path::PathBuf::from("./var/run/aos/default/worker.sock");
 
     let metrics = if !socket_path.exists() {
         println!("⚠️  Worker socket not found at: {}", socket_path.display());

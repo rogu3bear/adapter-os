@@ -8,16 +8,15 @@ repository.workspace = true
 description = "System resource monitoring and metrics collection for AdapterOS"
 
 [features]
-default = []
 mlx = []
 
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core" }
-adapteros-policy = { path = "../adapteros-policy", default-features = false }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-policy = { path = "../adapteros-policy" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-db = { path = "../adapteros-db" }
-adapteros-telemetry = { path = "../adapteros-telemetry" }
 
 # Workspace dependencies
 sysinfo.workspace = true
@@ -28,6 +27,8 @@ tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
 
 # Metal integration
 metal.workspace = true
@@ -39,4 +40,4 @@ async-trait.workspace = true
 reqwest.workspace = true
 uuid.workspace = true
 rand = "0.8"
-
+rand_chacha = "0.3"

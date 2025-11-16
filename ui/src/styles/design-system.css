@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 :root {
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -56,6 +57,57 @@
   --surface-1: 0 0% 98%;
   --surface-2: 0 0% 95%;
   --surface-3: 0 0% 92%;
+=======
+/* AdapterOS Design System - Mathematical Visual System */
+
+/*
+  The entire visual system scales from a single atomic value: --base-unit.
+  Every spacing, size, and typographic token references this foundation to
+  guarantee deterministic relationships across the interface.
+*/
+:root {
+  /* ===== CORE SCALE ===== */
+  --base-unit: 4px; /* Root unit — all other values derive from this */
+  --scale-ratio: 1.25; /* Major third typographic ratio */
+
+  /* ===== SPACING SCALE (8px rhythm derived from base) ===== */
+  --space-0: 0px;
+  --space-1: calc(var(--base-unit) * 1); /* 4px */
+  --space-2: calc(var(--base-unit) * 2); /* 8px */
+  --space-3: calc(var(--base-unit) * 3); /* 12px */
+  --space-4: calc(var(--base-unit) * 4); /* 16px */
+  --space-5: calc(var(--base-unit) * 5); /* 20px */
+  --space-6: calc(var(--base-unit) * 6); /* 24px */
+  --space-8: calc(var(--base-unit) * 8); /* 32px */
+  --space-10: calc(var(--base-unit) * 10); /* 40px */
+  --space-12: calc(var(--base-unit) * 12); /* 48px */
+  --space-16: calc(var(--base-unit) * 16); /* 64px */
+
+  /* Legacy spacing aliases mapped to mathematical scale */
+  --spacing-xs: var(--space-1);
+  --spacing-sm: var(--space-2);
+  --spacing-md: var(--space-4);
+  --spacing-lg: var(--space-6);
+  --spacing-xl: var(--space-8);
+  --spacing-2xl: var(--space-12);
+
+  /* Component spacing tokens */
+  --card-padding: var(--space-4); /* 4 × base */
+  --section-gap: var(--space-10);
+  --form-field-gap: var(--space-4);
+  --button-gap: var(--space-2);
+  --table-cell-padding: var(--space-4);
+  --modal-padding: var(--space-6);
+
+  /* ===== LAYOUT SYSTEM ===== */
+  --grid-unit: var(--space-2); /* 8px rhythm */
+  --layout-container-padding-inline: var(--space-2); /* 2 × base per side */
+  --layout-content-width-sm: 30rem; /* 480px */
+  --layout-content-width-md: 48rem; /* 768px */
+  --layout-content-width-lg: 64rem; /* 1024px */
+  --layout-content-width-xl: 90rem; /* 1440px */
+  --layout-fluid-max: clamp(22.5rem, 90vw, 90rem);
+>>>>>>> integration-branch
 
   /* Breakpoint tokens */
   --bp-sm: 30rem; /* 480px */
@@ -115,6 +167,7 @@
   --radius-input: var(--radius-2);
   --radius-surface: var(--radius-4);
 
+<<<<<<< HEAD
   /* ===== ANIMATION & TRANSITION TOKENS ===== */
   --transition-fast: 0.1s;
   --transition-base: 0.15s;
@@ -162,6 +215,49 @@
   --surface-1: var(--gray-0);
   --surface-2: #fafafa;
   --surface-3: #f5f5f5;
+=======
+  /* ===== SHADOWS ===== */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 12px 24px rgba(15, 23, 42, 0.16);
+
+  /* ===== COLOR SYSTEM ===== */
+  --gray-0: #ffffff;
+  --gray-100: #f7f8fb;
+  --gray-200: #e7e9f0;
+  --gray-300: #d2d6e0;
+  --gray-400: #a8afbd;
+  --gray-500: #788198;
+  --gray-600: #525a70;
+  --gray-700: #353c4f;
+  --gray-800: #1f2535;
+  --gray-900: #111827;
+
+  --accent-300: #a5b4fc;
+  --accent-400: #818cf8;
+  --accent-500: #6366f1;
+  --accent-600: #4f46e5;
+
+  --success: #10b981;
+  --success-surface: #ecfdf5;
+  --success-border: #a7f3d0;
+
+  --warning: #f59e0b;
+  --warning-surface: #fffbeb;
+  --warning-border: #fcd34d;
+
+  --error: #ef4444;
+  --error-surface: #fef2f2;
+  --error-border: #fecaca;
+
+  --info: #3b82f6;
+  --info-surface: #eff6ff;
+  --info-border: #bfdbfe;
+
+  --surface-1: var(--gray-0);
+  --surface-2: #f3f4f9;
+  --surface-3: #e8eaf3;
+>>>>>>> integration-branch
 
   /* Semantic aliases for legacy usage */
   --status-success: var(--success);
@@ -194,6 +290,7 @@
   --navbar-padding-x: var(--space-4);
 }
 
+<<<<<<< HEAD
 /* Dark mode overrides */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -274,6 +371,8 @@
   }
 }
 
+=======
+>>>>>>> integration-branch
 /* ===== COMPONENT IMPLEMENTATIONS ===== */
 
 /* Badge variants - consistent colors */
@@ -340,6 +439,7 @@
   padding: var(--button-padding-y) var(--button-padding-x);
 }
 
+<<<<<<< HEAD
 /* Status indicators with semantic color variants */
 .status-indicator {
   display: inline-flex;
@@ -381,4 +481,36 @@
   background-color: var(--surface-2);
   color: var(--gray-600);
   border: 1px solid var(--gray-300);
+=======
+/* Card standards */
+.card-standard {
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  background-color: var(--card, var(--surface-1));
+  box-shadow: var(--card-shadow);
+}
+
+/* Form standards */
+.form-field {
+  margin-bottom: var(--form-field-gap);
+}
+
+.form-label {
+  font-weight: var(--font-weight-medium);
+  font-size: var(--text-sm);
+  margin-bottom: var(--spacing-xs);
+  line-height: var(--line-height-body);
+}
+
+/* Table standards */
+.table-standard {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table-cell-standard {
+  padding: var(--table-cell-padding);
+  border-bottom: 1px solid var(--border);
+>>>>>>> integration-branch
 }

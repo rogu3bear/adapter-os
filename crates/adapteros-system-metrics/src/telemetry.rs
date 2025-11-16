@@ -7,8 +7,6 @@
 use crate::SystemMetrics;
 use adapteros_core::Result;
 use adapteros_telemetry::TelemetryWriter;
-// Telemetry functionality is now handled by the adapteros-telemetry crate
-use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -56,30 +54,11 @@ impl SystemMetricsTelemetry {
 
     /// Log system metrics event if sampling criteria met
     pub fn log_metrics(&mut self, metrics: &SystemMetrics) -> Result<()> {
-        // Always log critical system metrics for monitoring
-        let event = SystemMetricsEvent::from_metrics(metrics);
-        self.telemetry_writer.log("system.metrics", event)?;
-        self.last_sample_time = SystemTime::now();
-
-        // Log alerts for critical thresholds
-        if metrics.cpu_usage > 90.0 {
-            self.log_threshold_violation(&ThresholdViolationEvent::new(
-                "cpu_usage".to_string(),
-                metrics.cpu_usage as f32,
-                90.0,
-                "critical".to_string(),
-            ))?;
+        if self.should_sample() {
+            let event = SystemMetricsEvent::from_metrics(metrics);
+            self.telemetry_writer.log("system.metrics", event)?;
+            self.last_sample_time = SystemTime::now();
         }
-
-        if metrics.memory_usage > 85.0 {
-            self.log_threshold_violation(&ThresholdViolationEvent::new(
-                "memory_usage".to_string(),
-                metrics.memory_usage as f32,
-                85.0,
-                "warning".to_string(),
-            ))?;
-        }
-
         Ok(())
     }
 
@@ -244,153 +223,33 @@ pub struct AlertTriggeredEvent {
     pub timestamp: u64,
 }
 
-/// Builder for alert triggered events
-#[derive(Debug, Default)]
-pub struct AlertTriggeredEventBuilder {
-    alert_id: Option<String>,
-    rule_id: Option<String>,
-    rule_name: Option<String>,
-    worker_id: Option<String>,
-    tenant_id: Option<String>,
-    metric_name: Option<String>,
-    metric_value: Option<f64>,
-    threshold_value: Option<f64>,
-    severity: Option<String>,
-}
-
-/// Parameters for alert triggered events
-#[derive(Debug)]
-pub struct AlertTriggeredEventParams {
-    pub alert_id: String,
-    pub rule_id: String,
-    pub rule_name: String,
-    pub worker_id: String,
-    pub tenant_id: String,
-    pub metric_name: String,
-    pub metric_value: f64,
-    pub threshold_value: f64,
-    pub severity: String,
-}
-
-impl AlertTriggeredEventBuilder {
-    /// Create a new alert triggered event builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the alert ID (required)
-    pub fn alert_id(mut self, alert_id: impl Into<String>) -> Self {
-        self.alert_id = Some(alert_id.into());
-        self
-    }
-
-    /// Set the rule ID (required)
-    pub fn rule_id(mut self, rule_id: impl Into<String>) -> Self {
-        self.rule_id = Some(rule_id.into());
-        self
-    }
-
-    /// Set the rule name (required)
-    pub fn rule_name(mut self, rule_name: impl Into<String>) -> Self {
-        self.rule_name = Some(rule_name.into());
-        self
-    }
-
-    /// Set the worker ID (required)
-    pub fn worker_id(mut self, worker_id: impl Into<String>) -> Self {
-        self.worker_id = Some(worker_id.into());
-        self
-    }
-
-    /// Set the tenant ID (required)
-    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
-        self.tenant_id = Some(tenant_id.into());
-        self
-    }
-
-    /// Set the metric name (required)
-    pub fn metric_name(mut self, metric_name: impl Into<String>) -> Self {
-        self.metric_name = Some(metric_name.into());
-        self
-    }
-
-    /// Set the metric value (required)
-    pub fn metric_value(mut self, metric_value: f64) -> Self {
-        self.metric_value = Some(metric_value);
-        self
-    }
-
-    /// Set the threshold value (required)
-    pub fn threshold_value(mut self, threshold_value: f64) -> Self {
-        self.threshold_value = Some(threshold_value);
-        self
-    }
-
-    /// Set severity level (required)
-    pub fn severity(mut self, severity: impl Into<String>) -> Self {
-        self.severity = Some(severity.into());
-        self
-    }
-
-    /// Build the alert triggered event parameters
-    pub fn build(self) -> Result<AlertTriggeredEventParams> {
-        Ok(AlertTriggeredEventParams {
-            alert_id: self
-                .alert_id
-                .ok_or_else(|| anyhow!("alert_id is required"))?,
-            rule_id: self.rule_id.ok_or_else(|| anyhow!("rule_id is required"))?,
-            rule_name: self
-                .rule_name
-                .ok_or_else(|| anyhow!("rule_name is required"))?,
-            worker_id: self
-                .worker_id
-                .ok_or_else(|| anyhow!("worker_id is required"))?,
-            tenant_id: self
-                .tenant_id
-                .ok_or_else(|| anyhow!("tenant_id is required"))?,
-            metric_name: self
-                .metric_name
-                .ok_or_else(|| anyhow!("metric_name is required"))?,
-            metric_value: self
-                .metric_value
-                .ok_or_else(|| anyhow!("metric_value is required"))?,
-            threshold_value: self
-                .threshold_value
-                .ok_or_else(|| anyhow!("threshold_value is required"))?,
-            severity: self
-                .severity
-                .ok_or_else(|| anyhow!("severity is required"))?,
-        })
-    }
-
-    /// Build the alert triggered event directly
-    pub fn build_event(self) -> Result<AlertTriggeredEvent> {
-        self.build().map(AlertTriggeredEvent::new)
-    }
-}
-
 impl AlertTriggeredEvent {
-    /// Create a builder for constructing alert triggered events
-    pub fn builder() -> AlertTriggeredEventBuilder {
-        AlertTriggeredEventBuilder::new()
-    }
-
-    pub fn new(params: AlertTriggeredEventParams) -> Self {
+    pub fn new(
+        alert_id: String,
+        rule_id: String,
+        rule_name: String,
+        worker_id: String,
+        tenant_id: String,
+        metric_name: String,
+        metric_value: f64,
+        threshold_value: f64,
+        severity: String,
+    ) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("System time before UNIX epoch")
             .as_secs();
 
         Self {
-            alert_id: params.alert_id,
-            rule_id: params.rule_id,
-            rule_name: params.rule_name,
-            worker_id: params.worker_id,
-            tenant_id: params.tenant_id,
-            metric_name: params.metric_name,
-            metric_value: params.metric_value,
-            threshold_value: params.threshold_value,
-            severity: params.severity,
+            alert_id,
+            rule_id,
+            rule_name,
+            worker_id,
+            tenant_id,
+            metric_name,
+            metric_value,
+            threshold_value,
+            severity,
             timestamp,
         }
     }
@@ -434,114 +293,6 @@ impl AlertEscalatedEvent {
             escalation_reason,
             timestamp,
         }
-    }
-}
-
-/// Builder for creating anomaly detected events
-#[derive(Debug, Default)]
-pub struct AnomalyDetectedEventBuilder {
-    anomaly_id: Option<String>,
-    worker_id: Option<String>,
-    tenant_id: Option<String>,
-    metric_name: Option<String>,
-    detected_value: Option<f64>,
-    confidence_score: Option<f64>,
-    severity: Option<String>,
-    detection_method: Option<String>,
-    baseline_mean: Option<f64>,
-    baseline_std_dev: Option<f64>,
-}
-
-impl AnomalyDetectedEventBuilder {
-    /// Create a new anomaly detected event builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the anomaly ID (required)
-    pub fn anomaly_id(mut self, anomaly_id: impl Into<String>) -> Self {
-        self.anomaly_id = Some(anomaly_id.into());
-        self
-    }
-
-    /// Set the worker ID (required)
-    pub fn worker_id(mut self, worker_id: impl Into<String>) -> Self {
-        self.worker_id = Some(worker_id.into());
-        self
-    }
-
-    /// Set the tenant ID (required)
-    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
-        self.tenant_id = Some(tenant_id.into());
-        self
-    }
-
-    /// Set the metric name (required)
-    pub fn metric_name(mut self, metric_name: impl Into<String>) -> Self {
-        self.metric_name = Some(metric_name.into());
-        self
-    }
-
-    /// Set the detected value (required)
-    pub fn detected_value(mut self, detected_value: f64) -> Self {
-        self.detected_value = Some(detected_value);
-        self
-    }
-
-    /// Set the confidence score (required)
-    pub fn confidence_score(mut self, confidence_score: f64) -> Self {
-        self.confidence_score = Some(confidence_score);
-        self
-    }
-
-    /// Set the severity (required)
-    pub fn severity(mut self, severity: impl Into<String>) -> Self {
-        self.severity = Some(severity.into());
-        self
-    }
-
-    /// Set the detection method (required)
-    pub fn detection_method(mut self, detection_method: impl Into<String>) -> Self {
-        self.detection_method = Some(detection_method.into());
-        self
-    }
-
-    /// Set the baseline mean (required)
-    pub fn baseline_mean(mut self, baseline_mean: f64) -> Self {
-        self.baseline_mean = Some(baseline_mean);
-        self
-    }
-
-    /// Set the baseline standard deviation (required)
-    pub fn baseline_std_dev(mut self, baseline_std_dev: f64) -> Self {
-        self.baseline_std_dev = Some(baseline_std_dev);
-        self
-    }
-
-    /// Build the anomaly detected event
-    pub fn build(self) -> Result<AnomalyDetectedEvent> {
-        Ok(AnomalyDetectedEvent::new(
-            self.anomaly_id
-                .ok_or_else(|| anyhow::anyhow!("anomaly_id is required"))?,
-            self.worker_id
-                .ok_or_else(|| anyhow::anyhow!("worker_id is required"))?,
-            self.tenant_id
-                .ok_or_else(|| anyhow::anyhow!("tenant_id is required"))?,
-            self.metric_name
-                .ok_or_else(|| anyhow::anyhow!("metric_name is required"))?,
-            self.detected_value
-                .ok_or_else(|| anyhow::anyhow!("detected_value is required"))?,
-            self.confidence_score
-                .ok_or_else(|| anyhow::anyhow!("confidence_score is required"))?,
-            self.severity
-                .ok_or_else(|| anyhow::anyhow!("severity is required"))?,
-            self.detection_method
-                .ok_or_else(|| anyhow::anyhow!("detection_method is required"))?,
-            self.baseline_mean
-                .ok_or_else(|| anyhow::anyhow!("baseline_mean is required"))?,
-            self.baseline_std_dev
-                .ok_or_else(|| anyhow::anyhow!("baseline_std_dev is required"))?,
-        ))
     }
 }
 
@@ -609,32 +360,6 @@ pub struct BaselineCalculatedEvent {
     pub timestamp: u64,
 }
 
-/// Builder for baseline calculated events
-#[derive(Debug, Default)]
-pub struct BaselineCalculatedEventBuilder {
-    worker_id: Option<String>,
-    tenant_id: Option<String>,
-    metric_name: Option<String>,
-    baseline_value: Option<f64>,
-    baseline_type: Option<String>,
-    calculation_period_days: Option<i64>,
-    sample_count: Option<usize>,
-    statistical_measures: Option<StatisticalMeasuresTelemetry>,
-}
-
-/// Parameters for baseline calculated events
-#[derive(Debug)]
-pub struct BaselineCalculatedEventParams {
-    pub worker_id: String,
-    pub tenant_id: String,
-    pub metric_name: String,
-    pub baseline_value: f64,
-    pub baseline_type: String,
-    pub calculation_period_days: i64,
-    pub sample_count: usize,
-    pub statistical_measures: StatisticalMeasuresTelemetry,
-}
-
 /// Statistical measures for telemetry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatisticalMeasuresTelemetry {
@@ -649,118 +374,32 @@ pub struct StatisticalMeasuresTelemetry {
 }
 
 impl BaselineCalculatedEvent {
-    /// Create a builder for constructing baseline calculated events
-    pub fn builder() -> BaselineCalculatedEventBuilder {
-        BaselineCalculatedEventBuilder::new()
-    }
-
-    pub fn new(params: BaselineCalculatedEventParams) -> Self {
+    pub fn new(
+        worker_id: String,
+        tenant_id: String,
+        metric_name: String,
+        baseline_value: f64,
+        baseline_type: String,
+        calculation_period_days: i64,
+        sample_count: usize,
+        statistical_measures: StatisticalMeasuresTelemetry,
+    ) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("System time before UNIX epoch")
             .as_secs();
 
         Self {
-            worker_id: params.worker_id,
-            tenant_id: params.tenant_id,
-            metric_name: params.metric_name,
-            baseline_value: params.baseline_value,
-            baseline_type: params.baseline_type,
-            calculation_period_days: params.calculation_period_days,
-            sample_count: params.sample_count,
-            statistical_measures: params.statistical_measures,
+            worker_id,
+            tenant_id,
+            metric_name,
+            baseline_value,
+            baseline_type,
+            calculation_period_days,
+            sample_count,
+            statistical_measures,
             timestamp,
         }
-    }
-}
-
-impl BaselineCalculatedEventBuilder {
-    /// Create a new baseline calculated event builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the worker ID (required)
-    pub fn worker_id(mut self, worker_id: impl Into<String>) -> Self {
-        self.worker_id = Some(worker_id.into());
-        self
-    }
-
-    /// Set the tenant ID (required)
-    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
-        self.tenant_id = Some(tenant_id.into());
-        self
-    }
-
-    /// Set the metric name (required)
-    pub fn metric_name(mut self, metric_name: impl Into<String>) -> Self {
-        self.metric_name = Some(metric_name.into());
-        self
-    }
-
-    /// Set the baseline value (required)
-    pub fn baseline_value(mut self, baseline_value: f64) -> Self {
-        self.baseline_value = Some(baseline_value);
-        self
-    }
-
-    /// Set the baseline type (required)
-    pub fn baseline_type(mut self, baseline_type: impl Into<String>) -> Self {
-        self.baseline_type = Some(baseline_type.into());
-        self
-    }
-
-    /// Set the calculation period in days (required)
-    pub fn calculation_period_days(mut self, days: i64) -> Self {
-        self.calculation_period_days = Some(days);
-        self
-    }
-
-    /// Set the sample count (required)
-    pub fn sample_count(mut self, count: usize) -> Self {
-        self.sample_count = Some(count);
-        self
-    }
-
-    /// Set the statistical measures (required)
-    pub fn statistical_measures(mut self, measures: StatisticalMeasuresTelemetry) -> Self {
-        self.statistical_measures = Some(measures);
-        self
-    }
-
-    /// Build the baseline calculated event parameters
-    pub fn build(self) -> Result<BaselineCalculatedEventParams> {
-        Ok(BaselineCalculatedEventParams {
-            worker_id: self
-                .worker_id
-                .ok_or_else(|| anyhow!("worker_id is required"))?,
-            tenant_id: self
-                .tenant_id
-                .ok_or_else(|| anyhow!("tenant_id is required"))?,
-            metric_name: self
-                .metric_name
-                .ok_or_else(|| anyhow!("metric_name is required"))?,
-            baseline_value: self
-                .baseline_value
-                .ok_or_else(|| anyhow!("baseline_value is required"))?,
-            baseline_type: self
-                .baseline_type
-                .ok_or_else(|| anyhow!("baseline_type is required"))?,
-            calculation_period_days: self
-                .calculation_period_days
-                .ok_or_else(|| anyhow!("calculation_period_days is required"))?,
-            sample_count: self
-                .sample_count
-                .ok_or_else(|| anyhow!("sample_count is required"))?,
-            statistical_measures: self
-                .statistical_measures
-                .ok_or_else(|| anyhow!("statistical_measures is required"))?,
-        })
-    }
-
-    /// Build the baseline calculated event directly
-    pub fn build_event(self) -> Result<BaselineCalculatedEvent> {
-        self.build().map(BaselineCalculatedEvent::new)
     }
 }
 
@@ -871,18 +510,17 @@ mod tests {
 
     #[test]
     fn test_alert_triggered_event() {
-        let alert = AlertTriggeredEvent::builder()
-            .alert_id("alert-123")
-            .rule_id("rule-456")
-            .rule_name("High CPU Usage")
-            .worker_id("worker-789")
-            .tenant_id("tenant-001")
-            .metric_name("cpu_usage")
-            .metric_value(95.0)
-            .threshold_value(90.0)
-            .severity("critical")
-            .build_event()
-            .expect("alert builder succeeds");
+        let alert = AlertTriggeredEvent::new(
+            "alert-123".to_string(),
+            "rule-456".to_string(),
+            "High CPU Usage".to_string(),
+            "worker-789".to_string(),
+            "tenant-001".to_string(),
+            "cpu_usage".to_string(),
+            95.0,
+            90.0,
+            "critical".to_string(),
+        );
 
         assert_eq!(alert.alert_id, "alert-123");
         assert_eq!(alert.rule_id, "rule-456");
@@ -937,17 +575,16 @@ mod tests {
             percentile_99: 75.0,
         };
 
-        let baseline = BaselineCalculatedEvent::builder()
-            .worker_id("worker-789")
-            .tenant_id("tenant-001")
-            .metric_name("cpu_usage")
-            .baseline_value(50.0)
-            .baseline_type("statistical")
-            .calculation_period_days(7)
-            .sample_count(1000)
-            .statistical_measures(statistical_measures)
-            .build_event()
-            .expect("baseline builder succeeds");
+        let baseline = BaselineCalculatedEvent::new(
+            "worker-789".to_string(),
+            "tenant-001".to_string(),
+            "cpu_usage".to_string(),
+            50.0,
+            "statistical".to_string(),
+            7,
+            1000,
+            statistical_measures,
+        );
 
         assert_eq!(baseline.worker_id, "worker-789");
         assert_eq!(baseline.tenant_id, "tenant-001");

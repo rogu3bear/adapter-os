@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
 //! Federation Daemon Integration Tests
@@ -11,6 +12,15 @@
 use adapteros_core::Result;
 use adapteros_crypto::Keypair;
 use adapteros_db::{Database, Db};
+=======
+//! Federation Daemon Integration Tests
+//!
+//! Tests the federation daemon's continuous verification and quarantine functionality.
+
+use adapteros_core::Result;
+use adapteros_crypto::Keypair;
+use adapteros_db::Db;
+>>>>>>> integration-branch
 use adapteros_federation::FederationManager;
 use adapteros_orchestrator::{FederationDaemon, FederationDaemonConfig};
 use adapteros_policy::{PolicyHashWatcher, QuarantineOperation};
@@ -26,6 +36,7 @@ async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
     let db_path = temp_dir.path().join("test.db");
     let db_url = format!("sqlite://{}", db_path.display());
 
+<<<<<<< HEAD
     // Use Database wrapper for consistency
     let db = Database::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
@@ -35,12 +46,22 @@ async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
     let db_inner = db.inner().clone();
     let keypair = Keypair::generate();
     let federation = FederationManager::new(db_inner, keypair).unwrap();
+=======
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+
+    let keypair = Keypair::generate();
+    let federation = FederationManager::new(db.clone(), keypair).unwrap();
+>>>>>>> integration-branch
 
     let telemetry_dir = temp_dir.path().join("telemetry");
     std::fs::create_dir_all(&telemetry_dir).unwrap();
     let telemetry = TelemetryWriter::new(&telemetry_dir, 1000, 1024 * 1024).unwrap();
 
+<<<<<<< HEAD
     // PolicyHashWatcher expects Arc<Database>
+=======
+>>>>>>> integration-branch
     let policy_watcher = PolicyHashWatcher::new(
         Arc::new(db.clone()),
         Arc::new(telemetry.clone()),
@@ -53,7 +74,10 @@ async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
         enable_quarantine: true,
     };
 
+<<<<<<< HEAD
     // FederationDaemon now expects Arc<Database>
+=======
+>>>>>>> integration-branch
     let daemon = FederationDaemon::new(
         Arc::new(federation),
         Arc::new(policy_watcher),

@@ -3,7 +3,7 @@
 use adapteros_core::B3Hash;
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_numerics::noise::{EpsilonStats, Tensor};
-use adapteros_trace::{Event, EventMetadata, LogicalTimestamp};
+use adapteros_trace::{Event, EventMetadata};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -174,7 +174,7 @@ impl TextAdapter {
     /// 4. Merge with base weights: W' = W + delta
     /// 5. Generate visualization data for the merge process
     fn apply_lora_merge(&self, tensor: &Tensor) -> Tensor {
-        let _state = self.state.read();
+        let state = self.state.read();
 
         // Simulate LoRA matrices A and B
         // In production, these would be loaded from adapter files
@@ -461,13 +461,6 @@ impl DomainAdapter for TextAdapter {
             custom: HashMap::new(),
         };
 
-        let logical_timestamp = LogicalTimestamp::new(
-            tick_id,                                            // global_tick
-            0,                                                  // op_tick
-            None,                                               // token_position
-            B3Hash::hash(format!("text_{}", op_id).as_bytes()), // derivation_hash
-        );
-
         Event::new(
             tick_id,
             op_id,
@@ -475,7 +468,6 @@ impl DomainAdapter for TextAdapter {
             inputs.clone(),
             outputs.clone(),
             metadata,
-            logical_timestamp,
         )
     }
 }

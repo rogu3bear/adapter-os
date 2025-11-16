@@ -9,11 +9,7 @@ pub mod uds;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-use adapteros_api_types::telemetry::TelemetryBundleResponse;
 use anyhow::Result;
-// First export API types
-pub use adapteros_api_types::*;
-// Then export client-specific types (these will override API types where they conflict)
 pub use types::*;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -33,266 +29,98 @@ pub use uds::{ConnectionPool, Signal, UdsClient, UdsClientError};
 /// - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 pub trait AdapterOSClient {
     // Health & Auth
-    fn health(&self) -> impl std::future::Future<Output = Result<HealthResponse>> + Send;
-    fn login(
-        &self,
-        req: LoginRequest,
-    ) -> impl std::future::Future<Output = Result<LoginResponse>> + Send;
-    fn logout(&self) -> impl std::future::Future<Output = Result<()>> + Send;
-    fn me(&self) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send;
-
-    // Extended Auth Methods
-    fn refresh_token(
-        &self,
-        token: &str,
-    ) -> impl std::future::Future<Output = Result<String>> + Send;
-    fn list_sessions(
-        &self,
-        token: &str,
-    ) -> impl std::future::Future<Output = Result<Vec<adapteros_api_types::auth::SessionInfo>>> + Send;
-    fn revoke_session(
-        &self,
-        token: &str,
-        session_id: &str,
-    ) -> impl std::future::Future<Output = Result<String>> + Send;
-    fn logout_all(&self, token: &str) -> impl std::future::Future<Output = Result<String>> + Send;
-    fn rotate_token(
-        &self,
-        token: &str,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::RotateTokenResponse>> + Send;
-    fn get_token_metadata(
-        &self,
-        token: &str,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::TokenMetadata>> + Send;
-    fn update_profile(
-        &self,
-        token: &str,
-        req: adapteros_api_types::auth::UpdateProfileRequest,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::ProfileResponse>> + Send;
-    fn get_auth_config(
-        &self,
-        token: &str,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send;
-    fn update_auth_config(
-        &self,
-        token: &str,
-        req: adapteros_api_types::auth::UpdateAuthConfigRequest,
-    ) -> impl std::future::Future<Output = Result<adapteros_api_types::auth::AuthConfigResponse>> + Send;
-    fn get_user_info(
-        &self,
-        token: &str,
-    ) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send;
+    async fn health(&self) -> Result<HealthResponse>;
+    async fn login(&self, req: LoginRequest) -> Result<LoginResponse>;
+    async fn logout(&self) -> Result<()>;
+    async fn me(&self) -> Result<UserInfoResponse>;
 
     // Tenants
-    fn list_tenants(&self)
-        -> impl std::future::Future<Output = Result<Vec<TenantResponse>>> + Send;
-    fn create_tenant(
-        &self,
-        req: CreateTenantRequest,
-    ) -> impl std::future::Future<Output = Result<TenantResponse>> + Send;
+    async fn list_tenants(&self) -> Result<Vec<TenantResponse>>;
+    async fn create_tenant(&self, req: CreateTenantRequest) -> Result<TenantResponse>;
 
     // Adapters
-    fn list_adapters(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<AdapterResponse>>> + Send;
-    fn register_adapter(
-        &self,
-        req: RegisterAdapterRequest,
-    ) -> impl std::future::Future<Output = Result<AdapterResponse>> + Send;
-    fn evict_adapter(
-        &self,
-        adapter_id: &str,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
-    fn pin_adapter(
-        &self,
-        adapter_id: &str,
-        pinned: bool,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    async fn list_adapters(&self) -> Result<Vec<AdapterResponse>>;
+    async fn register_adapter(&self, req: RegisterAdapterRequest) -> Result<AdapterResponse>;
+    async fn evict_adapter(&self, adapter_id: &str) -> Result<()>;
+    async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()>;
 
     // Memory Management
-    fn get_memory_usage(
-        &self,
-    ) -> impl std::future::Future<Output = Result<MemoryUsageResponse>> + Send;
+    async fn get_memory_usage(&self) -> Result<MemoryUsageResponse>;
 
     // Training
-    fn start_adapter_training(
+    async fn start_adapter_training(
         &self,
         req: StartTrainingRequest,
-    ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send;
-    fn get_training_session(
-        &self,
-        session_id: &str,
-    ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send;
-    fn list_training_sessions(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<TrainingSessionResponse>>> + Send;
+    ) -> Result<TrainingSessionResponse>;
+    async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse>;
+    async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>>;
 
     // Telemetry
-    fn get_telemetry_events(
-        &self,
-        filters: TelemetryFilters,
-    ) -> impl std::future::Future<Output = Result<Vec<TelemetryEvent>>> + Send;
+    async fn get_telemetry_events(&self, filters: TelemetryFilters) -> Result<Vec<TelemetryEvent>>;
 
     // Nodes
-    fn list_nodes(&self) -> impl std::future::Future<Output = Result<Vec<NodeResponse>>> + Send;
-    fn register_node(
-        &self,
-        req: RegisterNodeRequest,
-    ) -> impl std::future::Future<Output = Result<NodeResponse>> + Send;
+    async fn list_nodes(&self) -> Result<Vec<NodeResponse>>;
+    async fn register_node(&self, req: RegisterNodeRequest) -> Result<NodeResponse>;
 
     // Plans
-    fn list_plans(
-        &self,
-        tenant_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<PlanResponse>>> + Send;
-    fn build_plan(
-        &self,
-        req: BuildPlanRequest,
-    ) -> impl std::future::Future<Output = Result<JobResponse>> + Send;
+    async fn list_plans(&self, tenant_id: Option<String>) -> Result<Vec<PlanResponse>>;
+    async fn build_plan(&self, req: BuildPlanRequest) -> Result<JobResponse>;
 
     // Workers
-    fn list_workers(
-        &self,
-        tenant_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<WorkerResponse>>> + Send;
-    fn spawn_worker(
-        &self,
-        req: SpawnWorkerRequest,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    async fn list_workers(&self, tenant_id: Option<String>) -> Result<Vec<WorkerResponse>>;
+    async fn spawn_worker(&self, req: SpawnWorkerRequest) -> Result<()>;
 
     // CP Operations
-    fn promote_cp(
-        &self,
-        req: PromoteCPRequest,
-    ) -> impl std::future::Future<Output = Result<PromotionResponse>> + Send;
-    fn promotion_gates(
-        &self,
-        cpid: String,
-    ) -> impl std::future::Future<Output = Result<PromotionGatesResponse>> + Send;
-    fn rollback_cp(
-        &self,
-        req: RollbackCPRequest,
-    ) -> impl std::future::Future<Output = Result<RollbackResponse>> + Send;
+    async fn promote_cp(&self, req: PromoteCPRequest) -> Result<PromotionResponse>;
+    async fn promotion_gates(&self, cpid: String) -> Result<PromotionGatesResponse>;
+    async fn rollback_cp(&self, req: RollbackCPRequest) -> Result<RollbackResponse>;
 
     // Jobs
-    fn list_jobs(
-        &self,
-        tenant_id: Option<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<JobResponse>>> + Send;
+    async fn list_jobs(&self, tenant_id: Option<String>) -> Result<Vec<JobResponse>>;
 
     // Models
-    fn import_model(
-        &self,
-        req: ImportModelRequest,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    async fn import_model(&self, req: ImportModelRequest) -> Result<()>;
 
     // Policies
-    fn list_policies(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<PolicyPackResponse>>> + Send;
-    fn get_policy(
-        &self,
-        cpid: String,
-    ) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send;
-    fn validate_policy(
-        &self,
-        req: ValidatePolicyRequest,
-    ) -> impl std::future::Future<Output = Result<PolicyValidationResponse>> + Send;
-    fn apply_policy(
-        &self,
-        req: ApplyPolicyRequest,
-    ) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send;
+    async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>>;
+    async fn get_policy(&self, cpid: String) -> Result<PolicyPackResponse>;
+    async fn validate_policy(&self, req: ValidatePolicyRequest)
+        -> Result<PolicyValidationResponse>;
+    async fn apply_policy(&self, req: ApplyPolicyRequest) -> Result<PolicyPackResponse>;
 
     // Telemetry Bundles
-    fn list_telemetry_bundles(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<TelemetryBundleResponse>>> + Send;
+    async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>>;
 
     // Code Intelligence
-    fn register_repo(
-        &self,
-        req: RegisterRepoRequest,
-    ) -> impl std::future::Future<Output = Result<RepoResponse>> + Send;
-    fn scan_repo(
-        &self,
-        req: ScanRepoRequest,
-    ) -> impl std::future::Future<Output = Result<JobResponse>> + Send;
-    fn list_repos(&self) -> impl std::future::Future<Output = Result<Vec<RepoResponse>>> + Send;
-    fn list_adapters_by_tenant(
-        &self,
-        tenant_id: String,
-    ) -> impl std::future::Future<Output = Result<ListAdaptersResponse>> + Send;
-    fn get_adapter_activations(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<ActivationData>>> + Send;
-    fn create_commit_delta(
-        &self,
-        req: CommitDeltaRequest,
-    ) -> impl std::future::Future<Output = Result<CommitDeltaResponse>> + Send;
-    fn get_commit_details(
+    async fn register_repo(&self, req: RegisterRepoRequest) -> Result<RepoResponse>;
+    async fn scan_repo(&self, req: ScanRepoRequest) -> Result<JobResponse>;
+    async fn list_repos(&self) -> Result<Vec<RepoResponse>>;
+    async fn list_adapters_by_tenant(&self, tenant_id: String) -> Result<ListAdaptersResponse>;
+    async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>>;
+    async fn create_commit_delta(&self, req: CommitDeltaRequest) -> Result<CommitDeltaResponse>;
+    async fn get_commit_details(
         &self,
         repo_id: String,
         commit: String,
-    ) -> impl std::future::Future<Output = Result<CommitDetailsResponse>> + Send;
+    ) -> Result<CommitDetailsResponse>;
 
     // Routing Inspector
-    fn extract_router_features(
+    async fn extract_router_features(
         &self,
         req: RouterFeaturesRequest,
-    ) -> impl std::future::Future<Output = Result<RouterFeaturesResponse>> + Send;
-    fn score_adapters(
-        &self,
-        req: ScoreAdaptersRequest,
-    ) -> impl std::future::Future<Output = Result<ScoreAdaptersResponse>> + Send;
+    ) -> Result<RouterFeaturesResponse>;
+    async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse>;
 
     // Patch Lab
-    fn propose_patch(
-        &self,
-        req: ProposePatchRequest,
-    ) -> impl std::future::Future<Output = Result<ProposePatchResponse>> + Send;
-    fn validate_patch(
-        &self,
-        req: ValidatePatchRequest,
-    ) -> impl std::future::Future<Output = Result<ValidatePatchResponse>> + Send;
-    fn apply_patch(
-        &self,
-        req: ApplyPatchRequest,
-    ) -> impl std::future::Future<Output = Result<ApplyPatchResponse>> + Send;
+    async fn propose_patch(&self, req: ProposePatchRequest) -> Result<ProposePatchResponse>;
+    async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse>;
+    async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse>;
 
     // Code Policy
-    fn get_code_policy(
-        &self,
-    ) -> impl std::future::Future<Output = Result<GetCodePolicyResponse>> + Send;
-    fn update_code_policy(
-        &self,
-        req: UpdateCodePolicyRequest,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    async fn get_code_policy(&self) -> Result<GetCodePolicyResponse>;
+    async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()>;
 
     // Metrics Dashboard
-    fn get_code_metrics(
-        &self,
-        req: CodeMetricsRequest,
-    ) -> impl std::future::Future<Output = Result<CodeMetricsResponse>> + Send;
-    fn compare_metrics(
-        &self,
-        req: CompareMetricsRequest,
-    ) -> impl std::future::Future<Output = Result<CompareMetricsResponse>> + Send;
-
-    // Inference
-    fn infer(
-        &self,
-        req: InferRequest,
-    ) -> impl std::future::Future<Output = Result<InferResponse>> + Send;
-
-    // System Metrics
-    fn get_system_metrics(
-        &self,
-    ) -> impl std::future::Future<Output = Result<SystemMetricsResponse>> + Send;
-
-    // Journeys
-    fn get_journey(
-        &self,
-        journey_type: String,
-        id: String,
-    ) -> impl std::future::Future<Output = Result<serde_json::Value>> + Send;
+    async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse>;
+    async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse>;
 }

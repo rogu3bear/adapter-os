@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use adapteros_benchmarks::*;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
@@ -199,7 +202,11 @@ fn bench_adapter_routing(c: &mut Criterion) {
                     let mut adapter_contributions = Vec::with_capacity(num_adapters);
 
                     for i in 0..num_adapters {
+<<<<<<< HEAD
                         let gate = (32767 / num_adapters * (i + 1)) as f32 / 32767.0; // Q15 to float
+=======
+                        let gate = (32767 / num_adapters * (i + 1)) as f32 / 32768.0; // Q15 to float
+>>>>>>> integration-branch
                         total_gate_weight += gate;
                         adapter_contributions.push(gate);
                     }
@@ -344,4 +351,8 @@ criterion_group!(
              bench_adapter_routing, bench_evidence_processing, bench_end_to_end_latency
 );
 
+<<<<<<< HEAD
 criterion_main!(throughput_benches);
+=======
+criterion_main!(throughput_benches);
+>>>>>>> integration-branch

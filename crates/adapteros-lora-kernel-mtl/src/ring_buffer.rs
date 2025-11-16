@@ -11,23 +11,12 @@ use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
 
-/// Raw ring buffer state for GPU parameter blocks
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RawRingBuffer {
-    pub top_k: u32,
-    pub current_pos: u32,
-    pub adapter_indices: [u32; 8],
-    pub gates: [u16; 8],
-    pub reserved: [u32; 2],
-}
-
 /// Active adapter with quantized gate
 #[derive(Debug, Clone)]
 pub struct ActiveAdapter {
     /// Adapter ID
     pub id: u32,
-    /// Gate value in Q15 format (0-32767)
+    /// Gate value in Q15 format (0-32768)
     pub gate: u16,
 }
 
@@ -45,8 +34,6 @@ pub struct RingBuffer {
     buffer: Option<Buffer>,
     /// Device reference
     _device: Arc<Device>,
-    /// Raw GPU state snapshot
-    raw_state: RawRingBuffer,
 }
 
 impl RingBuffer {
@@ -58,7 +45,9 @@ impl RingBuffer {
             ));
         }
 
-        let buffer_size = std::mem::size_of::<RawRingBuffer>();
+        let buffer_size = std::mem::size_of::<u32>() * 8
+            + std::mem::size_of::<u16>() * 8
+            + std::mem::size_of::<u32>() * 2;
         let buffer = device.new_buffer(buffer_size as u64, MTLResourceOptions::StorageModeShared);
 
         Ok(Self {
@@ -68,10 +57,6 @@ impl RingBuffer {
             gates: vec![0; 8],
             buffer: Some(buffer),
             _device: device,
-            raw_state: RawRingBuffer {
-                top_k: top_k as u32,
-                ..RawRingBuffer::default()
-            },
         })
     }
 
@@ -86,24 +71,17 @@ impl RingBuffer {
         // Clear existing data
         self.adapter_indices.fill(0);
         self.gates.fill(0);
-        self.raw_state.adapter_indices.fill(0);
-        self.raw_state.gates.fill(0);
 
         // Set active adapters
         for (i, adapter) in adapters.iter().enumerate() {
             self.adapter_indices[i] = adapter.id;
             self.gates[i] = adapter.gate;
-            self.raw_state.adapter_indices[i] = adapter.id;
-            self.raw_state.gates[i] = adapter.gate;
         }
-
-        let next_pos = (self.current_pos + 1) % self.top_k;
-        self.current_pos = next_pos;
-        self.raw_state.current_pos = next_pos as u32;
-        self.raw_state.top_k = self.top_k as u32;
 
         // Update Metal buffer
         self.update_metal_buffer()?;
+
+        self.current_pos = (self.current_pos + 1) % self.top_k;
         Ok(())
     }
 
@@ -121,30 +99,32 @@ impl RingBuffer {
 
         let mut offset = 0;
 
-        // Write adapter indices
-        for &idx in &self.raw_state.adapter_indices {
+        // IMPORTANT: This layout must match the Metal struct RingBuffer in common.metal:
+        // struct RingBuffer {
+        //     uint top_k;
+        //     uint current_pos;
+        //     uint adapter_indices[8];
+        //     uint16_t gates[8];
+        // };
+
+        // Write top_k (4 bytes)
+        slice[offset..offset + 4].copy_from_slice(&(self.top_k as u32).to_le_bytes());
+        offset += 4;
+
+        // Write current_pos (4 bytes)
+        slice[offset..offset + 4].copy_from_slice(&(self.current_pos as u32).to_le_bytes());
+        offset += 4;
+
+        // Write adapter indices (8 * 4 bytes = 32 bytes)
+        for &idx in &self.adapter_indices {
             slice[offset..offset + 4].copy_from_slice(&idx.to_le_bytes());
             offset += 4;
         }
 
-        // Write gates
-        for &gate in &self.raw_state.gates {
+        // Write gates (8 * 2 bytes = 16 bytes)
+        for &gate in &self.gates {
             slice[offset..offset + 2].copy_from_slice(&gate.to_le_bytes());
             offset += 2;
-        }
-
-        // Write top_k
-        slice[offset..offset + 4].copy_from_slice(&self.raw_state.top_k.to_le_bytes());
-        offset += 4;
-
-        // Write current_pos
-        slice[offset..offset + 4].copy_from_slice(&self.raw_state.current_pos.to_le_bytes());
-        offset += 4;
-
-        // Write reserved padding
-        for value in &self.raw_state.reserved {
-            slice[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-            offset += 4;
         }
 
         Ok(())
@@ -171,27 +151,14 @@ impl RingBuffer {
         adapters
     }
 
-    /// Maximum adapter slots supported by this ring buffer
-    pub fn capacity(&self) -> usize {
-        self.top_k
-    }
-
-    /// Snapshot of raw GPU state for parameter structs
-    pub fn raw_state(&self) -> RawRingBuffer {
-        let mut raw = self.raw_state;
-        raw.current_pos = self.current_pos as u32;
-        raw.top_k = self.top_k as u32;
-        raw
-    }
-
     /// Convert float gate to Q15 format
     pub fn float_to_q15(gate: f32) -> u16 {
-        (gate.clamp(0.0, 1.0) * 32767.0) as u16
+        (gate.clamp(0.0, 1.0) * 32768.0) as u16
     }
 
     /// Convert Q15 gate to float
     pub fn q15_to_float(gate: u16) -> f32 {
-        gate as f32 / 32767.0
+        gate as f32 / 32768.0
     }
 }
 
@@ -214,8 +181,8 @@ mod tests {
             RingBuffer::new(Arc::new(device), 3).expect("Ring buffer creation should succeed");
 
         let adapters = vec![
-            ActiveAdapter { id: 1, gate: 16384 }, // ~0.5 in Q15
-            ActiveAdapter { id: 2, gate: 32767 }, // 1.0 in Q15 (max)
+            ActiveAdapter { id: 1, gate: 16384 }, // 0.5 in Q15
+            ActiveAdapter { id: 2, gate: 32768 }, // 1.0 in Q15
         ];
 
         ring_buffer
@@ -230,11 +197,11 @@ mod tests {
     #[test]
     fn test_q15_conversion() {
         assert_eq!(RingBuffer::float_to_q15(0.0), 0);
-        assert_eq!(RingBuffer::float_to_q15(0.5), 16383); // rounding to nearest
-        assert_eq!(RingBuffer::float_to_q15(1.0), 32767);
+        assert_eq!(RingBuffer::float_to_q15(0.5), 16384);
+        assert_eq!(RingBuffer::float_to_q15(1.0), 32768);
 
         assert_eq!(RingBuffer::q15_to_float(0), 0.0);
-        assert!((RingBuffer::q15_to_float(16383) - 0.5).abs() < 1e-3);
-        assert!((RingBuffer::q15_to_float(32767) - 1.0).abs() < 1e-6);
+        assert_eq!(RingBuffer::q15_to_float(16384), 0.5);
+        assert_eq!(RingBuffer::q15_to_float(32768), 1.0);
     }
 }

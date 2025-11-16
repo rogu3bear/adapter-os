@@ -25,6 +25,8 @@ tracing.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 zeroize = { version = "1.7", features = ["derive"] }
+tokenizers.workspace = true
+memmap2.workspace = true
 
 [build-dependencies]
 bindgen = "0.69"

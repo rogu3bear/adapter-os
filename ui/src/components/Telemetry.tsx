@@ -16,10 +16,17 @@ import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import apiClient from '../api/client';
 import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '../api/types';
+<<<<<<< HEAD
 import { useTimestamp } from '../hooks/useTimestamp';
 import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
 import { HelpTooltip } from './ui/help-tooltip';
+=======
+import { useSSE } from '../hooks/useSSE';
+import { useTimestamp } from '../hooks/useTimestamp';
+import { canonicalKey } from './ui/utils';
+import { HashChainView } from './HashChainView';
+>>>>>>> integration-branch
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
@@ -31,9 +38,12 @@ import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { DensityControls } from './ui/density-controls';
 import { useDensity } from '../contexts/DensityContext';
 
+import { useAuth, useTenant } from '@/layout/LayoutProvider';
+
 interface TelemetryProps {
   user?: User;
   selectedTenant?: string;
+<<<<<<< HEAD
   onToolbarChange?: (actions: React.ReactNode) => void;
 }
 
@@ -84,6 +94,13 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolba
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
   const { density, setDensity } = useDensity();
+=======
+}
+
+export function Telemetry({ user: userProp, selectedTenant: tenantProp }: TelemetryProps) {
+  const { user } = useAuth();
+  const { selectedTenant } = useTenant();
+>>>>>>> integration-branch
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
@@ -664,6 +681,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolba
                 />
               )}
               
+<<<<<<< HEAD
               <Accordion type="multiple" defaultValue={['basic']} className="w-full">
                 <AccordionItem value="basic">
                   <AccordionTrigger>
@@ -701,6 +719,24 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolba
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+=======
+              <div className="form-field">
+                <p className="form-label">Bundle ID</p>
+                <p className="text-sm text-muted-foreground font-mono">{verifyResult.bundle_id}</p>
+              </div>
+              <div className="form-field">
+                <p className="form-label">Signature</p>
+                <p className="text-xs text-muted-foreground font-mono break-all">{verifyResult.signature}</p>
+              </div>
+              <div className="form-field">
+                <p className="form-label">Signed By</p>
+                <p className="text-sm text-muted-foreground">{verifyResult.signed_by}</p>
+              </div>
+              <div className="form-field">
+                <p className="form-label">Signed At</p>
+                <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
+              </div>
+>>>>>>> integration-branch
               {verifyResult.verification_error && (
                 <div className="mb-4">
                   <p className="font-medium text-sm mb-1 text-red-600">Error</p>

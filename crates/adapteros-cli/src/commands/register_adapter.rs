@@ -2,7 +2,7 @@
 
 use crate::output::OutputWriter;
 use adapteros_core::B3Hash;
-use adapteros_db::{AdapterRegistrationBuilder, Db};
+use adapteros_db::Db;
 use anyhow::Result;
 use serde::Serialize;
 use std::fs;
@@ -77,31 +77,20 @@ pub async fn run(id: &str, hash: &str, tier: &str, rank: u32, output: &OutputWri
 
     // Load and validate adapter metadata
     let adapter_size = fs::metadata(&adapter_path)?.len();
-    output.progress(format!("Adapter file size: {} bytes", adapter_size));
+    output.progress(&format!("Adapter file size: {} bytes", adapter_size));
 
     // Store metadata in the registry database
-    let adapter_name = adapter_path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| id.to_string());
-    let rank_i32: i32 = rank
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("rank {} exceeds i32 range", rank))?;
-    let tier_i32 = tier
-        .parse::<i32>()
-        .map_err(|e| anyhow::anyhow!("invalid tier {}: {}", tier, e))?;
-
-    let params = AdapterRegistrationBuilder::new()
-        .adapter_id(id)
-        .name(adapter_name)
-        .hash_b3(adapter_hash.to_string())
-        .rank(rank_i32)
-        .tier(tier_i32)
-        .build()?;
-
-    db.register_adapter(params)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to store adapter in database: {}", e))?;
+    db.register_adapter(
+        id,
+        &adapter_path.file_name().unwrap().to_string_lossy(),
+        &adapter_hash.to_string(),
+        rank.try_into().unwrap(),
+        tier.parse::<i32>().unwrap(),
+        None, // languages_json
+        None, // framework
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to store adapter in database: {}", e))?;
 
     output.success("Adapter registered successfully");
 

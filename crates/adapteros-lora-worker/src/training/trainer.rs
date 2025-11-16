@@ -5,21 +5,11 @@
 //! and integrates with the Metal backend for deterministic training.
 
 use super::dataset::TrainingExample;
-use adapteros_core::{derive_seed, AosError, Result};
+use adapteros_core::{derive_seed, Result};
 use adapteros_lora_kernel_api::FusedKernels;
-use adapteros_single_file_adapter::{
-    format::{
-        AdapterWeights, CombinationStrategy, LineageInfo, WeightGroup, WeightGroupConfig,
-        WeightGroupType, WeightMetadata,
-    },
-    training as aos_training, SingleFileAdapter, SingleFileAdapterPackager,
-};
 use adapteros_telemetry::TelemetryWriter;
-use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::Path;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
@@ -49,9 +39,6 @@ pub struct TrainingConfig {
     pub epochs: usize,
     /// Hidden dimension size
     pub hidden_dim: usize,
-    /// Weight group combination settings for separated training
-    #[serde(default = "default_weight_group_config")]
-    pub weight_group_config: WeightGroupConfig,
 }
 
 impl Default for TrainingConfig {
@@ -63,13 +50,8 @@ impl Default for TrainingConfig {
             batch_size: 8,
             epochs: 3,
             hidden_dim: 768,
-            weight_group_config: WeightGroupConfig::default(),
         }
     }
-}
-
-fn default_weight_group_config() -> WeightGroupConfig {
-    WeightGroupConfig::default()
 }
 
 /// Training result
@@ -78,18 +60,7 @@ pub struct TrainingResult {
     pub adapter_id: String,
     pub final_loss: f32,
     pub training_time_ms: u64,
-    pub example_count: usize,
     pub weights: LoRAWeights,
-}
-
-/// Aggregated result for separated positive/negative training
-#[derive(Debug, Clone)]
-pub struct SeparatedTrainingResult {
-    pub adapter_id: String,
-    pub positive_result: TrainingResult,
-    pub negative_result: TrainingResult,
-    pub combined_weights: WeightGroup,
-    pub training_data: Vec<TrainingExample>,
 }
 
 /// LoRA weight matrices
@@ -131,21 +102,6 @@ impl MicroLoRATrainer {
         })
     }
 
-    /// Override the deterministic seed used for training
-    pub fn override_training_seed(&mut self, seed: u64) -> Result<()> {
-        self.training_seed = seed;
-        info!("Overriding MicroLoRA trainer seed: {}", seed);
-
-        self.telemetry.log(
-            "training.seed_overridden",
-            serde_json::json!({
-                "seed": seed
-            }),
-        )?;
-
-        Ok(())
-    }
-
     /// Initialize Metal kernels for training
     pub fn init_kernels(&mut self, plan_bytes: &[u8]) -> Result<()> {
         // Try to create Metal backend
@@ -181,240 +137,6 @@ impl MicroLoRATrainer {
     pub async fn train(&mut self, examples: &[TrainingExample]) -> Result<TrainingResult> {
         // Backward-compatible behavior: no external progress callback
         self.train_with_callback(examples, |_epoch, _loss| {}).await
-    }
-
-    /// Train with separated positive and negative weight groups.
-    pub async fn train_separated(
-        &mut self,
-        examples: &[TrainingExample],
-    ) -> Result<SeparatedTrainingResult> {
-        info!(
-            "Starting separated training flow with {} total examples",
-            examples.len()
-        );
-
-        // Partition examples by weight sign
-        let (positive_examples, negative_examples): (Vec<_>, Vec<_>) = examples
-            .iter()
-            .cloned()
-            .partition(|example| example.weight > 0.0);
-
-        if positive_examples.is_empty() {
-            return Err(AosError::Training(
-                "No positive-weight examples provided for separated training".to_string(),
-            ));
-        }
-        if negative_examples.is_empty() {
-            return Err(AosError::Training(
-                "No negative-weight examples provided for separated training".to_string(),
-            ));
-        }
-
-        let final_adapter_id = Self::generate_adapter_id();
-
-        info!(
-            "Separated training partitions: positive={}, negative={}",
-            positive_examples.len(),
-            negative_examples.len()
-        );
-
-        let mut positive_result = self.train(&positive_examples).await?;
-        positive_result.adapter_id = final_adapter_id.clone();
-
-        let mut negative_result = self.train(&negative_examples).await?;
-        negative_result.adapter_id = final_adapter_id.clone();
-
-        let combined_weights = self.compute_combined_group(&positive_result, &negative_result)?;
-
-        Ok(SeparatedTrainingResult {
-            adapter_id: final_adapter_id,
-            positive_result,
-            negative_result,
-            combined_weights,
-            training_data: examples.to_vec(),
-        })
-    }
-
-    /// Save a separated training result as a `.aos` package.
-    pub async fn save_as_aos_package(
-        &self,
-        result: &SeparatedTrainingResult,
-        output_path: &Path,
-    ) -> Result<()> {
-        self.save_as_aos_package_with_metadata(result, output_path, &HashMap::new())
-            .await
-    }
-
-    /// Save a separated training result as a `.aos` package with custom metadata.
-    pub async fn save_as_aos_package_with_metadata(
-        &self,
-        result: &SeparatedTrainingResult,
-        output_path: &Path,
-        metadata: &HashMap<String, String>,
-    ) -> Result<()> {
-        let positive_group =
-            Self::build_weight_group(&result.positive_result, WeightGroupType::Positive);
-        let negative_group =
-            Self::build_weight_group(&result.negative_result, WeightGroupType::Negative);
-
-        let weights = AdapterWeights {
-            positive: positive_group,
-            negative: negative_group,
-            combined: Some(result.combined_weights.clone()),
-        };
-
-        let lineage = LineageInfo {
-            adapter_id: result.adapter_id.clone(),
-            version: "1.0.0".to_string(),
-            parent_version: None,
-            parent_hash: None,
-            mutations: vec![],
-            quality_delta: 0.0,
-            created_at: Utc::now().to_rfc3339(),
-        };
-
-        let training_data: Vec<aos_training::TrainingExample> = result
-            .training_data
-            .iter()
-            .map(|example| example.into())
-            .collect();
-
-        let mut adapter = SingleFileAdapter::create(
-            result.adapter_id.clone(),
-            weights,
-            training_data,
-            (&self.config).into(),
-            lineage,
-        )?;
-
-        adapter.manifest.weight_groups = self.config.weight_group_config.clone();
-        adapter
-            .manifest
-            .metadata
-            .extend(metadata.clone().into_iter());
-
-        SingleFileAdapterPackager::save(&adapter, output_path)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to save .aos package: {}", e)))?;
-
-        info!(
-            "Saved separated training result to {}",
-            output_path.display()
-        );
-
-        Ok(())
-    }
-
-    fn compute_combined_group(
-        &self,
-        positive: &TrainingResult,
-        negative: &TrainingResult,
-    ) -> Result<WeightGroup> {
-        let config = &self.config.weight_group_config;
-        let timestamp = Utc::now().to_rfc3339();
-
-        match &config.combination_strategy {
-            CombinationStrategy::Difference => {
-                self.combine_weight_groups(positive, negative, 1.0, 1.0, timestamp)
-            }
-            CombinationStrategy::WeightedDifference {
-                positive_scale,
-                negative_scale,
-            } => self.combine_weight_groups(
-                positive,
-                negative,
-                *positive_scale,
-                *negative_scale,
-                timestamp,
-            ),
-            CombinationStrategy::Separate => {
-                let mut group = Self::build_weight_group(positive, WeightGroupType::Combined);
-                group.metadata.example_count += negative.example_count;
-                group.metadata.avg_loss = (positive.final_loss + negative.final_loss) / 2.0;
-                group.metadata.training_time_ms =
-                    positive.training_time_ms + negative.training_time_ms;
-                group.metadata.created_at = timestamp;
-                Ok(group)
-            }
-        }
-    }
-
-    fn combine_weight_groups(
-        &self,
-        positive: &TrainingResult,
-        negative: &TrainingResult,
-        pos_scale: f32,
-        neg_scale: f32,
-        timestamp: String,
-    ) -> Result<WeightGroup> {
-        let combined_lora_a = Self::combine_matrix(
-            &positive.weights.lora_a,
-            &negative.weights.lora_a,
-            pos_scale,
-            neg_scale,
-        )?;
-        let combined_lora_b = Self::combine_matrix(
-            &positive.weights.lora_b,
-            &negative.weights.lora_b,
-            pos_scale,
-            neg_scale,
-        )?;
-
-        Ok(WeightGroup {
-            lora_a: combined_lora_a,
-            lora_b: combined_lora_b,
-            metadata: WeightMetadata {
-                example_count: positive.example_count + negative.example_count,
-                avg_loss: (positive.final_loss + negative.final_loss) / 2.0,
-                training_time_ms: positive.training_time_ms + negative.training_time_ms,
-                group_type: WeightGroupType::Combined,
-                created_at: timestamp,
-            },
-        })
-    }
-
-    fn combine_matrix(
-        positive: &[Vec<f32>],
-        negative: &[Vec<f32>],
-        pos_scale: f32,
-        neg_scale: f32,
-    ) -> Result<Vec<Vec<f32>>> {
-        if positive.len() != negative.len() {
-            return Err(AosError::Training(
-                "Weight group rank mismatch during combination".to_string(),
-            ));
-        }
-
-        let mut combined = Vec::with_capacity(positive.len());
-        for (pos_row, neg_row) in positive.iter().zip(negative.iter()) {
-            if pos_row.len() != neg_row.len() {
-                return Err(AosError::Training(
-                    "Weight group dimension mismatch during combination".to_string(),
-                ));
-            }
-            let row = pos_row
-                .iter()
-                .zip(neg_row.iter())
-                .map(|(p, n)| (*p * pos_scale) - (*n * neg_scale))
-                .collect();
-            combined.push(row);
-        }
-
-        Ok(combined)
-    }
-
-    fn build_weight_group(result: &TrainingResult, group_type: WeightGroupType) -> WeightGroup {
-        WeightGroup {
-            lora_a: result.weights.lora_a.clone(),
-            lora_b: result.weights.lora_b.clone(),
-            metadata: WeightMetadata {
-                example_count: result.example_count,
-                avg_loss: result.final_loss,
-                training_time_ms: result.training_time_ms,
-                group_type,
-                created_at: Utc::now().to_rfc3339(),
-            },
-        }
     }
 
     /// Train with a per-epoch progress callback.
@@ -505,7 +227,6 @@ impl MicroLoRATrainer {
             adapter_id,
             final_loss,
             training_time_ms,
-            example_count: examples.len(),
             weights,
         })
     }
@@ -753,31 +474,6 @@ impl MicroLoRATrainer {
     }
 }
 
-impl From<&TrainingConfig> for aos_training::TrainingConfig {
-    fn from(config: &TrainingConfig) -> Self {
-        aos_training::TrainingConfig {
-            rank: config.rank,
-            alpha: config.alpha,
-            learning_rate: config.learning_rate,
-            batch_size: config.batch_size,
-            epochs: config.epochs,
-            hidden_dim: config.hidden_dim,
-            weight_group_config: config.weight_group_config.clone(),
-        }
-    }
-}
-
-impl From<&TrainingExample> for aos_training::TrainingExample {
-    fn from(example: &TrainingExample) -> Self {
-        aos_training::TrainingExample {
-            input: example.input.clone(),
-            target: example.target.clone(),
-            metadata: example.metadata.clone(),
-            weight: example.weight,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,13 +529,11 @@ mod tests {
                 input: vec![1, 2, 3],
                 target: vec![4, 5, 6],
                 metadata: HashMap::new(),
-                weight: 1.0,
             },
             TrainingExample {
                 input: vec![7, 8, 9],
                 target: vec![10, 11, 12],
                 metadata: HashMap::new(),
-                weight: 1.0,
             },
         ];
 

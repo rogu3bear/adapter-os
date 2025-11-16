@@ -1,64 +1,25 @@
 use adapteros_core::AosError;
-use anyhow::{Context, Result};
-use sqlx::migrate::Migrator;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{PgPool, SqlitePool};
-use std::ops::{Deref, DerefMut};
+use anyhow::Result;
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
-// PostgreSQL backend for production
-pub mod postgres;
+// Database abstraction layer
+pub mod postgres_backend;
+pub mod sqlite_backend;
+pub mod traits;
 
+// Re-export commonly used types
+pub use traits::{
+    CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig, StackRecord,
+};
+
+// PostgreSQL backend for production (legacy - to be deprecated)
+pub mod postgres;
 pub use postgres::PostgresDb;
 
-// Database modules
-pub mod activity_events;
-pub mod adapters;
-pub mod artifacts;
-pub mod audits;
-pub mod code_policies;
-pub mod commits;
-pub mod contacts;
-pub mod cp_pointers;
-pub mod dashboard_configs;
-pub mod domain_adapters;
-pub mod enclave_operations;
-pub mod ephemeral_adapters;
-pub mod git;
-pub mod git_repositories;
-pub mod incidents;
-pub mod jobs;
-pub mod key_metadata;
-pub mod manifests;
-pub mod messages;
-pub mod migration_verify;
-pub mod model_operations;
-pub mod models;
-pub mod nodes;
-pub mod notifications;
-pub mod patch_proposals;
-pub mod pinned_adapters;
-pub mod plans;
-pub mod policies;
-pub mod policy_hash;
-pub mod process_monitoring;
-pub mod rag_retrieval_audit;
-pub mod replay_sessions;
-pub mod repositories;
-pub mod telemetry_bundles;
-pub mod tenants;
-pub mod training_datasets;
-pub mod training_jobs;
-pub mod tutorials;
-pub mod unified_access;
-pub mod users;
-pub mod workers;
-pub mod workspaces;
-
-/// Database connection pool and query methods (SQLite).
+/// Database connection pool and query methods (SQLite)
 ///
-/// A PostgreSQL backend can be reintroduced behind a feature flag without
-/// changing callers that depend on `Database`.
+/// For production deployments, use `PostgresDb` instead.
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
@@ -66,36 +27,13 @@ pub struct Db {
 
 impl Db {
     /// Connect to SQLite database with WAL mode
-    ///
-    /// Accepts either a filesystem path (e.g., "var/aos.db") or a full URL (e.g.,
-    /// "sqlite://var/aos.db"). Prevents double-prefix issues in tests.
     pub async fn connect(path: &str) -> Result<Self> {
-        // Normalize input to a SQLite URL understood by sqlx
-        let url = if path.starts_with("sqlite://") || path.starts_with("sqlite::") {
-            // Already in URL form (absolute, relative, or special memory URL)
-            path.to_string()
-        } else if path.starts_with('/') {
-            // Absolute filesystem path
-            format!("sqlite://{}", path)
-        } else {
-            // Relative filesystem path
-            format!("sqlite://{}", path)
-        };
-
-        // Establish connection via URL (creates DB file if missing)
-        let connect_opts = SqliteConnectOptions::from_str(&url)?
+        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path))?
             .create_if_missing(true)
-            .immutable(false);
-        let pool = SqlitePool::connect_with(connect_opts).await?;
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
 
-        // Apply recommended pragmas for concurrency and performance
-        let _ = sqlx::query("PRAGMA journal_mode = WAL;")
-            .execute(&pool)
-            .await;
-        let _ = sqlx::query("PRAGMA synchronous = NORMAL;")
-            .execute(&pool)
-            .await;
-
+        let pool = SqlitePool::connect_with(options).await?;
         Ok(Self { pool })
     }
 
@@ -106,33 +44,35 @@ impl Db {
         Self::connect(&database_url).await
     }
 
-    /// Run database migrations (SQLite)
+    /// Run database migrations
     pub async fn migrate(&self) -> Result<()> {
-        // Use embedded migrations from the crate's migrations directory
-        const MIGRATIONS: Migrator = sqlx::migrate!("./migrations");
+        // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let workspace_root = std::path::Path::new(manifest_dir)
+            .parent() // crates/
+            .and_then(|p| p.parent()) // workspace root
+            .ok_or_else(|| AosError::Database("Failed to find workspace root".to_string()))?;
 
-        tracing::info!("Running database migrations with embedded migrations");
+        let migrations_path = workspace_root.join("migrations");
 
-        match MIGRATIONS.run(&self.pool).await {
-            Ok(_) => {
-                tracing::info!("Database migrations applied successfully");
-            }
-            Err(e) => {
-                // In development, log warning but continue if it's just a checksum/version mismatch
-                // sqlx returns MigrateError::VersionMismatch for checksum mismatches
-                let err_str = format!("{:?}", e);
-                if err_str.contains("VersionMismatch") || err_str.contains("checksum") {
-                    tracing::warn!("Migration checksum mismatch detected (dev mode): {}", e);
-                    tracing::warn!(
-                        "Continuing despite checksum mismatch - this is acceptable in development"
-                    );
-                    tracing::info!("Database migrations check completed (with warnings)");
-                } else {
-                    tracing::error!("Migration error details: {:?}", e);
-                    return Err(e).with_context(|| "Database migration failed".to_string());
-                }
-            }
+        // Verify migrations directory exists
+        if !migrations_path.exists() {
+            return Err(AosError::Database(format!(
+                "Migrations directory not found: {}",
+                migrations_path.display()
+            ))
+            .into());
         }
+
+        // Use sqlx::migrate with dynamic path
+        let migrator = sqlx::migrate::Migrator::new(migrations_path)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to create migrator: {}", e)))?;
+
+        migrator
+            .run(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
         Ok(())
     }
@@ -174,10 +114,10 @@ impl Db {
             .to_string();
 
         let users = vec![
-            ("admin@aos.local", "Admin", "admin", &password_hash),
-            ("operator@aos.local", "Operator", "operator", &password_hash),
-            ("sre@aos.local", "SRE", "sre", &password_hash),
-            ("viewer@aos.local", "Viewer", "viewer", &password_hash),
+            ("admin@aos.local", "Admin", "Admin", &password_hash),
+            ("operator@aos.local", "Operator", "Operator", &password_hash),
+            ("sre@aos.local", "SRE", "SRE", &password_hash),
+            ("viewer@aos.local", "Viewer", "Viewer", &password_hash),
         ];
 
         for (email, display_name, role, pwd_hash) in users {
@@ -199,15 +139,24 @@ impl Db {
             .await?;
         }
 
-        // Create sample nodes using stable schema helper
+        // Create sample nodes
         let nodes = vec![
-            ("m1-max-01.local", "http://127.0.0.1:8081"),
-            ("m2-ultra-01.local", "http://127.0.0.1:8082"),
-            ("m3-max-01.local", "http://127.0.0.1:8083"),
+            ("node-01", "m1-max-01.local", "M1 Max", 64),
+            ("node-02", "m2-ultra-01.local", "M2 Ultra", 128),
+            ("node-03", "m3-max-01.local", "M3 Max", 96),
         ];
 
-        for (hostname, agent_endpoint) in nodes {
-            let _ = self.register_node(hostname, agent_endpoint).await;
+        for (id, hostname, family, memory) in nodes {
+            sqlx::query(
+                "INSERT INTO nodes (id, tenant_id, hostname, metal_family, memory_gb, status, last_heartbeat)
+                 VALUES (?, 'default', ?, ?, ?, 'online', datetime('now'))"
+            )
+            .bind(id)
+            .bind(hostname)
+            .bind(family)
+            .bind(memory)
+            .execute(&self.pool)
+            .await?;
         }
 
         tracing::info!("Development data seeded successfully");
@@ -218,277 +167,60 @@ impl Db {
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
-
-    /// List monitoring reports with optional filters
-    pub async fn list_monitoring_reports(
-        &self,
-        tenant_id: Option<&str>,
-        report_type: Option<&str>,
-    ) -> Result<Vec<process_monitoring::ProcessMonitoringReport>> {
-        process_monitoring::ProcessMonitoringReport::list(self.pool(), tenant_id, report_type)
-            .await
-            .map_err(anyhow::Error::from)
-    }
-
-    /// Create a new monitoring report
-    pub async fn create_monitoring_report(
-        &self,
-        req: process_monitoring::CreateReportRequest,
-    ) -> Result<String> {
-        process_monitoring::ProcessMonitoringReport::create(self.pool(), req)
-            .await
-            .map_err(anyhow::Error::from)
-    }
 }
 
 // Re-export sqlx types for convenience
 pub use sqlx;
 pub use sqlx::Row;
 
-// Re-export types for trait usage
-pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
-pub use commits::{Commit, CommitBuilder, CommitParams};
-pub use contacts::{ContactUpsertBuilder, ContactUpsertParams};
+pub mod adapters;
+pub mod artifacts;
+pub mod audit;
+pub use audit::AuditLog;
+pub mod audits;
+pub mod migration_verify;
+pub mod unified_access;
+pub use audits::Audit;
+pub mod code_policies;
+pub mod commits;
+pub mod contacts;
+pub use contacts::{Contact, ContactStream};
+pub mod cp_pointers;
+pub mod enclave_operations;
+pub use enclave_operations::{EnclaveOperation, OperationStats};
+pub mod ephemeral_adapters;
+pub mod git;
+pub mod git_repositories;
+pub use git_repositories::GitRepository;
+pub mod incidents;
+pub mod jobs;
 pub use jobs::Job;
-pub use models::{ModelRegistrationBuilder, ModelRegistrationParams, Worker};
-pub use nodes::Node;
-pub use patch_proposals::{PatchProposalBuilder, PatchProposalParams};
-pub use replay_sessions::ReplaySession;
-pub use repositories::{
-    CodeGraphMetadataBuilder, CodeGraphMetadataParams, RepositoryExtendedBuilder,
-    RepositoryExtendedParams,
+pub mod training_jobs;
+pub use training_jobs::{TrainingJobRecord, TrainingProgress};
+pub mod training_datasets;
+pub use training_datasets::{DatasetFile, DatasetStatistics, TrainingDataset};
+pub mod key_metadata;
+pub use key_metadata::KeyMetadata;
+pub mod manifests;
+pub mod models;
+pub mod nodes;
+pub mod patch_proposals;
+pub use patch_proposals::PatchProposal;
+pub mod pinned_adapters;
+pub mod plans;
+pub mod policies;
+pub mod policy_hash;
+pub use policy_hash::PolicyHashRecord;
+pub mod process_monitoring;
+pub mod replay_sessions;
+pub mod repositories;
+pub mod telemetry_bundles;
+pub mod tenants;
+pub mod users;
+pub mod workers;
+
+// Re-export unified access types
+pub use unified_access::{
+    ConnectionInfo, DatabaseAccess, DatabaseStatistics, DatabaseType, HealthState, HealthStatus,
+    SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
 };
-pub use telemetry_bundles::{TelemetryBatchBuilder, TelemetryBatchParams, TelemetryRecord};
-pub use tenants::Tenant;
-pub use training_jobs::{TrainingJobBuilder, TrainingJobParams, TrainingJobRecord};
-pub use workers::{WorkerInsertBuilder, WorkerInsertParams};
-
-/// Database backend enum supporting both SQLite and PostgreSQL
-#[derive(Clone)]
-pub enum DatabaseBackend {
-    Sqlite(Db),
-    Postgres(PostgresDb),
-}
-
-// Make DatabaseBackend accessible for pattern matching
-impl Database {
-    /// Access the backend enum directly (for pattern matching)
-    pub fn backend(&self) -> &DatabaseBackend {
-        &self.0
-    }
-}
-
-/// Thin wrapper over the primary database backend.
-///
-/// Supports both SQLite and PostgreSQL backends. Automatically selects
-/// PostgreSQL when DATABASE_URL contains "postgresql://", otherwise uses SQLite.
-#[derive(Clone)]
-pub struct Database(DatabaseBackend);
-
-impl Database {
-    /// Wrap an existing SQLite database handle.
-    pub fn new(db: Db) -> Self {
-        Self(DatabaseBackend::Sqlite(db))
-    }
-
-    /// Wrap an existing PostgreSQL database handle.
-    pub fn new_postgres(db: PostgresDb) -> Self {
-        Self(DatabaseBackend::Postgres(db))
-    }
-
-    /// Borrow the inner SQLite handle (panics if PostgreSQL).
-    pub fn inner(&self) -> &Db {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db,
-            DatabaseBackend::Postgres(_) => {
-                panic!("Database is PostgreSQL, not SQLite")
-            }
-        }
-    }
-
-    /// Consume the wrapper and return the inner SQLite handle (panics if PostgreSQL).
-    pub fn into_inner(self) -> Db {
-        match self.0 {
-            DatabaseBackend::Sqlite(db) => db,
-            DatabaseBackend::Postgres(_) => {
-                panic!("Database is PostgreSQL, not SQLite")
-            }
-        }
-    }
-
-    /// Connect using an explicit database URL or path.
-    ///
-    /// Detects PostgreSQL URLs (postgresql://) and uses PostgresDb,
-    /// otherwise uses SQLite.
-    pub async fn connect(path: &str) -> Result<Self> {
-        if path.starts_with("postgresql://") || path.starts_with("postgres://") {
-            Ok(Self(DatabaseBackend::Postgres(
-                PostgresDb::connect(path).await?,
-            )))
-        } else {
-            Ok(Self(DatabaseBackend::Sqlite(Db::connect(path).await?)))
-        }
-    }
-
-    /// Connect to a database using `DATABASE_URL`.
-    ///
-    /// Automatically detects PostgreSQL URLs and uses PostgresDb.
-    /// Falls back to SQLite if DATABASE_URL is not set or not a PostgreSQL URL.
-    pub async fn connect_env() -> Result<Self> {
-        let database_url =
-            std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
-
-        if database_url.starts_with("postgresql://") || database_url.starts_with("postgres://") {
-            tracing::info!("Using PostgreSQL backend");
-            Ok(Self(DatabaseBackend::Postgres(
-                PostgresDb::connect_env().await?,
-            )))
-        } else {
-            tracing::info!("Using SQLite backend");
-            Ok(Self(DatabaseBackend::Sqlite(Db::connect_env().await?)))
-        }
-    }
-
-    /// Access the underlying SQLite pool (panics if PostgreSQL).
-    ///
-    /// For PostgreSQL, use methods directly on Database or match on backend.
-    pub fn pool(&self) -> &SqlitePool {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db.pool(),
-            DatabaseBackend::Postgres(_) => {
-                panic!("Cannot get SqlitePool from PostgreSQL database. Use PostgresDb methods directly.")
-            }
-        }
-    }
-
-    /// Access the underlying PostgreSQL pool (panics if SQLite).
-    pub fn pool_postgres(&self) -> &PgPool {
-        match &self.0 {
-            DatabaseBackend::Postgres(db) => db.pool(),
-            DatabaseBackend::Sqlite(_) => {
-                panic!("Cannot get PgPool from SQLite database. Use Db methods directly.")
-            }
-        }
-    }
-
-    /// Run database migrations.
-    ///
-    /// Automatically uses the correct migration directory based on backend.
-    pub async fn migrate(&self) -> Result<()> {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db.migrate().await,
-            DatabaseBackend::Postgres(db) => db.migrate().await.map_err(anyhow::Error::from),
-        }
-    }
-
-    /// Seed the database with development data.
-    pub async fn seed_dev_data(&self) -> Result<()> {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db.seed_dev_data().await,
-            DatabaseBackend::Postgres(db) => db.seed_dev_data().await.map_err(anyhow::Error::from),
-        }
-    }
-
-    /// Insert a policy hash baseline (delegates to backend)
-    pub async fn insert_policy_hash(
-        &self,
-        policy_pack_id: &str,
-        baseline_hash: &adapteros_core::B3Hash,
-        cpid: Option<&str>,
-        signer_pubkey: Option<&str>,
-    ) -> Result<()> {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db
-                .insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to insert policy hash: {}", e)),
-            DatabaseBackend::Postgres(db) => db
-                .insert_policy_hash(policy_pack_id, baseline_hash, cpid, signer_pubkey)
-                .await
-                .map_err(anyhow::Error::from),
-        }
-    }
-
-    /// Get a policy hash record (delegates to backend)
-    pub async fn get_policy_hash(
-        &self,
-        policy_pack_id: &str,
-        cpid: Option<&str>,
-    ) -> Result<Option<policy_hash::PolicyHashRecord>> {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db
-                .get_policy_hash(policy_pack_id, cpid)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to get policy hash: {}", e)),
-            DatabaseBackend::Postgres(db) => db
-                .get_policy_hash(policy_pack_id, cpid)
-                .await
-                .map_err(anyhow::Error::from),
-        }
-    }
-
-    /// List policy hashes (delegates to backend)
-    pub async fn list_policy_hashes(
-        &self,
-        cpid: Option<&str>,
-    ) -> Result<Vec<policy_hash::PolicyHashRecord>> {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db
-                .list_policy_hashes(cpid)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to list policy hashes: {}", e)),
-            DatabaseBackend::Postgres(db) => db
-                .list_policy_hashes(cpid)
-                .await
-                .map_err(anyhow::Error::from),
-        }
-    }
-}
-
-impl From<Db> for Database {
-    fn from(db: Db) -> Self {
-        Self::new(db)
-    }
-}
-
-impl From<PostgresDb> for Database {
-    fn from(db: PostgresDb) -> Self {
-        Self::new_postgres(db)
-    }
-}
-
-impl Deref for Database {
-    type Target = Db;
-
-    fn deref(&self) -> &Self::Target {
-        match &self.0 {
-            DatabaseBackend::Sqlite(db) => db,
-            DatabaseBackend::Postgres(_) => {
-                panic!("Cannot deref PostgreSQL Database to Db. Use Database methods or match on backend.")
-            }
-        }
-    }
-}
-
-impl DerefMut for Database {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match &mut self.0 {
-            DatabaseBackend::Sqlite(db) => db,
-            DatabaseBackend::Postgres(_) => {
-                panic!("Cannot deref_mut PostgreSQL Database to Db. Use Database methods or match on backend.")
-            }
-        }
-    }
-}
-
-impl AsRef<Db> for Database {
-    fn as_ref(&self) -> &Db {
-        self.inner()
-    }
-}
-
-impl std::borrow::Borrow<Db> for Database {
-    fn borrow(&self) -> &Db {
-        self.inner()
-    }
-}

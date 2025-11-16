@@ -37,9 +37,14 @@ import {
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
 import { Node, User, NodeDetailsResponse, NodePingResponse } from '../api/types';
+<<<<<<< HEAD
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { WorkersTab } from './WorkersTab';
 import { logger, toError } from '../utils/logger';
+=======
+import { toast } from 'sonner';
+import { WorkersTab } from './WorkersTab';
+>>>>>>> integration-branch
 
 interface NodesProps {
   user: User;
@@ -376,6 +381,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     <div className="space-y-6">
       {errorRecovery && (
         <div>
+<<<<<<< HEAD
           {errorRecovery}
         </div>
       )}
@@ -418,6 +424,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
             Manage compute nodes and worker processes
           </p>
         </div>
+=======
+          <h1 className="section-title">Compute Infrastructure</h1>
+          <p className="section-description">
+            Manage compute nodes and worker processes
+          </p>
+        </div>
+>>>>>>> integration-branch
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -435,16 +448,28 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         <TabsContent value="nodes" className="space-y-4">
           <div className="flex-standard justify-end">
             <Button variant="outline" size="sm" onClick={fetchNodes}>
+<<<<<<< HEAD
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
             <Button onClick={() => setShowRegisterModal(true)}>
               <Server className="h-4 w-4 mr-2" />
+=======
+              <RefreshCw className="icon-standard mr-2" />
+              Refresh
+            </Button>
+            <Button onClick={() => setShowRegisterModal(true)}>
+              <Server className="icon-standard mr-2" />
+>>>>>>> integration-branch
               Register Node
             </Button>
           </div>
 
+<<<<<<< HEAD
           <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
+=======
+          <Card className="card-standard">
+>>>>>>> integration-branch
         <CardHeader>
           <CardTitle>Active Nodes</CardTitle>
         </CardHeader>
@@ -740,6 +765,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+<<<<<<< HEAD
 
       {/* Bulk Action Bar */}
       <BulkActionBar
@@ -781,6 +807,14 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         onRedo={actionHistory.redo}
         currentActionDescription={actionHistory.currentAction?.description}
       />
+=======
+        </TabsContent>
+
+        <TabsContent value="workers">
+          <WorkersTab selectedTenant={selectedTenant} />
+        </TabsContent>
+      </Tabs>
+>>>>>>> integration-branch
     </div>
   );
 }

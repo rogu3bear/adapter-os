@@ -1,14 +1,32 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
+<<<<<<< HEAD
 import { MetaResponse } from '../api/types';
 import { cn, FROST_BACKGROUND } from '@/components/ui/utils';
+=======
+
+interface MetaData {
+  version: string;
+  build_hash: string;
+  uptime: number;
+  last_updated: string;
+}
+>>>>>>> integration-branch
 
 export const Footer: React.FC = () => {
   const { data: meta, isLoading } = useQuery<MetaResponse>({
     queryKey: ['/v1/meta'],
+<<<<<<< HEAD
     queryFn: () => apiClient.getMeta(),
     refetchInterval: 30000,
+=======
+    queryFn: async () => {
+      // Citation: ui/src/api/client.ts L117-L119
+      return apiClient.getMeta();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+>>>>>>> integration-branch
   });
 
   const formatUptime = (seconds?: number) => {

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // 【ui/src/components/BaseModelStatus.tsx§46-52】 - Replace manual polling with standardized hook
 import React, { useState, useEffect } from 'react';
 import {
@@ -6,17 +7,30 @@ import {
   Clock,
   AlertTriangle,
   Cpu,
+=======
+import React, { useState, useEffect } from 'react';
+import { 
+  CheckCircle, 
+  XCircle, 
+  Clock, 
+  AlertTriangle, 
+  Cpu, 
+>>>>>>> integration-branch
   HardDrive,
   RefreshCw,
   Info
 } from 'lucide-react';
 import { BaseModelStatus } from '../api/types';
 import apiClient from '../api/client';
+<<<<<<< HEAD
 import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+=======
+import { toast } from 'react-hot-toast';
+>>>>>>> integration-branch
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -24,6 +38,7 @@ interface BaseModelStatusProps {
 
 export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProps) {
   const [status, setStatus] = useState<BaseModelStatus | null>(null);
+<<<<<<< HEAD
   const [error, setError] = useState<Error | null>(null);
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for model status
@@ -62,6 +77,34 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
       setError(null);
     }
   }, [polledStatus]);
+=======
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const fetchStatus = async () => {
+    try {
+      setError(null);
+      const modelStatus = await apiClient.getBaseModelStatus(selectedTenant);
+      setStatus(modelStatus);
+      setLastUpdated(new Date());
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch model status';
+      setError(errorMsg);
+      console.error('Failed to fetch base model status:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    
+    // Fixed 1-second interval for instant updates
+    const interval = setInterval(fetchStatus, 1000);
+    return () => clearInterval(interval);
+  }, [selectedTenant]);
+>>>>>>> integration-branch
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -140,6 +183,7 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
   if (error) {
     return (
+<<<<<<< HEAD
       <ErrorRecovery
         title="Model Status Error"
         message={error.message}
@@ -148,6 +192,17 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
           { label: 'View Logs', action: () => {/* Navigate to logs */} }
         ]}
       />
+=======
+      <div className="bg-white rounded-lg border border-red-200 p-6">
+        <div className="flex items-center space-x-3">
+          <AlertTriangle className="h-5 w-5 text-red-500" />
+          <div>
+            <h3 className="text-lg font-medium text-red-900">Base Model Status</h3>
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        </div>
+      </div>
+>>>>>>> integration-branch
     );
   }
 
@@ -175,7 +230,10 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
             <p className="text-sm text-gray-500">
               {status.model_name} ({status.model_id})
             </p>
+<<<<<<< HEAD
             {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
+=======
+>>>>>>> integration-branch
           </div>
         </div>
       </div>

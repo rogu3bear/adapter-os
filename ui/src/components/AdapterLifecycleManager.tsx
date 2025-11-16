@@ -51,8 +51,12 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
+<<<<<<< HEAD
 import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
 import { useAdapterOperations } from '../hooks/useAdapterOperations';
+=======
+import { toast } from 'sonner';
+>>>>>>> integration-branch
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -293,6 +297,7 @@ export function AdapterLifecycleManager({
       // Note: Current API only supports promoting state (cold -> warm -> hot)
       // Manual state setting requires backend enhancement
       if (newState === 'hot' || newState === 'warm') {
+<<<<<<< HEAD
         await adapterOperations.promoteAdapter(adapterId);
         setStatusMessage({ message: 'Adapter state promoted successfully.', variant: 'success' });
         // Refresh records
@@ -320,13 +325,38 @@ export function AdapterLifecycleManager({
           () => handleStateTransition(adapterId, newState)
         )
       );
+=======
+        await apiClient.promoteAdapterState(adapterId);
+        onAdapterUpdate(adapterId, { current_state: newState });
+        toast.success(`Adapter state promoted successfully`);
+        logger.info('Adapter state promoted', {
+          component: 'AdapterLifecycleManager',
+          operation: 'handleStateTransition',
+          adapterId,
+          newState
+        });
+      } else {
+        // For demotion or other state changes, update locally
+        // TODO: Implement full state transition API on backend
+        onAdapterUpdate(adapterId, { current_state: newState });
+        toast.info(`Local state updated to ${newState}. Note: Backend sync pending.`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update adapter state';
+>>>>>>> integration-branch
       logger.error('Failed to update adapter state', {
         component: 'AdapterLifecycleManager',
         operation: 'handleStateTransition',
         adapterId,
+<<<<<<< HEAD
         newState,
         error: errorMessage
       });
+=======
+        error: errorMessage
+      });
+      toast.error(`Failed to update state: ${errorMessage}`);
+>>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -337,6 +367,7 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
+<<<<<<< HEAD
       await adapterOperations.pinAdapter(adapterId, pinned);
       setStatusMessage({ message: pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', variant: 'success' });
     } catch (err) {
@@ -349,12 +380,31 @@ export function AdapterLifecycleManager({
         )
       );
       logger.error('Failed to toggle adapter pin state', {
+=======
+      // Call API to pin or unpin the adapter
+      await apiClient.pinAdapter(adapterId, pinned);
+      onAdapterPin(adapterId, pinned);
+      toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
+      logger.info('Adapter pin state changed', {
+        component: 'AdapterLifecycleManager',
+        operation: 'handlePinToggle',
+        adapterId,
+        pinned
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
+      logger.error('Failed to pin/unpin adapter', {
+>>>>>>> integration-branch
         component: 'AdapterLifecycleManager',
         operation: 'handlePinToggle',
         adapterId,
         pinned,
         error: errorMessage
       });
+<<<<<<< HEAD
+=======
+      toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
+>>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -365,6 +415,7 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
+<<<<<<< HEAD
       await adapterOperations.evictAdapter(adapterId);
       setStatusMessage({ message: 'Adapter evicted successfully.', variant: 'success' });
     } catch (err) {
@@ -376,12 +427,30 @@ export function AdapterLifecycleManager({
           () => handleEvictAdapter(adapterId)
         )
       );
+=======
+      // Call API to evict the adapter from memory
+      const result = await apiClient.evictAdapter(adapterId);
+      onAdapterEvict(adapterId);
+      toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
+      logger.info('Adapter evicted', {
+        component: 'AdapterLifecycleManager',
+        operation: 'handleEvictAdapter',
+        adapterId,
+        result
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
+>>>>>>> integration-branch
       logger.error('Failed to evict adapter', {
         component: 'AdapterLifecycleManager',
         operation: 'handleEvictAdapter',
         adapterId,
         error: errorMessage
       });
+<<<<<<< HEAD
+=======
+      toast.error(`Failed to evict adapter: ${errorMessage}`);
+>>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -389,6 +458,7 @@ export function AdapterLifecycleManager({
 
   const handlePolicyUpdate = async (category: AdapterCategory, policy: CategoryPolicy) => {
     setIsLoading(true);
+<<<<<<< HEAD
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
@@ -403,12 +473,33 @@ export function AdapterLifecycleManager({
           () => handlePolicyUpdate(category, policy)
         )
       );
+=======
+    try {
+      setPolicies(prev => ({ ...prev, [category]: policy }));
+      onPolicyUpdate(category, policy);
+      // TODO: Backend implementation required - PUT /v1/adapters/category/:category/policy
+      // This endpoint doesn't exist yet. For now, we update locally only.
+      toast.info(`Policy updated locally for ${category}. Backend sync pending API implementation.`);
+      logger.warn('Policy update: backend endpoint not implemented', {
+        component: 'AdapterLifecycleManager',
+        operation: 'handlePolicyUpdate',
+        category,
+        policy,
+        note: 'Local update only - PUT /v1/adapters/category/:category/policy needs implementation'
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update policy';
+>>>>>>> integration-branch
       logger.error('Failed to update policy', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePolicyUpdate',
         category,
         error: errorMessage
       });
+<<<<<<< HEAD
+=======
+      toast.error(`Failed to update policy: ${errorMessage}`);
+>>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }

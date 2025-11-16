@@ -6,6 +6,7 @@ struct AdapterOSMenuApp: App {
     @State private var showTooltip = false
 
     var body: some Scene {
+<<<<<<< HEAD
         MenuBarExtra {
             StatusMenuView(viewModel: viewModel)
         } label: {
@@ -46,5 +47,16 @@ struct AdapterOSMenuApp: App {
     }
 }
 
+=======
+        MenuBarExtra("AdapterOS", systemImage: viewModel.iconName) {
+            StatusMenuView(viewModel: viewModel)
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+}
+
+
+>>>>>>> integration-branch
 
 

@@ -2,7 +2,10 @@ import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 import { HelpCircle } from 'lucide-react';
 import { cn } from './utils';
+<<<<<<< HEAD
 import { getHelpText } from '@/data/help-text';
+=======
+>>>>>>> integration-branch
 
 interface HelpTooltipProps {
   helpId: string;
@@ -19,6 +22,7 @@ export function HelpTooltip({
   side = 'top',
   align = 'center'
 }: HelpTooltipProps) {
+<<<<<<< HEAD
   // Fallback help texts for items not yet in database
   const fallbackTexts: Record<string, string> = {
     'cpid': 'Control Plane ID: identifier that groups policies, plans, and telemetry.',
@@ -35,6 +39,37 @@ export function HelpTooltip({
 
   const helpItem = getHelpText(helpId);
   const helpText = helpItem?.content || fallbackTexts[helpId] || 'Help information not available.';
+=======
+  // For now, we'll use a simple help text lookup
+  // In a real implementation, this would use the help text database
+  const getHelpText = (id: string) => {
+    const helpTexts: Record<string, string> = {
+      'dashboard': 'System overview showing health metrics, adapter counts, and performance indicators.',
+      'adapters': 'Manage LoRA adapters for specialized AI capabilities.',
+      'policies': 'Configure security and compliance policies.',
+      'operations': 'Runtime management, plan execution, and system monitoring.',
+      'settings': 'System configuration and administration.',
+      'plans': 'Execution plan compilation for adapter loading.',
+      'promotion': 'Control plane promotion gates with policy compliance.',
+      'telemetry': 'Event bundle management and system monitoring.',
+      'inference': 'Interactive inference testing and model validation.',
+      'alerts': 'System alerts and health monitoring.',
+      'lora': 'Low-Rank Adaptation for efficient model fine-tuning.',
+      'adapter': 'Specialized AI component for domain-specific tasks.',
+      'control-plane': 'Management layer for adapter orchestration.',
+      'tenant': 'Isolated workspace with dedicated resources.',
+      'deterministic': 'Reproducible system behavior with identical outputs.',
+      'zero-egress': 'Security mode blocking outbound network connections.',
+      'policy-pack': 'Collection of security and compliance rules.',
+      'telemetry-bundle': 'Compressed system events and audit logs.',
+      'router': 'Component selecting best adapters for requests.',
+      'k-sparse': 'Routing strategy selecting top K adapters.'
+    };
+    return helpTexts[id] || 'Help information not available.';
+  };
+
+  const helpText = getHelpText(helpId);
+>>>>>>> integration-branch
 
   return (
     <Tooltip>

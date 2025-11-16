@@ -1,5 +1,9 @@
+<<<<<<< HEAD
 // 【ui/src/components/AlertsPage.tsx§131-134】 - Replace manual polling with standardized hook
 import React, { useState, useEffect, useCallback } from 'react';
+=======
+import React, { useState, useEffect } from 'react';
+>>>>>>> integration-branch
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,8 +11,11 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Slider } from './ui/slider';
+<<<<<<< HEAD
 import { HelpTooltip } from './ui/help-tooltip';
 import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
+=======
+>>>>>>> integration-branch
 import {
   Bell,
   AlertTriangle,
@@ -27,10 +34,15 @@ import {
 import apiClient from '../api/client';
 import { SystemMetrics } from '../api/types';
 import { toast } from 'sonner';
+<<<<<<< HEAD
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { useTenant } from '@/layout/LayoutProvider';
 import type { Alert } from '@/api/types';
+=======
+
+import { useTenant } from '@/layout/LayoutProvider';
+>>>>>>> integration-branch
 
 interface AlertsPageProps {
   selectedTenant?: string;
@@ -49,18 +61,89 @@ interface AlertRule {
   description: string;
 }
 
+<<<<<<< HEAD
 
 // Alert rules will be loaded from backend API
+=======
+interface Alert {
+  id: string;
+  rule_id: string;
+  rule_name: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  message: string;
+  current_value: number;
+  threshold: number;
+  triggered_at: string;
+  resolved_at?: string;
+  acknowledged: boolean;
+}
+
+const DEFAULT_ALERT_RULES: AlertRule[] = [
+  {
+    id: 'rule-1',
+    name: 'High Memory Usage',
+    enabled: true,
+    metric: 'memory_usage_pct',
+    condition: 'gt',
+    threshold: 85,
+    duration_seconds: 300,
+    severity: 'high',
+    notification_channels: ['dashboard', 'log'],
+    description: 'Alert when memory usage exceeds 85% for 5 minutes'
+  },
+  {
+    id: 'rule-2',
+    name: 'High Latency',
+    enabled: true,
+    metric: 'latency_p95_ms',
+    condition: 'gt',
+    threshold: 24,
+    duration_seconds: 60,
+    severity: 'medium',
+    notification_channels: ['dashboard'],
+    description: 'Alert when P95 latency exceeds 24ms for 1 minute'
+  },
+  {
+    id: 'rule-3',
+    name: 'Low Tokens/Second',
+    enabled: true,
+    metric: 'tokens_per_second',
+    condition: 'lt',
+    threshold: 10,
+    duration_seconds: 120,
+    severity: 'medium',
+    notification_channels: ['dashboard'],
+    description: 'Alert when token throughput drops below 10/s'
+  },
+  {
+    id: 'rule-4',
+    name: 'Adapter Capacity',
+    enabled: true,
+    metric: 'adapter_count',
+    condition: 'gt',
+    threshold: 256,
+    duration_seconds: 0,
+    severity: 'high',
+    notification_channels: ['dashboard', 'log'],
+    description: 'Alert when adapter count exceeds capacity'
+  }
+];
+>>>>>>> integration-branch
 
 export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const { selectedTenant } = useTenant();
   const effectiveTenant = tenantProp ?? selectedTenant;
+<<<<<<< HEAD
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+=======
+  const [alertRules, setAlertRules] = useState<AlertRule[]>(DEFAULT_ALERT_RULES);
+>>>>>>> integration-branch
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+<<<<<<< HEAD
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const CHANNEL_OPTIONS = ['dashboard', 'log', 'slack', 'pagerduty'] as const;
 
@@ -90,6 +173,57 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       if (!rule.enabled) return;
 
       const metricValue = currentMetrics[rule.metric as keyof SystemMetrics] as number | undefined;
+=======
+
+  useEffect(() => {
+    loadAlerts();
+    loadMetrics();
+
+    // Poll metrics every 2 seconds for instant updates
+    const interval = setInterval(loadMetrics, 2000);
+    return () => clearInterval(interval);
+  }, [selectedTenant]);
+
+  useEffect(() => {
+    // Evaluate alert rules when metrics update
+    if (metrics) {
+      evaluateAlertRules(metrics);
+    }
+  }, [metrics, alertRules]);
+
+  const loadAlerts = () => {
+    // Mock alerts (in production, load from backend)
+    const mockAlerts: Alert[] = [
+      {
+        id: 'alert-1',
+        rule_id: 'rule-1',
+        rule_name: 'High Memory Usage',
+        severity: 'high',
+        message: 'Memory usage at 87% for 5 minutes',
+        current_value: 87,
+        threshold: 85,
+        triggered_at: new Date(Date.now() - 300000).toISOString(),
+        acknowledged: false
+      }
+    ];
+    setAlerts(mockAlerts);
+  };
+
+  const loadMetrics = async () => {
+    try {
+      const metricsData = await apiClient.getSystemMetrics();
+      setMetrics(metricsData);
+    } catch (error) {
+      console.error('Failed to load metrics:', error);
+    }
+  };
+
+  const evaluateAlertRules = (currentMetrics: SystemMetrics) => {
+    alertRules.forEach(rule => {
+      if (!rule.enabled) return;
+
+      const metricValue = (currentMetrics as any)[rule.metric];
+>>>>>>> integration-branch
       if (metricValue === undefined) return;
 
       let shouldAlert = false;
@@ -108,6 +242,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       if (shouldAlert) {
         // Check if alert already exists
         const existingAlert = alerts.find(
+<<<<<<< HEAD
           a => a.rule_id === rule.id && !a.resolved_at && a.status === 'active'
         );
         if (!existingAlert) {
@@ -545,6 +680,54 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       }, toError(error));
       toast.error('Failed to save alert rule');
     }
+=======
+          a => a.rule_id === rule.id && !a.resolved_at
+        );
+        if (!existingAlert) {
+          const newAlert: Alert = {
+            id: `alert-${Date.now()}`,
+            rule_id: rule.id,
+            rule_name: rule.name,
+            severity: rule.severity,
+            message: `${rule.name}: ${metricValue} ${rule.condition === 'gt' ? '>' : rule.condition === 'lt' ? '<' : '='} ${rule.threshold}`,
+            current_value: metricValue,
+            threshold: rule.threshold,
+            triggered_at: new Date().toISOString(),
+            acknowledged: false
+          };
+          setAlerts(prev => [newAlert, ...prev]);
+        }
+      }
+    });
+  };
+
+  const handleToggleRule = (ruleId: string) => {
+    setAlertRules(prev =>
+      prev.map(rule =>
+        rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule
+      )
+    );
+    toast.success('Alert rule updated');
+  };
+
+  const handleDeleteRule = (ruleId: string) => {
+    setAlertRules(prev => prev.filter(rule => rule.id !== ruleId));
+    toast.success('Alert rule deleted');
+  };
+
+  const handleSaveRule = (rule: AlertRule) => {
+    if (isCreatingRule) {
+      setAlertRules(prev => [...prev, { ...rule, id: `rule-${Date.now()}` }]);
+      toast.success('Alert rule created');
+    } else {
+      setAlertRules(prev =>
+        prev.map(r => (r.id === rule.id ? rule : r))
+      );
+      toast.success('Alert rule updated');
+    }
+    setEditingRule(null);
+    setIsCreatingRule(false);
+>>>>>>> integration-branch
   };
 
   const handleAcknowledgeAlert = (alertId: string) => {
@@ -584,6 +767,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
   const activeAlerts = alerts.filter(a => !a.resolved_at);
   const criticalAlerts = activeAlerts.filter(a => a.severity === 'critical').length;
+<<<<<<< HEAD
   const unacknowledgedAlerts = activeAlerts.filter(a => !(a.acknowledged_by || a.acknowledged_at)).length;
 
   return (
@@ -591,6 +775,12 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       {/* Error Recovery */}
       {errorRecovery}
 
+=======
+  const unacknowledgedAlerts = activeAlerts.filter(a => !a.acknowledged).length;
+
+  return (
+    <div className="space-y-6">
+>>>>>>> integration-branch
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -713,18 +903,30 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                       className={`
                         p-4 border-2 rounded-lg
                         ${getSeverityColor(alert.severity)}
+<<<<<<< HEAD
                         ${(alert.acknowledged_by || alert.acknowledged_at) ? 'opacity-60' : ''}
+=======
+                        ${alert.acknowledged ? 'opacity-60' : ''}
+>>>>>>> integration-branch
                       `}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <AlertTriangle className="w-5 h-5" />
+<<<<<<< HEAD
                             <span className="font-semibold">{alert.title}</span>
                             <Badge variant="outline">
                               {alert.severity.toUpperCase()}
                             </Badge>
                             {(alert.acknowledged_by || alert.acknowledged_at) && (
+=======
+                            <span className="font-semibold">{alert.rule_name}</span>
+                            <Badge variant="outline">
+                              {alert.severity.toUpperCase()}
+                            </Badge>
+                            {alert.acknowledged && (
+>>>>>>> integration-branch
                               <Badge variant="outline" className="bg-blue-50">
                                 Acknowledged
                               </Badge>
@@ -732,6 +934,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                           </div>
                           <p className="text-sm mb-2">{alert.message}</p>
                           <div className="flex items-center gap-4 text-xs">
+<<<<<<< HEAD
                             {alert.metric_value !== undefined && (
                               <span>
                                 Current: {alert.metric_value}
@@ -744,11 +947,25 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                             )}
                             <span>
                               Created: {new Date(alert.created_at).toLocaleString()}
+=======
+                            <span>
+                              Current: {alert.current_value}
+                            </span>
+                            <span>
+                              Threshold: {alert.threshold}
+                            </span>
+                            <span>
+                              Triggered: {new Date(alert.triggered_at).toLocaleString()}
+>>>>>>> integration-branch
                             </span>
                           </div>
                         </div>
                         <div className="flex gap-2">
+<<<<<<< HEAD
                           {!(alert.acknowledged_by || alert.acknowledged_at) && (
+=======
+                          {!alert.acknowledged && (
+>>>>>>> integration-branch
                             <Button
                               size="sm"
                               variant="outline"
@@ -775,6 +992,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
         {/* Alert Rules */}
         <TabsContent value="rules" className="space-y-4">
+<<<<<<< HEAD
           {isLoadingRules && (
             <Card>
               <CardContent className="pt-6">
@@ -785,6 +1003,8 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
               </CardContent>
             </Card>
           )}
+=======
+>>>>>>> integration-branch
           {(editingRule || isCreatingRule) && (
             <Card>
               <CardHeader>
@@ -877,6 +1097,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                   </div>
                 </div>
 
+<<<<<<< HEAD
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label>Notification Channels</Label>
@@ -909,6 +1130,8 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                 </div>
               </div>
 
+=======
+>>>>>>> integration-branch
                 <div className="space-y-2">
                   <Label htmlFor="rule-severity">Severity</Label>
                   <select
@@ -973,6 +1196,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                           <Badge variant="outline">
                             {rule.severity}
                           </Badge>
+<<<<<<< HEAD
                               {rule.notification_channels && rule.notification_channels.length > 0 && (
                                 <span className="flex gap-1 flex-wrap">
                                   {rule.notification_channels.map((ch) => (
@@ -980,6 +1204,8 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                                   ))}
                                 </span>
                               )}
+=======
+>>>>>>> integration-branch
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">
                           {rule.description}

@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! End-to-end test for Cursor IDE integration
 //!
 //! Tests the complete code intelligence workflow:
@@ -11,8 +14,12 @@
 //! 6. Validate evidence-grounded response
 
 use adapteros_db::Db;
+<<<<<<< HEAD
 use adapteros_orchestrator::code_jobs::PathsConfig;
 use adapteros_orchestrator::{CodeJobManager, OrchestratorConfig};
+=======
+use adapteros_orchestrator::CodeJobManager;
+>>>>>>> integration-branch
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,6 +33,7 @@ async fn test_cursor_workflow_e2e() -> anyhow::Result<()> {
     let artifact_path = PathBuf::from("var/artifacts");
     tokio::fs::create_dir_all(&artifact_path).await?;
 
+<<<<<<< HEAD
     let paths_config = PathsConfig {
         artifacts_dir: artifact_path.to_string_lossy().into_owned(),
         temp_dir: std::env::temp_dir().display().to_string(),
@@ -38,6 +46,9 @@ async fn test_cursor_workflow_e2e() -> anyhow::Result<()> {
         paths_config,
         OrchestratorConfig::default(),
     ));
+=======
+    let code_job_manager = Arc::new(CodeJobManager::new(db.clone(), artifact_path));
+>>>>>>> integration-branch
 
     // 1. Register test repository
     let test_repo_path = std::env::current_dir()?;

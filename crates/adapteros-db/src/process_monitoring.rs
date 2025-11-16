@@ -10,10 +10,8 @@
 //! - Notification tracking
 
 use adapteros_core::{AosError, Result};
-use chrono;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
-use uuid;
 
 // ===== Type Definitions =====
 
@@ -157,21 +155,6 @@ pub struct MonitoringNotification {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessMonitoringReport {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub tenant_id: String,
-    pub report_type: String,
-    pub report_config: serde_json::Value,
-    pub generated_at: chrono::DateTime<chrono::Utc>,
-    pub report_data: Option<serde_json::Value>,
-    pub file_path: Option<String>,
-    pub file_size_bytes: Option<i64>,
-    pub created_by: Option<String>,
-}
-
 // ===== Enums =====
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,7 +177,7 @@ pub enum ThresholdOperator {
     Lte,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AlertSeverity {
     Info,
@@ -272,20 +255,6 @@ pub struct AlertFilters {
     pub limit: Option<i64>,
 }
 
-impl Default for AlertFilters {
-    fn default() -> Self {
-        Self {
-            tenant_id: None,
-            worker_id: None,
-            status: None,
-            severity: None,
-            start_time: None,
-            end_time: None,
-            limit: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct AnomalyFilters {
     pub tenant_id: Option<String>,
@@ -340,7 +309,7 @@ impl ProcessMonitoringRule {
             .escalation_rules
             .map(|v| serde_json::to_string(&v).unwrap());
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_monitoring_rules (
                 id, name, description, tenant_id, rule_type, metric_name,
@@ -348,22 +317,22 @@ impl ProcessMonitoringRule {
                 cooldown_seconds, is_active, notification_channels, escalation_rules, created_by
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-            id,
-            rule.name,
-            rule.description,
-            rule.tenant_id,
-            rule_type_str,
-            rule.metric_name,
-            rule.threshold_value,
-            threshold_operator_str,
-            severity_str,
-            rule.evaluation_window_seconds,
-            rule.cooldown_seconds,
-            rule.is_active,
-            notification_channels_str,
-            escalation_rules_str,
-            rule.created_by
         )
+        .bind(&id)
+        .bind(&rule.name)
+        .bind(&rule.description)
+        .bind(&rule.tenant_id)
+        .bind(&rule_type_str)
+        .bind(&rule.metric_name)
+        .bind(&rule.threshold_value)
+        .bind(&threshold_operator_str)
+        .bind(&severity_str)
+        .bind(&rule.evaluation_window_seconds)
+        .bind(&rule.cooldown_seconds)
+        .bind(&rule.is_active)
+        .bind(&notification_channels_str)
+        .bind(&escalation_rules_str)
+        .bind(&rule.created_by)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create monitoring rule: {}", e)))?;
@@ -496,7 +465,8 @@ impl ProcessMonitoringRule {
 
     /// Delete a monitoring rule
     pub async fn delete(pool: &SqlitePool, id: &str) -> Result<()> {
-        sqlx::query!("DELETE FROM process_monitoring_rules WHERE id = ?", id)
+        sqlx::query("DELETE FROM process_monitoring_rules WHERE id = ?")
+            .bind(id)
             .execute(pool)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete monitoring rule: {}", e)))?;
@@ -511,20 +481,20 @@ impl ProcessHealthMetric {
         let id = uuid::Uuid::now_v7().to_string();
 
         let tags_json = metric.tags.map(|v| serde_json::to_string(&v).unwrap());
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_health_metrics (
                 id, worker_id, tenant_id, metric_name, metric_value, metric_unit, tags
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             "#,
-            id,
-            metric.worker_id,
-            metric.tenant_id,
-            metric.metric_name,
-            metric.metric_value,
-            metric.metric_unit,
-            tags_json
         )
+        .bind(&id)
+        .bind(&metric.worker_id)
+        .bind(&metric.tenant_id)
+        .bind(&metric.metric_name)
+        .bind(&metric.metric_value)
+        .bind(&metric.metric_unit)
+        .bind(&tags_json)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert health metric: {}", e)))?;
@@ -674,25 +644,25 @@ impl ProcessAlert {
         let severity_str = alert.severity.to_string();
         let status_str = alert.status.to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_alerts (
                 id, rule_id, worker_id, tenant_id, alert_type, severity,
                 title, message, metric_value, threshold_value, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-            id,
-            alert.rule_id,
-            alert.worker_id,
-            alert.tenant_id,
-            alert.alert_type,
-            severity_str,
-            alert.title,
-            alert.message,
-            alert.metric_value,
-            alert.threshold_value,
-            status_str
         )
+        .bind(&id)
+        .bind(&alert.rule_id)
+        .bind(&alert.worker_id)
+        .bind(&alert.tenant_id)
+        .bind(&alert.alert_type)
+        .bind(&severity_str)
+        .bind(&alert.title)
+        .bind(&alert.message)
+        .bind(&alert.metric_value)
+        .bind(&alert.threshold_value)
+        .bind(&status_str)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create alert: {}", e)))?;
@@ -823,63 +793,6 @@ impl ProcessAlert {
 
         Ok(())
     }
-
-    /// Get a specific alert by ID
-    pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ProcessAlert>> {
-        let row = sqlx::query(
-            r#"
-            SELECT * FROM process_alerts WHERE id = ?
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get alert: {}", e)))?;
-
-        if let Some(row) = row {
-            Ok(Some(ProcessAlert {
-                id: row.get("id"),
-                rule_id: row.get("rule_id"),
-                worker_id: row.get("worker_id"),
-                tenant_id: row.get("tenant_id"),
-                alert_type: row.get("alert_type"),
-                severity: AlertSeverity::from_string(row.get("severity")),
-                title: row.get("title"),
-                message: row.get("message"),
-                metric_value: row.get("metric_value"),
-                threshold_value: row.get("threshold_value"),
-                status: AlertStatus::from_string(row.get("status")),
-                acknowledged_by: row.get("acknowledged_by"),
-                acknowledged_at: row
-                    .get::<Option<String>, _>("acknowledged_at")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
-                resolved_at: row
-                    .get::<Option<String>, _>("resolved_at")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
-                suppression_reason: row.get("suppression_reason"),
-                suppression_until: row
-                    .get::<Option<String>, _>("suppression_until")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
-                escalation_level: row.get("escalation_level"),
-                notification_sent: row.get("notification_sent"),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("created_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-                updated_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("updated_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid updated_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
 }
 
 impl ProcessAnomaly {
@@ -890,7 +803,7 @@ impl ProcessAnomaly {
         let severity_str = anomaly.severity.to_string();
         let status_str = anomaly.status.to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO process_anomalies (
                 id, worker_id, tenant_id, anomaly_type, metric_name, detected_value,
@@ -898,21 +811,21 @@ impl ProcessAnomaly {
                 description, detection_method, model_version, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-            id,
-            anomaly.worker_id,
-            anomaly.tenant_id,
-            anomaly.anomaly_type,
-            anomaly.metric_name,
-            anomaly.detected_value,
-            anomaly.expected_range_min,
-            anomaly.expected_range_max,
-            anomaly.confidence_score,
-            severity_str,
-            anomaly.description,
-            anomaly.detection_method,
-            anomaly.model_version,
-            status_str
         )
+        .bind(&id)
+        .bind(&anomaly.worker_id)
+        .bind(&anomaly.tenant_id)
+        .bind(&anomaly.anomaly_type)
+        .bind(&anomaly.metric_name)
+        .bind(&anomaly.detected_value)
+        .bind(&anomaly.expected_range_min)
+        .bind(&anomaly.expected_range_max)
+        .bind(&anomaly.confidence_score)
+        .bind(&severity_str)
+        .bind(&anomaly.description)
+        .bind(&anomaly.detection_method)
+        .bind(&anomaly.model_version)
+        .bind(&status_str)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert anomaly: {}", e)))?;
@@ -997,88 +910,6 @@ impl ProcessAnomaly {
 
         Ok(anomalies)
     }
-
-    /// Update anomaly status and investigation details
-    pub async fn update_status(
-        pool: &SqlitePool,
-        id: &str,
-        status: AnomalyStatus,
-        investigated_by: Option<&str>,
-        investigation_notes: Option<&str>,
-    ) -> Result<()> {
-        let mut query = "UPDATE process_anomalies SET status = ?".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> =
-            vec![Box::new(status.to_string())];
-
-        if let Some(user) = investigated_by {
-            query.push_str(", investigated_by = ?");
-            params.push(Box::new(user.to_string()));
-        }
-
-        if let Some(notes) = investigation_notes {
-            query.push_str(", investigation_notes = ?");
-            params.push(Box::new(notes.to_string()));
-        }
-
-        if matches!(status, AnomalyStatus::Resolved) {
-            query.push_str(", resolved_at = CURRENT_TIMESTAMP");
-        }
-
-        query.push_str(" WHERE id = ?");
-        params.push(Box::new(id.to_string()));
-
-        sqlx::query(&query)
-            .execute(pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Get a specific anomaly by ID
-    pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ProcessAnomaly>> {
-        let row = sqlx::query(
-            r#"
-            SELECT * FROM process_anomalies WHERE id = ?
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get anomaly: {}", e)))?;
-
-        if let Some(row) = row {
-            Ok(Some(ProcessAnomaly {
-                id: row.get("id"),
-                worker_id: row.get("worker_id"),
-                tenant_id: row.get("tenant_id"),
-                anomaly_type: row.get("anomaly_type"),
-                metric_name: row.get("metric_name"),
-                detected_value: row.get("detected_value"),
-                expected_range_min: row.get("expected_range_min"),
-                expected_range_max: row.get("expected_range_max"),
-                confidence_score: row.get("confidence_score"),
-                severity: AlertSeverity::from_string(row.get("severity")),
-                description: row.get("description"),
-                detection_method: row.get("detection_method"),
-                model_version: row.get("model_version"),
-                status: AnomalyStatus::from_string(row.get("status")),
-                investigated_by: row.get("investigated_by"),
-                investigation_notes: row.get("investigation_notes"),
-                resolved_at: row
-                    .get::<Option<String>, _>("resolved_at")
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc)),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.get::<String, _>("created_at"),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
 }
 
 impl PerformanceBaseline {
@@ -1087,33 +918,40 @@ impl PerformanceBaseline {
         let baseline_type_str = baseline.baseline_type.to_string();
         let expires_at_str = baseline.expires_at.map(|dt| dt.to_rfc3339());
 
-        sqlx::query!(
+        // First, try to get existing ID if any
+        let existing_id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM process_performance_baselines WHERE worker_id = ? AND metric_name = ? AND is_active = true"
+        )
+        .bind(&baseline.worker_id)
+        .bind(&baseline.metric_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to check existing baseline: {}", e)))?;
+
+        let id = existing_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+
+        sqlx::query(
             r#"
             INSERT OR REPLACE INTO process_performance_baselines (
                 id, worker_id, tenant_id, metric_name, baseline_value, baseline_type,
                 calculation_period_days, confidence_interval, standard_deviation,
                 percentile_95, percentile_99, is_active, calculated_at, expires_at
-            ) VALUES (
-                (SELECT id FROM process_performance_baselines 
-                 WHERE worker_id = ? AND metric_name = ? AND is_active = true),
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?
-            )
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
             "#,
-            baseline.worker_id,
-            baseline.metric_name,
-            baseline.worker_id,
-            baseline.tenant_id,
-            baseline.metric_name,
-            baseline.baseline_value,
-            baseline_type_str,
-            baseline.calculation_period_days,
-            baseline.confidence_interval,
-            baseline.standard_deviation,
-            baseline.percentile_95,
-            baseline.percentile_99,
-            baseline.is_active,
-            expires_at_str
         )
+        .bind(&id)
+        .bind(&baseline.worker_id)
+        .bind(&baseline.tenant_id)
+        .bind(&baseline.metric_name)
+        .bind(&baseline.baseline_value)
+        .bind(&baseline_type_str)
+        .bind(&baseline.calculation_period_days)
+        .bind(&baseline.confidence_interval)
+        .bind(&baseline.standard_deviation)
+        .bind(&baseline.percentile_95)
+        .bind(&baseline.percentile_99)
+        .bind(&baseline.is_active)
+        .bind(&expires_at_str)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to upsert baseline: {}", e)))?;
@@ -1127,35 +965,58 @@ impl PerformanceBaseline {
         worker_id: &str,
         metric_name: &str,
     ) -> Result<Option<PerformanceBaseline>> {
-        let row = sqlx::query!(
-            "SELECT * FROM process_performance_baselines WHERE worker_id = ? AND metric_name = ? AND is_active = true",
-            worker_id,
-            metric_name
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,         // id
+                String,         // worker_id
+                String,         // tenant_id
+                String,         // metric_name
+                f64,            // baseline_value
+                String,         // baseline_type
+                i64,            // calculation_period_days
+                Option<f64>,    // confidence_interval
+                Option<f64>,    // standard_deviation
+                Option<f64>,    // percentile_95
+                Option<f64>,    // percentile_99
+                bool,           // is_active
+                String,         // calculated_at
+                Option<String>, // expires_at
+            ),
+        >(
+            "SELECT id, worker_id, tenant_id, metric_name, baseline_value, baseline_type,
+             calculation_period_days, confidence_interval, standard_deviation,
+             percentile_95, percentile_99, is_active, calculated_at, expires_at
+             FROM process_performance_baselines
+             WHERE worker_id = ? AND metric_name = ? AND is_active = true",
         )
+        .bind(worker_id)
+        .bind(metric_name)
         .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get baseline: {}", e)))?;
 
         if let Some(row) = row {
             Ok(Some(PerformanceBaseline {
-                id: row.id.unwrap_or_default(),
-                worker_id: row.worker_id,
-                tenant_id: row.tenant_id,
-                metric_name: row.metric_name,
-                baseline_value: row.baseline_value,
-                baseline_type: BaselineType::from_string(row.baseline_type),
-                calculation_period_days: row.calculation_period_days,
-                confidence_interval: row.confidence_interval,
-                standard_deviation: row.standard_deviation,
-                percentile_95: row.percentile_95,
-                percentile_99: row.percentile_99,
-                is_active: row.is_active,
-                calculated_at: chrono::DateTime::parse_from_rfc3339(
-                    &row.calculated_at.unwrap_or_default().to_string(),
-                )
-                .map_err(|e| AosError::Database(format!("Invalid calculated_at: {}", e)))?
-                .with_timezone(&chrono::Utc),
-                expires_at: row.expires_at.map(|dt| dt.and_utc()),
+                id: row.0,
+                worker_id: row.1,
+                tenant_id: row.2,
+                metric_name: row.3,
+                baseline_value: row.4,
+                baseline_type: BaselineType::from_string(row.5),
+                calculation_period_days: row.6,
+                confidence_interval: row.7,
+                standard_deviation: row.8,
+                percentile_95: row.9,
+                percentile_99: row.10,
+                is_active: row.11,
+                calculated_at: chrono::DateTime::parse_from_rfc3339(&row.12)
+                    .map_err(|e| AosError::Database(format!("Invalid calculated_at: {}", e)))?
+                    .with_timezone(&chrono::Utc),
+                expires_at: row
+                    .13
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc)),
             }))
         } else {
             Ok(None)
@@ -1246,218 +1107,6 @@ pub struct CreateBaselineRequest {
     pub percentile_99: Option<f64>,
     pub is_active: bool,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateDashboardRequest {
-    pub name: String,
-    pub description: Option<String>,
-    pub tenant_id: String,
-    pub dashboard_config: serde_json::Value,
-    pub is_shared: bool,
-    pub created_by: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateReportRequest {
-    pub name: String,
-    pub description: Option<String>,
-    pub tenant_id: String,
-    pub report_type: String,
-    pub report_config: serde_json::Value,
-    pub report_data: Option<serde_json::Value>,
-    pub file_path: Option<String>,
-    pub file_size_bytes: Option<i64>,
-    pub created_by: Option<String>,
-}
-
-impl MonitoringDashboard {
-    pub async fn create(pool: &SqlitePool, req: CreateDashboardRequest) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
-        let config_json = serde_json::to_string(&req.dashboard_config)
-            .map_err(|e| AosError::Database(e.to_string()))?;
-
-        sqlx::query!(
-            r#"
-            INSERT INTO process_monitoring_dashboards (
-                id, name, description, tenant_id, dashboard_config, is_shared, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            req.name,
-            req.description,
-            req.tenant_id,
-            config_json,
-            req.is_shared,
-            req.created_by
-        )
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to create dashboard: {}", e)))?;
-
-        Ok(id)
-    }
-
-    pub async fn list(
-        pool: &SqlitePool,
-        tenant_id: Option<&str>,
-        is_shared: Option<bool>,
-    ) -> Result<Vec<MonitoringDashboard>> {
-        let mut query = "SELECT * FROM process_monitoring_dashboards WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
-
-        if let Some(tenant) = tenant_id {
-            param_count += 1;
-            query.push_str(&format!(" AND tenant_id = ${}", param_count));
-            params.push(Box::new(tenant.to_string()));
-        }
-
-        if let Some(shared) = is_shared {
-            param_count += 1;
-            query.push_str(&format!(" AND is_shared = ${}", param_count));
-            params.push(Box::new(shared));
-        }
-
-        query.push_str(" ORDER BY created_at DESC");
-
-        let rows = sqlx::query(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to list dashboards: {}", e)))?;
-
-        let mut dashboards = Vec::new();
-        for row in rows {
-            let config_value = row
-                .get::<Option<String>, _>("dashboard_config")
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_else(|| serde_json::json!({}));
-
-            let created_at =
-                chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
-                    .map_err(|e| AosError::Database(format!("Invalid created_at: {}", e)))?
-                    .with_timezone(&chrono::Utc);
-
-            let updated_at =
-                chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
-                    .map_err(|e| AosError::Database(format!("Invalid updated_at: {}", e)))?
-                    .with_timezone(&chrono::Utc);
-
-            dashboards.push(MonitoringDashboard {
-                id: row.get("id"),
-                name: row.get("name"),
-                description: row.get("description"),
-                tenant_id: row.get("tenant_id"),
-                dashboard_config: config_value,
-                is_shared: row.get("is_shared"),
-                created_by: row.get("created_by"),
-                created_at,
-                updated_at,
-            });
-        }
-
-        Ok(dashboards)
-    }
-}
-
-impl ProcessMonitoringReport {
-    pub async fn create(pool: &SqlitePool, req: CreateReportRequest) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
-        let config_json = serde_json::to_string(&req.report_config)
-            .map_err(|e| AosError::Database(e.to_string()))?;
-        let data_json = req
-            .report_data
-            .as_ref()
-            .map(|v| serde_json::to_string(v))
-            .transpose()
-            .map_err(|e| AosError::Database(e.to_string()))?;
-
-        sqlx::query!(
-            r#"
-            INSERT INTO process_monitoring_reports (
-                id, name, description, tenant_id, report_type, report_config,
-                report_data, file_path, file_size_bytes, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            id,
-            req.name,
-            req.description,
-            req.tenant_id,
-            req.report_type,
-            config_json,
-            data_json,
-            req.file_path,
-            req.file_size_bytes,
-            req.created_by
-        )
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to create report: {}", e)))?;
-
-        Ok(id)
-    }
-
-    pub async fn list(
-        pool: &SqlitePool,
-        tenant_id: Option<&str>,
-        report_type: Option<&str>,
-    ) -> Result<Vec<ProcessMonitoringReport>> {
-        let mut query = "SELECT * FROM process_monitoring_reports WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
-
-        if let Some(tenant) = tenant_id {
-            param_count += 1;
-            query.push_str(&format!(" AND tenant_id = ${}", param_count));
-            params.push(Box::new(tenant.to_string()));
-        }
-
-        if let Some(rtype) = report_type {
-            param_count += 1;
-            query.push_str(&format!(" AND report_type = ${}", param_count));
-            params.push(Box::new(rtype.to_string()));
-        }
-
-        query.push_str(" ORDER BY generated_at DESC");
-
-        let rows = sqlx::query(&query)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to list reports: {}", e)))?;
-
-        let mut reports = Vec::new();
-        for row in rows {
-            let config_value = row
-                .get::<Option<String>, _>("report_config")
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_else(|| serde_json::json!({}));
-
-            let data_value = row
-                .get::<Option<String>, _>("report_data")
-                .and_then(|s| serde_json::from_str(&s).ok());
-
-            let generated_at =
-                chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("generated_at"))
-                    .map_err(|e| AosError::Database(format!("Invalid generated_at: {}", e)))?
-                    .with_timezone(&chrono::Utc);
-
-            reports.push(ProcessMonitoringReport {
-                id: row.get("id"),
-                name: row.get("name"),
-                description: row.get("description"),
-                tenant_id: row.get("tenant_id"),
-                report_type: row.get("report_type"),
-                report_config: config_value,
-                generated_at,
-                report_data: data_value,
-                file_path: row.get("file_path"),
-                file_size_bytes: row.get("file_size_bytes"),
-                created_by: row.get("created_by"),
-            });
-        }
-
-        Ok(reports)
-    }
 }
 
 // ===== Enum Implementations =====
@@ -1651,76 +1300,5 @@ impl std::fmt::Display for NotificationStatus {
             NotificationStatus::Failed => write!(f, "failed"),
             NotificationStatus::Delivered => write!(f, "delivered"),
         }
-    }
-}
-
-// ===== Database Interface =====
-
-use crate::Db;
-
-impl Db {
-    /// List process alerts with optional filters
-    pub async fn list_process_alerts(&self, filters: AlertFilters) -> Result<Vec<ProcessAlert>> {
-        ProcessAlert::list(self.pool(), filters).await
-    }
-
-    /// Update process alert status
-    pub async fn update_process_alert_status(
-        &self,
-        id: &str,
-        status: AlertStatus,
-        user: Option<&str>,
-    ) -> Result<()> {
-        ProcessAlert::update_status(self.pool(), id, status, user).await
-    }
-
-    /// Get a specific process alert by ID
-    pub async fn get_process_alert(&self, id: &str) -> Result<Option<ProcessAlert>> {
-        ProcessAlert::get_by_id(self.pool(), id).await
-    }
-
-    /// List process anomalies with optional filters
-    pub async fn list_process_anomalies(
-        &self,
-        filters: AnomalyFilters,
-    ) -> Result<Vec<ProcessAnomaly>> {
-        ProcessAnomaly::list(self.pool(), filters).await
-    }
-
-    /// Update process anomaly status
-    pub async fn update_process_anomaly_status(
-        &self,
-        id: &str,
-        status: AnomalyStatus,
-        investigated_by: Option<&str>,
-        investigation_notes: Option<&str>,
-    ) -> Result<()> {
-        ProcessAnomaly::update_status(
-            self.pool(),
-            id,
-            status,
-            investigated_by,
-            investigation_notes,
-        )
-        .await
-    }
-
-    /// Get a specific process anomaly by ID
-    pub async fn get_process_anomaly(&self, id: &str) -> Result<Option<ProcessAnomaly>> {
-        ProcessAnomaly::get_by_id(self.pool(), id).await
-    }
-
-    /// List monitoring dashboards
-    pub async fn list_monitoring_dashboards(
-        &self,
-        tenant_id: Option<&str>,
-        is_shared: Option<bool>,
-    ) -> Result<Vec<MonitoringDashboard>> {
-        MonitoringDashboard::list(self.pool(), tenant_id, is_shared).await
-    }
-
-    /// Create a monitoring dashboard
-    pub async fn create_monitoring_dashboard(&self, req: CreateDashboardRequest) -> Result<String> {
-        MonitoringDashboard::create(self.pool(), req).await
     }
 }

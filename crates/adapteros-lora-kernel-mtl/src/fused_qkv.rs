@@ -11,14 +11,13 @@
 
 use adapteros_core::{AosError, Result};
 use metal::*;
-use std::ffi::c_void;
 use std::sync::Arc;
 
-use super::ring_buffer::RawRingBuffer;
+use super::ring_buffer::RingBuffer;
+use super::AdapterWeights;
 
 /// GQA configuration
-#[repr(C)]
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GqaConfig {
     /// Number of attention heads
     pub num_attention_heads: u32,
@@ -54,8 +53,7 @@ impl Default for GqaConfig {
 }
 
 /// LoRA configuration
-#[repr(C)]
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LoraConfig {
     /// LoRA rank
     pub rank: u32,
@@ -78,61 +76,6 @@ impl Default for LoraConfig {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct AttentionPointerSet {
-    input: u64,
-    q_output: u64,
-    k_output: u64,
-    v_output: u64,
-    q_weight: u64,
-    k_weight: u64,
-    v_weight: u64,
-    q_lora_a: u64,
-    q_lora_b: u64,
-    k_lora_a: u64,
-    k_lora_b: u64,
-    v_lora_a: u64,
-    v_lora_b: u64,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct MetalAttentionParams {
-    input: u64,
-    q_output: u64,
-    k_output: u64,
-    v_output: u64,
-    q_weight: u64,
-    k_weight: u64,
-    v_weight: u64,
-    q_lora_a: u64,
-    q_lora_b: u64,
-    k_lora_a: u64,
-    k_lora_b: u64,
-    v_lora_a: u64,
-    v_lora_b: u64,
-    gqa_config: GqaConfig,
-    lora_config: LoraConfig,
-    ring_buffer: RawRingBuffer,
-    batch_size: u32,
-    max_adapters: u32,
-    _padding: [u32; 2],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MetalFlashAttentionParams {
-    q: u64,
-    k: u64,
-    v: u64,
-    output: u64,
-    gqa_config: GqaConfig,
-    batch_size: u32,
-    sequence_length: u32,
-    _padding: [u32; 2],
-}
-
 /// Fused QKV kernel with GQA support
 pub struct FusedQkvKernel {
     device: Arc<Device>,
@@ -148,7 +91,7 @@ impl FusedQkvKernel {
 
         // Load library and create pipeline
         let library = device
-            .new_library_with_data(include_bytes!("../shaders/adapteros_kernels.metallib"))
+            .new_library_with_data(include_bytes!("../shaders/mplora_kernels.metallib"))
             .map_err(|e| AosError::Kernel(format!("Failed to load library: {}", e)))?;
 
         let function = library
@@ -167,8 +110,11 @@ impl FusedQkvKernel {
         })
     }
 
-    /// Execute the fused QKV kernel
-    #[allow(clippy::too_many_arguments)]
+    /// Execute the fused QKV kernel with actual adapter weights
+    ///
+    /// # Arguments
+    /// * `adapter_weights` - Slice of references to loaded adapter weights (GPU buffers)
+    /// * `adapters` - Active adapters with IDs and Q15 gates (must match adapter_weights length)
     pub fn execute(
         &self,
         input: &Buffer,
@@ -178,79 +124,109 @@ impl FusedQkvKernel {
         q_output: &Buffer,
         k_output: &Buffer,
         v_output: &Buffer,
-        q_lora_a: &Buffer,
-        q_lora_b: &Buffer,
-        k_lora_a: &Buffer,
-        k_lora_b: &Buffer,
-        v_lora_a: &Buffer,
-        v_lora_b: &Buffer,
-        lora_config: &LoraConfig,
-        ring_state: RawRingBuffer,
-        max_adapters: u32,
-        batch_size: u32,
+        adapter_weights: &[&AdapterWeights],
+        adapters: &[super::ring_buffer::ActiveAdapter],
+        ring_buffer: &RingBuffer,
     ) -> Result<()> {
+        // Validate adapter_weights and adapters match
+        if adapter_weights.len() != adapters.len() {
+            return Err(AosError::Validation(format!(
+                "Adapter count mismatch: {} weights but {} adapters",
+                adapter_weights.len(),
+                adapters.len()
+            )));
+        }
+
         let command_buffer = self.command_queue.new_command_buffer();
 
         let encoder = command_buffer.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        let pointer_set = AttentionPointerSet {
-            input: input.contents() as *mut c_void as u64,
-            q_output: q_output.contents() as *mut c_void as u64,
-            k_output: k_output.contents() as *mut c_void as u64,
-            v_output: v_output.contents() as *mut c_void as u64,
-            q_weight: q_weight.contents() as *mut c_void as u64,
-            k_weight: k_weight.contents() as *mut c_void as u64,
-            v_weight: v_weight.contents() as *mut c_void as u64,
-            q_lora_a: q_lora_a.contents() as *mut c_void as u64,
-            q_lora_b: q_lora_b.contents() as *mut c_void as u64,
-            k_lora_a: k_lora_a.contents() as *mut c_void as u64,
-            k_lora_b: k_lora_b.contents() as *mut c_void as u64,
-            v_lora_a: v_lora_a.contents() as *mut c_void as u64,
-            v_lora_b: v_lora_b.contents() as *mut c_void as u64,
-        };
+        // Set base model weight buffers
+        encoder.set_buffer(0, Some(input), 0);
+        encoder.set_buffer(1, Some(q_weight), 0);
+        encoder.set_buffer(2, Some(k_weight), 0);
+        encoder.set_buffer(3, Some(v_weight), 0);
+        encoder.set_buffer(4, Some(q_output), 0);
+        encoder.set_buffer(5, Some(k_output), 0);
+        encoder.set_buffer(6, Some(v_output), 0);
 
-        let params = MetalAttentionParams {
-            input: pointer_set.input,
-            q_output: pointer_set.q_output,
-            k_output: pointer_set.k_output,
-            v_output: pointer_set.v_output,
-            q_weight: pointer_set.q_weight,
-            k_weight: pointer_set.k_weight,
-            v_weight: pointer_set.v_weight,
-            q_lora_a: pointer_set.q_lora_a,
-            q_lora_b: pointer_set.q_lora_b,
-            k_lora_a: pointer_set.k_lora_a,
-            k_lora_b: pointer_set.k_lora_b,
-            v_lora_a: pointer_set.v_lora_a,
-            v_lora_b: pointer_set.v_lora_b,
-            gqa_config: self.gqa_config,
-            lora_config: *lora_config,
-            ring_buffer: ring_state,
-            batch_size,
-            max_adapters,
-            _padding: [0; 2],
-        };
+        // Pass actual LoRA weight buffers to Metal shader
+        // Metal shader (aos_kernels.metal) expects buffers 8-13 for LoRA weights:
+        //   Buffer 8: q_lora_a, Buffer 9: q_lora_b
+        //   Buffer 10: k_lora_a, Buffer 11: k_lora_b
+        //   Buffer 12: v_lora_a, Buffer 13: v_lora_b
+        //
+        // Our buffer layout: [q_proj_A(0), k_proj_A(1), v_proj_A(2), mlp_down_A(3), mlp_up_A(4)]
+        //
+        // Note: The Metal shader uses a non-standard indexing scheme. For now, we pass
+        // the first adapter's weights directly. Multi-adapter support will require buffer concatenation.
 
-        let params_buffer = self.device.new_buffer_with_data(
-            &params as *const MetalAttentionParams as *const std::ffi::c_void,
-            std::mem::size_of::<MetalAttentionParams>() as u64,
+        if !adapter_weights.is_empty() {
+            let first_adapter = adapter_weights[0];
+
+            // Pass Q projection LoRA weights (index 0)
+            if first_adapter.lora_a_buffers.len() > 0 && first_adapter.lora_b_buffers.len() > 0 {
+                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[0]), 0);  // q_lora_a
+                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[0]), 0);  // q_lora_b
+            }
+
+            // Pass K projection LoRA weights (index 1)
+            if first_adapter.lora_a_buffers.len() > 1 && first_adapter.lora_b_buffers.len() > 1 {
+                encoder.set_buffer(10, Some(&first_adapter.lora_a_buffers[1]), 0); // k_lora_a
+                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[1]), 0); // k_lora_b
+            }
+
+            // Pass V projection LoRA weights (index 2)
+            if first_adapter.lora_a_buffers.len() > 2 && first_adapter.lora_b_buffers.len() > 2 {
+                encoder.set_buffer(12, Some(&first_adapter.lora_a_buffers[2]), 0); // v_lora_a
+                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[2]), 0); // v_lora_b
+            }
+        }
+
+        // Set GQA configuration (buffer 14)
+        let gqa_config_bytes =
+            serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
+        let gqa_config_buffer = self.device.new_buffer_with_data(
+            gqa_config_bytes.as_ptr() as *const std::ffi::c_void,
+            gqa_config_bytes.len() as u64,
             MTLResourceOptions::StorageModeShared,
         );
+        encoder.set_buffer(14, Some(&gqa_config_buffer), 0);
 
-        encoder.set_buffer(0, Some(&params_buffer), 0);
+        // Set LoRA configuration (buffer 15)
+        let lora_config = if adapter_weights.is_empty() {
+            LoraConfig::default()
+        } else {
+            LoraConfig {
+                rank: adapter_weights[0].rank as u32,
+                alpha: adapter_weights[0].alpha,
+                target_module: 0,
+                dropout_rate: 0.0,
+            }
+        };
 
-        // Threads cover (batch, heads, head_dim). Use 64 threads in X to tile batch.
-        let threads_per_group = MTLSize::new(64, 1, 1);
-        let groups_x = (batch_size as u64).div_ceil(threads_per_group.width);
-        let grid_groups = MTLSize::new(
-            groups_x,
+        let lora_config_bytes = serde_json::to_vec(&lora_config).map_err(AosError::Serialization)?;
+        let lora_config_buffer = self.device.new_buffer_with_data(
+            lora_config_bytes.as_ptr() as *const std::ffi::c_void,
+            lora_config_bytes.len() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        encoder.set_buffer(15, Some(&lora_config_buffer), 0);
+
+        // Set ring buffer (buffer 16)
+        encoder.set_buffer(16, ring_buffer.get_buffer().map(|v| &**v), 0);
+
+        // Calculate threadgroup size optimized for GQA
+        let threadgroup_size = MTLSize::new(32, 8, 1);
+        let grid_size = MTLSize::new(
+            input.length() / 4,
             self.gqa_config.num_attention_heads as u64,
-            self.gqa_config.head_dim as u64,
+            1,
         );
 
-        encoder.dispatch_thread_groups(grid_groups, threads_per_group);
+        encoder.dispatch_thread_groups(grid_size, threadgroup_size);
         encoder.end_encoding();
 
         command_buffer.commit();
@@ -312,62 +288,28 @@ impl FlashAttentionKernel {
 
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        // Derive tensor dimensions from buffer sizes
-        let float_elements = q.length() as usize / std::mem::size_of::<f32>();
-        let head_dim = self.gqa_config.head_dim as usize;
-        let num_heads = self.gqa_config.num_attention_heads as usize;
+        // Set buffers
+        encoder.set_buffer(0, Some(q), 0);
+        encoder.set_buffer(1, Some(k), 0);
+        encoder.set_buffer(2, Some(v), 0);
+        encoder.set_buffer(3, Some(output), 0);
 
-        let batch_size = if head_dim > 0 && num_heads > 0 {
-            let denom = num_heads * head_dim;
-            let derived = float_elements / denom;
-            if derived == 0 {
-                1
-            } else {
-                derived
-            }
-        } else {
-            1
-        };
-
-        let sequence_length = if head_dim > 0 && num_heads > 0 {
-            let denom = batch_size * num_heads * head_dim;
-            if denom == 0 {
-                1
-            } else {
-                let derived = float_elements / denom;
-                if derived == 0 {
-                    1
-                } else {
-                    derived
-                }
-            }
-        } else {
-            1
-        };
-
-        let params = MetalFlashAttentionParams {
-            q: q.contents() as *mut c_void as u64,
-            k: k.contents() as *mut c_void as u64,
-            v: v.contents() as *mut c_void as u64,
-            output: output.contents() as *mut c_void as u64,
-            gqa_config: self.gqa_config,
-            batch_size: batch_size as u32,
-            sequence_length: sequence_length as u32,
-            _padding: [0; 2],
-        };
-
-        let params_buffer = self.device.new_buffer_with_data(
-            &params as *const MetalFlashAttentionParams as *const std::ffi::c_void,
-            std::mem::size_of::<MetalFlashAttentionParams>() as u64,
+        // Set GQA configuration
+        let gqa_config_bytes =
+            serde_json::to_vec(&self.gqa_config).map_err(AosError::Serialization)?;
+        let gqa_config_buffer = self.device.new_buffer_with_data(
+            gqa_config_bytes.as_ptr() as *const std::ffi::c_void,
+            gqa_config_bytes.len() as u64,
             MTLResourceOptions::StorageModeShared,
         );
-        encoder.set_buffer(0, Some(&params_buffer), 0);
+        encoder.set_buffer(4, Some(&gqa_config_buffer), 0);
 
-        let threadgroup_size = MTLSize::new(1, 1, 1);
+        // Calculate threadgroup size
+        let threadgroup_size = MTLSize::new(16, 16, 1);
         let grid_size = MTLSize::new(
-            batch_size as u64,
-            num_heads as u64,
-            sequence_length.max(1) as u64,
+            q.length() / 4,
+            self.gqa_config.num_attention_heads as u64,
+            1,
         );
 
         encoder.dispatch_thread_groups(grid_size, threadgroup_size);

@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Cross-run consistency verification tests
 //!
 //! Verifies that identical inputs produce identical outputs across multiple runs,

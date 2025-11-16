@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-adapteros-codegraph = { path = "../adapteros-codegraph", optional = true }
+adapteros-codegraph = { path = "../adapteros-codegraph" }
 hnsw_rs = { workspace = true }
 tantivy = { workspace = true }
 serde = { workspace = true }
@@ -19,15 +19,13 @@ walkdir = "2"
 
 # SQLite + FTS5 support
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "chrono"] }
-chrono = { workspace = true }
+chrono = { version = "0.4" }
 tokio = { workspace = true, features = ["fs"] }
 
 [features]
-default = ["pgvector", "fts5", "codegraph"]
+default = ["pgvector", "fts5"]
 pgvector = []
 fts5 = []
-rag-pgvector = []
-codegraph = ["adapteros-codegraph"]
 
 [dev-dependencies]
 tempfile = "3"

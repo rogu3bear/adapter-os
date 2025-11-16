@@ -1,6 +1,5 @@
 use crate::state::AppState;
 use crate::types::*;
-use adapteros_deterministic_exec::spawn_deterministic;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -530,14 +529,12 @@ pub async fn create_commit_delta(
     // Spawn background task
     if let Some(ref code_job_manager) = state.code_job_manager {
         let manager = code_job_manager.clone();
-        let tenant_id = req.tenant_id.clone();
         let repo_id = req.repo_id.clone();
         let base = req.base_commit.clone();
         let head = req.head_commit.clone();
 
-        let _ = spawn_deterministic("Commit Delta Job".to_string(), async move {
+        tokio::spawn(async move {
             let job = adapteros_orchestrator::CommitDeltaJob {
-                tenant_id,
                 repo_id,
                 base_commit: base,
                 head_commit: head,

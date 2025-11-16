@@ -11,14 +11,11 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-numerics = { path = "../adapteros-numerics" }
-adapteros-manifest = { path = "../adapteros-manifest" }
-metal = "0.24"
-foreign-types-shared = "0.1.1"
+metal = { workspace = true }
 objc = { workspace = true }
 cocoa = { workspace = true }
 core-foundation = { workspace = true }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 bincode = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
@@ -28,9 +25,8 @@ base64 = "0.22"
 hex = { workspace = true }
 rand = { workspace = true }
 half = "2.4"
-safetensors = "0.4"
+safetensors = { workspace = true }
 memmap2 = "0.9"
-blake3 = "1.5"
 
 [build-dependencies]
 blake3 = "1.5"

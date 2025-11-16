@@ -7,39 +7,26 @@
 //! - Policy Pack #1-20: All policy packs enforced through unified interface
 //! - CLAUDE.md L142: "Policy Engine: Enforces 20 policy packs"
 
-use crate::policy_packs::{
-    PolicyViolation as PackPolicyViolation, PolicyWarning as PackPolicyWarning,
-};
 use adapteros_core::Result;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{error, info};
 
-pub use crate::policy_packs::ViolationSeverity;
-pub type PolicyViolation = PackPolicyViolation;
-pub type PolicyWarning = PackPolicyWarning;
-
 /// Unified policy enforcement interface
 pub trait PolicyEnforcer {
     /// Validate a request against all applicable policies
-    #[allow(async_fn_in_trait)]
     async fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult>;
 
     /// Check if an operation is allowed
-    #[allow(async_fn_in_trait)]
     async fn is_operation_allowed(&self, operation: &Operation) -> Result<bool>;
 
     /// Get policy violations for an operation
-    #[allow(async_fn_in_trait)]
     async fn get_violations(&self, operation: &Operation) -> Result<Vec<PolicyViolation>>;
 
     /// Apply policy enforcement to an operation
-    #[allow(async_fn_in_trait)]
     async fn enforce_policy(&self, operation: &Operation) -> Result<PolicyEnforcementResult>;
 
     /// Get policy compliance report
-    #[allow(async_fn_in_trait)]
     async fn get_compliance_report(&self) -> Result<PolicyComplianceReport>;
 }
 
@@ -88,15 +75,6 @@ pub enum RequestType {
 
     /// User operation
     UserOperation,
-
-    /// Network operation
-    NetworkOperation,
-
-    /// File operation
-    FileOperation,
-
-    /// Database operation
-    DatabaseOperation,
 }
 
 /// Policy context
@@ -148,6 +126,60 @@ pub struct PolicyValidationResult {
 
     /// Validation duration
     pub duration_ms: u64,
+}
+
+/// Policy violation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyViolation {
+    /// Violation identifier
+    pub violation_id: String,
+
+    /// Policy pack that was violated
+    pub policy_pack: String,
+
+    /// Violation severity
+    pub severity: ViolationSeverity,
+
+    /// Violation message
+    pub message: String,
+
+    /// Violation details
+    pub details: Option<serde_json::Value>,
+
+    /// Remediation steps
+    pub remediation: Option<Vec<String>>,
+}
+
+/// Violation severity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ViolationSeverity {
+    /// Low severity
+    Low,
+
+    /// Medium severity
+    Medium,
+
+    /// High severity
+    High,
+
+    /// Critical severity
+    Critical,
+}
+
+/// Policy warning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyWarning {
+    /// Warning identifier
+    pub warning_id: String,
+
+    /// Policy pack
+    pub policy_pack: String,
+
+    /// Warning message
+    pub message: String,
+
+    /// Warning details
+    pub details: Option<serde_json::Value>,
 }
 
 /// Operation for policy enforcement
@@ -403,11 +435,10 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                     violations.push(PolicyViolation {
                         violation_id: uuid::Uuid::new_v4().to_string(),
                         policy_pack: pack_name.clone(),
-                        severity: ViolationSeverity::Error,
+                        severity: ViolationSeverity::High,
                         message: format!("Policy pack validation failed: {}", e),
                         details: None,
                         remediation: Some(vec!["Check policy pack configuration".to_string()]),
-                        timestamp: Utc::now(),
                     });
                 }
             }
@@ -429,7 +460,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
             valid,
             violations,
             warnings,
-            timestamp: Utc::now(),
+            timestamp: chrono::Utc::now(),
             duration_ms: duration.as_millis() as u64,
         })
     }
@@ -523,7 +554,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
             allowed,
             actions,
             violations: self.get_violations(operation).await?,
-            timestamp: Utc::now(),
+            timestamp: chrono::Utc::now(),
             duration_ms: duration.as_millis() as u64,
         })
     }
@@ -563,7 +594,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                     policy_pack: pack_name.clone(),
                     compliance_score,
                     violation_count,
-                    last_violation: violations.last().map(|_v| Utc::now()), // TODO: Use actual timestamp
+                    last_violation: violations.last().map(|_v| chrono::Utc::now()), // TODO: Use actual timestamp
                     status,
                 },
             );
@@ -586,7 +617,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                 .cloned()
                 .collect(),
             compliance_trends: Vec::new(), // TODO: Implement trend calculation
-            timestamp: Utc::now(),
+            timestamp: chrono::Utc::now(),
         })
     }
 }

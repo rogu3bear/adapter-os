@@ -12,12 +12,19 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { FileJson, FileText, AlertTriangle, CheckCircle, Save, X } from 'lucide-react';
+<<<<<<< HEAD
 // 【ui/src/components/PolicyEditor.tsx§1-45】 - Replace toast notifications with ErrorRecovery patterns
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
 import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
 import { PolicyPackConfig } from '../api/types';
 import { logger, toError } from '../utils/logger';
+=======
+import { toast } from 'sonner';
+import apiClient from '../api/client';
+import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
+import { PolicyPackConfig } from '../api/types';
+>>>>>>> integration-branch
 
 interface PolicyEditorProps {
   open: boolean;
@@ -41,6 +48,7 @@ export function PolicyEditor({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+<<<<<<< HEAD
   const [editorError, setEditorError] = useState<Error | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'warning' | 'info' } | null>(null);
 
@@ -48,17 +56,26 @@ export function PolicyEditor({
     if (open) {
       setEditorError(null);
       setStatusMessage(null);
+=======
+
+  useEffect(() => {
+    if (open) {
+>>>>>>> integration-branch
       if (existingPolicy) {
         try {
           const parsed = JSON.parse(existingPolicy);
           setPolicyConfig(parsed);
           setJsonContent(JSON.stringify(parsed, null, 2));
         } catch (err) {
+<<<<<<< HEAD
           logger.error('Failed to parse existing policy JSON', {
             component: 'PolicyEditor',
             operation: 'parseExistingPolicy',
             cpid: initialCpid,
           }, toError(err));
+=======
+          console.error('Failed to parse existing policy:', err);
+>>>>>>> integration-branch
           const defaultConfig = getDefaultPolicyConfig();
           setPolicyConfig(defaultConfig);
           setJsonContent(JSON.stringify(defaultConfig, null, 2));
@@ -69,7 +86,11 @@ export function PolicyEditor({
         setJsonContent(JSON.stringify(defaultConfig, null, 2));
       }
     }
+<<<<<<< HEAD
   }, [open, existingPolicy, initialCpid]);
+=======
+  }, [open, existingPolicy]);
+>>>>>>> integration-branch
 
   const updatePolicyField = (packId: string, fieldName: string, value: any) => {
     setPolicyConfig((prev) => ({
@@ -94,12 +115,17 @@ export function PolicyEditor({
         const parsed = JSON.parse(jsonContent);
         setPolicyConfig(parsed);
         setValidationErrors([]);
+<<<<<<< HEAD
         setStatusMessage(null);
       } catch (err) {
         setStatusMessage({
           message: 'Invalid JSON. Please fix the JSON before switching to form mode.',
           variant: 'warning'
         });
+=======
+      } catch (err) {
+        toast.error('Invalid JSON. Please fix the JSON before switching to form mode.');
+>>>>>>> integration-branch
         return;
       }
     }
@@ -109,14 +135,18 @@ export function PolicyEditor({
   const handleValidate = async () => {
     setIsValidating(true);
     setValidationErrors([]);
+<<<<<<< HEAD
     setEditorError(null);
     setStatusMessage(null);
+=======
+>>>>>>> integration-branch
 
     try {
       const content = mode === 'json' ? jsonContent : JSON.stringify(policyConfig);
       const result = await apiClient.validatePolicy({ policy_json: content });
 
       if (result.valid) {
+<<<<<<< HEAD
         setValidationErrors([]);
         setStatusMessage({ message: 'Policy is valid', variant: 'success' });
       } else {
@@ -125,18 +155,30 @@ export function PolicyEditor({
           message: `Policy validation failed: ${result.errors?.length || 0} issues found`,
           variant: 'warning'
         });
+=======
+        toast.success('Policy is valid');
+        setValidationErrors([]);
+      } else {
+        setValidationErrors(result.errors || []);
+        toast.error(`Policy validation failed: ${result.errors?.length} errors found`);
+>>>>>>> integration-branch
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Validation failed';
       setValidationErrors([errorMessage]);
+<<<<<<< HEAD
       const error = err instanceof Error ? err : new Error('Validation failed');
       setEditorError(error);
+=======
+      toast.error(errorMessage);
+>>>>>>> integration-branch
     } finally {
       setIsValidating(false);
     }
   };
 
   const handleSave = async () => {
+<<<<<<< HEAD
     setEditorError(null);
     setStatusMessage(null);
 
@@ -144,6 +186,10 @@ export function PolicyEditor({
       const message = 'CPID is required';
       setValidationErrors([message]);
       setStatusMessage({ message, variant: 'warning' });
+=======
+    if (!cpid.trim()) {
+      toast.error('CPID is required');
+>>>>>>> integration-branch
       return;
     }
 
@@ -156,23 +202,35 @@ export function PolicyEditor({
       const validation = await apiClient.validatePolicy({ policy_json: content });
       if (!validation.valid) {
         setValidationErrors(validation.errors || []);
+<<<<<<< HEAD
         setStatusMessage({
           message: 'Policy validation failed. Please fix errors before saving.',
           variant: 'warning'
         });
+=======
+        toast.error('Policy validation failed. Please fix errors before saving.');
+>>>>>>> integration-branch
         setIsSaving(false);
         return;
       }
 
       // Save policy
       await apiClient.createPolicy(cpid, content);
+<<<<<<< HEAD
+=======
+      toast.success(`Policy ${cpid} saved successfully`);
+>>>>>>> integration-branch
       onSave();
       onOpenChange(false);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to save policy';
+<<<<<<< HEAD
       const error = err instanceof Error ? err : new Error('Failed to save policy');
       setEditorError(error);
       setStatusMessage(null);
+=======
+      toast.error(errorMessage);
+>>>>>>> integration-branch
     } finally {
       setIsSaving(false);
     }
@@ -307,6 +365,7 @@ export function PolicyEditor({
           <DialogTitle>Policy Editor</DialogTitle>
         </DialogHeader>
 
+<<<<<<< HEAD
         <div className="space-y-3">
           {editorError && ErrorRecoveryTemplates.genericError(
             editorError,
@@ -343,6 +402,8 @@ export function PolicyEditor({
           )}
         </div>
 
+=======
+>>>>>>> integration-branch
         <div className="space-y-4">
           {/* CPID Input */}
           <div className="space-y-2">
@@ -461,3 +522,8 @@ export function PolicyEditor({
     </Dialog>
   );
 }
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> integration-branch

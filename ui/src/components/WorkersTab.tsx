@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 // 【ui/src/components/WorkersTab.tsx§64-69】 - Replace manual polling with standardized hook
+=======
+>>>>>>> integration-branch
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -7,7 +10,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+<<<<<<< HEAD
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+=======
+import { Dialog, DialogContent } from './ui/dialog';
+>>>>>>> integration-branch
 import {
   Activity,
   Play,
@@ -23,10 +30,13 @@ import apiClient from '../api/client';
 import { WorkerResponse, Node, Plan } from '../api/types';
 import { SpawnWorkerModal } from './SpawnWorkerModal';
 import { ProcessDebugger } from './ProcessDebugger';
+<<<<<<< HEAD
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+=======
+>>>>>>> integration-branch
 
 interface WorkersTabProps {
   selectedTenant: string;
@@ -35,6 +45,7 @@ interface WorkersTabProps {
 export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   const [workers, setWorkers] = useState<WorkerResponse[]>([]);
   const [filteredWorkers, setFilteredWorkers] = useState<WorkerResponse[]>([]);
+<<<<<<< HEAD
   const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [debugWorkerId, setDebugWorkerId] = useState<string | null>(null);
   const [hotSwapOpen, setHotSwapOpen] = useState(false);
@@ -87,6 +98,37 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     setFilteredWorkers(workersData);
     setError(null);
   }, [workersData]);
+=======
+  const [loading, setLoading] = useState(true);
+  const [showSpawnModal, setShowSpawnModal] = useState(false);
+  const [debugWorkerId, setDebugWorkerId] = useState<string | null>(null);
+  
+  // Filters
+  const [filterTenant, setFilterTenant] = useState<string>('');
+  const [filterNode, setFilterNode] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
+
+  const fetchWorkers = async () => {
+    try {
+      setLoading(true);
+      const data = await apiClient.listWorkers(selectedTenant || undefined);
+      setWorkers(data);
+      setFilteredWorkers(data);
+    } catch (error) {
+      console.error('Failed to fetch workers:', error);
+      toast.error('Failed to load workers');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWorkers();
+    // Poll every 1 second for instant updates
+    const interval = setInterval(fetchWorkers, 1000);
+    return () => clearInterval(interval);
+  }, [selectedTenant]);
+>>>>>>> integration-branch
 
   useEffect(() => {
     // Apply filters
@@ -98,7 +140,11 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     if (filterNode) {
       filtered = filtered.filter((w) => w.node_id.includes(filterNode));
     }
+<<<<<<< HEAD
     if (filterStatus && filterStatus !== 'all') {
+=======
+    if (filterStatus) {
+>>>>>>> integration-branch
       filtered = filtered.filter((w) => w.status === filterStatus);
     }
 
@@ -109,6 +155,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     try {
       await apiClient.stopWorker(workerId, force);
       toast.success(`Worker ${workerId} stopped`);
+<<<<<<< HEAD
       await refreshWorkers();
     } catch (error) {
       logger.error('Failed to stop worker', {
@@ -117,6 +164,11 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         workerId,
         force,
       }, toError(error));
+=======
+      await fetchWorkers();
+    } catch (error) {
+      console.error('Failed to stop worker:', error);
+>>>>>>> integration-branch
       toast.error(error instanceof Error ? error.message : 'Failed to stop worker');
     }
   };
@@ -156,6 +208,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     }
   };
 
+<<<<<<< HEAD
   if (error) {
     return (
       <ErrorRecovery
@@ -174,6 +227,8 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     );
   }
 
+=======
+>>>>>>> integration-branch
   if (loading && workers.length === 0) {
     return <div className="text-center p-8">Loading workers...</div>;
   }
@@ -187,10 +242,16 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
           <p className="text-sm text-muted-foreground">
             Manage worker processes across compute nodes
           </p>
+<<<<<<< HEAD
           {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refreshWorkers()}>
+=======
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={fetchWorkers}>
+>>>>>>> integration-branch
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -198,9 +259,12 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
             <Play className="h-4 w-4 mr-2" />
             Spawn Worker
           </Button>
+<<<<<<< HEAD
           <Button variant="outline" onClick={() => setHotSwapOpen(true)}>
             Hot-swap
           </Button>
+=======
+>>>>>>> integration-branch
         </div>
       </div>
 
@@ -239,7 +303,11 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
+<<<<<<< HEAD
                   <SelectItem value="all">All</SelectItem>
+=======
+                  <SelectItem value="">All</SelectItem>
+>>>>>>> integration-branch
                   <SelectItem value="starting">Starting</SelectItem>
                   <SelectItem value="ready">Ready</SelectItem>
                   <SelectItem value="busy">Busy</SelectItem>
@@ -354,6 +422,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         onSuccess={fetchWorkers}
       />
 
+<<<<<<< HEAD
       {/* Hot-swap Dialog */}
       <Dialog open={hotSwapOpen} onOpenChange={setHotSwapOpen}>
         <DialogContent>
@@ -389,6 +458,8 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         </DialogContent>
       </Dialog>
 
+=======
+>>>>>>> integration-branch
       {/* Process Debugger Modal */}
       {debugWorkerId && (
         <Dialog open={!!debugWorkerId} onOpenChange={() => setDebugWorkerId(null)}>
@@ -405,3 +476,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   );
 }
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> integration-branch

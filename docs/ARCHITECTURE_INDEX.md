@@ -74,7 +74,11 @@ Complete index of all architecture documentation with quick navigation.
    
 2. **[Precision Diagrams § 1](architecture/precision-diagrams.md#1-system-architecture)** - Isolation model
    
+<<<<<<< HEAD
 3. **[Policy Rulesets](../CLAUDE.md)** - 22 policy packs
+=======
+3. **[Policy Rulesets](../CLAUDE.md)** - 20 policy packs
+>>>>>>> integration-branch
 
 **Time**: 2-3 hours  
 **Outcome**: Security and compliance understanding
@@ -113,7 +117,11 @@ Complete index of all architecture documentation with quick navigation.
 
 ### Legacy Diagrams (12)
 
+<<<<<<< HEAD
 Located in `runtime-diagrams.md` - Archived (not maintained)
+=======
+Located in `runtime-diagrams.md` - ⚠️ May be outdated
+>>>>>>> integration-branch
 
 ---
 
@@ -181,7 +189,11 @@ Located in `runtime-diagrams.md` - Archived (not maintained)
 ### Advanced (1+ months experience)
 
 **System Mastery**:
+<<<<<<< HEAD
 - Study all 22 policy packs
+=======
+- Study all 20 policy packs
+>>>>>>> integration-branch
 - Review all workflow diagrams
 - Read code intelligence docs
 - Understand deterministic execution
@@ -358,13 +370,21 @@ Located in `runtime-diagrams.md` - Archived (not maintained)
 **Monthly**:
 - [ ] Verify all file path references
 - [ ] Check line number accuracy
+<<<<<<< HEAD
 - [ ] Confirm archival status of legacy diagrams
+=======
+- [ ] Update outdated diagrams
+>>>>>>> integration-branch
 - [ ] Add missing components
 
 **Quarterly**:
 - [ ] Full diagram verification against code
 - [ ] Update version numbers
+<<<<<<< HEAD
 - [ ] Review legacy set (keep archived reference only)
+=======
+- [ ] Review and prune legacy diagrams
+>>>>>>> integration-branch
 - [ ] Metrics and quality check
 
 **Per Release**:
@@ -416,8 +436,12 @@ mmdc -i docs/architecture/precision-diagrams.md --dry-run
 # Validate all markdown files
 ./scripts/validate_diagrams.sh
 
+<<<<<<< HEAD
 # Crate Naming (Updated 2025-01-15)
 # All crates use "adapteros-*" prefix (updated from legacy "mplora-*")
+=======
+# Check for outdated crate names
+>>>>>>> integration-branch
 grep -r "mplora-" docs/architecture/precision-diagrams.md
 # Should return no results
 ```
@@ -574,7 +598,11 @@ docs/
 | Workflow Diagrams | ✅ Current | 2025-01-14 |
 | API Documentation | ✅ Current | 2025-01-14 |
 | Code References | ✅ Current | 2025-01-14 |
+<<<<<<< HEAD
 | Legacy Diagrams | ✅ Removed | 2025-01-15 (cleaned up) |
+=======
+| Legacy Diagrams | ⚠️ Outdated | 2025-10-09 |
+>>>>>>> integration-branch
 
 ---
 
@@ -590,3 +618,7 @@ docs/
 **Last Updated**: 2025-01-14  
 **Maintained By**: AdapterOS Team  
 **License**: MIT OR Apache-2.0
+<<<<<<< HEAD
+=======
+
+>>>>>>> integration-branch

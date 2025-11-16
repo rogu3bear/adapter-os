@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Policy Rule Testing
 //!
 //! This module tests policy rule validation, enforcement, and compliance for AdapterOS.

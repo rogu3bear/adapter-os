@@ -1,8 +1,8 @@
 # AdapterOS MLX FFI Integration
 
-**Status:** Dual-mode (real or stub)  
-**Backend:** C++ FFI with real path when MLX headers/libs are present; stub otherwise  
-**Notes:** No PyO3; fail-fast on stub when used for inference
+**Status:** Stub Implementation (MLX is Python-first framework)  
+**Backend:** C++ FFI stubs for development  
+**Production Path:** PyO3 integration (when MLX C++ API matures)
 
 ## Overview
 
@@ -32,18 +32,12 @@ AdapterOS Worker
 
 ### Build Configuration
 
-The `build.rs` script auto-detects MLX and emits cfgs:
+The `build.rs` script generates stub bindings and placeholder implementations:
 
-- `mlx_real` when MLX C++ headers are found (links `-lmlx`) and defines `-DMLX_HAVE_REAL_API`
-- `mlx_stub` when headers are not found or `MLX_FORCE_STUB=1` is set
-
-Environment variable precedence (highest to lowest):
-
-1. `MLX_INCLUDE_DIR` and `MLX_LIB_DIR`
-2. `MLX_PATH` (uses `MLX_PATH/include` and `MLX_PATH/lib`)
-3. Default: `/opt/homebrew/include` and `/opt/homebrew/lib`
-
-The build prints which include/lib directories were selected and whether the FFI is REAL or STUB.
+```rust
+// Using stub implementation for now
+generate_stub_bindings();
+```
 
 ## Production Deployment
 
@@ -79,19 +73,7 @@ cargo test --package adapteros-lora-mlx-ffi
 
 ### Environment Variables
 
-- `MLX_INCLUDE_DIR`: Directory containing MLX headers
-- `MLX_LIB_DIR`: Directory containing MLX libraries (expects `libmlx`)
-- `MLX_PATH`: Base path containing `include/` and `lib/` (fallback)
-- `MLX_FORCE_STUB=1`: Force stub build (useful for CI/tests)
-
-### Runtime Behavior
-
-- In `mlx_stub` builds, `MLXFFIModel::load(..)` returns `AosError::Unsupported` with guidance, rather than producing placeholder outputs.
-- In `mlx_real` builds, normal FFI calls execute and the wrapper is compiled with `-DMLX_HAVE_REAL_API`.
-
-Verification tips:
-- Build logs show: `MLX FFI build: REAL` or `MLX FFI build: STUB`
-- You can also call `mlx_wrapper_is_real()` via the FFI to probe at runtime.
+- `MLX_PATH`: Path to MLX installation (default: `/opt/homebrew`)
 
 ## Policy Compliance
 
@@ -113,4 +95,5 @@ Verification tips:
 - [MLX Documentation](https://ml-explore.github.io/mlx/)
 - [MasterPlan.md Patch 4.2](../../docs/architecture/MasterPlan.md#patch-42-mlx-integration)
 - [Kernel API Trait](../adapteros-lora-kernel-api/src/lib.rs)
+
 

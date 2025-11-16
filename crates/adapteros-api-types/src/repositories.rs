@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+<<<<<<< HEAD
 fn default_main_branch() -> String {
     "main".to_string()
 }
@@ -52,6 +53,31 @@ pub struct RepositorySummary {
     /// Timestamp of the last successful scan
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_scan: Option<String>,
+=======
+/// Register repository request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RegisterRepositoryRequest {
+    pub repo_id: String,
+    pub path: String,
+    pub languages: Vec<String>,
+    pub default_branch: String,
+}
+
+/// Repository response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RepositoryResponse {
+    pub id: String,
+    pub repo_id: String,
+    pub path: String,
+    pub languages: Vec<String>,
+    pub default_branch: String,
+    pub status: String,
+    pub frameworks: Vec<String>,
+    pub file_count: Option<i64>,
+    pub symbol_count: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+>>>>>>> integration-branch
 }
 
 /// Trigger scan request

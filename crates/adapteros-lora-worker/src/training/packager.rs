@@ -4,6 +4,7 @@
 
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 use super::trainer::TrainingConfig;
+use adapteros_aos::{AOS2Writer, WriteOptions};
 use adapteros_core::{AosError, Result};
 use safetensors::tensor::TensorView;
 use serde::{Deserialize, Serialize};
@@ -112,6 +113,54 @@ impl AdapterPackager {
             adapter_id: adapter_id.to_string(),
             manifest,
             weights_path,
+            hash_b3,
+        })
+    }
+
+    /// Package adapter as single .aos archive file
+    ///
+    /// Creates a single-file .aos archive containing manifest + weights.
+    /// This is the preferred format for distribution and loading into Worker.
+    pub async fn package_aos(
+        &self,
+        adapter_id: &str,
+        weights: &QuantizedLoRAWeights,
+        config: &TrainingConfig,
+    ) -> Result<PackagedAdapter> {
+        info!("Packaging adapter as .aos archive: {}", adapter_id);
+
+        // Serialize weights to in-memory buffer (simulating safetensors)
+        let weights_data = serde_json::to_vec_pretty(&weights)?;
+
+        // Compute BLAKE3 hash of weights
+        let hash_b3 = blake3::hash(&weights_data).to_hex().to_string();
+
+        // Create manifest
+        let manifest = AdapterManifest {
+            version: "2.0".to_string(), // AOS 2.0 format
+            rank: config.rank,
+            base_model: "qwen2.5-7b".to_string(), // TODO: Make configurable
+            training_config: config.clone(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            weights_hash: hash_b3.clone(),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        // Write .aos archive
+        let aos_path = self.output_dir.join(format!("{}.aos", adapter_id));
+        let writer = AOS2Writer::new();
+        writer.write_archive(&aos_path, &manifest, &weights_data)?;
+
+        info!(
+            path = %aos_path.display(),
+            size_kb = weights_data.len() / 1024,
+            "AOS archive created successfully"
+        );
+
+        Ok(PackagedAdapter {
+            adapter_id: adapter_id.to_string(),
+            manifest,
+            weights_path: aos_path,
             hash_b3,
         })
     }

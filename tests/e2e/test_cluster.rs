@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Multi-Host Test Cluster Infrastructure
 //!
 //! Provides infrastructure for running determinism tests across multiple

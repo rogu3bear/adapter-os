@@ -3,13 +3,11 @@
 //! Uses tree-sitter to chunk code by semantic boundaries (functions, classes, modules)
 //! while including context (imports, surrounding code).
 
-#[cfg(feature = "codegraph")]
 use adapteros_codegraph::types::{Language, SymbolKind, SymbolNode};
 use adapteros_core::B3Hash;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tracing::info;
 
 /// Chunking configuration
 #[derive(Debug, Clone)]
@@ -33,120 +31,6 @@ impl Default for ChunkConfig {
             include_context: true,
         }
     }
-}
-
-/// Builder for creating symbol chunks with complex parameters
-#[derive(Debug)]
-pub struct SymbolChunkBuilder<'a> {
-    parent: Option<&'a SymbolNode>,
-    children: Option<&'a [SymbolNode]>,
-    lines: Option<&'a [&'a str]>,
-    file_path: Option<&'a Path>,
-    repo_id: Option<&'a str>,
-    commit_sha: Option<&'a str>,
-    language: Option<&'a str>,
-    file_context: Option<&'a ChunkContext>,
-}
-
-impl<'a> Default for SymbolChunkBuilder<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> SymbolChunkBuilder<'a> {
-    pub fn new() -> Self {
-        Self {
-            parent: None,
-            children: None,
-            lines: None,
-            file_path: None,
-            repo_id: None,
-            commit_sha: None,
-            language: None,
-            file_context: None,
-        }
-    }
-
-    pub fn parent(mut self, parent: &'a SymbolNode) -> Self {
-        self.parent = Some(parent);
-        self
-    }
-
-    pub fn children(mut self, children: &'a [SymbolNode]) -> Self {
-        self.children = Some(children);
-        self
-    }
-
-    pub fn lines(mut self, lines: &'a [&'a str]) -> Self {
-        self.lines = Some(lines);
-        self
-    }
-
-    pub fn file_path(mut self, file_path: &'a Path) -> Self {
-        self.file_path = Some(file_path);
-        self
-    }
-
-    pub fn repo_id(mut self, repo_id: &'a str) -> Self {
-        self.repo_id = Some(repo_id);
-        self
-    }
-
-    pub fn commit_sha(mut self, commit_sha: &'a str) -> Self {
-        self.commit_sha = Some(commit_sha);
-        self
-    }
-
-    pub fn language(mut self, language: &'a str) -> Self {
-        self.language = Some(language);
-        self
-    }
-
-    pub fn file_context(mut self, file_context: &'a ChunkContext) -> Self {
-        self.file_context = Some(file_context);
-        self
-    }
-
-    pub fn build(self) -> Result<SymbolChunkParams<'a>> {
-        Ok(SymbolChunkParams {
-            parent: self
-                .parent
-                .ok_or_else(|| anyhow::anyhow!("parent is required"))?,
-            children: self.children.unwrap_or(&[]),
-            lines: self
-                .lines
-                .ok_or_else(|| anyhow::anyhow!("lines is required"))?,
-            file_path: self
-                .file_path
-                .ok_or_else(|| anyhow::anyhow!("file_path is required"))?,
-            repo_id: self
-                .repo_id
-                .ok_or_else(|| anyhow::anyhow!("repo_id is required"))?,
-            commit_sha: self
-                .commit_sha
-                .ok_or_else(|| anyhow::anyhow!("commit_sha is required"))?,
-            language: self
-                .language
-                .ok_or_else(|| anyhow::anyhow!("language is required"))?,
-            file_context: self
-                .file_context
-                .ok_or_else(|| anyhow::anyhow!("file_context is required"))?,
-        })
-    }
-}
-
-/// Parameters for symbol chunk creation
-#[derive(Debug)]
-pub struct SymbolChunkParams<'a> {
-    pub parent: &'a SymbolNode,
-    pub children: &'a [SymbolNode],
-    pub lines: &'a [&'a str],
-    pub file_path: &'a Path,
-    pub repo_id: &'a str,
-    pub commit_sha: &'a str,
-    pub language: &'a str,
-    pub file_context: &'a ChunkContext,
 }
 
 /// Context for a code chunk
@@ -214,7 +98,6 @@ impl CodeChunk {
     }
 
     /// Create new code chunk
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repo_id: String,
         file_path: String,
@@ -290,17 +173,16 @@ impl CodeChunker {
         let top_level_symbols = self.group_top_level_symbols(symbols);
 
         for (parent_symbol, child_symbols) in top_level_symbols {
-            let params = SymbolChunkBuilder::new()
-                .parent(&parent_symbol)
-                .children(&child_symbols)
-                .lines(&lines)
-                .file_path(file_path)
-                .repo_id(repo_id)
-                .commit_sha(commit_sha)
-                .language(&language)
-                .file_context(&context)
-                .build()?;
-            let chunk = self.create_symbol_chunk(params)?;
+            let chunk = self.create_symbol_chunk(
+                &parent_symbol,
+                &child_symbols,
+                &lines,
+                file_path,
+                repo_id,
+                commit_sha,
+                &language,
+                &context,
+            )?;
 
             // Check if chunk exceeds max size and needs splitting
             if chunk.content.len() > self.config.max_size {
@@ -314,7 +196,6 @@ impl CodeChunker {
         // Handle any remaining code not covered by symbols (if needed)
         // This could be module-level code, comments, etc.
 
-        info!(chunk_size = chunks.len(), "Chunking completed");
         Ok(chunks)
     }
 
@@ -374,16 +255,18 @@ impl CodeChunker {
         groups
     }
 
-    /// Create a chunk from a symbol and its children using parameter struct
-    fn create_symbol_chunk(&self, params: SymbolChunkParams) -> Result<CodeChunk> {
-        let parent = params.parent;
-        let _children = params.children;
-        let lines = params.lines;
-        let file_path = params.file_path;
-        let repo_id = params.repo_id;
-        let commit_sha = params.commit_sha;
-        let language = params.language;
-        let file_context = params.file_context;
+    /// Create a chunk from a symbol and its children
+    fn create_symbol_chunk(
+        &self,
+        parent: &SymbolNode,
+        _children: &[SymbolNode],
+        lines: &[&str],
+        file_path: &Path,
+        repo_id: &str,
+        commit_sha: &str,
+        language: &str,
+        file_context: &ChunkContext,
+    ) -> Result<CodeChunk> {
         let line_start = parent.span.start_line as usize;
         let line_end = parent.span.end_line as usize;
 

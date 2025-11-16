@@ -1,5 +1,8 @@
 import Foundation
+<<<<<<< HEAD
 import SwiftUI
+=======
+>>>>>>> integration-branch
 
 /// System metrics collected from native macOS APIs
 struct SystemMetrics {

@@ -1,12 +1,14 @@
 //! System diagnostics command
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
+use zip::write::FileOptions;
+use zip::ZipWriter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagProfile {
@@ -42,6 +44,7 @@ struct DiagResult {
 }
 
 struct DiagnosticRunner {
+    profile: DiagProfile,
     tenant_id: Option<String>,
     results: Vec<DiagResult>,
     has_warnings: bool,
@@ -49,8 +52,9 @@ struct DiagnosticRunner {
 }
 
 impl DiagnosticRunner {
-    fn new(_profile: DiagProfile, tenant_id: Option<String>) -> Self {
+    fn new(profile: DiagProfile, tenant_id: Option<String>) -> Self {
         Self {
+            profile,
             tenant_id,
             results: Vec::new(),
             has_warnings: false,
@@ -119,7 +123,7 @@ impl DiagnosticRunner {
         self.check_permissions();
 
         // Database check
-        self.check_database().await?;
+        self.check_database().await;
 
         // Kernel check
         self.check_kernels();
@@ -343,7 +347,10 @@ impl DiagnosticRunner {
         }
 
         // Try to connect
-        match adapteros_db::Database::connect_env().await {
+        let db_path_str = db_path
+            .to_str()
+            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
+        match adapteros_db::Db::connect(db_path_str).await {
             Ok(_db) => {
                 self.check(
                     "Database",
@@ -423,7 +430,7 @@ impl DiagnosticRunner {
         };
 
         // Check tenant registry
-        self.check_tenant_registry(&tenant_id).await?;
+        self.check_tenant_registry(&tenant_id).await;
 
         // Check telemetry
         self.check_telemetry(&tenant_id);
@@ -444,13 +451,18 @@ impl DiagnosticRunner {
             return Ok(());
         }
 
-        match adapteros_db::Database::connect_env().await {
+        let db_path_str = db_path
+            .to_str()
+            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
+        match adapteros_db::Db::connect(db_path_str).await {
             Ok(db) => {
-                let result = sqlx::query("SELECT uid, gid FROM tenants WHERE id = ?")
+                // Check if tenant exists
+                let query = "SELECT uid, gid FROM tenants WHERE id = ?";
+                match sqlx::query(query)
                     .bind(tenant_id)
                     .fetch_optional(db.pool())
-                    .await;
-                match result {
+                    .await
+                {
                     Ok(Some(row)) => {
                         let uid: i64 = row.try_get("uid").unwrap_or(0);
                         let gid: i64 = row.try_get("gid").unwrap_or(0);
@@ -595,27 +607,30 @@ impl DiagnosticRunner {
             return;
         }
 
-        if let Ok(meta) = std::fs::metadata(heartbeat_path) {
-            if let Ok(modified) = meta.modified() {
-                if let Ok(elapsed) = modified.elapsed() {
-                    let secs = elapsed.as_secs();
-                    let status = if secs < 30 {
-                        CheckStatus::Pass
-                    } else if secs < 120 {
-                        CheckStatus::Warning
-                    } else {
-                        CheckStatus::Fail
-                    };
+        match std::fs::metadata(heartbeat_path) {
+            Ok(meta) => {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(elapsed) = modified.elapsed() {
+                        let secs = elapsed.as_secs();
+                        let status = if secs < 30 {
+                            CheckStatus::Pass
+                        } else if secs < 120 {
+                            CheckStatus::Warning
+                        } else {
+                            CheckStatus::Fail
+                        };
 
-                    self.check(
-                        "Service Heartbeat",
-                        status,
-                        format!("Last heartbeat: {} seconds ago", secs),
-                        None,
-                    );
-                    return;
+                        self.check(
+                            "Service Heartbeat",
+                            status,
+                            format!("Last heartbeat: {} seconds ago", secs),
+                            None,
+                        );
+                        return;
+                    }
                 }
             }
+            Err(_) => {}
         }
 
         self.check(
@@ -627,13 +642,7 @@ impl DiagnosticRunner {
     }
 
     fn check_worker_socket(&mut self) {
-        // Prefer per-tenant socket when tenant_id is provided
-        let socket_path_buf = if let Some(ref tenant) = self.tenant_id {
-            std::path::PathBuf::from(format!("/var/run/aos/{}/aos.sock", tenant))
-        } else {
-            std::path::PathBuf::from("/var/run/aos/aos.sock")
-        };
-        let socket_path = socket_path_buf.as_path();
+        let socket_path = Path::new("/var/run/aos/aos.sock");
 
         if !socket_path.exists() {
             self.check(
@@ -750,7 +759,7 @@ pub async fn run(
 async fn add_log_files(zip: &mut zip::ZipWriter<std::fs::File>, logs_dir: &str) -> Result<()> {
     use std::fs;
     use std::io::{Read, Write};
-    use zip::write::SimpleFileOptions;
+    use zip::write::{FileOptions, SimpleFileOptions};
 
     let logs_path = Path::new(logs_dir);
 
@@ -869,7 +878,7 @@ fn add_truncated_log_file(
 ) -> Result<()> {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-    use zip::write::SimpleFileOptions;
+    use zip::write::{FileOptions, SimpleFileOptions};
 
     let file = File::open(log_file)?;
     let mut reader = BufReader::new(file);
@@ -931,7 +940,7 @@ fn add_truncated_log_file(
 async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
-    use zip::write::SimpleFileOptions;
+    use zip::write::{FileOptions, SimpleFileOptions};
     use zip::ZipWriter;
 
     let file = File::create(bundle_path).context("Failed to create bundle file")?;

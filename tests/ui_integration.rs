@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! UI Integration Tests
 //!
 //! Tests for the simplified UI navigation structure and component consolidation.
@@ -10,6 +13,7 @@ use adapteros_server_api::state::AppState;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
+<<<<<<< HEAD
     Router as AxumRouter,
 };
 use tower::ServiceExt;
@@ -19,6 +23,10 @@ use adapteros_db::users::Role;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use adapteros_server_api::auth::Claims;
 use std::time::{SystemTime, UNIX_EPOCH};
+=======
+};
+use tower::ServiceExt;
+>>>>>>> integration-branch
 
 #[tokio::test]
 async fn test_simplified_navigation_structure() {
@@ -139,6 +147,7 @@ async fn test_policy_packs_consolidation() {
 }
 
 async fn create_test_app_state() -> AppState {
+<<<<<<< HEAD
     use adapteros_api_types::telemetry::LogBuffer;
     use adapteros_core::AosError;
     use adapteros_db::Database;
@@ -321,6 +330,11 @@ async fn make_request_with_role(
     )
     .await
     .unwrap()
+=======
+    // Create a test app state for integration tests
+    // Note: This is a simplified test setup - in real tests you'd use proper test fixtures
+    todo!("Implement proper test app state creation")
+>>>>>>> integration-branch
 }
 
 #[tokio::test]

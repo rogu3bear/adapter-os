@@ -16,27 +16,21 @@ use tracing::info;
 /// Unified memory management interface
 pub trait MemoryManager {
     /// Get current memory usage statistics
-    #[allow(async_fn_in_trait)]
     async fn get_memory_usage(&self) -> Result<MemoryUsageStats>;
 
     /// Evict an adapter from memory
-    #[allow(async_fn_in_trait)]
     async fn evict_adapter(&self, adapter_id: &str) -> Result<()>;
 
     /// Pin an adapter to prevent eviction
-    #[allow(async_fn_in_trait)]
     async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()>;
 
     /// Get adapter memory information
-    #[allow(async_fn_in_trait)]
     async fn get_adapter_memory_info(&self, adapter_id: &str) -> Result<AdapterMemoryInfo>;
 
     /// Check memory pressure level
-    #[allow(async_fn_in_trait)]
     async fn check_memory_pressure(&self) -> Result<MemoryPressureLevel>;
 
     /// Perform memory cleanup
-    #[allow(async_fn_in_trait)]
     async fn cleanup_memory(&self) -> Result<MemoryCleanupReport>;
 }
 

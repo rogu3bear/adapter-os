@@ -60,7 +60,7 @@ pub struct AlertRecord {
 }
 
 /// Production alerting engine with history retention.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AlertingEngine {
     rules: Vec<AlertRule>,
     history: VecDeque<AlertRecord>,

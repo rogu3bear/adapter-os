@@ -1,0 +1,234 @@
+//! Audit logging helper for handlers
+//!
+//! Provides convenient functions to log audit events from API handlers.
+//! All sensitive operations should be logged for compliance and security review.
+
+use crate::auth::Claims;
+use adapteros_core::Result;
+use adapteros_db::Db;
+use tracing::info;
+
+/// Log an audit action
+///
+/// Records the action to the database and logs it via tracing for observability.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `claims` - JWT claims from authenticated user
+/// * `action` - Action being performed (e.g., "adapter.register", "training.start")
+/// * `resource_type` - Type of resource (e.g., "adapter", "policy", "tenant")
+/// * `resource_id` - ID of the resource being acted upon
+/// * `status` - "success" or "failure"
+/// * `error_message` - Error details if status = "failure"
+///
+/// # Example
+/// ```no_run
+/// use adapteros_server_api::audit_helper::log_action;
+/// use adapteros_db::Db;
+/// use crate::auth::Claims;
+///
+/// # async fn example(db: &Db, claims: &Claims) -> adapteros_core::Result<()> {
+/// log_action(
+///     db,
+///     claims,
+///     "adapter.delete",
+///     "adapter",
+///     Some("adapter-xyz"),
+///     "success",
+///     None,
+/// ).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn log_action(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    status: &str,
+    error_message: Option<&str>,
+) -> Result<()> {
+    // Log to database
+    db.log_audit(
+        &claims.sub,
+        &claims.role,
+        &claims.tenant_id,
+        action,
+        resource_type,
+        resource_id,
+        status,
+        error_message,
+        None, // IP address (could be extracted from request headers if needed)
+        None, // Additional metadata
+    )
+    .await?;
+
+    // Log to tracing for real-time observability
+    info!(
+        event_type = "audit.action",
+        user_id = %claims.sub,
+        user_role = %claims.role,
+        tenant_id = %claims.tenant_id,
+        action = %action,
+        resource_type = %resource_type,
+        resource_id = ?resource_id,
+        status = %status,
+        error_message = ?error_message,
+        "Audit log recorded"
+    );
+
+    Ok(())
+}
+
+/// Log a successful action
+///
+/// Convenience wrapper for log_action with status = "success"
+pub async fn log_success(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+) -> Result<()> {
+    log_action(db, claims, action, resource_type, resource_id, "success", None).await
+}
+
+/// Log a failed action
+///
+/// Convenience wrapper for log_action with status = "failure"
+pub async fn log_failure(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    error: &str,
+) -> Result<()> {
+    log_action(
+        db,
+        claims,
+        action,
+        resource_type,
+        resource_id,
+        "failure",
+        Some(error),
+    )
+    .await
+}
+
+/// Audit action types as constants for consistency
+pub mod actions {
+    // Adapter actions
+    pub const ADAPTER_REGISTER: &str = "adapter.register";
+    pub const ADAPTER_DELETE: &str = "adapter.delete";
+    pub const ADAPTER_LOAD: &str = "adapter.load";
+    pub const ADAPTER_UNLOAD: &str = "adapter.unload";
+
+    // Training actions
+    pub const TRAINING_START: &str = "training.start";
+    pub const TRAINING_CANCEL: &str = "training.cancel";
+
+    // Tenant actions
+    pub const TENANT_CREATE: &str = "tenant.create";
+    pub const TENANT_UPDATE: &str = "tenant.update";
+    pub const TENANT_PAUSE: &str = "tenant.pause";
+    pub const TENANT_ARCHIVE: &str = "tenant.archive";
+
+    // Node actions
+    pub const NODE_REGISTER: &str = "node.register";
+    pub const NODE_EVICT: &str = "node.evict";
+    pub const NODE_OFFLINE: &str = "node.offline";
+
+    // Policy actions
+    pub const POLICY_APPLY: &str = "policy.apply";
+    pub const POLICY_SIGN: &str = "policy.sign";
+    pub const POLICY_VALIDATE: &str = "policy.validate";
+
+    // Worker actions
+    pub const WORKER_SPAWN: &str = "worker.spawn";
+    pub const WORKER_DEBUG_START: &str = "worker.debug.start";
+    pub const WORKER_TROUBLESHOOT: &str = "worker.troubleshoot";
+
+    // Adapter stack actions
+    pub const STACK_CREATE: &str = "stack.create";
+    pub const STACK_DELETE: &str = "stack.delete";
+    pub const STACK_ACTIVATE: &str = "stack.activate";
+    pub const STACK_DEACTIVATE: &str = "stack.deactivate";
+
+    // Git actions
+    pub const GIT_SESSION_START: &str = "git.session.start";
+    pub const GIT_SESSION_END: &str = "git.session.end";
+
+    // Code intelligence actions
+    pub const CODE_REPO_REGISTER: &str = "code.repo.register";
+    pub const CODE_SCAN_START: &str = "code.scan.start";
+    pub const CODE_DELTA_CREATE: &str = "code.delta.create";
+
+    // Domain adapter actions
+    pub const DOMAIN_ADAPTER_CREATE: &str = "adapter.domain.create";
+    pub const DOMAIN_ADAPTER_DELETE: &str = "adapter.domain.delete";
+    pub const DOMAIN_ADAPTER_LOAD: &str = "adapter.domain.load";
+    pub const DOMAIN_ADAPTER_UNLOAD: &str = "adapter.domain.unload";
+    pub const DOMAIN_ADAPTER_EXECUTE: &str = "adapter.domain.execute";
+    pub const DOMAIN_ADAPTER_TEST: &str = "adapter.domain.test";
+
+    // Replay actions
+    pub const REPLAY_CREATE: &str = "replay.create";
+    pub const REPLAY_VERIFY: &str = "replay.verify";
+
+    // Federation actions
+    pub const FEDERATION_QUARANTINE_RELEASE: &str = "federation.quarantine.release";
+
+    // Monitoring actions
+    pub const MONITORING_RULE_CREATE: &str = "monitoring.rule.create";
+    pub const MONITORING_ALERT_ACK: &str = "monitoring.alert.acknowledge";
+    pub const MONITORING_ANOMALY_UPDATE: &str = "monitoring.anomaly.update";
+    pub const MONITORING_DASHBOARD_CREATE: &str = "monitoring.dashboard.create";
+    pub const MONITORING_REPORT_CREATE: &str = "monitoring.report.create";
+
+    // Contact actions
+    pub const CONTACT_CREATE: &str = "contact.create";
+    pub const CONTACT_DELETE: &str = "contact.delete";
+
+    // Plan actions
+    pub const PLAN_BUILD: &str = "plan.build";
+    pub const PLAN_REBUILD: &str = "plan.rebuild";
+    pub const PLAN_COMPARE: &str = "plan.compare";
+
+    // Promotion actions
+    pub const PROMOTION_EXECUTE: &str = "promotion.execute";
+    pub const PROMOTION_ROLLBACK: &str = "promotion.rollback";
+    pub const PROMOTION_DRY_RUN: &str = "promotion.dry_run";
+
+    // Telemetry actions
+    pub const TELEMETRY_BUNDLE_EXPORT: &str = "telemetry.bundle.export";
+    pub const TELEMETRY_BUNDLE_VERIFY: &str = "telemetry.bundle.verify";
+    pub const TELEMETRY_BUNDLE_PURGE: &str = "telemetry.bundle.purge";
+}
+
+/// Resource types as constants
+pub mod resources {
+    pub const ADAPTER: &str = "adapter";
+    pub const TRAINING_JOB: &str = "training_job";
+    pub const TENANT: &str = "tenant";
+    pub const NODE: &str = "node";
+    pub const POLICY: &str = "policy";
+    pub const WORKER: &str = "worker";
+    pub const ADAPTER_STACK: &str = "adapter_stack";
+    pub const GIT_SESSION: &str = "git_session";
+    pub const CODE_REPO: &str = "code_repo";
+    pub const CODE_SCAN: &str = "code_scan";
+    pub const DOMAIN_ADAPTER: &str = "domain_adapter";
+    pub const REPLAY_SESSION: &str = "replay_session";
+    pub const FEDERATION: &str = "federation";
+    pub const MONITORING_RULE: &str = "monitoring_rule";
+    pub const MONITORING_ALERT: &str = "monitoring_alert";
+    pub const MONITORING_ANOMALY: &str = "monitoring_anomaly";
+    pub const MONITORING_DASHBOARD: &str = "monitoring_dashboard";
+    pub const MONITORING_REPORT: &str = "monitoring_report";
+    pub const CONTACT: &str = "contact";
+    pub const PLAN: &str = "plan";
+    pub const PROMOTION: &str = "promotion";
+    pub const TELEMETRY_BUNDLE: &str = "telemetry_bundle";
+}

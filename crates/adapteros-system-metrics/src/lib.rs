@@ -23,37 +23,26 @@ pub mod monitoring_types;
 pub mod notifications;
 pub mod persistence;
 pub mod policy;
-pub mod stubs;
 pub mod telemetry;
 pub mod types;
 
-pub use collector::SystemMetricsCollector;
-pub use database::SystemMetricsDb;
-pub use monitor::{SystemMonitor, SystemMonitoringService};
-pub use policy::SystemMetricsPolicy;
-pub use types::{MetricsAggregation, MetricsConfig, SystemMetricsRecord, ThresholdsConfig};
-// Re-export monitoring types for API compatibility
 pub use alerting::{AlertEvaluator, AlertingConfig};
 pub use anomaly::{AnomalyConfig, AnomalyDetector};
 pub use baselines::{BaselineConfig, BaselineService};
+pub use collector::SystemMetricsCollector;
+pub use database::SystemMetricsDb;
+pub use monitor::{SystemMonitor, SystemMonitoringService};
+pub use notifications::{NotificationConfig, NotificationService};
+pub use persistence::MetricsPersistenceService;
+pub use policy::SystemMetricsPolicy;
+pub use types::{MetricsConfig, ThresholdsConfig};
 pub use dashboard::{DashboardConfig, DashboardService};
-pub use monitoring_types::{
-    AlertFilters, AlertResponse, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyResponse,
-    AnomalyStatus, BaselineResponse, BaselineType, CreateHealthMetricRequest,
-    CreateMonitoringRuleRequest, DashboardData, MetricFilters, MonitoringRuleResponse,
-    PerformanceBaseline, ProcessAlert, ProcessAnomaly, ProcessHealthMetric, ProcessMonitoringRule,
-    WidgetData,
-};
-pub use notifications::{NotificationConfig, NotificationSenderImpl, NotificationService};
-pub use persistence::{MetricsPersistenceService, PersistenceConfig};
-pub use telemetry::SystemMetricsTelemetry;
 
-// Re-export types for backward compatibility (already exported above)
-
+use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
 /// System metrics collection result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemMetrics {
     pub cpu_usage: f64,    // Align with SQLite REAL storage
     pub memory_usage: f64, // Align with SQLite REAL storage
@@ -64,7 +53,7 @@ pub struct SystemMetrics {
 }
 
 /// Disk I/O metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiskMetrics {
     pub read_bytes: u64,
     pub write_bytes: u64,
@@ -76,7 +65,7 @@ pub struct DiskMetrics {
 }
 
 /// Network I/O metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkMetrics {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
@@ -86,7 +75,7 @@ pub struct NetworkMetrics {
 }
 
 /// GPU metrics
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GpuMetrics {
     pub utilization: Option<f64>, // Align with SQLite REAL storage
     pub memory_used: Option<u64>,

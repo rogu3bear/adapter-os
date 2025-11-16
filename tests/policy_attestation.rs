@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
+=======
+>>>>>>> integration-branch
 //! Tests for policy integration with attestation
 
 use adapteros_core::B3Hash;
@@ -182,6 +185,7 @@ fn test_policy_validation_error_messages_are_descriptive() {
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("deterministic") || err_msg.contains("non-deterministic"));
 }
+<<<<<<< HEAD
 
 #[test]
 fn test_kernel_hash_mismatch() {
@@ -254,3 +258,5 @@ fn test_kernel_hash_missing_manifest() {
     // Should still pass because kernel hash matching is only required when manifest is present
     assert!(policy.validate_backend_attestation(&report).is_ok());
 }
+=======
+>>>>>>> integration-branch

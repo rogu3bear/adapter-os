@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn test_file_keypair_generation() {
         let temp_dir = TempDir::new().unwrap();
-        let _key_path = temp_dir.path().join("test_key.bin");
+        let key_path = temp_dir.path().join("test_key.bin");
 
         // Override KEY_FILE_PATH for testing (would need to be done differently in practice)
         // For now, just test the keypair generation directly
