@@ -128,7 +128,7 @@ crossbeam = "0.8"
 parking_lot = "0.12"
 
 # HTTP & API
-axum = { version = "0.7", features = ["tokio", "macros"] }
+axum = { version = "0.8", features = ["tokio", "macros"] }
 tower = "0.4"
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = "0.1"
@@ -287,7 +287,7 @@ serde_json = { workspace = true }
 tempfile = "3.0"
 tracing-subscriber = { workspace = true }
 anyhow = "1.0"
-axum = "0.7"
+axum = "0.8"
 tower = "0.4"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
