@@ -22,6 +22,8 @@ tracing = { workspace = true }
 hex = "0.4"
 base64 = "0.22"
 subtle = "2.5"
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
+async-trait = "0.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }

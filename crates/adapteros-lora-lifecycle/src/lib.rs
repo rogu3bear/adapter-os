@@ -1477,6 +1477,91 @@ impl LifecycleManager {
         }
         Ok(())
     }
+
+    /// Update heartbeat for an adapter
+    ///
+    /// Updates last_heartbeat timestamp in database to indicate adapter is alive
+    pub async fn heartbeat_adapter(&self, adapter_id: &str) -> Result<()> {
+        if let Some(ref db) = self.db {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| AosError::Internal(format!("System time error: {}", e)))?
+                .as_secs() as i64;
+
+            sqlx::query(
+                "UPDATE adapters SET last_heartbeat = ? WHERE id = ?"
+            )
+            .bind(now)
+            .bind(adapter_id)
+            .execute(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update heartbeat: {}", e)))?;
+
+            tracing::trace!(adapter_id = %adapter_id, timestamp = now, "Updated adapter heartbeat");
+        }
+        Ok(())
+    }
+
+    /// Check for stale adapters (no heartbeat in threshold seconds)
+    ///
+    /// Returns list of adapter IDs that haven't sent heartbeat recently
+    pub async fn check_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
+        if let Some(ref db) = self.db {
+            let cutoff = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| AosError::Internal(format!("System time error: {}", e)))?
+                .as_secs() as i64
+                - threshold_seconds;
+
+            let stale: Vec<(String,)> = sqlx::query_as(
+                "SELECT id FROM adapters
+                 WHERE last_heartbeat IS NOT NULL
+                   AND last_heartbeat < ?
+                   AND load_state != 'unloaded'"
+            )
+            .bind(cutoff)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
+
+            let stale_ids: Vec<String> = stale.into_iter().map(|(id,)| id).collect();
+
+            if !stale_ids.is_empty() {
+                tracing::warn!(count = stale_ids.len(), threshold_seconds, "Detected stale adapters");
+            }
+
+            return Ok(stale_ids);
+        }
+        Ok(vec![])
+    }
+
+    /// Auto-recover stale adapters by resetting their state
+    ///
+    /// Called periodically to detect and recover adapters that stopped sending heartbeats
+    pub async fn recover_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
+        let stale_ids = self.check_stale_adapters(threshold_seconds).await?;
+        let mut recovered = Vec::new();
+
+        for adapter_id in stale_ids {
+            // Reset state to unloaded for stale adapters
+            if let Some(ref db) = self.db {
+                sqlx::query(
+                    "UPDATE adapters
+                     SET load_state = 'unloaded', last_heartbeat = NULL
+                     WHERE id = ?"
+                )
+                .bind(&adapter_id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
+
+                tracing::info!(adapter_id = %adapter_id, "Recovered stale adapter");
+                recovered.push(adapter_id);
+            }
+        }
+
+        Ok(recovered)
+    }
 }
 
 /// GPU integrity verification report

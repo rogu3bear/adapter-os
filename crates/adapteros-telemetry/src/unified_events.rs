@@ -78,6 +78,8 @@ pub enum EventType {
     AdapterUnpinned,
     AdapterActivated,
     AdapterDeactivated,
+    AdapterExpired,       // Citation: Agent G Stability Reinforcement Plan
+    AdapterDeleteBlocked, // Citation: Agent G Stability Reinforcement Plan
 
     // Inference events
     InferenceStart,
@@ -158,6 +160,8 @@ impl EventType {
             EventType::AdapterUnpinned => "adapter.unpinned",
             EventType::AdapterActivated => "adapter.activated",
             EventType::AdapterDeactivated => "adapter.deactivated",
+            EventType::AdapterExpired => "adapter.expired",
+            EventType::AdapterDeleteBlocked => "adapter.delete.blocked",
             EventType::InferenceStart => "inference.start",
             EventType::InferenceComplete => "inference.complete",
             EventType::InferenceError => "inference.error",

@@ -9,9 +9,6 @@
 -- These 10 tables were created for process monitoring but have no INSERT/UPDATE
 -- queries in the codebase. Struct definitions exist but no active usage.
 
--- Drop views that depend on these tables first
-DROP VIEW IF EXISTS recent_health_metrics;
-
 DROP TABLE IF EXISTS process_monitoring_reports;
 DROP TABLE IF EXISTS process_monitoring_schedules;
 DROP TABLE IF EXISTS process_monitoring_notifications;
