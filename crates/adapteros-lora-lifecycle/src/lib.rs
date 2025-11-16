@@ -1542,6 +1542,25 @@ impl LifecycleManager {
         let stale_ids = self.check_stale_adapters(threshold_seconds).await?;
         let mut recovered = Vec::new();
 
+        // Emit telemetry event for stale detection
+        if !stale_ids.is_empty() {
+            if let Some(ref telemetry) = self.telemetry {
+                let event = serde_json::json!({
+                    "event_type": "heartbeat_stale_detected",
+                    "stale_count": stale_ids.len(),
+                    "threshold_seconds": threshold_seconds,
+                    "adapter_ids": stale_ids,
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                });
+                if let Err(e) = telemetry.log("heartbeat_stale_detected", &event) {
+                    tracing::error!("Failed to write stale detection telemetry: {}", e);
+                }
+            }
+        }
+
         for adapter_id in stale_ids {
             // Reset state to unloaded for stale adapters
             if let Some(ref db) = self.db {
@@ -1556,6 +1575,23 @@ impl LifecycleManager {
                 .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
 
                 tracing::info!(adapter_id = %adapter_id, "Recovered stale adapter");
+
+                // Emit telemetry event for each recovery
+                if let Some(ref telemetry) = self.telemetry {
+                    let event = serde_json::json!({
+                        "event_type": "heartbeat_recovery",
+                        "adapter_id": adapter_id,
+                        "threshold_seconds": threshold_seconds,
+                        "timestamp": std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0),
+                    });
+                    if let Err(e) = telemetry.log("heartbeat_recovery", &event) {
+                        tracing::error!("Failed to write heartbeat recovery telemetry: {}", e);
+                    }
+                }
+
                 recovered.push(adapter_id);
             }
         }

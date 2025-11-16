@@ -3,13 +3,9 @@
 use anyhow::Result;
 use std::env;
 
-<<<<<<< HEAD
 mod code2db_dataset;
 mod determinism_report;
 mod pack_lora;
-=======
-mod determinism_report;
->>>>>>> integration-branch
 mod sbom;
 mod train_base_adapter;
 mod verify_agents;
@@ -116,12 +112,9 @@ fn print_help() {
     println!("  build               Custom build workflow");
     println!("  test                Run full test suite");
     println!("  verify-agents       Verify all agent deliverables");
-<<<<<<< HEAD
     println!("  code2db-dataset     Build JSON training dataset for code→DB tasks");
     println!("  pack-lora           Quantize and package trained LoRA weights");
     println!("  train-base-adapter  Train base adapter from manifest");
-=======
->>>>>>> integration-branch
     println!();
     println!("For verify-agents options, run:");
     println!("  cargo xtask verify-agents --help");
