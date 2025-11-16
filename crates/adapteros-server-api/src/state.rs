@@ -423,7 +423,9 @@ pub struct AppState {
     /// - Router implementation: [source: crates/adapteros-lora-router/src/lib.rs]
     /// - K-sparse routing: [source: docs/ARCHITECTURE_INDEX.md] (verify path)
     /// - Deterministic routing: [source: crates/adapteros-lora-worker/src/inference_pipeline.rs]
-    pub router: Arc<Router>,
+    pub router: Arc<RwLock<Router>>,
+    /// Adapter registry for managing adapter metadata and stacks
+    pub registry: Arc<adapteros_registry::Registry>,
     /// Optional runtime for base model backends (e.g., MLX FFI)
     pub model_runtime: Option<Arc<tokio::sync::Mutex<crate::model_runtime::ModelRuntimeImpl>>>,
     /// Training session metadata cache for UI features
@@ -470,6 +472,62 @@ impl AppState {
     /// Run system metrics database migrations
     pub async fn run_system_metrics_migrations(&self) -> Result<()> {
         self.system_metrics_db.run_migrations().await?;
+        Ok(())
+    }
+
+    /// Synchronize active adapter stack from database to router
+    /// Should be called on server startup and after stack activation
+    pub async fn sync_active_stack(&self) -> Result<()> {
+        use tracing::{info, warn};
+
+        // Check if there's an active stack in the database
+        let active_stack_name = self.registry.get_active_stack()
+            .map_err(|e| anyhow::anyhow!("Failed to get active stack: {}", e))?;
+
+        if let Some(stack_name) = active_stack_name {
+            // Get stack details
+            let stack = self.registry.get_stack(&stack_name)
+                .map_err(|e| anyhow::anyhow!("Failed to get stack {}: {}", stack_name, e))?;
+
+            if let Some(stack) = stack {
+                // Get all adapters and build ID→index mapping
+                let all_adapters = self.registry.list_adapters()
+                    .map_err(|e| anyhow::anyhow!("Failed to list adapters: {}", e))?;
+
+                let mut sorted_adapters = all_adapters;
+                sorted_adapters.sort_by(|a, b| a.id.cmp(&b.id));
+
+                let id_to_index: std::collections::HashMap<String, usize> = sorted_adapters
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, adapter)| (adapter.id.clone(), idx))
+                    .collect();
+
+                // Translate adapter IDs to indices
+                let mut indices = Vec::new();
+                for adapter_id in &stack.adapter_ids {
+                    if let Some(&idx) = id_to_index.get(adapter_id) {
+                        indices.push(idx);
+                    } else {
+                        warn!("Adapter {} in stack {} not found in registry", adapter_id, stack_name);
+                    }
+                }
+
+                if !indices.is_empty() {
+                    // Apply to router
+                    let mut router = self.router.write().unwrap();
+                    router.set_active_stack(indices);
+                    info!("Synced active stack {} with {} adapters to router", stack_name, stack.adapter_ids.len());
+                } else {
+                    warn!("Active stack {} has no valid adapters", stack_name);
+                }
+            } else {
+                warn!("Active stack {} not found in database", stack_name);
+            }
+        } else {
+            info!("No active adapter stack configured");
+        }
+
         Ok(())
     }
 
@@ -583,7 +641,14 @@ impl AppState {
         let global_seed_b3 = B3Hash::from_bytes(global_seed);
         let router_seed_bytes = adapteros_core::derive_seed(&global_seed_b3, "router");
         let router_weights = vec![1.0; 10]; // Placeholder weights - should be configurable
-        let router = Arc::new(Router::new(router_weights, 3, 1.0, 0.02, router_seed_bytes));
+        let router = Arc::new(RwLock::new(Router::new(router_weights, 3, 1.0, 0.02, router_seed_bytes)));
+
+        // Initialize adapter registry
+        let registry_path = config.read().unwrap().bundles_root.clone() + "/registry.db";
+        let registry = Arc::new(
+            adapteros_registry::Registry::open(&registry_path)
+                .expect("Failed to open adapter registry")
+        );
 
         Self {
             db,
@@ -604,6 +669,7 @@ impl AppState {
             jwt_public_key_pem: None,
             policy_manager: Arc::new(PolicyPackManager::new()),
             router,
+            registry,
             model_runtime: {
                 // Get file size limits and lazy loading settings from config
                 let config_guard = config.read().unwrap();

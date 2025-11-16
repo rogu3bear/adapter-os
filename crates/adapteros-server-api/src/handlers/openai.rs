@@ -57,7 +57,7 @@ pub async fn chat_completions(
     let feature_vec = code_features.to_vector();
 
     // Get router scoring for debugging/telemetry
-    let scoring_explanation = state.router.explain_score(&feature_vec);
+    let scoring_explanation = state.router.read().unwrap().explain_score(&feature_vec);
 
     // Log router analysis for this inference request
     tracing::info!(

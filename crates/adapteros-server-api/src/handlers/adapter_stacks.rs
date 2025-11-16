@@ -412,6 +412,7 @@ pub async fn activate_stack(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<ActiveStackResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Activate in database
     state.registry.activate_stack(&name).map_err(|e| {
         error!("Failed to activate adapter stack: {}", e);
         let status = if e.to_string().contains("does not exist") {
@@ -429,9 +430,7 @@ pub async fn activate_stack(
         )
     })?;
 
-    info!("Activated adapter stack: {}", name);
-
-    // Get the stack to return adapter count
+    // Get the stack details
     let stack = state.registry.get_stack(&name).map_err(|e| {
         error!("Failed to fetch activated stack: {}", e);
         (
@@ -442,14 +441,83 @@ pub async fn activate_stack(
                     .with_string_details(e.to_string()),
             ),
         )
+    })?.ok_or_else(|| {
+        error!("Stack not found after activation: {}", name);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Stack not found after activation")
+                    .with_code("INTERNAL_ERROR"),
+            ),
+        )
     })?;
 
-    let adapter_count = stack.map(|s| s.adapter_ids.len());
+    // Translate adapter IDs to indices
+    let adapter_indices = translate_adapter_ids_to_indices(&state, &stack.adapter_ids)
+        .await
+        .map_err(|e| {
+            error!("Failed to translate adapter IDs to indices: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to translate adapter IDs to indices")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Update router filter
+    {
+        let mut router = state.router.write().unwrap();
+        router.set_active_stack(adapter_indices);
+    }
+
+    info!(
+        "Activated adapter stack: {} with {} adapters",
+        name,
+        stack.adapter_ids.len()
+    );
 
     Ok(Json(ActiveStackResponse {
         active_stack: Some(name),
-        adapter_count,
+        adapter_count: Some(stack.adapter_ids.len()),
     }))
+}
+
+/// Helper function to translate adapter IDs (strings) to adapter indices (usize)
+/// Uses the lifecycle manager's current adapter list to build the mapping
+async fn translate_adapter_ids_to_indices(
+    state: &AppState,
+    adapter_ids: &[String],
+) -> Result<Vec<usize>, String> {
+    // For now, use a simple approach: query all adapters from registry
+    // and build an ID→index mapping based on sorted adapter IDs
+    let all_adapters = state.registry.list_adapters()
+        .map_err(|e| format!("Failed to list adapters: {}", e))?;
+
+    // Sort by ID for deterministic index assignment
+    let mut sorted_adapters = all_adapters;
+    sorted_adapters.sort_by(|a, b| a.id.cmp(&b.id));
+
+    // Build ID→index map
+    let id_to_index: std::collections::HashMap<String, usize> = sorted_adapters
+        .iter()
+        .enumerate()
+        .map(|(idx, adapter)| (adapter.id.clone(), idx))
+        .collect();
+
+    // Translate requested adapter IDs to indices
+    let mut indices = Vec::new();
+    for adapter_id in adapter_ids {
+        if let Some(&idx) = id_to_index.get(adapter_id) {
+            indices.push(idx);
+        } else {
+            return Err(format!("Adapter ID {} not found in registry", adapter_id));
+        }
+    }
+
+    Ok(indices)
 }
 
 /// Deactivate the currently active adapter stack
@@ -465,6 +533,7 @@ pub async fn activate_stack(
 pub async fn deactivate_stack(
     State(state): State<AppState>,
 ) -> Result<Json<ActiveStackResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Deactivate in database
     state.registry.deactivate_stack().map_err(|e| {
         error!("Failed to deactivate adapter stack: {}", e);
         (
@@ -476,6 +545,12 @@ pub async fn deactivate_stack(
             ),
         )
     })?;
+
+    // Clear router filter
+    {
+        let mut router = state.router.write().unwrap();
+        router.clear_active_stack();
+    }
 
     info!("Deactivated adapter stack");
 

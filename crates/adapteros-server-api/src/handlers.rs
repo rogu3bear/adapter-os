@@ -9026,7 +9026,7 @@ pub async fn debug_routing(
 
     // Get router scoring explanation with latency recording
     let router_start = std::time::Instant::now();
-    let scoring_explanation = state.router.explain_score(&feature_vec);
+    let scoring_explanation = state.router.read().unwrap().explain_score(&feature_vec);
     let router_latency_secs = router_start.elapsed().as_secs_f64();
     state
         .metrics_collector
@@ -9403,7 +9403,7 @@ pub async fn analyze_prompt(
 
     // Get scoring explanation from router with latency recording
     let router_start = std::time::Instant::now();
-    let scoring_explanation = state.router.explain_score(&feature_vec);
+    let scoring_explanation = state.router.read().unwrap().explain_score(&feature_vec);
     let router_latency_secs = router_start.elapsed().as_secs_f64();
     state
         .metrics_collector
