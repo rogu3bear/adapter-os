@@ -3554,32 +3554,64 @@ The following demo credentials are available for testing:
       },
       "RouterDecision": {
         "type": "object",
-        "description": "Router decision at a specific position",
+        "description": "Canonical router decision per token (frozen schema)",
         "required": [
-          "position",
-          "adapter_ids",
-          "gates"
+          "step",
+          "candidate_adapters",
+          "entropy",
+          "tau",
+          "entropy_floor"
         ],
         "properties": {
-          "adapter_ids": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          "gates": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          "position": {
+          "step": {
             "type": "integer",
             "minimum": 0
+          },
+          "input_token_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0,
+            "nullable": true
+          },
+          "candidate_adapters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouterCandidate"
+            }
+          },
+          "entropy": {
+            "type": "number"
+          },
+          "tau": {
+            "type": "number"
+          },
+          "entropy_floor": {
+            "type": "number"
+          },
+          "stack_hash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "RouterCandidate": {
+        "type": "object",
+        "description": "Candidate adapter entry (ordered by raw_score)",
+        "required": [
+          "adapter_idx",
+          "raw_score",
+          "gate_q15"
+        ],
+        "properties": {
+          "adapter_idx": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "raw_score": {
+            "type": "number"
+          },
+          "gate_q15": {
+            "type": "integer"
           }
         }
       },

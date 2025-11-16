@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::schema::{Event, EventMetadata};
 use adapteros_core::B3Hash;
+use adapteros_telemetry::events::RouterDecisionEvent;
 
 /// Builder for creating events
 pub struct EventBuilder {
@@ -256,39 +257,16 @@ pub fn adapter_unload_event(tick_id: u64, adapter_id: String, unload_time_ms: u6
 }
 
 /// Router decision event
-pub fn router_decision_event(
-    tick_id: u64,
-    selected_adapters: Vec<String>,
-    gate_values: Vec<f32>,
-    entropy: f32,
-) -> Event {
-    let gate_values_json: Vec<serde_json::Value> = gate_values
-        .into_iter()
-        .map(|f| serde_json::Value::Number(serde_json::Number::from_f64(f as f64).unwrap()))
-        .collect();
+pub fn router_decision_event(tick_id: u64, decision: RouterDecisionEvent) -> Event {
+    let payload = serde_json::to_value(decision)
+        .expect("Failed to serialize RouterDecisionEvent to canonical payload");
 
     EventBuilder::new(
         tick_id,
-        "router_decision".to_string(),
+        format!("router_decision_{}", tick_id),
         "router.decision".to_string(),
     )
-    .add_output(
-        "selected_adapters".to_string(),
-        serde_json::Value::Array(
-            selected_adapters
-                .into_iter()
-                .map(serde_json::Value::String)
-                .collect(),
-        ),
-    )
-    .add_output(
-        "gate_values".to_string(),
-        serde_json::Value::Array(gate_values_json),
-    )
-    .add_output(
-        "entropy".to_string(),
-        serde_json::Value::Number(serde_json::Number::from_f64(entropy as f64).unwrap()),
-    )
+    .add_output("router_decision".to_string(), payload)
     .build()
 }
 

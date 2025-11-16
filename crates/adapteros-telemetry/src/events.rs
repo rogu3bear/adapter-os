@@ -1,7 +1,6 @@
 //! Enhanced telemetry events for router and policy decisions
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// RNG state snapshot for deterministic replay
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,67 +134,34 @@ impl InferenceEvent {
     }
 }
 
-/// Router decision event with feature importance
+/// Canonical `router.decision` payload that must remain frozen (tests assert the exact shape).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterDecisionEvent {
-    /// Timestamp (microseconds since epoch)
-    pub timestamp_us: u64,
-    /// Selected adapter IDs
-    pub adapter_ids: Vec<u16>,
-    /// Quantized gate values (Q15)
-    pub gates_q15: Vec<i16>,
-    /// Number of active adapters (K)
-    pub k_active: usize,
-    /// Attention entropy value (if computed)
-    pub entropy: Option<f32>,
-    /// Token index in sequence
-    pub token_index: usize,
-    /// Feature importance scores
-    pub feature_importance: HashMap<String, f32>,
-    /// Router execution time (microseconds)
-    pub router_time_us: u64,
-    /// Whether entropy floor was applied
-    pub entropy_floor_applied: bool,
+    /// Zero-based step/token index for the decision
+    pub step: usize,
+    /// Token ID that guided the decision (context token or candidate)
+    pub input_token_id: Option<u32>,
+    /// Candidate adapters with raw scores and quantized gates
+    pub candidate_adapters: Vec<RouterCandidate>,
+    /// Shannon entropy computed from the gate distribution
+    pub entropy: f32,
+    /// Temperature (tau) used for the softmax
+    pub tau: f32,
+    /// Entropy floor (epsilon) enforced during normalization
+    pub entropy_floor: f32,
+    /// Optional hash of the active adapter stack
+    pub stack_hash: Option<String>,
 }
 
-impl RouterDecisionEvent {
-    pub fn new(
-        adapter_ids: Vec<u16>,
-        gates_q15: Vec<i16>,
-        k_active: usize,
-        token_index: usize,
-        router_time_us: u64,
-    ) -> Self {
-        Self {
-            timestamp_us: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_micros() as u64,
-            adapter_ids,
-            gates_q15,
-            k_active,
-            entropy: None,
-            token_index,
-            feature_importance: HashMap::new(),
-            router_time_us,
-            entropy_floor_applied: false,
-        }
-    }
-
-    pub fn with_entropy(mut self, entropy: f32) -> Self {
-        self.entropy = Some(entropy);
-        self
-    }
-
-    pub fn with_feature_importance(mut self, importance: HashMap<String, f32>) -> Self {
-        self.feature_importance = importance;
-        self
-    }
-
-    pub fn with_entropy_floor(mut self, applied: bool) -> Self {
-        self.entropy_floor_applied = applied;
-        self
-    }
+/// Candidate adapter entry inside the canonical router decision stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterCandidate {
+    /// Adapter index used in kernel routing (zero-based)
+    pub adapter_idx: u16,
+    /// Raw score before softmax/quantization
+    pub raw_score: f32,
+    /// Quantized gate value (Q15)
+    pub gate_q15: i16,
 }
 
 /// Abstain decision event (Ruleset #5)
