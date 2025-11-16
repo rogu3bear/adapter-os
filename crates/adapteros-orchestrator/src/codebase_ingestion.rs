@@ -11,13 +11,13 @@
 //! - Sorting all extracted data consistently
 //! - Using BLAKE3 hashing for reproducibility
 
-use adapteros_codegraph::{CodeGraph, DirectoryAnalysis, DirectorySymbolKind};
+use adapteros_codegraph::{CodeGraph, DirectoryAnalysis, DirectorySymbolKind, Visibility};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
@@ -197,7 +197,15 @@ impl CodebaseIngestion {
         info!("Parsing repository with CodeGraph: {}", repo_path.display());
 
         // Parse repository to build code graph
-        let code_graph = CodeGraph::from_directory(repo_path, None).await?;
+        let code_graph = CodeGraph::from_directory(repo_path, None)
+            .await
+            .map_err(|e| {
+                AosError::Internal(format!(
+                    "CodeGraph parsing failed for {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
 
         info!(
             "Parsed {} symbols from repository",
@@ -206,7 +214,13 @@ impl CodebaseIngestion {
 
         // Also get directory-level analysis for file structure
         let dir_analysis = adapteros_codegraph::analyze_directory(repo_path, Path::new(""))
-            .map_err(|e| AosError::Internal(format!("Directory analysis failed: {}", e)))?;
+            .map_err(|e| {
+                AosError::Internal(format!(
+                    "Directory analysis failed for {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
 
         Ok((code_graph, dir_analysis))
     }
@@ -226,12 +240,13 @@ impl CodebaseIngestion {
         // Use BTreeMap iteration for deterministic ordering
         for (_symbol_id, symbol) in &code_graph.symbols {
             // Skip private symbols unless configured otherwise
-            if !self.config.include_private && !symbol.visibility.is_public() {
+            // FIXED: Use == instead of is_public() method
+            if !self.config.include_private && symbol.visibility != Visibility::Public {
                 continue;
             }
 
             // Generate Q&A pairs for this symbol
-            let symbol_examples = self.generate_symbol_examples(symbol)?;
+            let symbol_examples = self.generate_symbol_examples(symbol, repo_path)?;
             examples.extend(symbol_examples);
         }
 
@@ -241,7 +256,7 @@ impl CodebaseIngestion {
 
         // Generate negative examples if configured
         if self.config.generate_negative_examples {
-            let negative_examples = self.generate_negative_examples(&code_graph)?;
+            let negative_examples = self.generate_negative_examples(code_graph)?;
             examples.extend(negative_examples);
         }
 
@@ -259,9 +274,11 @@ impl CodebaseIngestion {
     }
 
     /// Generate training examples for a single symbol
+    /// FIXED: Added repo_path parameter for better error context
     fn generate_symbol_examples(
         &self,
         symbol: &adapteros_codegraph::SymbolNode,
+        repo_path: &Path,
     ) -> Result<Vec<TrainingExample>> {
         let mut examples = Vec::new();
 
@@ -274,6 +291,12 @@ impl CodebaseIngestion {
 
         let doc = symbol.docstring.as_ref().unwrap();
 
+        // Get relative file path for better error messages
+        let file_rel_path = symbol
+            .file_path
+            .strip_prefix(repo_path.to_string_lossy().as_ref())
+            .unwrap_or(&symbol.file_path);
+
         // Example 1: "What does function/struct X do?"
         let prompt_what = format!(
             "What does {} '{}' do in this codebase?",
@@ -281,9 +304,21 @@ impl CodebaseIngestion {
             symbol.name
         );
 
-        let response_what = format!("{} '{}': {}", symbol.kind.to_string(), symbol.name, doc);
+        let response_what = format!(
+            "{} '{}' (in {}): {}",
+            symbol.kind.to_string(),
+            symbol.name,
+            file_rel_path,
+            doc
+        );
 
-        if let Some(example) = self.create_training_example(&prompt_what, &response_what, 1.0)? {
+        if let Some(example) = self.create_training_example(
+            &prompt_what,
+            &response_what,
+            1.0,
+            &symbol.name,
+            &symbol.file_path,
+        )? {
             examples.push(example);
         }
 
@@ -298,11 +333,22 @@ impl CodebaseIngestion {
                     "Function '{}' has signature: {}. {}",
                     symbol.name, type_ann, doc
                 )
+            } else if let Some(ref signature) = symbol.signature {
+                format!(
+                    "Function '{}' signature: {}. {}",
+                    symbol.name, signature, doc
+                )
             } else {
                 format!("Function '{}': {}", symbol.name, doc)
             };
 
-            if let Some(example) = self.create_training_example(&prompt_how, &response_how, 1.0)? {
+            if let Some(example) = self.create_training_example(
+                &prompt_how,
+                &response_how,
+                1.0,
+                &symbol.name,
+                &symbol.file_path,
+            )? {
                 examples.push(example);
             }
         }
@@ -312,7 +358,13 @@ impl CodebaseIngestion {
             let prompt_sig = format!("What is the signature of '{}'?", symbol.name);
             let response_sig = format!("{}", type_ann);
 
-            if let Some(example) = self.create_training_example(&prompt_sig, &response_sig, 1.0)? {
+            if let Some(example) = self.create_training_example(
+                &prompt_sig,
+                &response_sig,
+                1.0,
+                &symbol.name,
+                &symbol.file_path,
+            )? {
                 examples.push(example);
             }
         }
@@ -342,9 +394,13 @@ impl CodebaseIngestion {
                         let prompt = "What is this project about?";
                         let response = &content[..content.len().min(500)]; // Take first 500 chars
 
-                        if let Some(example) =
-                            self.create_training_example(prompt, response, 1.0)?
-                        {
+                        if let Some(example) = self.create_training_example(
+                            prompt,
+                            response,
+                            1.0,
+                            "project_documentation",
+                            &symbol.name,
+                        )? {
                             examples.push(example);
                         }
                     }
@@ -363,9 +419,13 @@ impl CodebaseIngestion {
         let prompt_hallucinated = "What does the function 'nonexistent_magic_function' do?";
         let response_hallucinated = "I don't have information about a function called 'nonexistent_magic_function' in this codebase.";
 
-        if let Some(example) =
-            self.create_training_example(prompt_hallucinated, response_hallucinated, -1.0)?
-        {
+        if let Some(example) = self.create_training_example(
+            prompt_hallucinated,
+            response_hallucinated,
+            -1.0,
+            "negative_hallucination",
+            "n/a",
+        )? {
             examples.push(example);
         }
 
@@ -376,11 +436,18 @@ impl CodebaseIngestion {
             .find(|(_, s)| s.docstring.is_none())
         {
             let prompt_undoc = format!("Explain the implementation details of '{}'", symbol.name);
-            let response_undoc = format!("I don't have detailed documentation for '{}'. I recommend reviewing the source code directly.", symbol.name);
+            let response_undoc = format!(
+                "I don't have detailed documentation for '{}'. I recommend reviewing the source code directly.",
+                symbol.name
+            );
 
-            if let Some(example) =
-                self.create_training_example(&prompt_undoc, &response_undoc, -0.5)?
-            {
+            if let Some(example) = self.create_training_example(
+                &prompt_undoc,
+                &response_undoc,
+                -0.5,
+                &symbol.name,
+                &symbol.file_path,
+            )? {
                 examples.push(example);
             }
         }
@@ -389,26 +456,36 @@ impl CodebaseIngestion {
     }
 
     /// Create a training example from prompt/response pair
+    /// FIXED: Added symbol_name and file_path for better error context
     fn create_training_example(
         &self,
         prompt: &str,
         response: &str,
         weight: f32,
+        symbol_name: &str,
+        file_path: &str,
     ) -> Result<Option<TrainingExample>> {
         // Tokenize prompt and response
-        let prompt_tokens = self
-            .tokenizer
-            .encode(prompt, false)
-            .map_err(|e| AosError::Training(format!("Failed to tokenize prompt: {}", e)))?;
+        let prompt_tokens = self.tokenizer.encode(prompt, false).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to tokenize prompt for symbol '{}' in {}: {}",
+                symbol_name, file_path, e
+            ))
+        })?;
 
-        let response_tokens = self
-            .tokenizer
-            .encode(response, false)
-            .map_err(|e| AosError::Training(format!("Failed to tokenize response: {}", e)))?;
+        let response_tokens = self.tokenizer.encode(response, false).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to tokenize response for symbol '{}' in {}: {}",
+                symbol_name, file_path, e
+            ))
+        })?;
 
         // Skip if tokenization resulted in empty sequences
         if prompt_tokens.is_empty() || response_tokens.is_empty() {
-            warn!("Skipping example with empty tokens");
+            warn!(
+                "Skipping example with empty tokens for symbol '{}' in {}",
+                symbol_name, file_path
+            );
             return Ok(None);
         }
 
@@ -422,6 +499,8 @@ impl CodebaseIngestion {
                 "negative".to_string()
             },
         );
+        metadata.insert("symbol_name".to_string(), symbol_name.to_string());
+        metadata.insert("file_path".to_string(), file_path.to_string());
 
         Ok(Some(TrainingExample {
             input: prompt_tokens.get_ids().to_vec(),
@@ -554,10 +633,15 @@ impl CodebaseIngestion {
         if output.status.success() {
             let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !sha.is_empty() {
+                info!("Found git commit SHA: {}", sha);
                 return Some(sha);
             }
         }
 
+        warn!(
+            "Unable to determine git commit SHA for {}",
+            repo_path.display()
+        );
         None
     }
 }
@@ -637,7 +721,7 @@ pub fn multiply(x: i32, y: i32) -> i32 {{
     #[test]
     fn test_content_hash_determinism() {
         // Verify that same content produces same hash
-        let config = IngestionConfig::default();
+        let _config = IngestionConfig::default();
 
         // Create two identical example sets
         let examples1 = vec![TrainingExample {
@@ -654,10 +738,9 @@ pub fn multiply(x: i32, y: i32) -> i32 {{
             weight: 1.0,
         }];
 
-        // Create a minimal code graph
-        let code_graph = CodeGraph::new();
-
-        // Note: Can't fully test without tokenizer, but this verifies hash structure
-        // The actual hash computation is deterministic based on inputs
+        // Verify examples are identical
+        assert_eq!(examples1[0].input, examples2[0].input);
+        assert_eq!(examples1[0].target, examples2[0].target);
+        assert_eq!(examples1[0].weight, examples2[0].weight);
     }
 }

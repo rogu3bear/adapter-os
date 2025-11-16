@@ -219,12 +219,14 @@ impl TrainFromCodeArgs {
         if let Some(ref db_path) = self.db_path {
             info!("Registering adapter in database: {}", db_path.display());
 
-            let db = Db::new(&db_path.to_string_lossy()).await.map_err(|e| {
-                AosError::Database(format!("Failed to open database: {}", e))
-            })?;
+            let db = Db::connect(&db_path.to_string_lossy())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to open database: {}", e)))?;
 
-            // Build registration parameters
-            let params = adapteros_db::AdapterRegistrationBuilder::new()
+            // Build registration parameters using AdapterRegistrationBuilder
+            use adapteros_db::adapters::AdapterRegistrationBuilder;
+
+            let params = AdapterRegistrationBuilder::new()
                 .adapter_id(&result.adapter_id)
                 .name(format!("codebase_{}", self.adapter_id))
                 .hash_b3(&result.adapter_hash)
