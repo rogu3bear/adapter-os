@@ -110,7 +110,7 @@ pub async fn run(tenant: &str, cpid: &str, output: &OutputWriter) -> Result<()> 
                         ));
                     }
                     Err(e) => {
-                        output.warning(format!("Failed to contact node agent: {}", e));
+                        output.warning(format!("Failed to contact node runtime: {}", e));
                     }
                 }
             }
@@ -143,7 +143,7 @@ pub async fn run(tenant: &str, cpid: &str, output: &OutputWriter) -> Result<()> 
                     ));
                 }
                 Err(e) => {
-                    output.error(format!("Failed to contact node agent: {}", e));
+                    output.error(format!("Failed to contact node runtime: {}", e));
                 }
             }
         }

@@ -33,6 +33,9 @@ pub async fn run(_args: &VerifyAgentsArgs) -> Result<Section> {
     // 8. Release checklist
     section.add_check(check_release_checklist());
 
+    // 9. Subsystem consistency (Agent E Patch)
+    section.add_check(check_subsystem_consistency());
+
     Ok(section)
 }
 
@@ -363,6 +366,167 @@ fn check_release_checklist() -> Check {
         Check::skip(
             "Release checklist",
             "Checklist exists but doesn't reference orchestrator",
+        )
+    }
+}
+
+fn check_subsystem_consistency() -> Check {
+    // Agent E Patch: Verify subsystem implementations match documentation
+    let mut evidence = Vec::new();
+    let mut issues = Vec::new();
+
+    // 1. Crash Recovery: recover_from_crash() in lifecycle
+    let lifecycle_file = Path::new("crates/adapteros-lora-lifecycle/src/lib.rs");
+    if lifecycle_file.exists() {
+        match fs::read_to_string(lifecycle_file) {
+            Ok(content) => {
+                if content.contains("pub async fn recover_from_crash(") {
+                    evidence.push("✓ recover_from_crash() exists in lifecycle/lib.rs".to_string());
+                } else {
+                    issues.push("✗ recover_from_crash() not found in lifecycle module".to_string());
+                }
+                if content.contains("adapter_crash_detected") {
+                    evidence.push("✓ adapter_crash_detected telemetry event found".to_string());
+                } else {
+                    issues.push("✗ adapter_crash_detected telemetry not found".to_string());
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read lifecycle/lib.rs".to_string()),
+        }
+    } else {
+        issues.push("✗ lifecycle/lib.rs not found".to_string());
+    }
+
+    // 2. Divergence Detection: compute_divergences() in global_ledger
+    let ledger_file = Path::new("crates/adapteros-deterministic-exec/src/global_ledger.rs");
+    if ledger_file.exists() {
+        match fs::read_to_string(ledger_file) {
+            Ok(content) => {
+                if content.contains("pub fn compute_divergences(") {
+                    evidence.push("✓ compute_divergences() exists in global_ledger.rs".to_string());
+                } else {
+                    issues.push("✗ compute_divergences() not found in global_ledger".to_string());
+                }
+                if content.contains("tick_ledger.consistent") || content.contains("tick_ledger.inconsistent") {
+                    evidence.push("✓ Divergence telemetry events (consistent/inconsistent) found".to_string());
+                } else {
+                    issues.push("✗ Divergence telemetry events not found".to_string());
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read global_ledger.rs".to_string()),
+        }
+    } else {
+        issues.push("✗ global_ledger.rs not found".to_string());
+    }
+
+    // 3. Barrier Telemetry: multi_agent.rs
+    let barrier_file = Path::new("crates/adapteros-deterministic-exec/src/multi_agent.rs");
+    if barrier_file.exists() {
+        match fs::read_to_string(barrier_file) {
+            Ok(content) => {
+                if content.contains("barrier.wait_start") {
+                    evidence.push("✓ barrier.wait_start telemetry found".to_string());
+                } else {
+                    issues.push("✗ barrier.wait_start telemetry not found".to_string());
+                }
+                if content.contains("barrier.agent.removed") {
+                    evidence.push("✓ barrier.agent.removed telemetry found".to_string());
+                } else {
+                    issues.push("✗ barrier.agent.removed telemetry not found".to_string());
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read multi_agent.rs".to_string()),
+        }
+    } else {
+        issues.push("✗ multi_agent.rs not found".to_string());
+    }
+
+    // 4. Test Coverage: stability_reinforcement_tests.rs
+    let stability_tests = Path::new("tests/stability_reinforcement_tests.rs");
+    if stability_tests.exists() {
+        match fs::read_to_string(stability_tests) {
+            Ok(content) => {
+                if content.contains("test_ttl_automatic_cleanup") {
+                    evidence.push("✓ test_ttl_automatic_cleanup exists".to_string());
+                } else {
+                    issues.push("✗ test_ttl_automatic_cleanup not found".to_string());
+                }
+                if content.contains("test_pinned_adapter_delete_prevention") {
+                    evidence.push("✓ test_pinned_adapter_delete_prevention exists".to_string());
+                } else {
+                    issues.push("✗ test_pinned_adapter_delete_prevention not found".to_string());
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read stability_reinforcement_tests.rs".to_string()),
+        }
+    } else {
+        issues.push("✗ stability_reinforcement_tests.rs not found".to_string());
+    }
+
+    // 5. Cross-host consistency tests
+    let cross_host_tests = Path::new("crates/adapteros-deterministic-exec/tests/cross_host_consistency.rs");
+    if cross_host_tests.exists() {
+        match fs::read_to_string(cross_host_tests) {
+            Ok(content) => {
+                let test_count = content.matches("fn test_").count();
+                if test_count >= 3 {
+                    evidence.push(format!("✓ {} cross-host consistency tests found", test_count));
+                } else {
+                    issues.push(format!("✗ Only {} cross-host tests found (expected 3+)", test_count));
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read cross_host_consistency.rs".to_string()),
+        }
+    } else {
+        issues.push("✗ cross_host_consistency.rs tests not found".to_string());
+    }
+
+    // 6. UI Integration: BaseModelWidget.tsx
+    let base_model_widget = Path::new("ui/src/components/dashboard/BaseModelWidget.tsx");
+    if base_model_widget.exists() {
+        match fs::read_to_string(base_model_widget) {
+            Ok(content) => {
+                if content.contains("getBaseModelStatus") || content.contains("fetchStatus") {
+                    evidence.push("✓ BaseModelWidget.tsx has status fetching logic".to_string());
+                } else {
+                    issues.push("✗ BaseModelWidget.tsx missing status fetch".to_string());
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read BaseModelWidget.tsx".to_string()),
+        }
+    } else {
+        issues.push("✗ BaseModelWidget.tsx not found".to_string());
+    }
+
+    // 7. UI Integration: AdaptersPage.tsx
+    let adapters_page = Path::new("ui/src/components/AdaptersPage.tsx");
+    if adapters_page.exists() {
+        match fs::read_to_string(adapters_page) {
+            Ok(content) => {
+                if content.contains("current_state") {
+                    evidence.push("✓ AdaptersPage.tsx displays current_state column".to_string());
+                } else {
+                    issues.push("✗ AdaptersPage.tsx missing current_state column".to_string());
+                }
+            }
+            Err(_) => issues.push("✗ Failed to read AdaptersPage.tsx".to_string()),
+        }
+    } else {
+        issues.push("✗ AdaptersPage.tsx not found".to_string());
+    }
+
+    // Decision: Pass if no issues, fail if any issues found
+    if issues.is_empty() {
+        Check::pass("Subsystem consistency", evidence)
+    } else {
+        Check::fail(
+            "Subsystem consistency",
+            {
+                let mut all_info = evidence;
+                all_info.extend(issues.clone());
+                all_info
+            },
+            format!("{} subsystem consistency issues found", issues.len()),
         )
     }
 }

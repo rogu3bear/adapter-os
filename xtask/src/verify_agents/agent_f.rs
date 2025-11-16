@@ -29,13 +29,13 @@ pub async fn run(_args: &VerifyAgentsArgs) -> Result<Section> {
     Ok(section)
 }
 
-/// Check migration 0068 creates pinned_adapters table
+/// Check migration 0060 creates pinned_adapters table
 fn check_pinning_table_migration() -> Check {
-    let migration_path = "migrations/0068_create_pinned_adapters_table.sql";
+    let migration_path = "migrations/0060_create_pinned_adapters_table.sql";
 
     if !Path::new(migration_path).exists() {
         return Check::fail(
-            "Pinning table migration (0068)",
+            "Pinning table migration (0060)",
             vec![],
             format!("Migration file not found: {}", migration_path),
         );
@@ -49,7 +49,7 @@ fn check_pinning_table_migration() -> Check {
 
             if has_table && has_view && has_ttl_filter {
                 Check::pass(
-                    "Pinning table migration (0068)",
+                    "Pinning table migration (0060)",
                     vec![
                         format!("{} exists", migration_path),
                         "CREATE TABLE pinned_adapters found".to_string(),
@@ -59,7 +59,7 @@ fn check_pinning_table_migration() -> Check {
                 )
             } else {
                 Check::fail(
-                    "Pinning table migration (0068)",
+                    "Pinning table migration (0060)",
                     vec![
                         format!("has_table: {}", has_table),
                         format!("has_view: {}", has_view),
@@ -70,7 +70,7 @@ fn check_pinning_table_migration() -> Check {
             }
         }
         Err(e) => Check::fail(
-            "Pinning table migration (0068)",
+            "Pinning table migration (0060)",
             vec![],
             format!("Failed to read migration: {}", e),
         ),
@@ -79,7 +79,7 @@ fn check_pinning_table_migration() -> Check {
 
 /// Check active_pinned_adapters view definition in migration
 fn check_active_pinned_adapters_view() -> Check {
-    let migration_path = "migrations/0068_create_pinned_adapters_table.sql";
+    let migration_path = "migrations/0060_create_pinned_adapters_table.sql";
 
     match fs::read_to_string(migration_path) {
         Ok(content) => {

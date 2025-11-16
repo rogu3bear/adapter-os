@@ -7,10 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { CheckCircle, XCircle, AlertTriangle, Download, Code } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
-import type { OpenAIModelInfo, ModelValidationResponse } from '../api/types';
+import type { CursorModelInfo, ModelValidationResponse } from '../api/types';
 import { logger } from '../utils/logger';
 
-interface ModelInfo extends OpenAIModelInfo {
+interface ModelInfo extends CursorModelInfo {
   validation?: ModelValidationResponse;
   validating?: boolean;
 }

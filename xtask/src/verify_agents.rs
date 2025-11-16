@@ -1,6 +1,6 @@
-//! Agent verification system
+//! Adapter deliverable verification system
 //!
-//! Validates that all six agents (A-F) delivered their agreed work
+//! Validates that all six adapter deliverables (A-F) delivered their agreed work
 //! with machine-readable PASS/FAIL reports.
 
 use anyhow::Result;
@@ -20,8 +20,8 @@ pub mod report;
 pub mod verify_deterministic_exec;
 
 #[derive(Parser, Debug)]
-#[command(name = "verify-agents")]
-#[command(about = "Verify that Agents A-F delivered all agreed work")]
+#[command(name = "verify-adapters")]
+#[command(about = "Verify that adapter deliverables A-F delivered all agreed work")]
 pub struct VerifyAgentsArgs {
     /// Output directory for verification artifacts
     #[arg(long, default_value = "target/verify")]
@@ -182,14 +182,14 @@ impl VerificationReport {
     }
 }
 
-/// Run all agent verification checks
+/// Run all adapter deliverable verification checks
 pub async fn run(args: VerifyAgentsArgs) -> Result<VerificationReport> {
     let mut report = VerificationReport::new();
 
     // Create artifacts directory
     std::fs::create_dir_all(&args.artifacts)?;
 
-    println!("=== AdapterOS Agent Verification ===\n");
+    println!("=== AdapterOS Adapter Verification ===\n");
 
     // Run baseline checks first
     println!("Running baseline checks...");

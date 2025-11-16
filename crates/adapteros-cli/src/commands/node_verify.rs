@@ -136,7 +136,7 @@ async fn query_node_hashes(endpoint: &str) -> Result<ComponentHashes> {
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
-        .context("Failed to connect to node agent")?;
+        .context("Failed to connect to node runtime")?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!("HTTP {}", response.status()));

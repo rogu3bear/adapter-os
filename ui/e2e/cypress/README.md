@@ -55,11 +55,7 @@ pnpm cypress:run
 
 **Test Files:** All API test files ✅
 
-#### Dual Auth Endpoints (API Key OR JWT)
-- `/v1/chat/completions` - OpenAI-compatible
-- `/v1/models` - OpenAI-compatible
-
-**Test File:** `openai-compat.cy.ts` ✅
+// Dual-auth OpenAI-compatible endpoints have been removed; no cloud-facing compat tests remain.
 
 #### Metrics Endpoint (Bearer Token)
 - `/metrics` - Prometheus metrics
@@ -262,7 +258,7 @@ pnpm cypress:run --spec "e2e/cypress/e2e/api/**/*.cy.ts"
 ### Partially Covered:
 1. **Metrics Endpoint** - Basic test exists, needs bearer token config
 2. **Dev Bypass** - Basic test exists, needs dev mode config
-3. **OpenAI Compatibility** - Basic tests, needs API key testing
+3. **OpenAI Compatibility** - Removed (no longer supported)
 
 ---
 
@@ -276,7 +272,7 @@ pnpm cypress:run --spec "e2e/cypress/e2e/api/**/*.cy.ts"
 ### Optional:
 - Metrics bearer token configured (for `/metrics` tests)
 - Dev mode enabled (for dev-bypass tests)
-- OpenAI API key (for dual-auth tests)
+- OpenAI API key (no longer used)
 
 ---
 
@@ -293,4 +289,3 @@ pnpm cypress:run
 # 3. Or open GUI for interactive testing
 pnpm cypress:open
 ```
-
